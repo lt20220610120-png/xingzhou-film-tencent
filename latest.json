@@ -1,6 +1,6 @@
 {
-  "version": "0.9.9",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v0.9.9/Xingzhou-Film-Setup-0.9.9.exe",
-  "notes": "视觉大升级：电影级设计系统、金色点缀、玻璃弹窗、动画系统。",
-  "publishedAt": ""
+  "version": "1.0.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.5/Xingzhou-Film-Setup-1.0.5.exe",
+  "notes": "Skill 库新增完整 Skill 目录导入、Markdown/TXT 文档导入、手动编写三种方式；修复桌面图标透明边缘黑边。",
+  "publishedAt": "2026-08-02"
 }
