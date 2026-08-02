@@ -1,6 +1,6 @@
 {
-  "version": "1.0.5",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.5/Xingzhou-Film-Setup-1.0.5.exe",
-  "notes": "Skill 库新增完整 Skill 目录导入、Markdown/TXT 文档导入、手动编写三种方式；修复桌面图标透明边缘黑边。",
+  "version": "1.0.6",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.6/Xingzhou-Film-Setup-1.0.6.exe",
+  "notes": "修复API弹窗白屏、导演场景识别与跨集编号错误，并优化场景列表/正文/提示词排版。",
   "publishedAt": "2026-08-02"
 }
