@@ -1,5 +1,5 @@
 {
-  "version": "1.0.7",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.7/Xingzhou-Film-Setup-1.0.7.exe",
-  "notes": "修复果子库和剧本创作继续创作白屏，恢复单集编辑、新建项目、添加集数、总剧本与收录功能。"
+  "version": "1.0.8",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.8/Xingzhou-Film-Setup-1.0.8.exe",
+  "notes": "果子库和剧本创作新增分组与改名；导演快速模式充分利用宽屏空间；修复API连接测试、本地无密钥接口及AI助手配置联动。"
 }
