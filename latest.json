@@ -1,5 +1,5 @@
 {
-  "version": "1.0.8",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.8/Xingzhou-Film-Setup-1.0.8.exe",
-  "notes": "果子库和剧本创作新增分组与改名；导演快速模式充分利用宽屏空间；修复API连接测试、本地无密钥接口及AI助手配置联动。"
+  "version": "1.0.9",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.0.9/Xingzhou-Film-Setup-1.0.9.exe",
+  "notes": "导演台创造模式按场景拆分为剧本只读展示与导演构想双框，支持场景构想自动保存、任选Skill生成，并按1-1-1、2-3-1规则编号。"
 }
