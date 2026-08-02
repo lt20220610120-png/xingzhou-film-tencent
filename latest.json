@@ -1,6 +1,6 @@
 {
   "version": "0.9.8",
   "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v0.9.8/Xingzhou-Film-Setup-0.9.8.exe",
-  "releasePage": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v0.9.8",
-  "notes": "v0.9.8 更新内容：\n1. API 设置持久化保存，AI创作助手自动同步主 API 配置\n2. AI 创作助手支持自选集数范围（从第X集到第Y集）\n3. 优化聊天输入框/发送按钮比例，Skill 库增加颜色标签区分\n4. 导演工作台新增「快速模式」，支持场景自动分割（1-1, 1-2...）\n5. Skill 选择器替代硬编码「大师级提示词1.0」，支持从 Skill 库灵活选用"
+  "notes": "修复删除按钮、输入区比例、附件多集选择、API持久化、导演快速模式、提示词卡片优化和Skill默认选择。",
+  "publishedAt": ""
 }
