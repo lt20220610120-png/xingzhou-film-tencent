@@ -1,6 +1,6 @@
 {
-  "version": "0.9.8",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v0.9.8/Xingzhou-Film-Setup-0.9.8.exe",
-  "notes": "修复删除按钮、输入区比例、附件多集选择、API持久化、导演快速模式、提示词卡片优化和Skill默认选择。",
+  "version": "0.9.9",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v0.9.9/Xingzhou-Film-Setup-0.9.9.exe",
+  "notes": "视觉大升级：电影级设计系统、金色点缀、玻璃弹窗、动画系统。",
   "publishedAt": ""
 }
