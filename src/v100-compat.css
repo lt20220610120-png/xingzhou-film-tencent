@@ -63,7 +63,13 @@
 .style-bar-hint{color:#8a94aa;font-size:11px;margin-left:auto;flex-shrink:1}
 @media(max-width:1250px){.style-bar-hint{width:100%;margin-left:0}}
 
-/* Skill 编辑：上传文档替换 */
+/* 导演提示词：生成后可直接编辑并持久保存 */
+.prompt-edit-textarea{width:100%;min-height:320px;padding:14px;border:1px solid #9fb2e8;border-radius:9px;background:#fffef9;color:#263452;line-height:1.75;resize:vertical;white-space:pre-wrap}
+.prompt-edit-actions{display:flex;align-items:center;gap:8px;margin-right:auto}
+.prompt-edit-button{display:inline-flex;align-items:center;gap:5px;color:#3f63cb!important;border-color:#cfd9f0!important;background:#f4f7ff!important}
+.prompt-edit-button:hover{border-color:#7897ed!important;background:#eaf0ff!important}
+.prompt-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
 .skill-content-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .skill-upload-replace{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border:1px solid #d0d9ee;border-radius:8px;background:#f4f7ff;color:#3a5cc7;font-size:12px;cursor:pointer}
 .skill-upload-replace:hover{border-color:#7897ed;background:#eaf0ff}
