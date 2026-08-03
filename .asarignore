@@ -1,0 +1,7 @@
+node_modules
+.git
+.asarignore
+*.test.*
+__pycache__
+*.pyc
+app.asar

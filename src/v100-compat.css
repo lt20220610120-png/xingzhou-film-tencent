@@ -1,0 +1,72 @@
+/* 1.0.0视觉基线后的新功能兼容层：只补1.0.0中不存在的组件，不重设全局主题。 */
+/* styles.css里同名角色页规则比1.0.0基线拥有更高优先级，需明确恢复1.0.0块级左上布局。 */
+.role-screen.v06{display:block;align-items:normal;justify-content:normal;text-align:left}
+.director-shell>.card-page{grid-column:1/-1;width:100%}
+.project-card{display:flex;flex-direction:column;min-width:0}.project-card-actions{margin-top:auto}.project-organize-row{margin:12px 0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px}.project-organize-row select{min-width:0;width:100%}.group-badge{color:#526cce;background:#edf2ff;border-radius:999px;padding:3px 8px;font-size:11px}.director-group-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:24px 0 0;padding:12px;background:#fff;border:1px solid var(--line);border-radius:12px}.group-tabs,.group-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.group-tabs button,.group-actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px}.group-tabs button.active{color:#fff;background:var(--green);border-color:var(--green)}
+.director-stage{max-width:none!important;width:100%;margin:0!important;padding:32px clamp(22px,2.4vw,44px)!important}
+.creative-mode-container{display:grid;grid-template-columns:minmax(230px,280px) minmax(0,1fr);gap:20px;min-height:calc(100vh - 210px)}.creative-scene-rail{padding:12px;border:1px solid var(--line);border-radius:12px;background:#eef2fb;overflow:auto}.creative-scene-rail>button{width:100%;padding:12px 11px;margin:4px 0;border:0;border-radius:9px;background:transparent;text-align:left;color:#33415f}.creative-scene-rail>button.active{background:#fff;color:#315ad4;box-shadow:0 6px 18px #31458712}.creative-scene-rail strong,.creative-scene-rail small,.creative-scene-rail span{display:block}.creative-scene-rail small{margin-top:5px;line-height:1.5;color:#6f7b95}.creative-scene-rail span{margin-top:7px;color:#25805f;font-size:10px}.creative-scene-workspace{min-width:0}.creative-dual-panels{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.creative-script-panel,.creative-vision-panel,.creative-prompt-results{background:#fff;border:1px solid var(--line);border-radius:12px;min-width:0;padding:18px}.creative-panel-title{display:flex;align-items:center;gap:8px;margin-bottom:12px;color:#33415f;font-weight:700}.creative-script-panel textarea,.creative-vision-panel textarea{width:100%;height:clamp(320px,42vh,500px);min-height:320px;padding:18px;border:1px solid #dce3f2;border-radius:9px;line-height:1.9;resize:vertical}.creative-script-panel textarea{background:#f1f4fa;color:#263452;resize:none;cursor:default}.readonly-badge{margin-left:auto;padding:3px 8px;border-radius:999px;background:#e8edf6;color:#68758d;font-size:10px;font-weight:600}.creative-vision-panel textarea{background:#fffdf8}.creative-vision-panel>small{display:block;margin-top:8px;color:var(--muted)}.creative-generation-controls,.quick-generation-controls{display:flex;align-items:center;justify-content:flex-end;gap:10px}.creative-generation-controls button.primary,.quick-generation-controls button.primary{white-space:nowrap;flex-shrink:0}.creative-generation-controls{margin:14px 0;padding:11px 12px;border:1px solid #dce3f2;border-radius:11px;background:#f3f6fc;box-shadow:0 5px 14px #3145870b}.quick-generation-controls{padding:5px 6px;border:1px solid #dce3f2;border-radius:9px;background:#f3f6fc}.mode-skill-picker{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 11px;border:1px solid #d8e0f0;border-radius:9px;background:#fff;color:#52627f;font-size:12px}.mode-skill-picker select{min-width:220px;max-width:360px;border:0;background:#f4f7fc;padding:7px 30px 7px 10px}.mode-skill-picker.compact{padding:4px 6px 4px 9px}.mode-skill-picker.compact select{min-width:170px;max-width:260px;padding-block:5px}.creative-prompt-results{min-height:220px}.creative-prompt-results .prompt-card{margin-top:12px}
+.quick-mode-container{display:grid;grid-template-columns:minmax(230px,280px) minmax(520px,1fr) minmax(340px,400px);gap:20px;min-height:calc(100vh - 210px);align-items:stretch;width:100%}.quick-scene-rail{background:#eef2fb;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;max-height:72vh}.quick-scene-rail-title{padding:4px 5px 11px;color:#52627f;font-weight:700}.quick-scene-item{width:100%;text-align:left;border:0;background:transparent;border-radius:8px;padding:11px 10px;margin-bottom:5px}.quick-scene-item .scene-item-label{display:block;font-weight:700;margin-bottom:5px}.quick-scene-item small{display:block;white-space:normal;line-height:1.55;color:#6f7b95}.quick-scene-item.active{color:#315ad4;background:#fff;box-shadow:0 6px 18px #31458712}.quick-scene-editor{min-width:0;display:flex}.quick-scene-card,.quick-scene-prompts{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}.quick-scene-card{display:flex;flex-direction:column;width:100%}.quick-scene-textarea{width:100%;min-height:560px;flex:1;resize:vertical;padding:18px;line-height:1.9}.quick-scene-prompts{overflow:auto;max-height:72vh}.quick-scene-prompts-title,.quick-scene-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.quick-scene-card-head{flex-wrap:wrap;gap:8px}.quick-scene-card-head .scene-card-badge{white-space:nowrap;flex-shrink:0}.quick-generation-controls{min-width:0;flex-wrap:wrap}.quick-generation-controls .mode-skill-picker{min-width:0}.quick-generation-controls .mode-skill-picker.compact select{min-width:110px;max-width:200px}.prompt-list.compact .prompt-card{min-height:0}.no-prompts.compact{padding:24px}
+@media(max-width:1250px){.quick-mode-container{grid-template-columns:240px minmax(0,1fr)!important}.quick-scene-prompts{grid-column:1/-1;max-height:none}.director-group-toolbar{align-items:flex-start;flex-direction:column}}
+@media(max-width:1050px){.quick-mode-container,.creative-mode-container{grid-template-columns:1fr!important}.quick-scene-rail,.creative-scene-rail{max-height:280px}.quick-scene-prompts{grid-column:1}.creative-dual-panels{grid-template-columns:1fr}}
+
+/* Skill 库：完整 Skill、文档与手动编写三种入口 */
+.skill-create-panel{margin-top:28px;padding:22px;border:1px solid #dfe5f4;border-radius:16px;background:linear-gradient(135deg,#ffffffea,#f4f2ffdd);box-shadow:0 14px 36px #31458712}
+.skill-create-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:17px}
+.skill-create-heading h2{margin:3px 0 0;font:700 22px Noto Serif SC}
+.skill-create-heading p{max-width:650px;color:var(--muted);font-size:12px;line-height:1.75}
+.skill-create-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.skill-create-option{min-height:132px;padding:17px;text-align:left;border:1px solid #d8e0f3;border-radius:12px;background:#fff;transition:.18s ease;display:grid;grid-template-columns:46px minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-content:center}.skill-create-option>strong,.skill-create-option>small{grid-column:2;min-width:0}
+.skill-create-option:hover{border-color:#7897ed;box-shadow:0 10px 24px #3652a31a;transform:translateY(-2px)}
+.skill-create-option>span{grid-row:1/3;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:#426de0;background:linear-gradient(135deg,#e9f1ff,#eee8ff)}
+.skill-create-option>span svg{width:21px}.skill-create-option strong{font-size:15px;color:#24345d}.skill-create-option small{margin-top:6px;color:#77829b;line-height:1.55}
+.skill-import-error{margin-top:13px;padding:10px 12px;border-radius:8px;background:#fff0f2;color:#b53e4d;font-size:12px}
+.skill-library-grid{margin-top:22px}.skill-type-badge,.skill-source-badge{display:inline-flex!important;margin:0 7px 8px 0!important;padding:4px 8px;border-radius:999px;font-size:10px!important}
+.skill-type-badge{color:#315bc8!important;background:#eaf0ff}.skill-source-badge{color:#6951c5!important;background:#f0ebff}
+.skill-card-enhanced>p{min-height:48px}.skill-file-summary{max-height:132px;overflow:auto;padding:11px 13px;border:1px solid #dfe5f2;border-radius:8px;background:#f7f9ff;font-size:11px}
+.skill-file-summary strong{display:block;margin-bottom:5px}.skill-file-summary span{display:block;color:#69758e;padding:2px 0;font-family:Consolas,monospace}
+@media (max-width:1000px){.skill-create-grid{grid-template-columns:1fr}.skill-create-heading{align-items:flex-start;flex-direction:column;gap:8px}}
+
+
+.form-dialog{width:min(720px,92vw);max-height:88vh;overflow:auto}
+
+/* ── 全局滚动修复：body overflow:hidden 导致各主页面无法滚动 ── */
+/* 主内容区自带滚动条，超出一屏的项目卡片、设置页、Skill库等都可滚动查看 */
+.app{height:100vh}
+.content{height:100vh;overflow-y:auto;overflow-x:hidden}
+/* 行舟 AI 全屏对话：grid 子项允许收缩，消息区内部滚动，输入框始终固定在底部可见 */
+.persistent-ai{height:100vh}
+/* chat-main 原为 grid-template-rows:auto auto 1fr auto，附件标签不存在时子元素错位，
+   导致输入框被挤出屏幕。改为 flex 纵向布局，无论有无附件标签输入框都固定底部。 */
+.persistent-ai .chat-main{display:flex;flex-direction:column;height:100vh;min-height:0}
+.persistent-ai .chat-main>header{flex-shrink:0}
+.persistent-ai .chat-attachment-tag{flex-shrink:0}
+.persistent-ai .chat-messages{flex:1 1 0;min-height:0;overflow-y:auto}
+.persistent-ai .chat-compose{flex-shrink:0}
+.persistent-ai .chat-history{min-height:0;overflow-y:auto}
+.persistent-ai .message-markers{min-height:0;overflow-y:auto}
+/* 模态框统一保护：超高时内部滚动而不是被裁切 */
+.veil{overflow-y:auto}
+.veil .modal{max-height:88vh;overflow-y:auto}
+.delete-confirm{max-height:88vh;overflow-y:auto}
+/* AI 抽屉已有 overflow:auto，补 max 高度保护 */
+.ai-drawer{max-height:100vh}
+
+/* 导演台项目设定功能区：风格与画幅 */
+.project-style-bar{display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin:16px 0 20px;padding:13px 16px;border:1px solid #dce3f2;border-radius:12px;background:linear-gradient(135deg,#f6f8ff,#f3f0ff);box-shadow:0 5px 14px #3145870b}
+.style-bar-label{display:flex;align-items:center;gap:7px;color:#33415f;font-weight:700;font-size:13px;flex-shrink:0}
+.style-bar-label svg{color:#4d68de}
+.style-bar-group{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.style-bar-group>span{color:#75809b;font-size:12px;font-weight:600;margin-right:2px}
+.style-chip{padding:6px 14px;border:1px solid #d0d9ee;border-radius:999px;background:#fff;color:#52627f;font-size:12px;cursor:pointer;transition:.15s ease}
+.style-chip:hover{border-color:#7897ed;color:#3a5cc7}
+.style-chip.active{color:#fff;background:linear-gradient(135deg,#3768e4,#6951c5);border-color:#3768e4;font-weight:600;box-shadow:0 4px 12px #3768e433}
+.style-bar-hint{color:#8a94aa;font-size:11px;margin-left:auto;flex-shrink:1}
+@media(max-width:1250px){.style-bar-hint{width:100%;margin-left:0}}
+
+/* Skill 编辑：上传文档替换 */
+.skill-content-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.skill-upload-replace{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border:1px solid #d0d9ee;border-radius:8px;background:#f4f7ff;color:#3a5cc7;font-size:12px;cursor:pointer}
+.skill-upload-replace:hover{border-color:#7897ed;background:#eaf0ff}
+.skill-replace-confirm{margin-top:13px;padding:13px 15px;border:1px solid #e7d9b1;border-radius:10px;background:#fffaf0}
+.skill-replace-confirm p{margin:0 0 10px;color:#7a6230;font-size:12px;line-height:1.7}
+.skill-replace-confirm .modal-actions{margin-top:0}
