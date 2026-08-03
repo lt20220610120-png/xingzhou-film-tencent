@@ -10,10 +10,41 @@ export const promptsForScene = (prompts, sceneLabel) => (prompts || []).filter((
 );
 
 const NUMBERED_PROMPT_MARKER = /^\s*[（(](\d+)[）)]\s*(.*)$/;
+const SCENE_PROMPT_ID_MARKER = /^\s*(\d+-\d+-\d+)\s*$/;
+
+const splitSceneIdPromptOutput = (source) => {
+  const lines = source.split(/\r?\n/);
+  const parts = [];
+  let preface = [];
+  let current = null;
+
+  for (const line of lines) {
+    const marker = line.match(SCENE_PROMPT_ID_MARKER);
+    if (marker) {
+      if (current) parts.push({ label: current.label, content: current.lines.join('\n').trim() });
+      current = { label: marker[1], lines: [marker[1], ...(parts.length === 0 ? preface : [])] };
+      preface = [];
+    } else if (current) {
+      current.lines.push(line);
+    } else {
+      preface.push(line);
+    }
+  }
+
+  if (current) parts.push({ label: current.label, content: current.lines.join('\n').trim() });
+  return parts.filter((part) => part.content);
+};
 
 export const splitNumberedPromptOutput = (text) => {
   const source = String(text || '').replace(/^\uFEFF/, '').trim();
   if (!source) return [];
+
+  // 新版 Skill 以“集-场景-序号”（如 2-1-3）作为每条提示词的独立行标题。
+  // 必须先识别这种格式，并把标题同时保留在可编辑正文第一行。
+  const sceneIdParts = splitSceneIdPromptOutput(source);
+  if (sceneIdParts.length) return sceneIdParts;
+
+  // 兼容旧版 Skill 的（1）（2）（3）输出格式。
   const lines = source.split(/\r?\n/);
   const parts = [];
   let preface = [];
@@ -42,13 +73,18 @@ const usedSceneNumbers = (existing, sceneLabel) => promptsForScene(existing, sce
 
 export const buildScenePromptRecords = ({ sceneLabel, parts, existing = [], skill = '', sourceText = '', now = Date.now() }) => {
   const start = Math.max(0, ...usedSceneNumbers(existing, sceneLabel)) + 1;
-  return (parts || []).map((part, index) => ({
-    id: `${now}-${sceneLabel}-${start + index}-${Math.random().toString(36).slice(2, 6)}`,
-    label: `${sceneLabel}-${start + index}`,
-    sceneLabel,
-    content: part.content || '',
-    skill,
-    sourceText,
-    createdAt: new Date(now).toISOString(),
-  }));
+  return (parts || []).map((part, index) => {
+    const completeLabel = /^\d+-\d+-\d+$/.test(String(part.label || '').trim())
+      ? String(part.label).trim()
+      : `${sceneLabel}-${start + index}`;
+    return {
+      id: `${now}-${completeLabel}-${Math.random().toString(36).slice(2, 6)}`,
+      label: completeLabel,
+      sceneLabel,
+      content: part.content || '',
+      skill,
+      sourceText,
+      createdAt: new Date(now).toISOString(),
+    };
+  });
 };

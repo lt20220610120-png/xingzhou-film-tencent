@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitNumberedPromptOutput } from './directorCreative.js';
+import { buildScenePromptRecords, splitNumberedPromptOutput } from './directorCreative.js';
 
 test('Skill完整输出按中文全角（1）（2）（3）拆成独立提示词', () => {
   const output = `（1）\n【基础设定】\n第一条完整内容\n（2）\n【基础设定】\n第二条完整内容\n（3）\n【基础设定】\n第三条完整内容`;
@@ -24,5 +24,30 @@ test('编号前的说明不生成额外卡片，无编号输出保留为一张�
   assert.match(numbered[0].content, /以下为完整结果/);
   assert.deepEqual(splitNumberedPromptOutput('【基础设定】\n唯一完整提示词'), [
     { label: '1', content: '【基础设定】\n唯一完整提示词' },
+  ]);
+});
+
+test('按行首集-场景-序号分割完整输出并在每条正文第一行保留序号', () => {
+  const output = `1-1-1\n【基础设定】\n第一条完整内容\n\n1-1-2\n【基础设定】\n第二条完整内容`;
+  assert.deepEqual(splitNumberedPromptOutput(output), [
+    { label: '1-1-1', content: '1-1-1\n【基础设定】\n第一条完整内容' },
+    { label: '1-1-2', content: '1-1-2\n【基础设定】\n第二条完整内容' },
+  ]);
+});
+
+test('场景提示词记录直接采用Agent给出的完整序号，正文仍保留同一序号', () => {
+  const parts = splitNumberedPromptOutput('2-1-1\n第一条\n2-1-2\n第二条\n2-1-3\n第三条');
+  const records = buildScenePromptRecords({ sceneLabel: '2-1', parts, now: 123 });
+  assert.deepEqual(records.map(({ label, content }) => ({ label, content })), [
+    { label: '2-1-1', content: '2-1-1\n第一条' },
+    { label: '2-1-2', content: '2-1-2\n第二条' },
+    { label: '2-1-3', content: '2-1-3\n第三条' },
+  ]);
+});
+
+test('正文中的日期和普通连字符数字不触发拆分', () => {
+  const output = `1-1-1\n画面发生于2026-08-03，不应再次拆分。\n镜头比例为1-1。`;
+  assert.deepEqual(splitNumberedPromptOutput(output), [
+    { label: '1-1-1', content: output },
   ]);
 });
