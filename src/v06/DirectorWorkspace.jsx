@@ -1,19 +1,19 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   ArrowLeft, Upload, FileText, BookOpen, Plus, Trash2, Sparkles,
-  Save, Bot, X, Check, Pin, Copy, RefreshCw, Film
+  Save, Bot, X, Check, Pin, Copy, RefreshCw, Film, PencilLine
 } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { ProjectCardHub } from './ProjectCardHub.jsx';
 import {
   importDirectorProject, deleteDirectorProject, updateDirectorProject,
   createDirectorGroup, renameDirectorGroup, deleteDirectorGroup,
-  addDirectorPrompt, updateDirectorEpisode,
+  addDirectorPrompt, updateDirectorEpisode, updateDirectorPrompt,
   PROJECT_STYLES, PROJECT_RATIOS,
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble
 } from '../../core/projectStore.js';
 import { splitFullScript, parseDirectorScenes } from '../../core/scriptImport.js';
-import { getSceneVision, buildScenePromptRecords, promptsForScene } from '../../core/directorCreative.js';
+import { getSceneVision, buildScenePromptRecords, promptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 
 /* ================================================================
@@ -84,8 +84,10 @@ function DirectorRail({ project, active, setActive, onAdd, onBack, kind }) {
 /* ================================================================
  * PromptCard - 单条提示词卡片
  * ================================================================ */
-function PromptCard({ prompt, index, onDelete, onCopy }) {
+function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(prompt.content || '');
 
   const handleCopy = () => {
     navigator.clipboard.writeText(prompt.content).then(() => {
@@ -95,16 +97,41 @@ function PromptCard({ prompt, index, onDelete, onCopy }) {
     onCopy?.(prompt);
   };
 
+  const cancelEdit = () => {
+    setDraft(prompt.content || '');
+    setEditing(false);
+  };
+
+  const saveEdit = () => {
+    if (!draft.trim()) return;
+    onEdit?.(prompt.id, draft);
+    setEditing(false);
+  };
+
   return (
     <div className="prompt-card">
       <div className="prompt-label">{prompt.label || `提示词 ${index + 1}`}</div>
-      <div className="prompt-content">{prompt.content}</div>
+      {editing ? (
+        <textarea className="prompt-edit-textarea" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`编辑提示词 ${prompt.label}`} />
+      ) : (
+        <div className="prompt-content">{prompt.content}</div>
+      )}
       <div className="prompt-actions">
-        <button className="ghost" onClick={handleCopy}>
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? '已复制' : '复制'}
-        </button>
-        {onDelete && (
+        {editing ? (
+          <div className="prompt-edit-actions">
+            <button className="ghost" onClick={cancelEdit}><X size={14} /> 取消</button>
+            <button className="primary" onClick={saveEdit} disabled={!draft.trim()}><Save size={14} /> 保存修改</button>
+          </div>
+        ) : (
+          <>
+            <button className="ghost" onClick={handleCopy}>
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? '已复制' : '复制'}
+            </button>
+            <button className="ghost prompt-edit-button" onClick={() => setEditing(true)}><PencilLine size={14} /> 编辑</button>
+          </>
+        )}
+        {onDelete && !editing && (
           <button className="prompt-delete" onClick={() => onDelete(prompt.id)}>
             <Trash2 size={14} /> 删除
           </button>
@@ -152,7 +179,9 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
   // 快速模式自动选中第一个场景
   const currentScene = activeScene || (segments.length > 0 ? segments[0].label : null);
   const currentSceneContent = currentScene
-    ? (sceneInputs[currentScene] !== undefined ? sceneInputs[currentScene] : segments.find((s) => s.label === currentScene)?.content || '')
+    ? (sceneInputs[currentScene] !== undefined
+      ? sceneInputs[currentScene]
+      : (episode.quickSceneEdits?.[currentScene] ?? segments.find((s) => s.label === currentScene)?.content ?? ''))
     : '';
   const currentVision = currentScene ? getSceneVision(episode, currentScene) : '';
 
@@ -173,7 +202,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
       const preamble = buildProjectPreamble(project);
       const finalInput = preamble ? `${preamble}\n\n${inputText}` : inputText;
       const result = await executeSkillWithAi({ api, state, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
-      const outputParts = parseSegments(result.output);
+      const outputParts = splitNumberedPromptOutput(result.output);
       const newPrompts = outputParts.map((part, i) => ({
         id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
         label: `${index + 1}-${part.label}`,
@@ -204,7 +233,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
       const preamble = buildProjectPreamble(project);
       const sourceText = `${preamble ? `${preamble}\n\n` : ''}【剧本场景 ${sceneLabel}】\n${scene.content}\n\n【导演构想】\n${vision}`;
       const result = await executeSkillWithAi({ api, state, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
-      const outputParts = parseSegments(result.output);
+      const outputParts = splitNumberedPromptOutput(result.output);
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
         parts: outputParts,
@@ -226,10 +255,12 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
     }
   };
 
-  // 快速模式：对单个场景运行（同样先读取项目风格与画幅）
+  // 快速模式：保存当前场景编辑并运行 Skill（同样先读取项目风格与画幅）
   const runQuickScene = async (sceneLabel) => {
     if (running || !currentSkill) return;
-    const inputText = sceneInputs[sceneLabel] !== undefined ? sceneInputs[sceneLabel] : segments.find((s) => s.label === sceneLabel)?.content;
+    const inputText = sceneInputs[sceneLabel] !== undefined
+      ? sceneInputs[sceneLabel]
+      : (episode.quickSceneEdits?.[sceneLabel] ?? segments.find((s) => s.label === sceneLabel)?.content);
     if (!inputText?.trim()) return;
     setRunning(true);
     try {
@@ -239,7 +270,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
       const finalInput = preamble ? `${preamble}\n\n${inputText}` : inputText;
       const sourceText = finalInput;
       const result = await executeSkillWithAi({ api, state, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
-      const outputParts = parseSegments(result.output);
+      const outputParts = splitNumberedPromptOutput(result.output);
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
         parts: outputParts,
@@ -250,6 +281,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
       const updatedPrompts = [...(episode.prompts || []), ...newPrompts];
       setState((s) => updateDirectorEpisode(s, project.id, episode.id, {
         prompts: updatedPrompts,
+        quickSceneEdits: { ...(episode.quickSceneEdits || {}), [sceneLabel]: inputText },
         status: '已生成提示词',
         lastUsedSkill: selectedSkill,
       }));
@@ -264,6 +296,13 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
     const filtered = savedPrompts.filter((p) => p.id !== promptId);
     setState((s) => updateDirectorEpisode(s, project.id, episode.id, {
       prompts: filtered,
+    }));
+  };
+
+  const handleEditPrompt = (promptId, content) => {
+    setState((s) => updateDirectorPrompt(s, project.id, episode.id, promptId, {
+      content: content.trim(),
+      editedAt: new Date().toISOString(),
     }));
   };
 
@@ -392,7 +431,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
             </div>
             <section className="creative-prompt-results">
               <div className="prompt-list-title"><Save size={16}/> 场景 {currentScene} 提示词（{scenePrompts.length} 条）</div>
-              {scenePrompts.length ? scenePrompts.map((prompt, i) => <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={handleSavePrompt}/>) : (
+              {scenePrompts.length ? scenePrompts.map((prompt, i) => <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={handleSavePrompt} onEdit={handleEditPrompt}/>) : (
                 <div className="no-prompts"><Bot size={30}/><p>填写导演构想并运行 Skill，生成结果会按 {currentScene}-1、{currentScene}-2… 命名。</p></div>
               )}
             </section>
@@ -454,7 +493,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
                   placeholder={`编辑场景 ${currentScene} 的剧本内容……`}
                 />
                 <div className="quick-scene-info">
-                  <small>场景描述 · 可在 (1)(2) 标记间自由编辑</small>
+                  <small>场景描述 · 可用（1）（2）（3）……划分，Skill 输出会按相同编号自动拆成独立提示词框</small>
                 </div>
               </div>
             ) : (
@@ -472,7 +511,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
             {scenePrompts.length > 0 ? (
               <div className="prompt-list compact">
                 {scenePrompts.map((prompt, i) => (
-                  <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={handleSavePrompt} />
+                  <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={handleSavePrompt} onEdit={handleEditPrompt} />
                 ))}
               </div>
             ) : (

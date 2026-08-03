@@ -1,5 +1,5 @@
 {
-  "version": "1.2.1",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.1/Xingzhou-Film-Setup-1.2.1.exe",
-  "notes": "完整 Skill 现在会在所有调用入口同时读取 SKILL.md 与 references、assets 等目录文件；修复果子库和创作剧本的新建分组按钮；导演提示词严格按当前集与当前场景隔离，并按“集-场景-序号”显示。"
+  "version": "1.2.2",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.2/Xingzhou-Film-Setup-1.2.2.exe",
+  "notes": "导演工作台快速模式现在会读取 Skill 的完整输出，并按（1）（2）（3）……自动拆分为独立提示词框，编号为“集-场景-序号”；兼容中英文括号与编号同行正文；每条提示词新增编辑、保存修改和取消，修改结果自动持久保存。"
 }
