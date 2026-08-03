@@ -7,7 +7,7 @@ import {
 import { addSkill, updateSkill, removeSkill, addApiProfile, updateApiProfile, setActiveApi, removeApiProfile } from '../../core/projectStore.js';
 import { API_PROVIDERS } from '../../core/apiProviders.js';
 import { buildSkillFromDirectory, buildSkillFromDocument } from '../../core/skillImport.js';
-import { buildSkillContext } from '../../core/skillContext.js';
+import { buildSkillContext, buildSkillManifest } from '../../core/skillContext.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 
 /* ================================================================
@@ -233,7 +233,7 @@ export function SkillLibrary({ state, setState }) {
         {skills.map((skill) => (
           <article key={skill.id} className="resource-card skill-card-enhanced" data-type={skill.type}>
             <span className="skill-type-badge">{typeLabels[skill.type] || '自定义'}</span>
-            <span className="skill-source-badge">{skill.importMethod === 'skill-folder' ? `完整 Skill · ${(skill.files || []).length + 1} 个文件` : skill.importMethod === 'document' ? '文档导入' : '手动编写'}</span>
+            <span className="skill-source-badge">{skill.importMethod === 'skill-folder' ? `完整 Skill · ${buildSkillManifest(skill).totalFiles} 个文件` : skill.importMethod === 'document' ? '文档导入' : '手动编写'}</span>
             <h3>{skill.name}</h3>
             <p>{skill.description || `${skill.content?.slice(0, 80) || ''}${skill.content?.length > 80 ? '……' : ''}`}</p>
             {skill.updatedAt && <div className="skill-meta"><small>更新于 {new Date(skill.updatedAt).toLocaleDateString('zh-CN')}</small></div>}

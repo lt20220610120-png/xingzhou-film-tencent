@@ -19,7 +19,7 @@ test('执行 Skill 时通过当前 API 把完整 Skill 目录发送给模型', a
   assert.match(request.messages[0].content, /SKILL 主规则/);
   assert.match(request.messages[0].content, /references\/rules\.md/);
   assert.match(request.messages[0].content, /附属规则全文/);
-  assert.deepEqual(request.messages[1], { role: 'user', content: '场景输入' });
+  assert.deepEqual(request.messages.at(-1), { role: 'user', content: '场景输入' });
 });
 
 test('没有可用 API 或 Skill 时给出可读错误，不能返回伪生成结果', async () => {

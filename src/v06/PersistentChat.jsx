@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { cleanupChatSessions, createChatSession, addChatMessage, toggleChatPin, deleteChatSession, setActiveChat } from '../../core/projectStore.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
-import { buildSkillContext } from '../../core/skillContext.js';
+import { buildSkillManifest } from '../../core/skillContext.js';
+import { createSkillExecution } from '../../core/skillExecution.js';
 
 // localStorage key for shared API config
 const API_STORAGE_KEY = 'xz-api-profiles';
@@ -112,29 +113,18 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
     setSending(true);
 
     try {
-      const messages = [
-        ...(activeSession.messages || []),
-        { role: 'user', content: text },
-      ];
-
-      const systemMessages = [];
-      if (skill) {
-        systemMessages.push({ role: 'system', content: `你是行舟影视全局 AI 助手。请完整遵循 Skill「${skill.name}」：\n\n${buildSkillContext(skill)}` });
-      }
-
       const apiCfg = activeApiProfile.apiKey !== undefined ? activeApiProfile : { ...activeApiProfile };
-      const allMessages = [
-        ...systemMessages,
-        ...messages.map(({ role, content }) => ({ role, content })),
-        ...(attachmentContent ? [{ role: 'user', content: attachmentContent }] : []),
-      ];
-
-      const result = await api.aiChat({
-        endpoint: apiCfg.endpoint,
-        model: apiCfg.model,
-        apiKey: apiCfg.apiKey,
-        messages: allMessages,
-      });
+      const history = (activeSession.messages || []).map(({ role, content }) => ({ role, content }));
+      const result = skill
+        ? (await createSkillExecution({
+            api, state, skillId: skill.id, input: text, assistantRole: '行舟影视全局 AI 助手', profile: apiCfg,
+            beforeUserMessages: history,
+            afterUserMessages: attachmentContent ? [{ role: 'user', content: attachmentContent }] : [],
+          })).output
+        : await api.aiChat({
+            endpoint: apiCfg.endpoint, model: apiCfg.model, apiKey: apiCfg.apiKey,
+            messages: [...history, { role: 'user', content: text }, ...(attachmentContent ? [{ role: 'user', content: attachmentContent }] : [])],
+          });
 
       setState((s) => addMessageToSession(s, activeSession.id, 'assistant', result));
     } catch (e) {
@@ -259,6 +249,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
+            {skillId && <small className="skill-file-count">完整 Skill · {buildSkillManifest(state.skills?.find((s) => s.id === skillId)).totalFiles} 个文件已附上</small>}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}

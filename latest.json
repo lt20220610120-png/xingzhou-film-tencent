@@ -1,5 +1,7 @@
 {
-  "version": "1.2.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.2/Xingzhou-Film-Setup-1.2.2.exe",
-  "notes": "导演工作台快速模式现在会读取 Skill 的完整输出，并按（1）（2）（3）……自动拆分为独立提示词框，编号为“集-场景-序号”；兼容中英文括号与编号同行正文；每条提示词新增编辑、保存修改和取消，修改结果自动持久保存。"
+  "version": "1.2.3",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.3/Xingzhou-Film-Setup-1.2.3.exe",
+  "notes": "修复软件内 Skill 调用不完整的问题：导演工作台、果子/剧本转换、行舟 AI 对话及项目 AI 助手现统一附上完整 SKILL.md 与全部目录文件；运行入口会显示实际附上的文件数量。video-prompt 已通过真实模型验证完整收到 7 个文件。",
+  "publishedAt": "2026-08-04T04:02:00+08:00",
+  "sha256": "f4ea4997ef9d8eef82a3d1133d27792e9d2c1a17f445a5ee22a6ebfc4d9234ac"
 }

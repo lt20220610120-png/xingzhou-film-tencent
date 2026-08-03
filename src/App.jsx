@@ -22,8 +22,8 @@ import { ProjectCardHub } from './v06/ProjectCardHub.jsx';
 import { DeleteConfirm } from './v06/DeleteConfirm.jsx';
 import { PersistentChat } from './v06/PersistentChat.jsx';
 import { splitFullScript } from '../core/scriptImport.js';
-import { buildSkillContext } from '../core/skillContext.js';
-import { executeSkillWithAi } from '../core/skillExecution.js';
+import { buildSkillManifest } from '../core/skillContext.js';
+import { executeSkillWithAi, createSkillExecution } from '../core/skillExecution.js';
 
 // ========== 常量 ==========
 const STORAGE = 'xingzhou-film-v1';
@@ -211,6 +211,7 @@ function SkillRunner({ skills, state, api, value, onSelect, input, title, onResu
         <button className="skill-library" title="Skill 库">
           <FolderOpen size={15} /> Skill 库
         </button>
+        {selectedSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(selectedSkill).totalFiles} 个文件已附上</small>}
       </div>
       <button
         className="primary"
@@ -277,16 +278,10 @@ function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, ski
     try {
       const context = buildContext();
       const skill = skills?.find((s) => s.id === selectedSkillId);
-      const systemContent = skill
-        ? `你是行舟影视的专业剧本创作助手。请完整遵循 Skill「${skill.name}」：\n\n${buildSkillContext(skill)}\n\n严格根据附件内容和用户指令修改，输出可以直接进入剧本编辑器的中文正文。`
-        : '你是行舟影视的专业剧本创作助手。严格根据附件内容和用户指令修改，输出可以直接进入剧本编辑器的中文正文。';
-      const res = await api.aiChat({
-        ...config,
-        messages: [
-          { role: 'system', content: systemContent },
-          { role: 'user', content: `【附件】\n${context}\n\n【修改指令】\n${prompt}` },
-        ],
-      });
+      const userContent = `【附件】\n${context}\n\n【修改指令】\n${prompt}\n\n严格根据附件内容和用户指令修改，输出可以直接进入剧本编辑器的中文正文。`;
+      const res = skill
+        ? (await createSkillExecution({ api, state, skillId: skill.id, input: userContent, assistantRole: '行舟影视专业剧本创作助手', profile: config })).output
+        : await api.aiChat({ ...config, messages: [{ role: 'system', content: '你是行舟影视的专业剧本创作助手。' }, { role: 'user', content: userContent }] });
       setResult(res);
     } catch (e) {
       setResult(`连接失败：${e.message}`);
@@ -350,6 +345,7 @@ function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, ski
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
+            {selectedSkillId && <small className="skill-file-count">完整 Skill · {buildSkillManifest(skills.find((s) => s.id === selectedSkillId)).totalFiles} 个文件已附上</small>}
           </div>
         )}
 
@@ -1226,7 +1222,7 @@ function App() {
           <button onClick={() => { setRole(null); localStorage.removeItem('xz-role'); }}>
             <UserRound size={18} /> <span>切换身份</span>
           </button>
-          <small>本地资料 · 1.2.2</small>
+          <small>本地资料 · 1.2.3</small>
         </div>
       </nav>
 
