@@ -15,6 +15,7 @@ import {
 import { splitFullScript, parseDirectorScenes } from '../../core/scriptImport.js';
 import { getSceneVision, buildScenePromptRecords, promptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
+import { buildSkillManifest } from '../../core/skillContext.js';
 
 /* ================================================================
  * ProjectCards - 导演工作台项目选择页
@@ -424,6 +425,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
                 }}>
                   {skills.map((skill) => <option key={skill.id} value={skill.name}>{skill.name}</option>)}
                 </select>
+                {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
               </label>
               <button className="primary" onClick={() => runCreativeScene(currentScene)} disabled={running || !currentVision.trim() || !currentSkill}>
                 <Sparkles size={16}/> {running ? '生成中…' : `生成场景 ${currentScene} 提示词`}
@@ -476,6 +478,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
                       }}>
                         {skills.map((skill) => <option key={skill.id} value={skill.name}>{skill.name}</option>)}
                       </select>
+                      {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
                     </label>
                     <button
                       className="primary compact"
