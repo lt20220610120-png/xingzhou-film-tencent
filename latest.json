@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.0/Xingzhou-Film-Setup-1.2.0.exe",
-  "notes": "导演工作台新增项目设定功能区（创造/快速模式共用）：可为每个项目选择风格（真人电影集/3DCG动漫/2D动漫）与画幅（9:16/16:9），选择自动保存；运行Skill时大语言模型会优先读取项目设定的风格与画幅，再按Skill生成提示词。"
+  "version": "1.2.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.1/Xingzhou-Film-Setup-1.2.1.exe",
+  "notes": "完整 Skill 现在会在所有调用入口同时读取 SKILL.md 与 references、assets 等目录文件；修复果子库和创作剧本的新建分组按钮；导演提示词严格按当前集与当前场景隔离，并按“集-场景-序号”显示。"
 }
