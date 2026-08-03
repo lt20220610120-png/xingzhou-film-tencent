@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.1.0/Xingzhou-Film-Setup-1.1.0.exe",
-  "notes": "全新圆角帆船品牌图标（应用内、安装包与桌面快捷方式统一）；导演台创造模式与快速模式的Skill选择器移至生成按钮旁，选完即点生成；Skill库编辑弹窗新增上传文档替换功能，上传后确认替换提示词内容。"
+  "version": "1.1.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.1.1/Xingzhou-Film-Setup-1.1.1.exe",
+  "notes": "修复页面滚动遮挡问题：所有主页面（导演工作台、果子库、创作剧本、剧本库、Skill库、API接口、设置）超出一屏的内容现在都可滚动查看；行舟AI对话页输入框固定在底部不再被挤出屏幕；各类弹窗超高时内部滚动不再被裁切。"
 }
