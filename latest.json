@@ -1,7 +1,7 @@
 {
-  "version": "1.2.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.4/Xingzhou-Film-Setup-1.2.4.exe",
-  "notes": "导演工作台提示词拆卡升级：Agent 返回整段内容后，软件会识别行首的集-场景-序号（例如 1-1-1、1-1-2 或 2-1-1）并自动拆成独立提示词卡。卡片顶部保留不可编辑序号，卡片可编辑正文第一行也保留同一序号；复制、编辑、保存、取消和删除功能保持不变。继续兼容旧版（1）（2）（3）输出格式。",
+  "version": "1.2.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.5/Xingzhou-Film-Setup-1.2.5.exe",
+  "notes": "修复 Skill 严格执行问题。所有使用 Skill 的生成入口现在统一按固定顺序向模型发送：①强制指令“请读取Skill文档，严格按照Skill文档输出”；②所选 Skill 的完整 SKILL.md 与全部附属文件；③用户文本框内容。完整 Skill 的根 SKILL.md 为空时将阻止生成并提示重新导入，避免只读取 references 后错误运行。已保留导演工作台按 1-1-1、1-1-2 等三级标题拆分提示词卡，并在卡片标题及正文第一行同时保留编号。",
   "mandatory": false,
   "publishedAt": "2026-08-04T00:00:00.000Z"
 }

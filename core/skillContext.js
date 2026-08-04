@@ -29,15 +29,15 @@ export const buildSkillContext = (skill) => {
 export const buildSkillMessages = (skill, userContent, assistantRole = '行舟影视 AI 助手') => {
   if (!skill) return [{ role: 'user', content: String(userContent ?? '') }];
   const manifest = buildSkillManifest(skill);
-  const rootRules = cleanText(skill.content) || '（空文件）';
+  const fullContext = buildSkillContext(skill);
   return [
     {
       role: 'system',
-      content: `你是${assistantRole}。当前选中 Skill「${skill.name || '未命名'}」，已完整附上共 ${manifest.totalFiles} 个文件。你必须逐个读取文件清单中的每个文件，并把 SKILL.md 与全部附属文件作为同一个不可分割的 Skill 共同执行；禁止只按名称、简介、description 或部分文件猜测规则。\n\n${buildSkillContext(skill)}`,
+      content: '请读取Skill文档，严格按照Skill文档输出',
     },
     {
       role: 'system',
-      content: `【执行前再次确认】你已收到并必须执行 Skill 的全部 ${manifest.totalFiles} 个文件：${manifest.paths.join('、')}。SKILL.md 是最高优先级操作规则；以下根规则再次附上，防止长上下文中被忽略：\n\n${rootRules}`,
+      content: `你是${assistantRole}。下面是当前选中 Skill「${skill.name || '未命名'}」的完整原始文档，共 ${manifest.totalFiles} 个文件。请先从头到尾读取 SKILL.md，再逐个读取文件清单中的全部附属文件，把它们作为同一个不可分割的 Skill 严格执行。禁止只按名称、简介、description、历史印象或部分文件猜测规则；禁止自行改写 Skill 规定的输出结构。\n\n${fullContext}\n\n【完整 Skill 文档结束】以上 ${manifest.totalFiles} 个文件就是本次生成的唯一 Skill 规则。下一条用户消息才是要处理的文本框内容。请严格按照刚刚读完的 Skill 文档输出。`,
     },
     { role: 'user', content: String(userContent ?? '') },
   ];

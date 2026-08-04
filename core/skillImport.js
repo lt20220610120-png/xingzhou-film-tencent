@@ -41,6 +41,7 @@ export const buildSkillFromDirectory = ({ rootName = '', files = [] } = {}) => {
   const normalized = files.map(file => ({ ...file, path: normalizePath(file.path) }));
   const skillFile = normalized.find(file => file.path.toLowerCase() === 'skill.md');
   if (!skillFile) throw new Error('所选目录根部缺少 SKILL.md');
+  if (!String(skillFile.content || '').trim()) throw new Error('SKILL.md 内容为空，请重新选择包含完整规则的 Skill 目录');
   return parseSkillMarkdown(skillFile.content, {
     files: normalized.filter(file => file !== skillFile),
     importMethod: 'skill-folder',

@@ -1,7 +1,7 @@
 {
   "name": "xingzhou-film",
   "productName": "行舟影视",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
