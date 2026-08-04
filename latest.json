@@ -1,7 +1,7 @@
 {
-  "version": "1.2.6",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.6/Xingzhou-Film-Setup-1.2.6.exe",
-  "notes": "修复导演工作台右侧提示词拆卡。软件读取 Agent 完整输出后，按每个独立的集数-场景-提示词序号切分，一条提示词对应一张卡片；支持 1-1-1、1-1-2、5-2-1 等任意集数场景，也兼容模型输出的 Markdown 标题或加粗编号。拆分仅切边界，不改写 Agent 原文，保留原始换行、空格和编号。复制、编辑、保存、取消、删除功能保持不变。",
+  "version": "1.2.7",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.7/Xingzhou-Film-Setup-1.2.7.exe",
+  "notes": "修复导演快速模式实际调用错误 Skill 的根因：下拉框此前显示 video-prompt，但内部值可能仍是上一次 Skill ID，导致生成出完整剧本而不是视频提示词。现在显示、持久化和执行全部统一使用唯一 Skill ID。快速模式还会把（1）（2）（3）每个编号段落作为独立模型任务执行，从源头杜绝跨段串写，并生成对应的 1-1-1、1-1-2 等独立卡片。",
   "mandatory": false,
   "publishedAt": "2026-08-04T00:00:00.000Z"
 }

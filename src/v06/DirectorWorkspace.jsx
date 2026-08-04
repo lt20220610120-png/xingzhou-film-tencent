@@ -13,7 +13,7 @@ import {
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble
 } from '../../core/projectStore.js';
 import { splitFullScript, parseDirectorScenes } from '../../core/scriptImport.js';
-import { getSceneVision, buildScenePromptRecords, promptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
+import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 
@@ -161,11 +161,11 @@ function parseSegments(text) {
  * ================================================================ */
 function EpisodeDirector({ project, episode, index, state, setState, api, onAttach }) {
   const [mode, setMode] = useState('creative'); // 'creative' | 'quick'
-  const [selectedSkill, setSelectedSkill] = useState(() => {
+  const [selectedSkillId, setSelectedSkillId] = useState(() => {
     try {
       const lastId = localStorage.getItem('xz-last-used-skill');
-      return state.skills?.find((skill) => skill.id === lastId)?.name || state.skills?.[0]?.name || '';
-    } catch { return state.skills?.[0]?.name || ''; }
+      return state.skills?.some((skill) => skill.id === lastId) ? lastId : state.skills?.[0]?.id || '';
+    } catch { return state.skills?.[0]?.id || ''; }
   });
   const [running, setRunning] = useState(false);
   const [sceneInputs, setSceneInputs] = useState({}); // 快速模式下各场景的编辑框
@@ -174,7 +174,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
 
   const skills = state.skills || [];
   const savedPrompts = episode.prompts || [];
-  const currentSkill = skills.find((s) => s.name === selectedSkill);
+  const currentSkill = skills.find((s) => s.id === selectedSkillId);
 
   const segments = parseDirectorScenes(episode.content, index + 1);
   // 快速模式自动选中第一个场景
@@ -208,7 +208,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
         id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
         label: `${index + 1}-${part.label}`,
         content: part.content,
-        skill: selectedSkill,
+        skill: currentSkill?.name || '',
         createdAt: new Date().toISOString(),
       }));
       const updatedPrompts = [...(episode.prompts || []), ...newPrompts];
@@ -239,7 +239,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
         sceneLabel,
         parts: outputParts,
         existing: episode.prompts || [],
-        skill: selectedSkill,
+        skill: currentSkill?.name || '',
         sourceText,
       });
       const updatedPrompts = [...(episode.prompts || []), ...newPrompts];
@@ -247,7 +247,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
         prompts: updatedPrompts,
         sceneVisions: episode.sceneVisions || {},
         status: '已生成提示词',
-        lastUsedSkill: selectedSkill,
+        lastUsedSkill: currentSkill?.name || '',
       }));
     } catch (error) {
       console.error('创造模式运行失败:', error);
@@ -268,15 +268,30 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
       const skillId = currentSkill?.id;
       if (skillId) localStorage.setItem('xz-last-used-skill', skillId);
       const preamble = buildProjectPreamble(project);
-      const finalInput = preamble ? `${preamble}\n\n${inputText}` : inputText;
-      const sourceText = finalInput;
-      const result = await executeSkillWithAi({ api, state, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
-      const outputParts = splitNumberedPromptOutput(result.output);
+      const tasks = buildNumberedSceneTasks(inputText, sceneLabel);
+      const generatedParts = [];
+      for (const task of tasks) {
+        const taskInput = preamble ? `${preamble}\n\n${task.input}` : task.input;
+        const result = await executeSkillWithAi({ api, state, skillId, input: taskInput, assistantRole: '行舟影视导演提示词助手' });
+        const parsed = splitNumberedPromptOutput(result.output);
+        if (parsed.length === 1) {
+          const rawContent = parsed[0].content || result.output;
+          const firstLine = rawContent.split('\n', 1)[0];
+          const hasCanonicalLabel = /^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\d+-\d+-\d+(?:\*\*|__)?\s*$/.test(firstLine);
+          const content = hasCanonicalLabel
+            ? rawContent
+            : `${task.label}\n${rawContent}`;
+          generatedParts.push({ label: task.label, content });
+        } else {
+          generatedParts.push(...parsed);
+        }
+      }
+      const sourceText = preamble ? `${preamble}\n\n${inputText}` : inputText;
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
-        parts: outputParts,
+        parts: generatedParts,
         existing: episode.prompts || [],
-        skill: selectedSkill,
+        skill: currentSkill?.name || '',
         sourceText,
       });
       const updatedPrompts = [...(episode.prompts || []), ...newPrompts];
@@ -284,7 +299,7 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
         prompts: updatedPrompts,
         quickSceneEdits: { ...(episode.quickSceneEdits || {}), [sceneLabel]: inputText },
         status: '已生成提示词',
-        lastUsedSkill: selectedSkill,
+        lastUsedSkill: currentSkill?.name || '',
       }));
     } catch (e) {
       console.error('快速模式运行失败:', e);
@@ -418,12 +433,11 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
             <div className="creative-generation-controls">
               <label className="mode-skill-picker">
                 <Sparkles size={16}/><span>选择 Skill</span>
-                <select value={selectedSkill} onChange={(event) => {
-                  setSelectedSkill(event.target.value);
-                  const skill = skills.find((item) => item.name === event.target.value);
-                  if (skill) localStorage.setItem('xz-last-used-skill', skill.id);
+                <select value={selectedSkillId} onChange={(event) => {
+                  setSelectedSkillId(event.target.value);
+                  localStorage.setItem('xz-last-used-skill', event.target.value);
                 }}>
-                  {skills.map((skill) => <option key={skill.id} value={skill.name}>{skill.name}</option>)}
+                  {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                 </select>
                 {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
               </label>
@@ -471,12 +485,11 @@ function EpisodeDirector({ project, episode, index, state, setState, api, onAtta
                   <div className="quick-generation-controls">
                     <label className="mode-skill-picker compact">
                       <span>Skill</span>
-                      <select value={selectedSkill} onChange={(event) => {
-                        setSelectedSkill(event.target.value);
-                        const skill = skills.find((item) => item.name === event.target.value);
-                        if (skill) localStorage.setItem('xz-last-used-skill', skill.id);
+                      <select value={selectedSkillId} onChange={(event) => {
+                        setSelectedSkillId(event.target.value);
+                        localStorage.setItem('xz-last-used-skill', event.target.value);
                       }}>
-                        {skills.map((skill) => <option key={skill.id} value={skill.name}>{skill.name}</option>)}
+                        {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                       </select>
                       {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
                     </label>

@@ -73,3 +73,19 @@ test('任意集数场景均按完整三级编号拆分', () => {
   const output = '5-2-1\n一\n5-2-2\n二\n5-2-3\n三';
   assert.deepEqual(splitNumberedPromptOutput(output).map(part => part.label), ['5-2-1', '5-2-2', '5-2-3']);
 });
+
+test('快速模式输入按（1）（2）拆成独立模型任务并保留场景公共信息', async () => {
+  const { buildNumberedSceneTasks } = await import('./directorCreative.js');
+  const input = '1-1:梨园 日 内\n\n人物：云锦瑟、贼寇若干\n（1）\n第一段\n（2）\n第二段';
+  assert.deepEqual(buildNumberedSceneTasks(input, '1-1'), [
+    { label: '1-1-1', input: '1-1:梨园 日 内\n\n人物：云锦瑟、贼寇若干\n（1）\n第一段' },
+    { label: '1-1-2', input: '1-1:梨园 日 内\n\n人物：云锦瑟、贼寇若干\n（2）\n第二段' },
+  ]);
+});
+
+test('没有编号段落时仍作为一次完整模型任务', async () => {
+  const { buildNumberedSceneTasks } = await import('./directorCreative.js');
+  assert.deepEqual(buildNumberedSceneTasks('5-2 庭院 夜 外\n完整正文', '5-2'), [
+    { label: '5-2-1', input: '5-2 庭院 夜 外\n完整正文' },
+  ]);
+});
