@@ -10,6 +10,7 @@ export const promptsForScene = (prompts, sceneLabel) => (prompts || []).filter((
 );
 
 const NUMBERED_PROMPT_MARKER = /^\s*[（(](\d+)[）)]\s*(.*)$/;
+const INPUT_SEGMENT_MARKER = /^\s*[（(](\d+)[）)]\s*$/;
 const SCENE_PROMPT_ID_MARKER = /^\s*(?:(?:#{1,6})\s*)?(?:\*\*|__)?(\d+-\d+-\d+)(?:\*\*|__)?\s*$/;
 
 const trimOuterBlankLines = (value) => value
@@ -36,6 +37,26 @@ const splitSceneIdPromptOutput = (source) => {
       content: trimOuterBlankLines(source.slice(start, end)),
     };
   }).filter((part) => part.content);
+};
+
+export const buildNumberedSceneTasks = (text, sceneLabel) => {
+  const source = String(text ?? '').replace(/^\uFEFF/, '').trim();
+  if (!source) return [];
+  const lines = source.split(/\r?\n/);
+  const markers = [];
+  lines.forEach((line, index) => {
+    const marker = line.match(INPUT_SEGMENT_MARKER);
+    if (marker) markers.push({ number: marker[1], index });
+  });
+  if (!markers.length) return [{ label: `${sceneLabel}-1`, input: source }];
+  const shared = lines.slice(0, markers[0].index).join('\n').trim();
+  return markers.map((marker, index) => {
+    const body = lines.slice(marker.index, markers[index + 1]?.index ?? lines.length).join('\n').trim();
+    return {
+      label: `${sceneLabel}-${marker.number}`,
+      input: [shared, body].filter(Boolean).join('\n'),
+    };
+  });
 };
 
 export const splitNumberedPromptOutput = (text) => {
