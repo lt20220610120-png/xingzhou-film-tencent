@@ -1,7 +1,7 @@
 {
-  "version": "1.2.5",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.5/Xingzhou-Film-Setup-1.2.5.exe",
-  "notes": "修复 Skill 严格执行问题。所有使用 Skill 的生成入口现在统一按固定顺序向模型发送：①强制指令“请读取Skill文档，严格按照Skill文档输出”；②所选 Skill 的完整 SKILL.md 与全部附属文件；③用户文本框内容。完整 Skill 的根 SKILL.md 为空时将阻止生成并提示重新导入，避免只读取 references 后错误运行。已保留导演工作台按 1-1-1、1-1-2 等三级标题拆分提示词卡，并在卡片标题及正文第一行同时保留编号。",
+  "version": "1.2.6",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.2.6/Xingzhou-Film-Setup-1.2.6.exe",
+  "notes": "修复导演工作台右侧提示词拆卡。软件读取 Agent 完整输出后，按每个独立的集数-场景-提示词序号切分，一条提示词对应一张卡片；支持 1-1-1、1-1-2、5-2-1 等任意集数场景，也兼容模型输出的 Markdown 标题或加粗编号。拆分仅切边界，不改写 Agent 原文，保留原始换行、空格和编号。复制、编辑、保存、取消、删除功能保持不变。",
   "mandatory": false,
   "publishedAt": "2026-08-04T00:00:00.000Z"
 }

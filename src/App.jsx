@@ -1222,7 +1222,7 @@ function App() {
           <button onClick={() => { setRole(null); localStorage.removeItem('xz-role'); }}>
             <UserRound size={18} /> <span>切换身份</span>
           </button>
-          <small>本地资料 · 1.2.5</small>
+          <small>本地资料 · 1.2.6</small>
         </div>
       </nav>
 
