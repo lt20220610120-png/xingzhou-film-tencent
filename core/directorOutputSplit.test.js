@@ -51,3 +51,25 @@ test('正文中的日期和普通连字符数字不触发拆分', () => {
     { label: '1-1-1', content: output },
   ]);
 });
+
+test('兼容模型常见Markdown标题和加粗编号，并拆出全部卡片', () => {
+  const output = `### 1-1-1\n【基础设定】\n第一条\n\n**1-1-2**\n【基础设定】\n第二条`;
+  const parts = splitNumberedPromptOutput(output);
+  assert.equal(parts.length, 2);
+  assert.deepEqual(parts.map(part => part.label), ['1-1-1', '1-1-2']);
+  assert.equal(parts[0].content, '### 1-1-1\n【基础设定】\n第一条');
+  assert.equal(parts[1].content, '**1-1-2**\n【基础设定】\n第二条');
+});
+
+test('拆分只切边界，不改写Agent每条提示词原文', () => {
+  const output = '1-1-1\r\n【基础设定】\r\n第一条  \r\n\r\n1-1-2\r\n【基础设定】\r\n第二条';
+  assert.deepEqual(splitNumberedPromptOutput(output), [
+    { label: '1-1-1', content: '1-1-1\r\n【基础设定】\r\n第一条  ' },
+    { label: '1-1-2', content: '1-1-2\r\n【基础设定】\r\n第二条' },
+  ]);
+});
+
+test('任意集数场景均按完整三级编号拆分', () => {
+  const output = '5-2-1\n一\n5-2-2\n二\n5-2-3\n三';
+  assert.deepEqual(splitNumberedPromptOutput(output).map(part => part.label), ['5-2-1', '5-2-2', '5-2-3']);
+});

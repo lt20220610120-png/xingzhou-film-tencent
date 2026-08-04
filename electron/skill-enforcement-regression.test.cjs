@@ -19,7 +19,8 @@ test('导演三级标题拆卡且卡片标题和正文第一行同时保留编�
  const core=read('core/directorCreative.js');
  const ui=read('src/v06/DirectorWorkspace.jsx');
  assert.match(core,/SCENE_PROMPT_ID_MARKER/);
- assert.match(core,/lines:\s*\[marker\[1\]/);
+ assert.match(core,/markers\.push\(\{ label: marker\[1\], start: match\.index \}\)/);
+ assert.match(core,/content:\s*trimOuterBlankLines\(source\.slice\(start, end\)\)/);
  assert.match(core,/label:\s*completeLabel/);
  assert.match(ui,/<div className="prompt-label">\{prompt\.label/);
  assert.match(ui,/<div className="prompt-content">\{prompt\.content\}<\/div>/);

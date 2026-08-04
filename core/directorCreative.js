@@ -10,34 +10,37 @@ export const promptsForScene = (prompts, sceneLabel) => (prompts || []).filter((
 );
 
 const NUMBERED_PROMPT_MARKER = /^\s*[（(](\d+)[）)]\s*(.*)$/;
-const SCENE_PROMPT_ID_MARKER = /^\s*(\d+-\d+-\d+)\s*$/;
+const SCENE_PROMPT_ID_MARKER = /^\s*(?:(?:#{1,6})\s*)?(?:\*\*|__)?(\d+-\d+-\d+)(?:\*\*|__)?\s*$/;
+
+const trimOuterBlankLines = (value) => value
+  .replace(/^(?:[\t ]*(?:\r\n|\n|\r))+/, '')
+  .replace(/(?:(?:\r\n|\n|\r)[\t ]*)+$/, '');
 
 const splitSceneIdPromptOutput = (source) => {
-  const lines = source.split(/\r?\n/);
-  const parts = [];
-  let preface = [];
-  let current = null;
-
-  for (const line of lines) {
+  const linePattern = /[^\r\n]*(?:\r\n|\n|\r|$)/g;
+  const markers = [];
+  let match;
+  while ((match = linePattern.exec(source)) !== null) {
+    if (!match[0]) break;
+    const line = match[0].replace(/(?:\r\n|\n|\r)$/, '');
     const marker = line.match(SCENE_PROMPT_ID_MARKER);
-    if (marker) {
-      if (current) parts.push({ label: current.label, content: current.lines.join('\n').trim() });
-      current = { label: marker[1], lines: [marker[1], ...(parts.length === 0 ? preface : [])] };
-      preface = [];
-    } else if (current) {
-      current.lines.push(line);
-    } else {
-      preface.push(line);
-    }
+    if (marker) markers.push({ label: marker[1], start: match.index });
   }
+  if (!markers.length) return [];
 
-  if (current) parts.push({ label: current.label, content: current.lines.join('\n').trim() });
-  return parts.filter((part) => part.content);
+  return markers.map((marker, index) => {
+    const start = index === 0 ? 0 : marker.start;
+    const end = markers[index + 1]?.start ?? source.length;
+    return {
+      label: marker.label,
+      content: trimOuterBlankLines(source.slice(start, end)),
+    };
+  }).filter((part) => part.content);
 };
 
 export const splitNumberedPromptOutput = (text) => {
-  const source = String(text || '').replace(/^\uFEFF/, '').trim();
-  if (!source) return [];
+  const source = String(text ?? '').replace(/^\uFEFF/, '');
+  if (!source.trim()) return [];
 
   // 新版 Skill 以“集-场景-序号”（如 2-1-3）作为每条提示词的独立行标题。
   // 必须先识别这种格式，并把标题同时保留在可编辑正文第一行。
