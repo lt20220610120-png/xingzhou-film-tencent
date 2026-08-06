@@ -1,5 +1,5 @@
 {
-  "version": "1.3.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.3.2/Xingzhou-Film-Setup-1.3.2.exe",
-  "notes": "修复注册窗口在小屏幕或窗口较小时，下方内容（邀请码、创建账号按钮）无法滚动查看的问题。现在注册页面可以正常上下滚动，完整填写所有信息。"
+  "version": "1.4.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.4.0/Xingzhou-Film-Setup-1.4.0.exe",
+  "notes": "本次更新为导演工作区新增【画布】功能：\n1、无限画布：可自由拖拽、缩放的创作画布，支持多画布管理；\n2、图片节点：填写画面描述即可调用图片生成 API 生成画面，支持多种尺寸，也可上传本地图片；\n3、视频节点：填写描述生成视频，支持画面比例、时长设置，并可选择画布上的图片节点作为视频首帧（图生视频）；\n4、生成接口设置：画布内可配置图片、视频生成 API（兼容 OpenAI 图片格式与火山方舟 Seedance 任务格式，如即梦、豆包等）；\n5、生成的素材自动保存到资料目录的「画布素材」文件夹，可随时导出。"
 }
