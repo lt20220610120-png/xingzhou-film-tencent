@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.4.0/Xingzhou-Film-Setup-1.4.0.exe",
-  "notes": "本次更新为导演工作区新增【画布】功能：\n1、无限画布：可自由拖拽、缩放的创作画布，支持多画布管理；\n2、图片节点：填写画面描述即可调用图片生成 API 生成画面，支持多种尺寸，也可上传本地图片；\n3、视频节点：填写描述生成视频，支持画面比例、时长设置，并可选择画布上的图片节点作为视频首帧（图生视频）；\n4、生成接口设置：画布内可配置图片、视频生成 API（兼容 OpenAI 图片格式与火山方舟 Seedance 任务格式，如即梦、豆包等）；\n5、生成的素材自动保存到资料目录的「画布素材」文件夹，可随时导出。"
+  "version": "1.5.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.5.0/Xingzhou-Film-Setup-1.5.0.exe",
+  "notes": "画布功能全面升级：将原有简易画布替换为完整的开源【无限画布】工作台（独立窗口打开）：\n1、点击导演侧边栏【画布】即打开无限画布窗口：支持 AI 生图工作台、视频创作台、参考图编辑、画布编排、提示词库与素材管理；\n2、多画布项目管理，可视化创作流程，图片、文字与图形自由连接重组；\n3、内置 Agent 智能助手，支持对话式创作；\n4、兼容 OpenAI 接口生态（chatgpt2api、grok2api、flow2api、newapi 等渠道均可在其【配置】页接入）；\n5、支持中英文界面与浅色/深色主题切换。"
 }
