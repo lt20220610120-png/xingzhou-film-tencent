@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.5.0/Xingzhou-Film-Setup-1.5.0.exe",
-  "notes": "画布功能全面升级：将原有简易画布替换为完整的开源【无限画布】工作台（独立窗口打开）：\n1、点击导演侧边栏【画布】即打开无限画布窗口：支持 AI 生图工作台、视频创作台、参考图编辑、画布编排、提示词库与素材管理；\n2、多画布项目管理，可视化创作流程，图片、文字与图形自由连接重组；\n3、内置 Agent 智能助手，支持对话式创作；\n4、兼容 OpenAI 接口生态（chatgpt2api、grok2api、flow2api、newapi 等渠道均可在其【配置】页接入）；\n5、支持中英文界面与浅色/深色主题切换。"
+  "version": "1.5.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.5.1/Xingzhou-Film-Setup-1.5.1.exe",
+  "notes": "无限画布改为内嵌模式：点击导演侧边栏【画布】后，无限画布直接显示在软件右侧内容区（不再弹出独立窗口），与导演工作台、Skill 库等页面一致的使用体验。画布全部功能保留：AI 生图工作台、视频创作台、画布编排、提示词库、素材管理与接口配置。"
 }
