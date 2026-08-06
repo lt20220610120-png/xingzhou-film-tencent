@@ -1,5 +1,5 @@
 {
-  "version": "1.5.1",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.5.1/Xingzhou-Film-Setup-1.5.1.exe",
-  "notes": "无限画布改为内嵌模式：点击导演侧边栏【画布】后，无限画布直接显示在软件右侧内容区（不再弹出独立窗口），与导演工作台、Skill 库等页面一致的使用体验。画布全部功能保留：AI 生图工作台、视频创作台、画布编排、提示词库、素材管理与接口配置。"
+  "version": "1.6.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.0/Xingzhou-Film-Setup-1.6.0.exe",
+  "notes": "新增导演端【项目协作】：制片开启云端项目，邀请美术与协作者实时共创。信息读取（画风/题材+内置美术清单Skill一键分析剧本）、美术（按集人物/场景/道具，同名资产自动复用、@参考换装生图）、资产总览、分镜（提示词+素材+视频生成）、任务分配、制片数据统计与项目群聊，数据云端实时同步。管理后台可授予制片身份。"
 }
