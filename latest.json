@@ -1,5 +1,5 @@
 {
-  "version": "1.6.1",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.1/Xingzhou-Film-Setup-1.6.1.exe",
-  "notes": "安全迁移：客户端移除服务端密钥，账号与协作请求统一通过 Edge Function Token 网关；保留现有用户、项目和本地数据。"
+  "version": "1.6.2",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.2/Xingzhou-Film-Setup-1.6.2.exe",
+  "notes": "管理后台、信息读取、协作数据与导演快速模式/视频提示词工作区完善。"
 }
