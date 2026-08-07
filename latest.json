@@ -1,5 +1,5 @@
 {
-  "version": "1.6.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.2/Xingzhou-Film-Setup-1.6.2.exe",
-  "notes": "管理后台、信息读取、协作数据与导演快速模式/视频提示词工作区完善。"
+  "version": "1.6.3",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.3/Xingzhou-Film-Setup-1.6.3.exe",
+  "notes": "修复协作项目删除、复用画布图片/视频生成与场景分镜展示，新增视频历史与素材管理。"
 }
