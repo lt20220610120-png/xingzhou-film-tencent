@@ -1,5 +1,5 @@
 {
-  "version": "1.6.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.0/Xingzhou-Film-Setup-1.6.0.exe",
-  "notes": "新增导演端【项目协作】：制片开启云端项目，邀请美术与协作者实时共创。信息读取（画风/题材+内置美术清单Skill一键分析剧本）、美术（按集人物/场景/道具，同名资产自动复用、@参考换装生图）、资产总览、分镜（提示词+素材+视频生成）、任务分配、制片数据统计与项目群聊，数据云端实时同步。管理后台可授予制片身份。"
+  "version": "1.6.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.1/Xingzhou-Film-Setup-1.6.1.exe",
+  "notes": "安全迁移：客户端移除服务端密钥，账号与协作请求统一通过 Edge Function Token 网关；保留现有用户、项目和本地数据。"
 }
