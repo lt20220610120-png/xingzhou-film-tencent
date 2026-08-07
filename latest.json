@@ -1,5 +1,5 @@
 {
-  "version": "1.6.3",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.3/Xingzhou-Film-Setup-1.6.3.exe",
-  "notes": "修复协作项目删除、复用画布图片/视频生成与场景分镜展示，新增视频历史与素材管理。"
+  "version": "1.6.4",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.4/Xingzhou-Film-Setup-1.6.4.exe",
+  "notes": "分镜提示词与视频窗口对齐；美术与资产支持手动添加人物、场景、道具并按集同步；分镜上传参考素材按提示词独立隔离。"
 }
