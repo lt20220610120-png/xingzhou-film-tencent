@@ -1,5 +1,5 @@
 {
-  "version": "1.6.8",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.8/Xingzhou-Film-Setup-1.6.8.exe",
-  "notes": "导演工作台协作与项目协作彻底分离；导演云项目支持持续邀请、踢出、全项目同步和手动刷新；修复项目协作删除与三天回收恢复。"
+  "version": "1.6.9",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.9/Xingzhou-Film-Setup-1.6.9.exe",
+  "notes": "修复项目协作分镜同步导演提示词失败：持久保存导演项目来源关联，支持本地及云端导演项目兜底读取，并改为中文错误提示。"
 }
