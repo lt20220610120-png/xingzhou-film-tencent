@@ -1,5 +1,5 @@
 {
-  "version": "1.6.5",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.5/Xingzhou-Film-Setup-1.6.5.exe",
-  "notes": "行舟 AI 浮动按钮支持在软件窗口内拖动，避免遮挡上下文功能按钮；保留单击打开 AI 会话。"
+  "version": "1.6.6",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.6/Xingzhou-Film-Setup-1.6.6.exe",
+  "notes": "导演工作台项目支持制片开启协作、邀请/踢出协作者与锁定项目；协作分镜新增同步导演提示词功能。"
 }
