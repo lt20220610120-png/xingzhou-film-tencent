@@ -1,5 +1,5 @@
 {
-  "version": "1.6.7",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.7/Xingzhou-Film-Setup-1.6.7.exe",
-  "notes": "总剧本编辑器扩展、保存后重新识别分集和场景、设定和小传分区、添加集数填写窗口及分集独立删除。"
+  "version": "1.6.8",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.8/Xingzhou-Film-Setup-1.6.8.exe",
+  "notes": "导演工作台协作与项目协作彻底分离；导演云项目支持持续邀请、踢出、全项目同步和手动刷新；修复项目协作删除与三天回收恢复。"
 }
