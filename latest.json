@@ -1,5 +1,5 @@
 {
-  "version": "1.6.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.4/Xingzhou-Film-Setup-1.6.4.exe",
-  "notes": "分镜提示词与视频窗口对齐；美术与资产支持手动添加人物、场景、道具并按集同步；分镜上传参考素材按提示词独立隔离。"
+  "version": "1.6.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.5/Xingzhou-Film-Setup-1.6.5.exe",
+  "notes": "行舟 AI 浮动按钮支持在软件窗口内拖动，避免遮挡上下文功能按钮；保留单击打开 AI 会话。"
 }
