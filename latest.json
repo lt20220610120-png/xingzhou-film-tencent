@@ -1,5 +1,5 @@
 {
-  "version": "1.6.9",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.9/Xingzhou-Film-Setup-1.6.9.exe",
-  "notes": "修复项目协作分镜同步导演提示词失败：持久保存导演项目来源关联，支持本地及云端导演项目兜底读取，并改为中文错误提示。"
+  "version": "1.7.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.0/Xingzhou-Film-Setup-1.7.0.exe",
+  "notes": "海洋航线主题视觉升级；行舟 AI 拖动增加左侧栏阻隔；导演云刷新按钮移入标题/模式区；修复设定和小传与分集场景错位；总剧本编辑器扩展为全宽大工作区。"
 }
