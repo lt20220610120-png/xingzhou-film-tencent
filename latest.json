@@ -1,5 +1,5 @@
 {
-  "version": "1.7.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.0/Xingzhou-Film-Setup-1.7.0.exe",
-  "notes": "海洋航线主题视觉升级；行舟 AI 拖动增加左侧栏阻隔；导演云刷新按钮移入标题/模式区；修复设定和小传与分集场景错位；总剧本编辑器扩展为全宽大工作区。"
+  "version": "1.7.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.1/Xingzhou-Film-Setup-1.7.1.exe",
+  "notes": "修复项目协作同步导演提示词时可能反向复制导演项目的问题：同步链路现为严格只读导演工作台，不再创建或回写导演项目；无法自动匹配时会打开导演项目选择弹框，选择后持久化关联并刷新各集提示词。导演工作台同时隐藏历史遗留的同名云端副本。全软件海洋主题进一步统一为深海导航、明亮水光工作区和品牌蓝紫航线，覆盖项目、导演、协作、AI、画布、Skill、API、设置与管理后台。"
 }
