@@ -1,5 +1,5 @@
 {
-  "version": "1.6.6",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.6/Xingzhou-Film-Setup-1.6.6.exe",
-  "notes": "导演工作台项目支持制片开启协作、邀请/踢出协作者与锁定项目；协作分镜新增同步导演提示词功能。"
+  "version": "1.6.7",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.6.7/Xingzhou-Film-Setup-1.6.7.exe",
+  "notes": "总剧本编辑器扩展、保存后重新识别分集和场景、设定和小传分区、添加集数填写窗口及分集独立删除。"
 }
