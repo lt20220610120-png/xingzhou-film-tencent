@@ -1,5 +1,7 @@
 {
-  "version": "1.7.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.2/Xingzhou-Film-Setup-1.7.2.exe",
-  "notes": "深度升级全软件海洋主题：引入来自浅海照片的水下焦散、体积水光、玻璃边缘与蓝紫品牌高光，统一项目卡、按钮、工作台、弹窗、协作、AI、画布、Skill、API、设置和管理后台的视觉材质；入口页改为更明确的影视生产工作流文案，并移除导演项目页和项目协作页冗余说明。项目协作已删除项目不再占用正常项目网格，仅保留在“最近删除（3天内可恢复）”区域。"
+  "version": "1.7.3",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.3/Xingzhou-Film-Setup-1.7.3.exe",
+  "notes": "修复项目协作分镜错误改写集数与场景编号；分镜完整只读同步导演工作台内容、场景和提示词；刷新云端增加旋转及结果提示。",
+  "mandatory": false,
+  "publishedAt": "2026-08-09T00:00:00.000Z"
 }
