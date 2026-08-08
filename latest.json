@@ -1,5 +1,5 @@
 {
-  "version": "1.7.1",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.1/Xingzhou-Film-Setup-1.7.1.exe",
-  "notes": "修复项目协作同步导演提示词时可能反向复制导演项目的问题：同步链路现为严格只读导演工作台，不再创建或回写导演项目；无法自动匹配时会打开导演项目选择弹框，选择后持久化关联并刷新各集提示词。导演工作台同时隐藏历史遗留的同名云端副本。全软件海洋主题进一步统一为深海导航、明亮水光工作区和品牌蓝紫航线，覆盖项目、导演、协作、AI、画布、Skill、API、设置与管理后台。"
+  "version": "1.7.2",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.2/Xingzhou-Film-Setup-1.7.2.exe",
+  "notes": "深度升级全软件海洋主题：引入来自浅海照片的水下焦散、体积水光、玻璃边缘与蓝紫品牌高光，统一项目卡、按钮、工作台、弹窗、协作、AI、画布、Skill、API、设置和管理后台的视觉材质；入口页改为更明确的影视生产工作流文案，并移除导演项目页和项目协作页冗余说明。项目协作已删除项目不再占用正常项目网格，仅保留在“最近删除（3天内可恢复）”区域。"
 }
