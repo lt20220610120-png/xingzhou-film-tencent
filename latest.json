@@ -1,7 +1,7 @@
 {
-  "version": "1.7.7",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.7/Xingzhou-Film-Setup-1.7.7.exe",
-  "notes": "完整项目同步、总剧本刷新、逐集美术分析，保留既有资产。",
+  "version": "1.7.8",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.8/Xingzhou-Film-Setup-1.7.8.exe",
+  "notes": "新增导演云端管理页；项目协作读取中的导演项目虚化禁删；释放后可删除。",
   "mandatory": false,
   "publishedAt": "2026-08-09T00:00:00.000Z"
 }
