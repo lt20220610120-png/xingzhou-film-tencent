@@ -1,7 +1,7 @@
 {
-  "version": "1.7.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.4/Xingzhou-Film-Setup-1.7.4.exe",
-  "notes": "修复管理协作弹框被侧边栏遮挡；修复项目协作分镜第一集混入2-1，场景划分严格复用导演工作台快速模式。",
+  "version": "1.7.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.5/Xingzhou-Film-Setup-1.7.5.exe",
+  "notes": "制片项目专属协作管理；受邀云项目自动进入导演工作台；快速模式提示词增加数字定位器。",
   "mandatory": false,
-  "publishedAt": "2026-08-09T00:00:00.000Z"
+  "publishedAt": "2026-08-09T10:45:11.000Z"
 }
