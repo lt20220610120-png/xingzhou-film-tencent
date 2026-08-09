@@ -1,7 +1,7 @@
 {
-  "version": "1.7.3",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.3/Xingzhou-Film-Setup-1.7.3.exe",
-  "notes": "修复项目协作分镜错误改写集数与场景编号；分镜完整只读同步导演工作台内容、场景和提示词；刷新云端增加旋转及结果提示。",
+  "version": "1.7.4",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.4/Xingzhou-Film-Setup-1.7.4.exe",
+  "notes": "修复管理协作弹框被侧边栏遮挡；修复项目协作分镜第一集混入2-1，场景划分严格复用导演工作台快速模式。",
   "mandatory": false,
   "publishedAt": "2026-08-09T00:00:00.000Z"
 }
