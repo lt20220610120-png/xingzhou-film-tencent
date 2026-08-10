@@ -1,6 +1,6 @@
 {
-  "version": "1.8.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.0/Xingzhou-Film-Setup-1.8.0.exe",
-  "notes": "导演提示词批量删除、项目协作成员管理、多角色权限、独立副本提示词编辑与制片同步。",
+  "version": "1.8.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.1/Xingzhou-Film-Setup-1.8.1.exe",
+  "notes": "项目协作邀请/踢出可见性、导演与项目协作域隔离及服务端权限加固。",
   "mandatory": false
 }
