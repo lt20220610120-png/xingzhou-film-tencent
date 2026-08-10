@@ -1,5 +1,5 @@
 {
-  "version": "1.8.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.2/Xingzhou-Film-Setup-1.8.2.exe",
-  "notes": "导演工作台本地项目持久化、固定分组与云端归类修复；修复分组操作按钮布局。"
+  "version": "1.8.3",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.3/Xingzhou-Film-Setup-1.8.3.exe",
+  "notes": "修复导演工作台打开第一集白屏；修复分组重命名组与删除组按钮重叠。"
 }
