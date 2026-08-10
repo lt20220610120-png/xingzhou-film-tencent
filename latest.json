@@ -1,5 +1,5 @@
 {
-  "version": "1.8.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.4/Xingzhou-Film-Setup-1.8.4.exe",
-  "notes": "修复导演工作台本地项目持久化、总剧本保存清空、分组按钮重叠及分组弹窗定位。"
+  "version": "1.8.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.5/Xingzhou-Film-Setup-1.8.5.exe",
+  "notes": "修复导演工作台三大问题：1) 删除组按钮与重命名组按钮重叠（协作卡片的绝对定位样式污染全局 danger-link）；2) 删除任意本地导演项目会误删所有本地上传项目导致重启后项目全部丢失（删除过滤逻辑 bug，已修复并增加磁盘缩水自动备份 director-projects.backup.json 兜底）；3) 上传/导入剧本后立即点保存总剧本会用旧草稿覆盖导致内容清空（masterDraft 未随新项目重置，已修复）。本地导演项目独立保存在资料目录的「导演工作台的项目」文件夹。"
 }
