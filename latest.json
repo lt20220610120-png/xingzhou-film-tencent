@@ -1,6 +1,6 @@
 {
-  "version": "1.7.9",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.7.9/Xingzhou-Film-Setup-1.7.9.exe",
-  "notes": "修复导演云端管理页面窄列布局。",
+  "version": "1.8.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.0/Xingzhou-Film-Setup-1.8.0.exe",
+  "notes": "导演提示词批量删除、项目协作成员管理、多角色权限、独立副本提示词编辑与制片同步。",
   "mandatory": false
 }
