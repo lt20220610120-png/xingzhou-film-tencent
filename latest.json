@@ -1,5 +1,5 @@
 {
-  "version": "1.8.7",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.7/Xingzhou-Film-Setup-1.8.7.exe",
-  "notes": "导演工作台与项目协作十项优化：1) 云端管理入口仅制片可见；2) 修复协作项目生成提示词后瞬间消失（云端轮询覆盖本地的根因已修复，提示词按条合并）；3) 生成提示词支持并发，不同场景可同时生成；4) 刷新云端升级为双向同步，协作双方互相看到彼此生成的提示词；5) 快速模式定位条固定顶部；6) 提示词卡片按钮移到顶部；7) 历史提示词支持选集导出/分开导出/汇总导出；8) 云端页面缓存先显提速；9) 人物/场景描述自动附带统一拍摄规范前缀；10) 项目协作记住上次打开的项目，分镜同步提示词读取云端最新导演文档。"
+  "version": "1.8.8",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.8/Xingzhou-Film-Setup-1.8.8.exe",
+  "notes": "修复部分用户下载安装后白屏；增加软件渲染兼容、renderer崩溃恢复、旧数据归一化和账号会话容错。"
 }
