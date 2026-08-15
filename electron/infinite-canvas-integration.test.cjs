@@ -37,7 +37,7 @@ test('主进程提供 open-canvas-window，独立窗口通过 xzapp 协议加载
 test('preload 暴露 openCanvasWindow，画布内嵌在主界面右侧内容区', () => {
   assert.match(read('electron/preload.cjs'), /openCanvasWindow/);
   const app = read('src/App.jsx');
-  assert.match(app, /className="canvas-embed" src="xzapp:\/\/canvas\/index\.html#\/canvas"/, '画布必须以内嵌 iframe 直接恢复到画布路由');
+  assert.match(app, /className="canvas-embed" src=\{`xzapp:\/\/canvas\/index\.html\$\{canvasRoute\}`\}/, '画布必须以内嵌 iframe 恢复最近编辑路由');
   assert.match(app, /\['canvas', Palette, '画布'\]/);
   assert.match(read('src/canvas.css'), /\.canvas-embed\{display:block;width:100%;height:100vh/);
 });

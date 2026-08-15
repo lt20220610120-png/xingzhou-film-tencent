@@ -1,7 +1,9 @@
 {
   "name": "xingzhou-film",
   "productName": "行舟影视",
-  "version": "1.9.0",
+  "version": "1.9.1",
+  "description": "行舟影视：剧本、导演、项目协作与 AI 影像生产工作台",
+  "author": "行舟影视",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -31,7 +33,7 @@
     "appId": "com.xingzhou.film",
     "productName": "行舟影视",
     "directories": {
-      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-v190"
+      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-v191"
     },
     "files": [
       "dist/**/*",

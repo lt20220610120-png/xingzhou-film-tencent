@@ -14,10 +14,10 @@ import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
   sectionsForRole, parseAssetName, findBaseMates, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
-  buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages,
+  buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
 } from '../../core/collabStore.js';
 import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
-import { IMAGE_SIZES, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
+import { IMAGE_FORMATS, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
 
@@ -167,7 +167,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit })
   const [size, setSize] = useState('1024x1024');
   const [refId, setRefId] = useState('');
   const profile = imageProfiles.find((p) => p.id === profileId) || defaultProfile;
-  const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category), [assets, asset.name]);
+  const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.length)), [assets, asset.name]);
   const refAsset = mates.find((m) => m.id === refId) || null;
   const images = asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : []);
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
@@ -203,7 +203,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit })
       {selectedImage && <div className="collab-image-item-actions"><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
       <div className="collab-image-controls">
         <select value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
-        <select value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+        <select value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         {mates.length > 0 && <label className="collab-ref-picker"><AtSign size={13} /><select value={refId} onChange={(e) => setRefId(e.target.value)}><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
         <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={busy || !canEdit}>{busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} 生成图片</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
         {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的样貌，仅替换服饰/状态</small>}
@@ -294,11 +294,28 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
   const [category, setCategory] = useState('character');
   const [selectedName, setSelectedName] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
+  const [batchSelectedIds, setBatchSelectedIds] = useState([]);
+  const [batchBusy, setBatchBusy] = useState(false);
   const scriptEpisodeCount = (project.episodes || []).filter((item) => item.kind !== 'setting' && item.title !== '设定和小传').length;
   const episodes = [...new Set([...Array.from({ length: scriptEpisodeCount }, (_, index) => index + 1), ...episodeNumbersFromAssets(assets)])].sort((a, b) => a - b);
   const imagesForAssets = (rows) => rows.flatMap((item) => (item.images || []).map((image) => ({ ...image, assetName: item.name })));
   const projectImages = imagesForAssets(assets);
   const exportImages = (images, folderName) => api.collabExportImages({ folderName, images });
+  useEffect(() => {
+    if (episode !== null) setBatchSelectedIds(buildAssetGenerationJobs(assets, episode).map((asset) => asset.id));
+  }, [episode, assets]);
+  const generateBatch = async () => {
+    const profile = activeMediaProfile(state, 'image');
+    const jobs = buildAssetGenerationJobs(assets, episode, ['character', 'scene', 'prop']).filter((asset) => batchSelectedIds.includes(asset.id));
+    if (!profile || !jobs.length || batchBusy || !canEdit) return;
+    setBatchBusy(true);
+    await Promise.allSettled(jobs.map(async (asset) => {
+      const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: '1024x1024' });
+      if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
+    }));
+    await refresh();
+    setBatchBusy(false);
+  };
 
   if (!assets.length) {
     return <div className="collab-empty"><Palette size={30} /><p>还没有美术清单。请先在「信息读取」中确定画风与题材，然后点击「分析」。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
@@ -329,6 +346,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
   const list = assetsForEpisode(assets, episode, category);
   const selected = list.find((a) => a.name === selectedName) || list[0] || null;
   const episodeImages = imagesForAssets(assets.filter((asset) => (asset.episodes || []).includes(episode)));
+  const episodeJobs = buildAssetGenerationJobs(assets, episode);
 
   return (
     <div className="collab-art">
@@ -336,6 +354,8 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
         <button className="ghost" onClick={() => setEpisode(null)}><ArrowLeft size={15} /> 全部集数</button>
         <b>第 {episode} 集</b>
         <button className="secondary" onClick={() => exportImages(episodeImages, `${project.name}-第${episode}集美术图片`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button>
+        <button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button>
+        <button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button>
         <button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
         <div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
@@ -347,7 +367,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
         <nav className="collab-asset-rail">
           {list.map((a) => (
             <button key={a.id} className={selected?.id === a.id ? 'active' : ''} onClick={() => setSelectedName(a.name)}>
-              <span>{a.name}</span>
+              <span><input type="checkbox" checked={batchSelectedIds.includes(a.id)} onClick={(event) => event.stopPropagation()} onChange={() => setBatchSelectedIds((current) => current.includes(a.id) ? current.filter((id) => id !== a.id) : [...current, a.id])} />{a.name}</span>
               <small>{a.reused ? `复用自第${a.first_episode}集` : '本集首次'}{a.image_url ? ' · 已生成' : ''}</small>
             </button>
           ))}
@@ -429,8 +449,14 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
   const [resolution, setResolution] = useState('720p');
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoPrompt, setVideoPrompt] = useState('');
+  const [selectedUploadedRefId, setSelectedUploadedRefId] = useState('');
   const profile = videoProfiles.find((p) => p.id === profileId);
   const capabilities = videoModelCapabilities(profile?.model);
+  useEffect(() => {
+    setDuration((current) => capabilities.durations.includes(current) ? current : capabilities.durations[0]);
+    setResolution((current) => capabilities.resolutions.includes(current) ? current : capabilities.resolutions[0]);
+    setRatio((current) => capabilities.ratios.includes(current) ? current : capabilities.ratios[0]);
+  }, [profile?.model]);
 
   const episode = epIndex !== null ? episodes[epIndex] : null;
   const episodeFallbackNumber = epIndex === null ? 0 : episodes.slice(0, epIndex + 1).filter((item) => item.kind !== 'setting' && item.title !== '设定和小传').length;
@@ -520,7 +546,8 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
     setBusy(true); setError('');
     try {
       if (!window.confirm(`确定使用 ${profile.name || profile.model} 生成 ${duration} 秒、${resolution} 的视频吗？`)) return;
-      const generated = await api.mediaGenerateVideo({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled });
+      const firstFrameUrl = media.find((item) => item.kind === 'image' && (!item.scene || item.scene === currentScene))?.url || '';
+      const generated = await api.mediaGenerateVideo({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl });
       await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: currentScene });
       await loadMedia();
     } catch (e) { setError(e.message); }
@@ -577,7 +604,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
             const prompt = p.content || '';
             if (!window.confirm(`确定生成提示词 ${p.label}？\n模型：${profile.name || profile.model}\n${duration} 秒 · ${resolution}\n参考素材：${refs.map((a) => a.name).join('、') || '无'}`)) return;
             setBusy(true); setError('');
-            try { const generated = await api.mediaGenerateVideo({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled }); await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: p.label }); await loadMedia(); }
+            try { const selectedUploaded = uploadedImages.find((item) => item.id === selectedUploadedRefId) || uploadedImages[0]; const generated = await api.mediaGenerateVideo({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl: selectedUploaded?.url || '' }); await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: p.label }); await loadMedia(); }
             catch (e) { setError(e.message); } finally { setBusy(false); }
           };
           return <article className="collab-shot-card" key={p.id}>
@@ -591,7 +618,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
               <button className="primary" onClick={run} disabled={busy || !canEdit}><Film size={14} /> {busy ? '生成中…' : '生成视频'}</button>
             </div>
             <div className="collab-shot-main"><div className="collab-shot-prompt"><textarea value={promptDrafts[p.id] ?? p.content} onChange={(event) => setPromptDrafts((current) => ({ ...current, [p.id]: event.target.value }))} disabled={!canEdit}/>{canEdit && <button className="secondary collab-prompt-save" onClick={() => saveStoryboardPrompt(p)} disabled={(promptDrafts[p.id] ?? p.content).trim() === String(p.content || '').trim()}><Save size={14}/>保存提示词</button>}</div><aside className="collab-shot-video"><div className="collab-shot-video-head"><b><Film size={14} /> 视频结果（{videos.length}）</b><button className="ghost" onClick={() => uploadAssetFor(p.label)} disabled={!canEdit || busy}><Plus size={14} /> 选择视频</button></div>{videos.length ? videos.map((m) => <div key={m.id} className="collab-video-result"><video src={m.url} controls preload="metadata" /><button className="danger" onClick={async () => await api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={13} /> 删除</button></div>) : <div className="collab-video-empty"><Film size={26} /><span>暂无视频</span></div>}</aside></div>
-            <div className="collab-shot-assets"><b><ImageIcon size={14} /> 参考素材（@ 标记会自动关联）</b>{refs.map((a) => <figure key={a.id}><img src={a.image_url} alt={a.name} /><figcaption>{a.name}</figcaption></figure>)}{uploadedImages.map((m) => <figure key={m.id}><img src={m.url} alt="已上传参考图" /><figcaption>{m.note || '场景参考图'} <button className="asset-delete-mini" onClick={() => api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={11} /></button></figcaption></figure>)}<button className="collab-add-ref" onClick={uploadAsset} disabled={!canEdit || busy}><Plus size={22} /></button>{!refs.length && !uploadedImages.length && <small>本集美术暂无已生成参考图片</small>}</div>
+            <div className="collab-shot-assets"><b><ImageIcon size={14} /> 参考素材（@ 标记会自动关联）</b>{refs.map((a) => <figure key={a.id}><img src={a.image_url} alt={a.name} /><figcaption>{a.name}</figcaption></figure>)}{uploadedImages.map((m) => <figure key={m.id}><img src={m.url} alt="已上传参考图" /><figcaption>{m.note || '场景参考图'} <button className="asset-delete-mini" onClick={() => api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={11} /></button></figcaption></figure>)}{uploadedImages.length > 0 && <label className="uploaded-reference-picker">本次首帧<select value={selectedUploadedRefId || uploadedImages[0].id} onChange={(event) => setSelectedUploadedRefId(event.target.value)}>{uploadedImages.map((item) => <option key={item.id} value={item.id}>{item.note || '上传参考图'}</option>)}</select></label>}<button className="collab-add-ref" onClick={uploadAsset} disabled={!canEdit || busy}><Plus size={22} /></button>{!refs.length && !uploadedImages.length && <small>请先上传参考图片，上传完成后才可选择并作为首帧使用</small>}</div>
           </article>;
         }) : <div className="collab-empty small"><p>该场景还没有提示词，请先在导演工作台快速模式按场景生成。</p></div>}
         {error && <div className="collab-error">{error}</div>}

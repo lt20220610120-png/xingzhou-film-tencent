@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import companyLogo from '../assets/company-logo.png';
 import {
-  Settings, KeyRound, Sparkles, Bot, Plus, Save, Trash2, X,
+  Settings, KeyRound, Sparkles, Bot, Plus, Save, Trash2, X, Image as ImageIcon, Video,
   Check, FolderOpen, RefreshCw, BookOpen, PenLine, FolderInput, FileUp, PencilLine
 } from 'lucide-react';
 import { addSkill, updateSkill, removeSkill, addApiProfile, updateApiProfile, setActiveApi, removeApiProfile } from '../../core/projectStore.js';
@@ -10,6 +10,7 @@ import { buildSkillFromDirectory, buildSkillFromDocument } from '../../core/skil
 import { buildSkillContext, buildSkillManifest } from '../../core/skillContext.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { MediaApiSettings } from './CanvasWorkspace.jsx';
+import { setActiveMediaApi } from '../../core/canvasStore.js';
 
 /* ================================================================
  * BrandLogo - 行舟影视品牌标识
@@ -408,6 +409,7 @@ export function ApiLibrary({ state, setState }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const apiProfiles = state.apiProfiles || [];
+  const mediaProfiles = state.mediaProfiles || [];
   const activeApiId = state.activeApiId;
 
   const handleSave = (data) => {
@@ -433,6 +435,11 @@ export function ApiLibrary({ state, setState }) {
 
   const handleActivate = (id) => {
     setState((s) => setActiveApi(s, id));
+  };
+  const renderMediaGroup = (kind) => {
+    const items = mediaProfiles.filter((profile) => profile.kind === kind);
+    const activeId = kind === 'image' ? state.activeImageApiId : state.activeVideoApiId;
+    return <section className={`resource-card api-media-section ${kind}`}><header><div className="resource-icon">{kind === 'image' ? <ImageIcon /> : <Video />}</div><div><h3>{kind === 'image' ? '图片生成 API' : '视频生成 API'}</h3><p>{kind === 'image' ? '用于美术、资产与画布图片' : '用于分镜与画布视频'}</p></div></header>{items.length ? items.map((profile) => <div className="api-media-row" key={profile.id}><span><b>{profile.name}</b><small>{profile.model || profile.endpoint}</small></span>{profile.id === activeId ? <em>使用中</em> : <button className="secondary" onClick={() => setState((s) => setActiveMediaApi(s, kind, profile.id))}>启用</button>}</div>) : <small className="api-media-empty">暂未配置，可点击上方“添加生图 / 视频 API”</small>}<button className="secondary api-media-add" onClick={() => setMediaDialogOpen(true)}>管理{kind === 'image' ? '图片' : '视频'} API</button></section>;
   };
 
   return (
@@ -477,6 +484,8 @@ export function ApiLibrary({ state, setState }) {
             </div>
           </article>
         ))}
+        {renderMediaGroup('image')}
+        {renderMediaGroup('video')}
       </div>
 
       {/* API 编辑/创建对话框 */}

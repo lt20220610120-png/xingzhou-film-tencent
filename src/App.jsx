@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Film, BookOpen, Library, Settings, Sparkles, KeyRound,
   FileText, Bot, Plus, X, Star, Trash2, Save, Upload, Download,
@@ -1246,6 +1246,8 @@ function SettingsPage({ state, setState }) {
 function App() {
   const [role, setRole] = useState(null);
   const [nav, setNav] = useState('fruit');
+  const [canvasRoute, setCanvasRoute] = useState(() => localStorage.getItem('xz-canvas-last-route') || '#/canvas');
+  const canvasFrameRef = useRef(null);
   const [account, setAccount] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [registerRole, setRegisterRole] = useState(null);
@@ -1260,6 +1262,18 @@ function App() {
       return createInitialState();
     }
   });
+
+  useEffect(() => {
+    const receiveCanvasRoute = (event) => {
+      if (canvasFrameRef.current && event.source !== canvasFrameRef.current.contentWindow) return;
+      if (event.data?.type !== 'xingzhou-canvas-route' || !String(event.data.hash || '').startsWith('#/')) return;
+      const route = String(event.data.hash);
+      localStorage.setItem('xz-canvas-last-route', route);
+      setCanvasRoute(route);
+    };
+    window.addEventListener('message', receiveCanvasRoute);
+    return () => window.removeEventListener('message', receiveCanvasRoute);
+  }, []);
 
   // 加载持久化状态
   useEffect(() => {
@@ -1426,7 +1440,7 @@ function App() {
         {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
         {nav === 'collab' && <CollabWorkspace state={state} api={api} account={account} />}
         {nav === 'canvas' && (window.xingzhou
-          ? <iframe className="canvas-embed" src="xzapp://canvas/index.html#/canvas" title="无限画布" allow="clipboard-read; clipboard-write" />
+          ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html${canvasRoute}`} title="无限画布" allow="clipboard-read; clipboard-write" />
           : <CanvasWorkspace state={state} setState={setState} api={api} />)}
         {nav === 'director' && (
           <DirectorWorkspace
