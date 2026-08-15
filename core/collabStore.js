@@ -168,6 +168,9 @@ export const assetsForEpisode = (assets, episode, category) =>
     .filter((a) => a.category === category && (a.episodes || []).includes(episode))
     .map((a) => ({ ...a, reused: Number(a.first_episode) !== Number(episode) }));
 
+export const buildAssetGenerationJobs = (assets, episode, categories = ['character', 'scene', 'prop']) =>
+  (assets || []).filter((asset) => categories.includes(asset.category) && (asset.episodes || []).includes(episode));
+
 export const episodeNumbersFromAssets = (assets) => {
   const set = new Set();
   for (const a of assets || []) for (const ep of a.episodes || []) set.add(ep);

@@ -14,6 +14,11 @@
                 document.documentElement.style.colorScheme = t;
             } catch (e) {}
         </script>
+        <script>
+            const reportCanvasRoute = () => window.parent !== window && window.parent.postMessage({ type: 'xingzhou-canvas-route', hash: window.location.hash || '#/canvas' }, '*');
+            window.addEventListener('hashchange', reportCanvasRoute);
+            window.addEventListener('load', reportCanvasRoute);
+        </script>
       <script type="module" crossorigin src="./assets/index-D8wpn5PA.js"></script>
       <link rel="stylesheet" crossorigin href="./assets/index-ClNnDSuP.css">
     </head>
