@@ -4,9 +4,9 @@ import {
   Plus, RefreshCw, Save, Send, Settings2, Trash2, Upload, Video, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import {
-  addCanvasNode, addMediaProfile, createCanvas, deleteCanvas, IMAGE_SIZES,
+  addCanvasNode, addMediaProfile, createCanvas, deleteCanvas, IMAGE_FORMATS,
   activeMediaProfile, removeCanvasNode, removeMediaProfile, renameCanvas,
-  setActiveMediaApi, updateCanvasNode, updateMediaProfile, VIDEO_DURATIONS, VIDEO_RATIOS,
+  setActiveMediaApi, updateCanvasNode, updateMediaProfile, VIDEO_DURATIONS, VIDEO_RATIOS, videoModelCapabilities,
 } from '../../core/canvasStore.js';
 import { Dialog } from './GlobalTools.jsx';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
@@ -26,6 +26,13 @@ export function MediaApiSettings({ state, setState, onClose }) {
     setForm({ kind: form.kind, name: '', endpoint: '', model: '', apiKey: '' });
     setEditingId(null);
   };
+  const renderProfiles = (kind) => {
+    const items = profiles.filter((profile) => profile.kind === kind);
+    return <section className={`media-api-group ${kind}`}><header><div>{kind === 'video' ? <Video size={16} /> : <ImageIcon size={16} />}<strong>{kind === 'video' ? '视频生成 API' : '图片生成 API'}</strong></div><small>{kind === 'video' ? '用于分镜视频与画布视频节点' : '用于美术、资产与画布图片节点'}</small></header><div className="media-api-group-list">{items.map((profile) => {
+      const activeId = kind === 'video' ? state.activeVideoApiId : state.activeImageApiId;
+      return <div key={profile.id} className={`media-api-item${profile.id === activeId ? ' active' : ''}`}><span className="kind">{kind === 'video' ? <Video size={14} /> : <ImageIcon size={14} />}</span><span className="name">{profile.name}<small>{profile.model || profile.endpoint}</small></span>{profile.id === activeId ? <b>使用中</b> : <button onClick={() => setState((s) => setActiveMediaApi(s, kind, profile.id))}>启用</button>}<button onClick={() => { setEditingId(profile.id); setForm({ kind: profile.kind, name: profile.name, endpoint: profile.endpoint, model: profile.model, apiKey: profile.apiKey || '' }); }}>编辑</button><button className="danger" onClick={() => setState((s) => removeMediaProfile(s, profile.id))}><Trash2 size={13} /></button></div>;
+    })}{!items.length && <div className="media-api-empty">暂未配置{kind === 'video' ? '视频' : '图片'}生成 API</div>}</div></section>;
+  };
   return (
     <Dialog open title="画布生成接口设置" onClose={onClose}>
       <div className="media-api-settings">
@@ -41,30 +48,14 @@ export function MediaApiSettings({ state, setState, onClose }) {
           <input placeholder="API Key" type="password" value={form.apiKey} onChange={update('apiKey')} />
           <button className="primary" onClick={save}><Save size={14} /> {editingId ? '保存修改' : '添加接口'}</button>
         </div>
-        <div className="media-api-list">
-          {profiles.map((profile) => {
-            const activeId = profile.kind === 'video' ? state.activeVideoApiId : state.activeImageApiId;
-            return (
-              <div key={profile.id} className={`media-api-item${profile.id === activeId ? ' active' : ''}`}>
-                <span className="kind">{profile.kind === 'video' ? <Video size={14} /> : <ImageIcon size={14} />}</span>
-                <span className="name">{profile.name}<small>{profile.model || profile.endpoint}</small></span>
-                {profile.id === activeId
-                  ? <b>使用中</b>
-                  : <button onClick={() => setState((s) => setActiveMediaApi(s, profile.kind, profile.id))}>启用</button>}
-                <button onClick={() => { setEditingId(profile.id); setForm({ kind: profile.kind, name: profile.name, endpoint: profile.endpoint, model: profile.model, apiKey: profile.apiKey }); }}>编辑</button>
-                <button className="danger" onClick={() => setState((s) => removeMediaProfile(s, profile.id))}><Trash2 size={13} /></button>
-              </div>
-            );
-          })}
-          {!profiles.length && <div className="media-api-empty">还没有配置生成接口。填写上方表单添加图片或视频生成 API。</div>}
-        </div>
+        <div className="media-api-list">{renderProfiles('image')}{renderProfiles('video')}</div>
       </div>
     </Dialog>
   );
 }
 
 /* ---------------- 画布节点 ---------------- */
-function CanvasNode({ node, scale, selected, imageNodes, onSelect, onMove, onUpdate, onRemove, onGenerate, onImport, onExport }) {
+function CanvasNode({ node, scale, selected, imageNodes, videoCapabilities, onSelect, onMove, onUpdate, onRemove, onGenerate, onImport, onExport }) {
   const dragRef = useRef(null);
   const startDrag = (event) => {
     if (event.button !== 0) return;
@@ -118,15 +109,18 @@ function CanvasNode({ node, scale, selected, imageNodes, onSelect, onMove, onUpd
         <div className="node-params">
           {node.type === 'image' ? (
             <select value={node.params.size} onChange={(event) => onUpdate(node.id, { params: { ...node.params, size: event.target.value } })}>
-              {IMAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+              {IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}
             </select>
           ) : (
             <>
               <select value={node.params.ratio} onChange={(event) => onUpdate(node.id, { params: { ...node.params, ratio: event.target.value } })}>
-                {VIDEO_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
+                {videoCapabilities.ratios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
               </select>
               <select value={node.params.duration} onChange={(event) => onUpdate(node.id, { params: { ...node.params, duration: Number(event.target.value) } })}>
-                {VIDEO_DURATIONS.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
+                {videoCapabilities.durations.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
+              </select>
+              <select value={node.params.resolution || videoCapabilities.resolutions[0]} onChange={(event) => onUpdate(node.id, { params: { ...node.params, resolution: event.target.value } })}>
+                {videoCapabilities.resolutions.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
               </select>
               <select value={node.params.firstFrameNodeId || ''} onChange={(event) => onUpdate(node.id, { params: { ...node.params, firstFrameNodeId: event.target.value } })} title="选择一个图片节点作为首帧">
                 <option value="">无首帧</option>
@@ -155,6 +149,8 @@ export function CanvasWorkspace({ state, setState, api }) {
 
   const canvases = state.canvases || [];
   const canvas = canvases.find((c) => c.id === state.activeCanvasId) || canvases[0] || null;
+  const activeVideoProfile = activeMediaProfile(state, 'video');
+  const videoCapabilities = videoModelCapabilities(activeVideoProfile?.model);
 
   useEffect(() => {
     if (!canvases.length) setState((s) => (s.canvases || []).length ? s : createCanvas(s, '画布 1'));
@@ -219,7 +215,7 @@ export function CanvasWorkspace({ state, setState, api }) {
         const firstFrameNode = node.params.firstFrameNodeId ? canvas.nodes.find((n) => n.id === node.params.firstFrameNodeId) : null;
         result = await api.mediaGenerateVideo({
           nodeId: node.id, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model,
-          prompt: node.prompt, ratio: node.params.ratio, duration: node.params.duration,
+          prompt: node.prompt, ratio: node.params.ratio, duration: node.params.duration, resolution: node.params.resolution,
           firstFramePath: firstFrameNode?.mediaFile || '',
         });
       }
@@ -279,6 +275,7 @@ export function CanvasWorkspace({ state, setState, api }) {
               scale={view.scale}
               selected={node.id === selectedId}
               imageNodes={imageNodes}
+              videoCapabilities={videoCapabilities}
               onSelect={setSelectedId}
               onMove={(nodeId, position) => setState((s) => updateCanvasNode(s, canvas.id, nodeId, position))}
               onUpdate={(nodeId, updates) => setState((s) => updateCanvasNode(s, canvas.id, nodeId, updates))}
