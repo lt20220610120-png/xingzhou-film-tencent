@@ -55,18 +55,19 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
 }
 
 // ---------- 视频生成（火山方舟 Seedance 任务式 API，同时兼容一次性返回） ----------
-function buildVideoContent({ prompt, ratio, duration, resolution, firstFrameDataUrl, firstFrameUrl }) {
+function buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, firstFrameDataUrl, firstFrameUrl }) {
   let text = prompt.trim();
   if (ratio) text += ` --ratio ${ratio}`;
   if (duration) text += ` --duration ${duration}`;
   if (resolution) text += ` --resolution ${resolution}`;
+  if (typeof audioEnabled === 'boolean') text += ` --audio ${audioEnabled ? 'on' : 'off'}`;
   const content = [{ type: 'text', text }];
   const frame = firstFrameDataUrl || firstFrameUrl;
   if (frame) content.push({ type: 'image_url', image_url: { url: frame }, role: 'first_frame' });
   return content;
 }
 
-async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, firstFramePath, firstFrameUrl, destDir, onStatus = () => {} }) {
+async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, destDir, onStatus = () => {} }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置视频生成 API');
   if (!prompt?.trim()) throw new Error('请填写视频描述');
   const base = normalizeBase(endpoint);
@@ -77,7 +78,7 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   const createResponse = await fetch(`${base}/contents/generations/tasks`, {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ model: model?.trim() || undefined, content: buildVideoContent({ prompt, ratio, duration, resolution, firstFrameDataUrl, firstFrameUrl }) }),
+    body: JSON.stringify({ model: model?.trim() || undefined, audio: audioEnabled, content: buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, firstFrameDataUrl, firstFrameUrl }) }),
     signal: AbortSignal.timeout(120000),
   });
   const created = await readJson(createResponse);
