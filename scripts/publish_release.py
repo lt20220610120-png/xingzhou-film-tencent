@@ -31,7 +31,7 @@ def req(url, method='GET', data=None, content_type=None):
         headers['Content-Type'] = content_type
     r = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        resp = urllib.request.urlopen(r, timeout=60)
+        resp = urllib.request.urlopen(r, timeout=600)
         return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()

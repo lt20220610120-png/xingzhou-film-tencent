@@ -1,5 +1,5 @@
 {
-  "version": "1.8.8",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.8.8/Xingzhou-Film-Setup-1.8.8.exe",
-  "notes": "修复部分用户下载安装后白屏；增加软件渲染兼容、renderer崩溃恢复、旧数据归一化和账号会话容错。"
+  "version": "1.9.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.9.0/Xingzhou-Film-Setup-1.9.0.exe",
+  "notes": "项目协作搜索、导演工作台项目/分组搜索；道具纯白背景提示词；提示词修改与后台分析停止；多图并发生图、统计导出和缓存清理；无限画布升级至 v0.15.1；恢复公开账号注册、邮箱验证码与找回账号。"
 }
