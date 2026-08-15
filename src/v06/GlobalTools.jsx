@@ -9,6 +9,7 @@ import { API_PROVIDERS } from '../../core/apiProviders.js';
 import { buildSkillFromDirectory, buildSkillFromDocument } from '../../core/skillImport.js';
 import { buildSkillContext, buildSkillManifest } from '../../core/skillContext.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
+import { MediaApiSettings } from './CanvasWorkspace.jsx';
 
 /* ================================================================
  * BrandLogo - 行舟影视品牌标识
@@ -402,6 +403,7 @@ export function ApiForm({ initial = {}, onSave, onCancel }) {
  * ================================================================ */
 export function ApiLibrary({ state, setState }) {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [mediaDialogOpen, setMediaDialogOpen] = useState(false);
   const [editingApi, setEditingApi] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
@@ -438,14 +440,19 @@ export function ApiLibrary({ state, setState }) {
       <header>
         <span className="eyebrow">工具配置 · API 接口</span>
         <h1>API 接口</h1>
-        <p>连接语言模型 API，在创作助手和导演工作台中使用。</p>
+        <p>统一管理语言模型和图片/视频生成 API；生图配置会同步用于画布、项目协作的美术与资产。</p>
       </header>
 
       <div className="resource-grid">
         <button className="resource-card resource-add" onClick={() => { setEditingApi(null); setDialogOpen(true); }}>
           <div className="resource-icon"><Plus /></div>
           <h3>添加 API</h3>
-          <p>配置新的 API 连接</p>
+          <p>配置新的语言模型 API</p>
+        </button>
+        <button className="resource-card resource-add" onClick={() => setMediaDialogOpen(true)}>
+          <div className="resource-icon"><Sparkles /></div>
+          <h3>添加生图 / 视频 API</h3>
+          <p>供画布、项目协作美术与资产共用</p>
         </button>
 
         {apiProfiles.map((api) => (
@@ -480,6 +487,7 @@ export function ApiLibrary({ state, setState }) {
           onCancel={() => { setDialogOpen(false); setEditingApi(null); }}
         />
       </Dialog>
+      {mediaDialogOpen && <MediaApiSettings state={state} setState={setState} onClose={() => setMediaDialogOpen(false)} />}
 
       {/* 删除确认 */}
       <DeleteConfirm

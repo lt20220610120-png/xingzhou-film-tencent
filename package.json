@@ -1,7 +1,7 @@
 {
   "name": "xingzhou-film",
   "productName": "行舟影视",
-  "version": "1.2.7",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -31,11 +31,13 @@
     "appId": "com.xingzhou.film",
     "productName": "行舟影视",
     "directories": {
-      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-v123"
+      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-v190"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "core/**/*",
+      "canvas-app/**/*",
       "build/icon.ico",
       "package.json"
     ],

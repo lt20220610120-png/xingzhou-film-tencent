@@ -1,0 +1,154 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8';
+const corsHeaders = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, x-client-info, apikey, content-type','Access-Control-Allow-Methods':'POST, OPTIONS'};
+const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{...corsHeaders,'Content-Type':'application/json'}});
+const bearer=(r)=>{const v=r.headers.get('Authorization')||'';return v.startsWith('Bearer ')?v.slice(7):''};
+const hash=async(s)=>{const input=s instanceof Uint8Array?s:new TextEncoder().encode(String(s));const b=await crypto.subtle.digest('SHA-256',input);return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')};
+const token=()=>crypto.randomUUID()+'-'+crypto.randomUUID();
+const publicFields='id,username,display_name,email,roles,active_role,is_admin,is_producer,banned,created_at';
+const passwordOk=async(p,stored)=>{const [salt,expected]=String(stored||'').split(':');if(!salt||!expected)return false;const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(p),'PBKDF2',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:120000,hash:'SHA-256'},k,256);return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('')===expected};
+const requireBodyString=(v)=>String(v||'').trim();
+const PROJECT_LOCK_SENTINEL='[PROJECT_LOCKED]';
+const DIRECTOR_PROJECT_SENTINEL='[DIRECTOR_PROJECT]';
+const COLLAB_PROJECT_SENTINEL='[COLLAB_PROJECT]';
+const collabSource=(genre)=>String(genre||'').match(/\[COLLAB_SOURCE:([^\]]+)\]/)?.[1]||'';
+const stripInternalGenre=(genre)=>String(genre||'').replace(/\n?\[(?:COLLAB_PROJECT|COLLAB_SOURCE:[^\]]+|DIRECTOR_PROJECT)\]/g,'').trim();
+const isCollabProject=(project)=>String(project?.genre||'').includes(COLLAB_PROJECT_SENTINEL)||(!String(project?.genre||'').includes(DIRECTOR_PROJECT_SENTINEL)&&!project?.analysis_output);
+const isDirectorProject=(project)=>String(project?.genre||'').includes(DIRECTOR_PROJECT_SENTINEL)&&Boolean(project?.analysis_output);
+const validCollabRole=(role)=>['artist','collaborator','artist_collaborator'].includes(role)?role:'artist';
+const mergeCollabRole=(current,next)=>current===next?current:([current,next].includes('artist_collaborator')?'artist_collaborator':(['artist','collaborator'].includes(current)&&['artist','collaborator'].includes(next)?'artist_collaborator':next));
+const RECYCLE_SENTINEL='[RECYCLE_UNTIL:';
+Deno.serve(async(request)=>{
+  if(request.method==='OPTIONS')return new Response('ok',{headers:corsHeaders}); if(request.method!=='POST')return json({error:'method_not_allowed'},405);
+  const url=Deno.env.get('SUPABASE_URL'),key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');if(!url||!key)return json({error:'server_not_configured'},500);const db=createClient(url,key);let body;try{body=await request.json()}catch{return json({error:'invalid_json'},400)};const action=String(body.action||'session');
+  if(action==='login'){const username=requireBodyString(body.username).toLowerCase(),password=String(body.password||'');const {data:a}=await db.from('app_users').select(`${publicFields},password_hash`).eq('username',username).maybeSingle();if(!a||a.banned||!(await passwordOk(password,a.password_hash)))return json({error:'账号或密码不正确'},401);const raw=token(),e=await db.from('app_sessions').insert({user_id:a.id,token_hash:await hash(raw),expires_at:new Date(Date.now()+7*86400000).toISOString()});if(e.error)return json({error:e.error.message},500);delete a.password_hash;return json({token:raw,account:a})}
+  const raw=bearer(request);if(!raw)return json({error:'missing_bearer_token'},401);const th=await hash(raw);const {data:s}=await db.from('app_sessions').select('user_id').eq('token_hash',th).gt('expires_at',new Date().toISOString()).maybeSingle();if(!s)return json({error:'invalid_session'},401);const {data:a,error:ae}=await db.from('app_users').select(publicFields).eq('id',s.user_id).maybeSingle();if(ae||!a||a.banned)return json({error:'account_not_allowed'},403);
+  if(action==='session')return json({account:a});if(action==='logout'){await db.from('app_sessions').delete().eq('token_hash',th);return json({ok:true})};
+  const producer=Boolean(a.is_producer||a.is_admin);if(action==='producer-status')return json({isProducer:producer});
+  const recycleUntil=(genre)=>{const m=String(genre||'').match(/\[RECYCLE_UNTIL:([^\]]+)\]/);return m?.[1]||''};
+  const stripRecycle=(genre)=>String(genre||'').replace(/\n?\[RECYCLE_UNTIL:[^\]]+\]/g,'').trim();
+  const purgeExpiredProjects=async()=>{const {data}=await db.from('collab_projects').select('id,genre');const ids=(data||[]).filter(p=>recycleUntil(p.genre)&&new Date(recycleUntil(p.genre))<=new Date()).map(p=>p.id);if(ids.length)await db.from('collab_projects').delete().in('id',ids)};
+  await purgeExpiredProjects();
+  if(['project-delete','project-restore'].includes(action)){if(!producer)return json({error:'producer_required'},403);const id=requireBodyString(body.projectId);if(!id)return json({error:'project_id_required'},400);const {data:p}=await db.from('collab_projects').select('genre').eq('id',id).maybeSingle();if(!p)return json({error:'project_not_found'},404);if(action==='project-delete'){const purge=new Date(Date.now()+3*86400000).toISOString();const genre=`${stripRecycle(p.genre)}\n${RECYCLE_SENTINEL}${purge}]`.trim();const {error}=await db.from('collab_projects').update({genre,updated_at:new Date().toISOString()}).eq('id',id);return error?json({error:error.message},400):json({ok:true,purgeAfter:purge})}const until=recycleUntil(p.genre);if(!until||new Date(until)<=new Date())return json({error:'restore_window_expired'},410);const {error}=await db.from('collab_projects').update({genre:stripRecycle(p.genre),updated_at:new Date().toISOString()}).eq('id',id);return error?json({error:error.message},400):json({ok:true})}
+
+  if(action==='director-project-create'){
+    if(!producer)return json({error:'producer_required'},403);const directorId=requireBodyString(body.directorProjectId);if(!directorId)return json({error:'director_project_id_required'},400);
+    const {data:existing}=await db.from('collab_projects').select('*').eq('owner_id',a.id).eq('analysis_output',directorId).maybeSingle();if(existing)return json({...existing,myRole:'producer'});
+    const name=requireBodyString(body.name);const {data:p,error}=await db.from('collab_projects').insert({name,owner_id:a.id,owner_name:a.display_name||a.username,script:String(body.script||''),episodes:Array.isArray(body.episodes)?body.episodes:[],analysis_output:directorId,genre:DIRECTOR_PROJECT_SENTINEL}).select('*').single();if(error)return json({error:error.message},400);await db.from('collab_members').insert({project_id:p.id,user_id:a.id,username:a.username,display_name:a.display_name||a.username,role:'producer'});return json({...p,myRole:'producer'});
+  }
+  if(action==='director-project-list'){
+    const {data:m}=await db.from('collab_members').select('project_id,role').eq('user_id',a.id);const ids=(m||[]).map(x=>x.project_id);if(!ids.length)return json([]);const {data:rows,error}=await db.from('collab_projects').select('*').in('id',ids).order('updated_at',{ascending:false});if(error)return json({error:error.message},400);const visible=(rows||[]).filter(isDirectorProject);
+    const canonical=[];const seen=new Set();
+    for(const seed of visible||[]){if(seen.has(seed.analysis_output))continue;seen.add(seed.analysis_output);const {data:copies}=await db.from('collab_projects').select('*').eq('owner_id',seed.owner_id).eq('analysis_output',seed.analysis_output).order('created_at',{ascending:true});const all=copies||[seed],target=all[0];const duplicateIds=all.slice(1).map(x=>x.id);if(duplicateIds.length){const {data:members}=await db.from('collab_members').select('*').in('project_id',all.map(x=>x.id));for(const member of members||[]){const {data:exists}=await db.from('collab_members').select('id').eq('project_id',target.id).eq('user_id',member.user_id).maybeSingle();if(!exists)await db.from('collab_members').insert({project_id:target.id,user_id:member.user_id,username:member.username,display_name:member.display_name,role:member.role==='producer'?'producer':'collaborator'})}await db.from('collab_projects').delete().in('id',duplicateIds)}const {data:mine}=await db.from('collab_members').select('role').eq('project_id',target.id).eq('user_id',a.id).maybeSingle();const {data:linked}=await db.from('collab_projects').select('id,genre').ilike('genre',`%${COLLAB_PROJECT_SENTINEL}%`);const collaborationLinked=(linked||[]).some(project=>collabSource(project.genre)===target.analysis_output&&!recycleUntil(project.genre));if(mine)canonical.push({...target,myRole:mine.role,locked:String(target.genre||'').includes(PROJECT_LOCK_SENTINEL),collaborationLinked})}
+    return json(canonical);
+  }
+  if(action==='director-project-delete'){
+    const id=requireBodyString(body.projectId);if(!id)return json({error:'project_id_required'},400);
+    const {data:m}=await db.from('collab_members').select('role').eq('project_id',id).eq('user_id',a.id).maybeSingle();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);
+    const {data:p,error:readError}=await db.from('collab_projects').select('analysis_output,genre').eq('id',id).maybeSingle();if(readError)return json({error:readError.message},400);if(!isDirectorProject(p))return json({error:'director_project_not_found'},404);const {data:linked}=await db.from('collab_projects').select('id,genre');if((linked||[]).some(project=>collabSource(project.genre)===p.analysis_output&&!recycleUntil(project.genre)))return json({error:'director_project_in_use'},409);
+    const {error}=await db.from('collab_projects').delete().eq('id',id);return error?json({error:error.message},400):json({ok:true,projectId:id,isolated:true});
+  }
+  if(action==='project-create'){
+    if(!producer)return json({error:'producer_required'},403);
+    const name=requireBodyString(body.name);if(!name)return json({error:'project_name_required'},400);
+    const sourceId=requireBodyString(body.directorProjectId);const marker=`${COLLAB_PROJECT_SENTINEL}${sourceId?`\n[COLLAB_SOURCE:${sourceId}]`:''}`;const {data:p,error:pe}=await db.from('collab_projects').insert({name,owner_id:a.id,owner_name:a.display_name||a.username,script:String(body.script||''),episodes:Array.isArray(body.episodes)?body.episodes:[],analysis_output:'',genre:marker}).select('*').single();
+    if(pe)return json({error:pe.message},400);
+    const me=await db.from('collab_members').insert({project_id:p.id,user_id:a.id,username:a.username,display_name:a.display_name||a.username,role:'producer'});
+    if(me.error){await db.from('collab_projects').delete().eq('id',p.id);return json({error:me.error.message},400)}
+    return json({...p,myRole:'producer'});
+  }
+  if(action==='project-list'){
+    const {data:m,error:me}=await db.from('collab_members').select('project_id,role').eq('user_id',a.id);if(me)return json({error:me.message},400);
+    const ids=(m||[]).map(x=>x.project_id);if(!ids.length)return json([]);
+    const {data:ps,error:pe}=await db.from('collab_projects').select('*').in('id',ids).order('updated_at',{ascending:false});if(pe)return json({error:pe.message},400);
+    return json((ps||[]).filter(isCollabProject).map(p=>{const until=recycleUntil(p.genre);return {...p,genre:stripInternalGenre(p.genre),director_project_id:collabSource(p.genre),myRole:(m||[]).find(x=>x.project_id===p.id)?.role||'',deleted_at:until?new Date(new Date(until).getTime()-3*86400000).toISOString():null,purge_after:until||null}}));
+  }
+  if(action==='project-get'){
+    const id=requireBodyString(body.projectId);const {data:m}=await db.from('collab_members').select('role').eq('project_id',id).eq('user_id',a.id).maybeSingle();if(!m)return json({error:'project_access_denied'},403);
+    const {data:p,error:pe}=await db.from('collab_projects').select('*').eq('id',id).maybeSingle();return pe?json({error:pe.message},400):p&&isCollabProject(p)?json({...p,genre:stripInternalGenre(p.genre),director_project_id:collabSource(p.genre),myRole:m.role}):json({error:'project_not_found'},404);
+  }
+  if(action==='assets-list'){
+    const id=requireBodyString(body.projectId);const {data:m}=await db.from('collab_members').select('id').eq('project_id',id).eq('user_id',a.id).maybeSingle();if(!m)return json({error:'project_access_denied'},403);
+    const [assetResult,imageResult]=await Promise.all([db.from('collab_assets').select('*').eq('project_id',id).order('category').order('name'),db.from('collab_media').select('*').eq('project_id',id).eq('kind','asset-image').order('created_at',{ascending:true})]);if(assetResult.error||imageResult.error)return json({error:assetResult.error?.message||imageResult.error?.message},400);const images=imageResult.data||[];return json((assetResult.data||[]).map(asset=>({...asset,images:images.filter(image=>image.asset_id===asset.id)})));
+  }
+  const projectId=requireBodyString(body.projectId);
+  const membership=async(id=projectId)=>{const {data}=await db.from('collab_members').select('*').eq('project_id',id).eq('user_id',a.id).maybeSingle();return data};
+  const projectLocked=async()=>{const {data}=await db.from('collab_projects').select('genre').eq('id',projectId).maybeSingle();return String(data?.genre||'').includes(PROJECT_LOCK_SENTINEL)};
+  if(action==='project-link-director'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'producer_required'},403);if(await projectLocked())return json({error:'project_locked'},423);const directorProjectId=requireBodyString(body.directorProjectId);if(!directorProjectId)return json({error:'director_project_id_required'},400);const {data:p,error:readError}=await db.from('collab_projects').select('genre').eq('id',projectId).maybeSingle();if(readError||!p||!isCollabProject(p))return json({error:readError?.message||'project_not_found'},404);const clean=String(p.genre||'').replace(/\n?\[COLLAB_SOURCE:[^\]]+\]/g,'').trim();const genre=`${clean}\n[COLLAB_SOURCE:${directorProjectId}]`;const {data,error}=await db.from('collab_projects').update({genre,updated_at:new Date().toISOString()}).eq('id',projectId).select('*').single();return error?json({error:error.message},400):json({...data,genre:stripInternalGenre(data.genre),director_project_id:directorProjectId,myRole:m.role});
+  }
+  if(action==='director-project-get'){const m=await membership();if(!m)return json({error:'project_access_denied'},403);const {data,error}=await db.from('collab_projects').select('*').eq('id',projectId).maybeSingle();return error?json({error:error.message},400):data&&isDirectorProject(data)?json({...data,myRole:m.role,locked:String(data?.genre||'').includes(PROJECT_LOCK_SENTINEL)}):json({error:'director_project_not_found'},404)}
+  if(action==='director-project-update'){const m=await membership();if(!m)return json({error:'project_access_denied'},403);const {data:domain}=await db.from('collab_projects').select('genre,analysis_output').eq('id',projectId).maybeSingle();if(!isDirectorProject(domain))return json({error:'director_project_not_found'},404);if(await projectLocked())return json({error:'project_locked'},423);const u=body.updates||{},allowed={};for(const k of ['name','style','script','episodes'])if(k in u)allowed[k]=u[k];allowed.updated_at=new Date().toISOString();const {data,error}=await db.from('collab_projects').update(allowed).eq('id',projectId).select('*').single();return error?json({error:error.message},400):json({...data,myRole:m.role})}
+  if(action==='director-members-list'){const m=await membership();if(!m)return json({error:'project_access_denied'},403);const {data:domain}=await db.from('collab_projects').select('genre,analysis_output').eq('id',projectId).maybeSingle();if(!isDirectorProject(domain))return json({error:'director_project_not_found'},404);const {data,error}=await db.from('collab_members').select('*').eq('project_id',projectId).order('created_at');return error?json({error:error.message},400):json(data||[])}
+  if(action==='director-member-add'){const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const {data:domain}=await db.from('collab_projects').select('genre,analysis_output').eq('id',projectId).maybeSingle();if(!isDirectorProject(domain))return json({error:'director_project_not_found'},404);const {data:u}=await db.from('app_users').select('id,username,display_name').eq('username',requireBodyString(body.username).toLowerCase()).maybeSingle();if(!u)return json({error:'用户不存在，请先让对方注册'},404);const {data:existing}=await db.from('collab_members').select('*').eq('project_id',projectId).eq('user_id',u.id).maybeSingle();if(existing)return json(existing);const {data,error}=await db.from('collab_members').insert({project_id:projectId,user_id:u.id,username:u.username,display_name:u.display_name||u.username,role:'collaborator'}).select('*').single();return error?json({error:error.message},400):json(data)}
+  if(action==='director-member-remove'){const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const {data:domain}=await db.from('collab_projects').select('genre,analysis_output').eq('id',projectId).maybeSingle();if(!isDirectorProject(domain))return json({error:'director_project_not_found'},404);const {error}=await db.from('collab_members').delete().eq('id',body.memberId).eq('project_id',projectId).neq('role','producer');return error?json({error:error.message},400):json({ok:true})}
+  if(action==='project-lock'||action==='director-project-lock'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const {data:p}=await db.from('collab_projects').select('genre').eq('id',projectId).single();const base=String(p?.genre||'').replace(PROJECT_LOCK_SENTINEL,'').trim();const genre=body.locked?`${base}${base?'\n':''}${PROJECT_LOCK_SENTINEL}`:base;const {data,error}=await db.from('collab_projects').update({genre,updated_at:new Date().toISOString()}).eq('id',projectId).select('*').single();return error?json({error:error.message},400):json({...data,myRole:m.role,locked:Boolean(body.locked)});
+  }
+  if(['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send','upload-media'].includes(action)&&await projectLocked())return json({error:'project_locked'},423);
+  if(action==='project-update'){
+    const m=await membership();if(!m)return json({error:'project_access_denied'},403);if(await projectLocked())return json({error:'project_locked'},423);const updates=body.updates||{},scope=String(body.scope||'');if(scope==='director-sync'&&m.role!=='producer')return json({error:'producer_required'},403);if(scope==='storyboard'&&!['producer','collaborator','artist_collaborator'].includes(m.role))return json({error:'permission_denied'},403);const allowed={};const keys=scope==='director-sync'?['script','episodes']:scope==='storyboard'?['episodes']:['name','style','genre','script','analysis_output','episodes'];for(const k of keys)if(k in updates)allowed[k]=updates[k];if('genre'in allowed){const {data:old}=await db.from('collab_projects').select('genre').eq('id',projectId).single();const source=collabSource(old?.genre);allowed.genre=`${allowed.genre||''}\n${COLLAB_PROJECT_SENTINEL}${source?`\n[COLLAB_SOURCE:${source}]`:''}`.trim()}allowed.updated_at=new Date().toISOString();const {data,error}=await db.from('collab_projects').update(allowed).eq('id',projectId).select('*').single();return error?json({error:error.message},400):json({...data,genre:stripInternalGenre(data.genre),director_project_id:collabSource(data.genre),myRole:m.role});
+  }
+  if(action==='assets-replace'){
+    const m=await membership();if(!m||!['producer','artist','artist_collaborator'].includes(m.role))return json({error:'permission_denied'},403);const rows=(body.assets||[]).map(x=>({...x,project_id:projectId}));const {data,error}=rows.length?await db.from('collab_assets').upsert(rows,{onConflict:'project_id,name'}).select('*'):{data:[],error:null};return error?json({error:error.message},400):json(data||[]);
+  }
+  if(action==='asset-create'){
+    const m=await membership();if(!m||!['producer','artist','artist_collaborator'].includes(m.role))return json({error:'permission_denied'},403);const name=requireBodyString(body.name);const category=['character','scene','prop'].includes(body.category)?body.category:'prop';const episodes=[...new Set((body.episodes||[]).map(Number).filter(Number.isInteger).filter(x=>x>0))];if(!name||!episodes.length)return json({error:'asset_name_and_episode_required'},400);const {data,error}=await db.from('collab_assets').insert({project_id:projectId,name,category,episodes,first_episode:episodes[0],description:String(body.description||''),updated_by:a.username}).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='admin-set-producer'){
+    if(!a.is_admin)return json({error:'admin_required'},403);const {error}=await db.from('app_users').update({is_producer:Boolean(body.isProducer)}).eq('id',body.userId);return error?json({error:error.message},400):json({ok:true});
+  }
+  if(action==='asset-update'){
+    const m=await membership();if(!m||!['producer','artist','artist_collaborator'].includes(m.role))return json({error:'permission_denied'},403);const updates={...(body.updates||{}),updated_at:new Date().toISOString()};const {data,error}=await db.from('collab_assets').update(updates).eq('id',body.assetId).eq('project_id',projectId).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='asset-image-record'){
+    const m=await membership();if(!m||!['producer','artist','artist_collaborator'].includes(m.role))return json({error:'permission_denied'},403);const {data,error}=await db.from('collab_media').insert({project_id:projectId,asset_id:body.assetId,episode:Number(body.episode||0),kind:'asset-image',url:String(body.url||''),object_path:String(body.objectPath||''),filename:String(body.filename||''),mime:String(body.mime||''),note:String(body.note||''),user_id:a.id,username:a.username}).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='asset-image-delete'){
+    const m=await membership();if(!m||!['producer','artist','artist_collaborator'].includes(m.role))return json({error:'permission_denied'},403);const {data:row}=await db.from('collab_media').select('object_path').eq('id',body.imageId).eq('project_id',projectId).eq('kind','asset-image').maybeSingle();if(row?.object_path)await db.storage.from('collab').remove([row.object_path]);const {error}=await db.from('collab_media').delete().eq('id',body.imageId).eq('project_id',projectId).eq('kind','asset-image');return error?json({error:error.message},400):json({ok:true});
+  }
+  if(action==='asset-images-clear'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const {data:rows}=await db.from('collab_media').select('object_path').eq('project_id',projectId).eq('kind','asset-image');const paths=(rows||[]).map(row=>row.object_path).filter(Boolean);if(paths.length)await db.storage.from('collab').remove(paths);const {error}=await db.from('collab_media').delete().eq('project_id',projectId).eq('kind','asset-image');return error?json({error:error.message},400):json({ok:true,deleted:paths.length});
+  }
+  if(action==='admin-list-users'||action==='admin-list-invites'){
+    if(!a.is_admin)return json({error:'admin_required'},403);const table=action==='admin-list-users'?'app_users':'invites';const fields=table==='app_users'?publicFields:'id,code,kind,role,used_count,max_uses,disabled,note,created_at';const {data,error}=await db.from(table).select(fields).order('created_at',{ascending:false});if(error)return json({error:error.message},400);if(table==='app_users')return json((data||[]).map(x=>({...x,displayName:x.display_name,isAdmin:x.is_admin,isProducer:x.is_producer,createdAt:x.created_at})));return json(data||[]);
+  }
+  if(action==='admin-create-invite'){
+    if(!a.is_admin)return json({error:'admin_required'},403);const code='XZ-'+crypto.randomUUID().replaceAll('-','').slice(0,12).toUpperCase();const row={code,digest:await hash(code),kind:body.kind||'role',role:body.role||null,note:body.note||'',max_uses:body.kind==='unlock'?null:1};const {data,error}=await db.from('invites').insert(row).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='admin-disable-invite'||action==='admin-set-banned'||action==='admin-delete-user'){
+    if(!a.is_admin)return json({error:'admin_required'},403);const table=action==='admin-disable-invite'?'invites':'app_users';const id=body.inviteId||body.userId;if(action==='admin-delete-user'){const {error}=await db.from(table).delete().eq('id',id);return error?json({error:error.message},400):json({ok:true})}const {error}=await db.from(table).update(action==='admin-disable-invite'?{disabled:Boolean(body.disabled)}:{banned:Boolean(body.banned)}).eq('id',id);return error?json({error:error.message},400):json({ok:true});
+  }
+  if(action==='stats-get'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const [members,activity,media]=await Promise.all([db.from('collab_members').select('*').eq('project_id',projectId),db.from('collab_activity').select('*').eq('project_id',projectId).order('created_at',{ascending:false}).limit(500),db.from('collab_media').select('kind').eq('project_id',projectId)]);return json({members:members.data||[],activity:activity.data||[],media:media.data||[]});
+  }
+  if(['members-list','tasks-list','media-list','messages-list'].includes(action)){
+    const m=await membership();if(!m)return json({error:'project_access_denied'},403);
+    const table={ 'members-list':'collab_members','tasks-list':'collab_tasks','media-list':'collab_media','messages-list':'collab_messages' }[action];let q=db.from(table).select('*').eq('project_id',projectId).order('created_at',{ascending:true});if(action==='messages-list'&&body.afterId)q=q.gt('id',Number(body.afterId));if(action==='media-list'&&body.episode)q=q.eq('episode',Number(body.episode));const {data,error}=await q;return error?json({error:error.message},400):json(data||[]);
+  }
+
+  if(action==='message-send'){
+    const m=await membership();if(!m)return json({error:'project_access_denied'},403);const {data,error}=await db.from('collab_messages').insert({project_id:projectId,user_id:a.id,username:a.username,content:String(body.content||''),image_url:String(body.imageUrl||'')}).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='media-record'){
+    const m=await membership();if(!m)return json({error:'project_access_denied'},403);const {data,error}=await db.from('collab_media').insert({project_id:projectId,episode:Number(body.episode||0),scene:String(body.scene||''),kind:String(body.kind||'video'),url:String(body.url||''),note:String(body.note||''),user_id:a.id,username:a.username}).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='task-assign'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const {data,error}=await db.from('collab_tasks').insert({project_id:projectId,episode:Number(body.episode||0),title:String(body.title||''),assignee_id:body.memberUserId,assignee_name:String(body.memberName||''),status:'进行中'}).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='task-update'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const updates={...(body.updates||{})};if(updates.status==='已完成')updates.done_at=new Date().toISOString();else if(updates.status)updates.done_at=null;const {data,error}=await db.from('collab_tasks').update(updates).eq('id',body.taskId).eq('project_id',projectId).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='member-add'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const {data:u}=await db.from('app_users').select('id,username,display_name').eq('username',String(body.username||'').trim().toLowerCase()).maybeSingle();if(!u)return json({error:'用户不存在，请先让对方注册'},404);const role=validCollabRole(body.role);const {data:existing}=await db.from('collab_members').select('*').eq('project_id',projectId).eq('user_id',u.id).maybeSingle();if(existing){if(existing.role==='producer')return json(existing);const {data,error}=await db.from('collab_members').update({role:mergeCollabRole(existing.role,role)}).eq('id',existing.id).select('*').single();return error?json({error:error.message},400):json(data)}const {data,error}=await db.from('collab_members').insert({project_id:projectId,user_id:u.id,username:u.username,display_name:u.display_name||u.username,role}).select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='member-role'||action==='member-remove'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);if(action==='member-remove'){const {error}=await db.from('collab_members').delete().eq('id',body.memberId).eq('project_id',projectId).neq('role','producer');return error?json({error:error.message},400):json({ok:true})}const {data,error}=await db.from('collab_members').update({role:validCollabRole(body.role)}).eq('id',body.memberId).eq('project_id',projectId).neq('role','producer').select('*').single();return error?json({error:error.message},400):json(data);
+  }
+  if(action==='upload-media'){
+    const m=await membership();if(!m)return json({error:'project_access_denied'},403);const bytes=Uint8Array.from(atob(String(body.content||'')),c=>c.charCodeAt(0));const objectPath=`${projectId}/${String(body.key||crypto.randomUUID())}`;const {error}=await db.storage.from('collab').upload(objectPath,bytes,{contentType:body.mime||'application/octet-stream',upsert:true});if(error)return json({error:error.message},400);const {data}=db.storage.from('collab').getPublicUrl(objectPath);return json({url:data.publicUrl,objectPath});
+  }
+  if(action==='media-delete'||action==='task-delete'){
+    const m=await membership();if(!m||m.role!=='producer')return json({error:'permission_denied'},403);const table=action==='media-delete'?'collab_media':'collab_tasks';const id=body.mediaId||body.taskId;const {error}=await db.from(table).delete().eq('id',id).eq('project_id',projectId);return error?json({error:error.message},400):json({ok:true});
+  }
+  return json({error:'unsupported_action'},400);
+});

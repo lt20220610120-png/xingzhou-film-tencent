@@ -1,0 +1,113 @@
+/* 行舟影视 · 海洋航线主题
+   视觉母题：深海航行控制台。深海蓝作为结构，泡沫白承载内容，珊瑚色只标记关键动作。
+   Signature：主内容区顶部的一条“航线/潮汐线”，回应行舟品牌而不干扰工作。 */
+:root{
+  --ocean-abyss:#062d46;
+  --ocean-trench:#0b5470;
+  --ocean-current:#147f98;
+  --ocean-foam:#f4fbfc;
+  --ocean-coral:#ff8a66;
+  --ocean-sand:#d9c7a1;
+  --ocean-violet:#7867ee;
+  --sea-caustic:rgba(195,237,241,.42);
+  --glass-edge:rgba(255,255,255,.5);
+  --text-safe:rgba(247,253,253,.96);
+  --paper:#eff8fa;
+  --surface:#ffffff;
+  --ink:#123449;
+  --muted:#668494;
+  --line:#cfe2e7;
+  --deep:#07536c;
+  --green:#0e8196;
+  --jade:#def3f5;
+  --gold:#e18a5f;
+  --danger:#bd5260;
+  --shadow:0 22px 58px rgba(4,58,78,.14);
+}
+body{background:radial-gradient(circle at 78% -10%,rgba(87,205,216,.18),transparent 34%),linear-gradient(145deg,#f8fcfc 0%,#edf8fa 58%,#eaf3f6 100%);color:var(--ink)}
+.director-cloud-manager{flex:1;min-width:0;padding:34px;overflow:auto}.director-cloud-manager>header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:24px}.director-cloud-manager>header h1{margin:5px 0 6px}.director-cloud-manager>header p{margin:0;color:#587286}.director-cloud-list{display:grid;gap:12px;max-width:1080px}.director-cloud-row{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:16px;padding:18px;border:1px solid rgba(40,159,190,.28);border-radius:16px;background:rgba(255,255,255,.76);box-shadow:0 12px 34px rgba(20,102,134,.08)}.director-cloud-row.linked{opacity:.56;filter:saturate(.65);background:rgba(222,235,240,.72)}.director-cloud-row h3{margin:0 0 5px}.director-cloud-row p{margin:0;color:#587286}.director-cloud-row small{display:block;margin-top:7px;color:#9a5b23}.director-cloud-row-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:13px;color:#1789a7;background:rgba(44,184,213,.13)}.director-cloud-row button:disabled{cursor:not-allowed;opacity:.7}
+.director-shell>.director-cloud-manager{grid-column:1/-1;width:100%;max-width:none;min-width:0}.director-cloud-manager{width:100%;max-width:none;box-sizing:border-box}.director-cloud-manager>header,.director-cloud-list{width:100%;max-width:1320px;margin-left:auto;margin-right:auto}.director-cloud-list{grid-template-columns:minmax(0,1fr)}
+@media(max-width:900px){.director-cloud-manager{padding:24px 18px}.director-cloud-manager>header{align-items:stretch;flex-direction:column}.director-cloud-manager>header .secondary{align-self:flex-start}.director-cloud-list{overflow-x:auto}.director-cloud-row{min-width:620px}}
+.prompt-locator-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.prompt-bulk-actions{display:flex;align-items:center;gap:7px}.prompt-select-wrapper{position:relative;border:1px solid transparent;border-radius:12px}.prompt-select-wrapper.selected{border-color:rgba(189,82,96,.55);background:rgba(255,239,242,.58)}.prompt-select-check{display:flex;align-items:center;gap:7px;padding:8px 10px 0;color:#9b4050;font-size:12px}.collab-shot-prompt{display:flex;flex-direction:column;gap:9px}.collab-prompt-save{align-self:flex-end}
+p,small{color:#587789}
+.app{background:transparent}
+.sidebar{background:linear-gradient(178deg,#052a43 0%,#074964 52%,#07354f 100%);border-right:1px solid rgba(149,226,232,.22);box-shadow:12px 0 38px rgba(2,34,53,.2)}
+.sidebar::after{content:"";position:absolute;left:0;right:0;bottom:0;height:34%;pointer-events:none;background:radial-gradient(ellipse at 20% 100%,rgba(40,168,185,.17),transparent 62%),repeating-radial-gradient(ellipse at 50% 115%,transparent 0 23px,rgba(165,235,237,.06) 24px 25px)}
+.sidebar>button{position:relative;z-index:1;color:#b9d8df}
+.sidebar>button:hover{background:rgba(109,211,218,.12);color:#fff}
+.sidebar>button.active{background:linear-gradient(90deg,rgba(42,176,193,.32),rgba(56,147,169,.13));box-shadow:inset 3px 0 #71d9dd;color:#fff}
+.side-bottom{position:relative;z-index:1;border-color:rgba(153,224,227,.18)}
+.brand-logo.compact small{color:#a8d2da}.nav-label{color:#88bbc5}
+.content{position:relative;isolation:isolate}
+.content::before{content:"";position:fixed;z-index:-1;pointer-events:none;left:242px;right:26px;top:20px;height:42px;opacity:.38;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 42'%3E%3Cpath d='M0 25 C145 4 235 38 382 20 S635 9 770 24 1012 34 1200 10' fill='none' stroke='%23147f98' stroke-width='1.5' stroke-dasharray='7 9'/%3E%3Ccircle cx='382' cy='20' r='4' fill='%23ff8a66'/%3E%3Ccircle cx='770' cy='24' r='3' fill='%23147f98'/%3E%3C/svg%3E") center/100% 42px no-repeat}
+.global-ai-launch{z-index:28;color:#075a72;border-color:#a8d7df;background:rgba(250,255,255,.94);box-shadow:0 10px 26px rgba(3,75,96,.18);backdrop-filter:blur(10px)}
+.global-ai-launch:hover{border-color:#51b3c1;transform:translate(-50%,-1px)}
+.primary{background:linear-gradient(135deg,#07536c,#0b788d);border-color:rgba(4,73,94,.2);box-shadow:0 7px 18px rgba(5,87,111,.14)}
+.primary:hover{background:linear-gradient(135deg,#064760,#096a7e)}
+.secondary{background:#f7fcfc;border-color:#c9e1e6;color:#17485d}
+.ghost{border-color:#c9dde2;color:#2d5a6d}
+.project-card,.resource-card,.settings-card,.prompt-card,.script-reading,.vision-compose,.master-stage{border-color:#c7dfe4;box-shadow:0 16px 42px rgba(6,72,91,.08);overflow:hidden}
+.project-card:hover,.resource-card:hover{border-color:#8bc8d1;box-shadow:0 20px 46px rgba(5,82,104,.14);transform:translateY(-2px)}
+.role-cards>button{overflow:hidden;border-color:#c7dfe4;box-shadow:0 17px 46px rgba(6,72,91,.08)}.role-cards>button::after{content:"";position:absolute;left:-8%;right:-8%;bottom:-38px;height:74px;border-radius:50%;border-top:1px solid rgba(20,127,152,.26);box-shadow:0 -12px 0 rgba(20,127,152,.05),0 -24px 0 rgba(20,127,152,.035)}.role-cards>button:hover{border-color:#7dbfca;transform:translateY(-2px);box-shadow:0 22px 52px rgba(6,72,91,.13)}
+.card-cover{background:linear-gradient(145deg,#063a57,#08748b 56%,#39b4bb);position:relative;overflow:hidden}
+.card-cover::after{content:"";position:absolute;inset:auto -12% -44% -12%;height:68%;border-radius:50%;border:1px solid rgba(222,250,250,.45);box-shadow:0 -12px 0 rgba(209,246,247,.08),0 -24px 0 rgba(209,246,247,.05)}
+.resource-icon{color:#08738a;background:linear-gradient(145deg,#e1f5f6,#edf9f8)}
+.director-rail,.studio-picker .project-list,.project-shell .episode-rail{background:linear-gradient(180deg,#ecf7f8,#e5f1f3);border-right-color:#c9e0e4}
+.director-rail>button.active,.project-shell .episode-rail nav>button.active{color:#08687d;background:#fff;box-shadow:0 8px 22px rgba(4,74,94,.09)}
+.rail-index,.eyebrow,.director-stage header span,.director-master header span{color:#08758a}
+.mode-switch,.seg{background:#e0eef1;border-color:#bad5db}
+.mode-switch button.active,.seg button.active{color:#fff;background:#096d82;box-shadow:0 4px 12px rgba(5,91,111,.18)}
+.mode-switch .director-cloud-refresh{color:#075c72;background:#f7ffff;border-color:#9bd1d8}
+.master-editor,.big-editor,.setting-editor>textarea,.creative-script-panel textarea,.creative-vision-panel textarea,.quick-scene-card textarea{border-color:#c9e0e4!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 15px 40px rgba(7,79,98,.06);caret-color:var(--ocean-coral)}
+.master-editor:focus,.big-editor:focus,.setting-editor>textarea:focus{border-color:#54aebb!important;box-shadow:0 0 0 3px rgba(48,174,188,.13),0 18px 44px rgba(5,78,98,.1)}
+.collab-rail{background:linear-gradient(180deg,#eaf6f7,#dfecef);border-color:#c8dfe3}
+.collab-rail>button.active{background:#073f57;color:#f4ffff}
+.collab-role-badge,.collab-ep-badge{color:#08677b;background:#dceff1}
+.collab-stage{background:linear-gradient(150deg,rgba(250,254,254,.85),rgba(237,247,249,.72))}
+.collab-episode-card,.collab-shot-card,.collab-info-side,.collab-image-box{border-color:#cfe1e5;background:rgba(255,255,255,.92)}
+.collab-episode-card:hover{border-color:#3f9dab;box-shadow:0 12px 28px rgba(5,81,102,.12)}
+.collab-notice{color:#116b66;background:#e4f7f2;border-color:#a9dcd3}.collab-error{color:#a43e4d;background:#fff0f0;border-color:#ecc2c7}
+button,input,textarea,select{transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease,transform .16s ease}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid rgba(255,138,102,.34);outline-offset:2px}
+@media(max-width:1050px){.content::before{left:92px}.global-ai-launch:hover{transform:none}}
+@media(prefers-reduced-motion:reduce){button,input,textarea,select{transition:none!important}.global-ai-launch:hover{transform:none}}
+
+/* 全软件海洋视觉系统：亮海面作为工作区、深海作为导航、品牌蓝紫只用于智能能力。 */
+@keyframes ocean-caustics{0%,100%{background-position:0 0,0 0}50%{background-position:34px 18px,-28px 10px}}
+.card-page,.resource-page,.library-page,.settings-page,.director-shell,.collab-shell,.canvas-workspace,.skill-library,.api-library,.admin-panel{position:relative;background:radial-gradient(ellipse at 78% 0,rgba(79,202,220,.11),transparent 32%),linear-gradient(145deg,rgba(250,254,255,.96),rgba(234,247,250,.94))}
+.card-page::before,.resource-page::before,.library-page::before,.settings-page::before,.director-shell::before,.collab-shell::before,.canvas-workspace::before,.skill-library::before,.api-library::before,.admin-panel::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.18;background-image:radial-gradient(ellipse at center,transparent 52%,rgba(38,166,186,.14) 54%,transparent 58%),radial-gradient(ellipse at center,transparent 58%,rgba(112,99,232,.09) 60%,transparent 64%);background-size:180px 88px,240px 120px;animation:ocean-caustics 18s ease-in-out infinite}
+.card-page>*,.resource-page>*,.library-page>*,.settings-page>*,.director-shell>*,.collab-shell>*,.canvas-workspace>*,.skill-library>*,.api-library>*,.admin-panel>*{position:relative;z-index:1}
+.modal,.form-dialog,.delete-confirm,.global-ai,.persistent-ai{border:1px solid rgba(164,208,220,.75);background:linear-gradient(155deg,rgba(255,255,255,.98),rgba(241,249,252,.98));box-shadow:0 30px 90px rgba(3,50,77,.24)}
+.modal h2,.form-dialog h2,.delete-confirm h2{color:#103b55}.veil,.drawer-veil{background:rgba(3,35,56,.58);backdrop-filter:blur(7px)}
+.admin-table,.admin-row,.chat-history,.chat-main,.message-markers,.collab-group-members,.collab-group-chat{border-color:#c8e0e6}.admin-row{background:rgba(255,255,255,.78)}.admin-row.head{color:#eafcff;background:linear-gradient(90deg,#063d5d,#0b7184)}
+.global-ai>header,.persistent-ai .chat-main>header{background:linear-gradient(90deg,#eff9fc,#f2efff);border-color:#c9dfe7}.global-ai header>div,.persistent-ai .chat-main>header>div{color:#405fd6}.chat-bubble.user{background:linear-gradient(135deg,#08718a,#5369dc)}.chat-bubble.assistant{background:#edf7fa;border:1px solid #d2e8ec}
+.skill-card,.api-card,.canvas-card,.settings-card{border:1px solid #c9e1e7!important;background:rgba(255,255,255,.88)!important;box-shadow:0 16px 40px rgba(5,75,99,.08)!important}.skill-card:hover,.api-card:hover,.canvas-card:hover{border-color:#7bbdca!important;transform:translateY(-2px)}
+.project-toolbar,.source-tabs,.skill-runner,.project-style-bar{border-color:#c7dfe5;background:rgba(245,252,253,.9);backdrop-filter:blur(12px)}
+.eyebrow,.panel-caption,.nav-label{letter-spacing:.14em;text-transform:uppercase}.status.done,.collab-notice{color:#08695f;background:#ddf5ef}.status:not(.done){color:#4d5dc8;background:#eceaff}
+.progress-track{background:#d6e8ec}.progress-track i{background:linear-gradient(90deg,#0c8098,#556ee6,#8a64e7)}
+.role-screen.v06{overflow:hidden;background:radial-gradient(circle at 16% 4%,rgba(111,103,238,.16),transparent 30%),radial-gradient(ellipse at 82% 82%,rgba(34,178,202,.16),transparent 42%),linear-gradient(145deg,#f9fdff 0%,#eaf7fa 62%,#edf0ff 100%)!important}.role-screen.v06::before{content:"";position:absolute;pointer-events:none;z-index:0;inset:-12%;opacity:.28;background-image:radial-gradient(ellipse 150px 38px at 18% 24%,transparent 46%,rgba(186,239,244,.9) 49%,transparent 55%),radial-gradient(ellipse 210px 54px at 70% 68%,transparent 45%,rgba(116,206,221,.58) 48%,transparent 55%),radial-gradient(ellipse 120px 30px at 86% 22%,transparent 45%,rgba(129,119,238,.34) 48%,transparent 55%);background-size:390px 230px,520px 300px,440px 260px;animation:ocean-caustic 20s ease-in-out infinite}.role-screen.v06>*{position:relative;z-index:1}.role-screen.v06 .role-copy,.role-screen.v06 .role-cards{max-width:1040px}.role-screen.v06 .role-cards>button{min-height:286px;background:linear-gradient(145deg,rgba(255,255,255,.78),rgba(231,248,251,.55));border:1px solid rgba(255,255,255,.84);box-shadow:0 20px 52px rgba(9,77,107,.14),inset 0 1px 0 #fff;backdrop-filter:blur(18px)}.role-screen.v06 .role-cards>button::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,rgba(255,255,255,.5),transparent 24% 74%,rgba(103,101,226,.08));border-radius:inherit}.role-screen.v06 .role-cards>button::after{bottom:-60px;height:92px;background:linear-gradient(90deg,transparent,rgba(89,97,225,.06),transparent)}.role-screen.v06 .role-cards>button b{display:inline-flex;margin-top:20px;padding:10px 15px;border:1px solid rgba(87,103,216,.28);border-radius:18px;background:linear-gradient(135deg,#125d82,#087f9b 58%,#5466d9);color:#fff;box-shadow:0 8px 18px rgba(22,94,132,.18)}.role-screen.v06 p{color:#36586b;font-weight:500}.role-screen.v06 .brand-logo small{color:#526d9a}.role-screen.v06 .role-cards>button>span{color:#574ed0;font-weight:700}.role-screen.v06 .role-cards>button>div{background:linear-gradient(145deg,#e5f8fa,#ecebff);color:#276c9c;box-shadow:inset 0 1px 0 #fff}
+@media(prefers-reduced-motion:reduce){.card-page::before,.resource-page::before,.library-page::before,.settings-page::before,.director-shell::before,.collab-shell::before,.canvas-workspace::before,.skill-library::before,.api-library::before,.admin-panel::before{animation:none}}
+
+/* 水下焦散只做环境层：避开文字与控件中心，保留稳定的影视工作区对比度。 */
+.card-page,.collab-hub,.collab-shell,.director-shell,.canvas-workspace,.skill-library,.api-library,.admin-panel{isolation:isolate}
+.card-page::after,.collab-hub::after,.collab-shell::after,.director-shell::after,.canvas-workspace::after,.skill-library::after,.api-library::after,.admin-panel::after{content:"";position:absolute;z-index:-1;pointer-events:none;inset:0;opacity:.16;background-image:radial-gradient(ellipse 110px 34px at 18% 22%,transparent 48%,var(--sea-caustic) 50%,transparent 56%),radial-gradient(ellipse 160px 42px at 74% 76%,transparent 47%,rgba(117,210,225,.3) 49%,transparent 55%),linear-gradient(112deg,transparent 0 45%,rgba(255,255,255,.18) 47%,transparent 50%);background-size:340px 220px,460px 280px,100% 100%;filter:blur(2px);animation:ocean-caustic 22s ease-in-out infinite}
+@keyframes ocean-caustic{0%,100%{background-position:0 0,0 0,0 0}50%{background-position:24px 12px,-32px 16px,0 0}}
+.card-page>header,.collab-hub>header,.director-shell>header,.director-stage>header{position:relative;z-index:2}
+.project-card,.resource-card,.collab-project-card,.collab-deleted-projects,.director-project-picker,.modal{border-color:rgba(122,190,204,.48);box-shadow:0 18px 46px rgba(8,78,103,.11),inset 0 1px 0 var(--glass-edge)}
+.project-card,.resource-card,.collab-project-card{background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(238,249,251,.86))}
+.primary{background:linear-gradient(135deg,#125d82,#087f9b 58%,#5466d9);box-shadow:0 8px 20px rgba(18,93,130,.2),inset 0 1px 0 rgba(255,255,255,.22)}
+.primary:hover{background:linear-gradient(135deg,#0e506f,#06718e 58%,#4a5bc5)}
+.secondary{background:linear-gradient(145deg,rgba(255,255,255,.86),rgba(220,244,250,.5));border-color:rgba(114,185,202,.55);box-shadow:inset 0 1px 0 rgba(255,255,255,.65)}
+.collab-deleted-projects{background:linear-gradient(145deg,rgba(241,251,250,.9),rgba(229,246,247,.72));border-style:solid}.collab-deleted-projects h3{color:#115c73}.collab-deleted-row{border-top-color:rgba(117,181,193,.28)}
+.card-cover,.resource-icon{position:relative;overflow:hidden}.card-cover::before,.resource-icon::before{content:"";position:absolute;inset:-35% -20%;background:linear-gradient(115deg,transparent 38%,rgba(255,255,255,.22) 45%,transparent 51%);transform:rotate(-8deg);pointer-events:none}.card-cover::after{border-color:rgba(195,237,241,.5)}
+.director-group-toolbar{background:linear-gradient(145deg,rgba(255,255,255,.76),rgba(223,244,247,.62));border-color:rgba(122,190,204,.42);box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+.role-screen.v06 .role-cards>button,.project-card,.resource-card{backdrop-filter:blur(10px)}
+@media(prefers-reduced-motion:reduce){.card-page::after,.collab-hub::after,.collab-shell::after,.director-shell::after,.canvas-workspace::after,.skill-library::after,.api-library::after,.admin-panel::after{animation:none}}
+/* 云端管理页必须横跨导演工作台外层两列，避免标题与卡片落入235px左侧栏。 */
+.director-shell>.director-cloud-manager{grid-column:1/-1;width:100%;max-width:none;min-width:0}
+.director-cloud-manager{width:100%;max-width:none;box-sizing:border-box}
+.director-cloud-manager>header,.director-cloud-list{width:100%;max-width:1320px;margin-left:auto;margin-right:auto}
+.director-cloud-list{grid-template-columns:minmax(0,1fr)}
+@media(max-width:900px){.director-cloud-manager{padding:24px 18px}.director-cloud-manager>header{align-items:stretch;flex-direction:column}.director-cloud-manager>header .secondary{align-self:flex-start}.director-cloud-list{overflow-x:auto}.director-cloud-row{min-width:620px}}
+.prompt-locator-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.prompt-bulk-actions{display:flex;align-items:center;gap:7px}.prompt-select-wrapper{position:relative;border:1px solid transparent;border-radius:12px}.prompt-select-wrapper.selected{border-color:rgba(189,82,96,.55);background:rgba(255,239,242,.58)}.prompt-select-check{display:flex;align-items:center;gap:7px;padding:8px 10px 0;color:#9b4050;font-size:12px}.collab-shot-prompt{display:flex;flex-direction:column;gap:9px}.collab-prompt-save{align-self:flex-end}
+.render-error-page{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:32px;text-align:center;background:#eef7fa;color:#17364a}.render-error-page p{max-width:620px}.render-error-page pre{max-width:min(760px,90vw);padding:12px 16px;overflow:auto;border:1px solid #b9d7e2;border-radius:8px;background:#fff;color:#9d2e35;white-space:pre-wrap}

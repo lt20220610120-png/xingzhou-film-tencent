@@ -13,5 +13,6 @@ test('API配置弹窗按对象形式读取 API_PROVIDERS，不得调用数组专
 
 test('导演身份刷新后默认进入导演工作台而不是隐藏的果子库',()=>{
  const app=fs.readFileSync(path.join(__dirname,'../src/App.jsx'),'utf8');
- assert.match(app,/localStorage\.getItem\('xz-role'\) === 'director' \? 'director' : 'fruit'/);
+ assert.match(app,/safeAccount\.roles\.includes\(lastRole\) \? lastRole : safeAccount\.activeRole/);
+ assert.match(app,/setNav\(nextRole === 'director' \? 'director' : 'fruit'\)/);
 });

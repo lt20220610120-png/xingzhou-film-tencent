@@ -12,7 +12,7 @@ test('提示词卡片提供编辑、保存、取消并将修改回写持久状�
  assert.match(source,/保存修改/);
  assert.match(source,/取消/);
  assert.match(source,/onEdit\?\.\(prompt\.id, draft\)/);
- assert.match(source,/updateDirectorPrompt\(s, project\.id, episode\.id, promptId/);
+ assert.match(source,/updateDirectorPromptEverywhere\(s, project\.id, promptId/);
 });
 
 test('快速模式使用全角兼容分段器解析Skill完整输出',()=>{

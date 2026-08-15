@@ -54,6 +54,20 @@ describe('工具函数', () => {
     assert.ok(Array.isArray(s.scriptProjects));
     assert.ok(Array.isArray(s.directorProjects));
   });
+
+  it('normalizeState() 为导演工作台建立固定分组并把云项目归入云端', () => {
+    const s = normalizeState({ directorProjects: [
+      { id: 'local', name: '本地', episodes: [] },
+      { id: 'cloud', name: '云端项目', cloudProjectId: 'cloud-1', episodes: [] },
+    ], directorGroups: [] });
+    assert.deepStrictEqual(s.directorGroups.map((group) => [group.id, group.name]), [
+      ['director-workbench', '工作台'],
+      ['director-library', '内容创作者·剧本库'],
+      ['director-cloud', '云端'],
+    ]);
+    assert.equal(s.directorProjects.find((p) => p.id === 'local').groupId, 'director-workbench');
+    assert.equal(s.directorProjects.find((p) => p.id === 'cloud').groupId, 'director-cloud');
+  });
 });
 
 // ============ 果子库（FruitProject）CRUD ============
