@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Film, BookOpen, Library, Settings, Sparkles, KeyRound,
   FileText, Bot, Plus, X, Star, Trash2, Save, Upload, Download,
-  Video, PenLine, MessageSquare, HardDrive, UserRound,
-  RefreshCw, FolderOpen, Check, ArrowLeft, AlertCircle
+  Video, PenLine, MessageSquare, HardDrive, UserRound, Users,
+  RefreshCw, FolderOpen, Check, ArrowLeft, AlertCircle, LogOut, ShieldCheck, Palette
 } from 'lucide-react';
 import { API_PROVIDERS } from '../core/apiProviders.js';
 import {
@@ -11,7 +11,7 @@ import {
   cleanupChatSessions, createInitialState, createProject, createScriptProject,
   createProjectGroup, renameProjectGroup, deleteProjectGroup, organizeProject,
   deleteFruitProject, deleteScriptProject, deleteScriptLibraryItem,
-  normalizeState,
+  normalizeState, mergePersistedState,
   setRating, updateEpisode, updateScriptEpisode,
   updateScriptProject,
 } from '../core/projectStore.js';
@@ -21,13 +21,80 @@ import { DirectorWorkspace } from './v06/DirectorWorkspace.jsx';
 import { ProjectCardHub } from './v06/ProjectCardHub.jsx';
 import { DeleteConfirm } from './v06/DeleteConfirm.jsx';
 import { PersistentChat } from './v06/PersistentChat.jsx';
+import { RegistrationScreen, LockedRoleDialog } from './v06/AccountAccess.jsx';
+import { AdminPanel } from './v06/AdminPanel.jsx';
+import { CanvasWorkspace } from './v06/CanvasWorkspace.jsx';
+import { CollabWorkspace } from './v06/CollabWorkspace.jsx';
 import { splitFullScript } from '../core/scriptImport.js';
 import { buildSkillManifest } from '../core/skillContext.js';
 import { executeSkillWithAi, createSkillExecution } from '../core/skillExecution.js';
 
 // ========== 常量 ==========
 const STORAGE = 'xingzhou-film-v1';
+const normalizeAccount = (savedAccount) => savedAccount ? {
+  ...savedAccount,
+  roles: Array.isArray(savedAccount.roles) ? savedAccount.roles : [],
+  activeRole: ['creator', 'director'].includes(savedAccount.activeRole) ? savedAccount.activeRole : null,
+} : null;
 const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/lt20220610120-png/xingzhou-film-updates/main/latest.json';
+
+export class RenderErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('[xingzhou-render-error]', error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <div className="render-error-page">
+      <BrandLogo />
+      <h1>工作区加载失败</h1>
+      <p>软件已阻止白屏。请重新加载工作区；项目文件和云端数据不会被删除。</p>
+      <pre>{String(this.state.error?.message || this.state.error)}</pre>
+      <button className="primary" onClick={() => window.location.reload()}>重新加载工作区</button>
+    </div>;
+  }
+}
+
+function DraggableAIButton({ onOpen }) {
+  const [position, setPosition] = useState(null);
+  const drag = React.useRef(null);
+  const suppressClick = React.useRef(false);
+  const buttonRef = React.useRef(null);
+
+  const startDrag = (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    drag.current = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, moved: false };
+    buttonRef.current.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  };
+
+  const moveDrag = (event) => {
+    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+    const rect = buttonRef.current?.getBoundingClientRect();
+    const width = rect?.width || 164;
+    const height = rect?.height || 44;
+    const sidebarRect = document.getElementById('app-sidebar')?.getBoundingClientRect();
+    const minLeft = Math.max(8, (sidebarRect?.right || 0) + 8);
+    const left = Math.max(minLeft, Math.min(window.innerWidth - width - 8, event.clientX - drag.current.offsetX));
+    const top = Math.max(8, Math.min(window.innerHeight - height - 8, event.clientY - drag.current.offsetY));
+    drag.current.moved = true;
+    setPosition({ left, top });
+  };
+
+  const endDrag = (event) => {
+    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+    suppressClick.current = drag.current.moved;
+    buttonRef.current?.releasePointerCapture?.(event.pointerId);
+    drag.current = null;
+  };
+
+  const style = position ? { left: `${position.left}px`, top: `${position.top}px`, right: 'auto', transform: 'none' } : undefined;
+  return <button ref={buttonRef} className="global-ai-launch draggable" style={style} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onOpen(); }} title="拖动行舟 AI 到窗口内任意位置"><Bot /> <span>行舟 AI</span><small className="drag-hint">⋮⋮</small></button>;
+}
 
 // API 对象：Electron 环境用 window.xingzhou，浏览器 fallback
 const api = window.xingzhou || {
@@ -39,10 +106,13 @@ const api = window.xingzhou || {
     return Promise.resolve(name);
   },
   aiChat: () => Promise.reject(new Error('桌面应用中才可连接 API')),
+  cancelAiTask: () => Promise.resolve(false),
   testAiConnection: () => Promise.reject(new Error('桌面应用中才可连接 API')),
   storageInfo: () => Promise.resolve({ dataDir: '浏览器本地存储', dataFile: 'localStorage', engine: '浏览器' }),
   loadState: () => Promise.resolve(null),
   saveState: () => Promise.resolve(),
+  loadDirectorProjects: () => Promise.resolve(null),
+  saveDirectorProjects: () => Promise.resolve(),
   selectDataDir: () => Promise.resolve(null),
   openDataDir: () => Promise.resolve(),
   appVersion: () => Promise.resolve('0.3.0'),
@@ -52,6 +122,69 @@ const api = window.xingzhou || {
   downloadUpdate: () => Promise.reject(new Error('桌面应用中才可下载更新')),
   installUpdate: () => Promise.resolve(),
   onUpdateProgress: () => () => {},
+  authSession: () => { try { return Promise.resolve(JSON.parse(localStorage.getItem('xz-dev-account'))); } catch { return Promise.resolve(null); } },
+  authRegister: () => Promise.reject(new Error('请在桌面客户端中注册')),
+  authLogin: () => Promise.reject(new Error('请在桌面客户端中登录')),
+  authLogout: () => Promise.resolve(),
+  authUnlockRole: () => Promise.reject(new Error('请在桌面客户端中解锁身份')),
+  authSendEmailCode: () => Promise.reject(new Error('请在桌面客户端中发送验证码')),
+  authRecover: () => Promise.reject(new Error('请在桌面客户端中找回账号')),
+  adminListUsers: () => Promise.reject(new Error('请在桌面客户端中使用管理后台')),
+  adminDeleteUser: () => Promise.reject(new Error('请在桌面客户端中使用管理后台')),
+  adminSetBanned: () => Promise.reject(new Error('请在桌面客户端中使用管理后台')),
+  adminCreateInvite: () => Promise.reject(new Error('请在桌面客户端中使用管理后台')),
+  adminListInvites: () => Promise.reject(new Error('请在桌面客户端中使用管理后台')),
+  adminDisableInvite: () => Promise.reject(new Error('请在桌面客户端中使用管理后台')),
+  mediaGenerateImage: () => Promise.reject(new Error('桌面应用中才可生成图片')),
+  mediaGenerateVideo: () => Promise.reject(new Error('桌面应用中才可生成视频')),
+  mediaImportFile: () => Promise.resolve(null),
+  mediaExportFile: () => Promise.resolve(null),
+  onMediaTaskStatus: () => () => {},
+  collabIsProducer: () => Promise.resolve(false),
+  collabAdminSetProducer: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabCreateProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabListProjects: () => Promise.resolve([]),
+  collabGetProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabUpdateProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabLinkDirector: () => Promise.reject(new Error('桌面应用中才可重新关联导演项目')),
+  collabSetProjectLocked: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  directorCollabCreateProject: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
+  directorCollabListProjects: () => Promise.resolve([]),
+  directorCollabGetProject: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
+  directorCollabUpdateProject: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
+  directorCollabSetLocked: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
+  directorListMembers: () => Promise.resolve([]),
+  directorAddMember: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
+  directorRemoveMember: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
+  collabDeleteProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabRestoreProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabReplaceAssets: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabCreateAsset: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabListAssets: () => Promise.resolve([]),
+  collabUpdateAsset: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabGenerateAssetImage: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabAttachGeneratedAssetImage: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabUploadAssetImage: () => Promise.resolve(null),
+  collabDeleteAssetImage: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabClearAssetImages: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabExportImages: () => Promise.reject(new Error('桌面应用中才可导出云端图片')),
+  collabListMembers: () => Promise.resolve([]),
+  collabAddMember: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabUpdateMemberRole: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabRemoveMember: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabListTasks: () => Promise.resolve([]),
+  collabAssignTask: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabUpdateTask: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabDeleteTask: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabListMedia: () => Promise.resolve([]),
+  collabGenerateVideo: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabRecordGeneratedMedia: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabUploadMedia: () => Promise.resolve(null),
+  collabDeleteMedia: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabListMessages: () => Promise.resolve([]),
+  collabSendMessage: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
+  collabSendImage: () => Promise.resolve(null),
+  collabGetStats: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
 };
 
 const createFruitEpisodeData = (index = 0) => ({
@@ -998,7 +1131,7 @@ function SettingsPage({ state, setState }) {
     const result = await api.selectDataDir(state);
     if (result) {
       setStorageInfo(result.info);
-      if (result.state) setState(normalizeState(result.state));
+      if (result.state) setState((current) => mergePersistedState(current, result.directorProjects ? { ...result.state, directorProjects: result.directorProjects } : result.state));
     }
   };
 
@@ -1111,8 +1244,12 @@ function SettingsPage({ state, setState }) {
  * App - 主应用组件
  * ================================================================ */
 function App() {
-  const [role, setRole] = useState(() => localStorage.getItem('xz-role'));
-  const [nav, setNav] = useState(() => localStorage.getItem('xz-role') === 'director' ? 'director' : 'fruit');
+  const [role, setRole] = useState(null);
+  const [nav, setNav] = useState('fruit');
+  const [account, setAccount] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [registerRole, setRegisterRole] = useState(null);
+  const [lockedRole, setLockedRole] = useState(null);
   const [initialized, setInitialized] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
@@ -1126,14 +1263,24 @@ function App() {
 
   // 加载持久化状态
   useEffect(() => {
-    api.loadState().then((saved) => {
-      if (saved) {
-        setState(normalizeState(saved));
-      } else {
-        api.saveState(state);
-      }
+    Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null)]).then(([saved, directorProjects]) => {
+      setState(current => mergePersistedState(current, directorProjects ? { ...(saved || {}), directorProjects } : saved));
       setInitialized(true);
     }).catch(() => setInitialized(true));
+  }, []);
+
+  useEffect(() => {
+    api.authSession().then((savedAccount) => {
+      const safeAccount = normalizeAccount(savedAccount);
+      setAccount(safeAccount);
+      if (safeAccount) {
+        const lastRole = localStorage.getItem('xz-role');
+        const nextRole = safeAccount.roles.includes(lastRole) ? lastRole : safeAccount.activeRole;
+        setRole(nextRole);
+        setNav(nextRole === 'director' ? 'director' : 'fruit');
+      }
+      setAuthReady(true);
+    }).catch(() => setAuthReady(true));
   }, []);
 
   // 保存状态（debounce）
@@ -1141,7 +1288,8 @@ function App() {
     if (!initialized) return;
     localStorage.setItem(STORAGE, JSON.stringify(state));
     const timer = setTimeout(() => api.saveState(state), 250);
-    return () => clearTimeout(timer);
+    const directorTimer = setTimeout(() => api.saveDirectorProjects?.(state.directorProjects || []), 250);
+    return () => { clearTimeout(timer); clearTimeout(directorTimer); };
   }, [state, initialized]);
 
   // 清理过期会话
@@ -1152,11 +1300,39 @@ function App() {
   }, [initialized]);
 
   // 角色选择
-  const handleRoleSelect = (r) => {
+  const enterRole = (r) => {
     setRole(r);
     localStorage.setItem('xz-role', r);
     setNav(r === 'director' ? 'director' : 'fruit');
   };
+
+  const handleRoleSelect = (r) => {
+    if (!account) { setRegisterRole(r); return; }
+    if (!account.roles.includes(r)) { setLockedRole(r); return; }
+    enterRole(r);
+  };
+
+  const handleAuthenticated = (nextAccount, requestedRole = registerRole) => {
+    const safeAccount = normalizeAccount(nextAccount);
+    setAccount(safeAccount);
+    setRegisterRole(null);
+    const nextRole = safeAccount.roles.includes(requestedRole) ? requestedRole : safeAccount.activeRole;
+    enterRole(nextRole);
+  };
+
+  const handleLogout = async () => {
+    await api.authLogout();
+    setAccount(null);
+    setRole(null);
+    setRegisterRole(null);
+    localStorage.removeItem('xz-role');
+  };
+
+  if (!authReady) return <div className="app-loading"><BrandLogo /><span>正在读取账号权限…</span></div>;
+
+  if (registerRole) {
+    return <RegistrationScreen requestedRole={registerRole} onClose={() => setRegisterRole(null)} onRegistered={handleAuthenticated} onLogin={handleAuthenticated} />;
+  }
 
   // 角色选择界面
   if (!role) {
@@ -1166,24 +1342,26 @@ function App() {
         <div className="role-copy">
           <span className="eyebrow">XINGZHOU FILM STUDIO</span>
           <h1>选择你的工作身份</h1>
-          <p>同一套剧本资产与 AI 能力，服务内容创作和导演制作。</p>
+          <p>剧本、分镜与 AI 影像生产工作台。</p>
         </div>
         <div className="role-cards">
           <button onClick={() => handleRoleSelect('creator')}>
             <div><UserRound /></div>
             <span>01</span>
             <h2>内容创作者</h2>
-            <p>果子库、剧本创作和原创资产管理。</p>
-            <b>进入工作台 →</b>
+            <p>剧本创作 · 内容资产 · AI 辅助</p>
+            <b>{account ? (account.roles.includes('creator') ? '进入创作空间 →' : '已锁定 · 输入解锁码 →') : '进入创作空间 →'}</b>
           </button>
           <button onClick={() => handleRoleSelect('director')}>
             <div><Film /></div>
             <span>02</span>
             <h2>导演</h2>
-            <p>逐集阅读剧本，记录画面并生成 AI 视频提示词。</p>
-            <b>进入导演台 →</b>
+            <p>剧本拆解 · 分镜规划 · AI 视觉提示</p>
+            <b>{account ? (account.roles.includes('director') ? '进入导演工作台 →' : '已锁定 · 输入解锁码 →') : '进入导演工作台 →'}</b>
           </button>
         </div>
+        {account && <div className="role-account-bar"><span><UserRound /> {account.displayName || account.username}</span><button onClick={handleLogout}><LogOut /> 退出登录</button></div>}
+        {lockedRole && <LockedRoleDialog targetRole={lockedRole} onClose={() => setLockedRole(null)} onUnlocked={(nextAccount) => { setAccount(nextAccount); const nextRole = lockedRole; setLockedRole(null); enterRole(nextRole); }} />}
       </div>
     );
   }
@@ -1201,15 +1379,18 @@ function App() {
   ];
   const directorNav = [
     ['director', Film, '导演工作台'],
+    ['collab', Users, '项目协作'],
+    ['canvas', Palette, '画布'],
     ...toolsNav,
   ];
 
-  const navItems = role === 'director' ? directorNav : [...creatorNav, ...toolsNav];
+  const adminNav = account?.isAdmin ? [['admin', ShieldCheck, '管理后台']] : [];
+  const navItems = [...(role === 'director' ? directorNav : [...creatorNav, ...toolsNav]), ...adminNav];
 
   return (
     <div className="app v06-app">
       {/* 侧边导航栏 */}
-      <nav className="sidebar">
+      <nav className="sidebar" id="app-sidebar">
         <BrandLogo compact />
         <div className="nav-label">{role === 'director' ? '导演' : '内容创作者'}</div>
         {navItems.map(([key, Icon, label]) => (
@@ -1222,16 +1403,19 @@ function App() {
           <button onClick={() => { setRole(null); localStorage.removeItem('xz-role'); }}>
             <UserRound size={18} /> <span>切换身份</span>
           </button>
-          <small>本地资料 · 1.2.7</small>
+          <button onClick={handleLogout}>
+            <LogOut size={18} /> <span>退出登录</span>
+          </button>
+          <small>本地资料 · 1.8.8</small>
         </div>
       </nav>
 
       {/* 主内容区域 */}
       <section className="content">
-        {/* 全局 AI 按钮 */}
-        <button className="global-ai-launch" onClick={() => setAiOpen(true)}>
-          <Bot /> <span>行舟 AI</span>
-        </button>
+        {/* 全局 AI 按钮（画布页有自己的顶栏，不显示悬浮按钮） */}
+        {nav !== 'canvas' && (
+          <DraggableAIButton onOpen={() => setAiOpen(true)} />
+        )}
 
         {nav === 'fruit' && <FruitLibrary state={state} setState={setState} api={api} />}
         {nav === 'studio' && <ScriptStudio state={state} setState={setState} api={api} />}
@@ -1239,6 +1423,11 @@ function App() {
         {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} />}
+        {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
+        {nav === 'collab' && <CollabWorkspace state={state} api={api} account={account} />}
+        {nav === 'canvas' && (window.xingzhou
+          ? <iframe className="canvas-embed" src="xzapp://canvas/index.html#/canvas" title="无限画布" allow="clipboard-read; clipboard-write" />
+          : <CanvasWorkspace state={state} setState={setState} api={api} />)}
         {nav === 'director' && (
           <DirectorWorkspace
             state={state}

@@ -24,3 +24,8 @@ test('模态框超高时内部滚动而不是被裁切', () => {
   assert.match(css, /\.veil \.modal\{max-height:88vh;overflow-y:auto\}/);
   assert.match(css, /\.delete-confirm\{max-height:88vh;overflow-y:auto\}/);
 });
+
+test('注册页必须自带滚动容器（body 全局 overflow:hidden 下仍可看到全部表单）', () => {
+  const css = fs.readFileSync(path.join(root, 'src/account-access.css'), 'utf8');
+  assert.match(css, /\.auth-screen\{height:100vh;overflow-y:auto/);
+});

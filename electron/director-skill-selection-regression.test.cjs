@@ -13,10 +13,10 @@ test('导演Skill下拉用唯一ID保存和执行，避免显示video-prompt却�
  assert.match(s,/localStorage\.setItem\('xz-last-used-skill', event\.target\.value\)/);
 });
 
-test('快速模式按用户编号拆成独立模型调用，防止模型跨段串写',()=>{
+test('快速模式按用户编号拆成独立模型调用并支持并发请求，防止模型跨段串写',()=>{
  const s=source();
  assert.match(s,/buildNumberedSceneTasks\(inputText, sceneLabel\)/);
- assert.match(s,/for \(const task of tasks\)/);
+ assert.match(s,/Promise\.all\(tasks\.map\(/);
  assert.match(s,/input: taskInput/);
  assert.match(s,/generatedParts\.push\(\{ label: task\.label, content \}\)/);
 });

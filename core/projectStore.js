@@ -8,6 +8,17 @@ let _uidCounter = 0;
 export const uid = () => `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${_uidCounter++}`;
 export const now = () => new Date().toISOString();
 
+export const DIRECTOR_FIXED_GROUPS = [
+  { id: 'director-workbench', name: '工作台', fixed: true },
+  { id: 'director-library', name: '内容创作者·剧本库', fixed: true },
+  { id: 'director-cloud', name: '云端', fixed: true },
+];
+
+const directorGroupId = (project, customIds) => {
+  if (project.cloudProjectId || project.collaborationProjectId || project.sourceType === 'cloud') return 'director-cloud';
+  return customIds.has(project.groupId) ? project.groupId : 'director-workbench';
+};
+
 // ---------- 初始状态 ----------
 export const createInitialState = () => ({
   fruitProjects: [],       // 果子库
@@ -19,14 +30,44 @@ export const createInitialState = () => ({
   directorGroups: [],      // 导演项目分组
   skills: [],              // 技能
   apiProfiles: [],         // API配置
+  canvases: [],            // 画布
+  mediaProfiles: [],       // 图片/视频生成 API 配置
   chatSessions: [],        // 聊天会话
   activeApiId: null,
+  activeCanvasId: null,
+  activeImageApiId: null,
+  activeVideoApiId: null,
   activeChatId: null,
 });
 
 export const normalizeState = (partial) => {
   const d = createInitialState();
-  return { ...d, ...partial };
+  const merged = { ...d, ...(partial || {}) };
+  const arrayKeys = ['fruitProjects', 'fruitGroups', 'scriptProjects', 'scriptGroups', 'scriptLibrary', 'directorProjects', 'directorGroups', 'skills', 'apiProfiles', 'canvases', 'mediaProfiles', 'chatSessions'];
+  for (const key of arrayKeys) {
+    if (!Array.isArray(merged[key])) merged[key] = [];
+  }
+  const customGroups = merged.directorGroups.filter((group) => group && !DIRECTOR_FIXED_GROUPS.some((fixed) => fixed.id === group.id));
+  const customIds = new Set(customGroups.map((group) => group.id));
+  return {
+    ...merged,
+    directorGroups: [...DIRECTOR_FIXED_GROUPS.map((group) => ({ ...group })), ...customGroups],
+    directorProjects: merged.directorProjects.filter(Boolean).map((project) => ({ ...project, groupId: directorGroupId(project, customIds) })),
+  };
+};
+
+export const mergePersistedState = (current, saved) => {
+  if (!saved) return normalizeState(current);
+  const local = normalizeState(current);
+  const disk = normalizeState(saved);
+  const byId = new Map((disk.directorProjects || []).map((project) => [project.id, project]));
+  for (const project of local.directorProjects || []) {
+    const existing = byId.get(project.id);
+    const localTime = Date.parse(project.updatedAt || project.createdAt || 0) || 0;
+    const diskTime = Date.parse(existing?.updatedAt || existing?.createdAt || 0) || 0;
+    if (!existing || localTime > diskTime) byId.set(project.id, project);
+  }
+  return normalizeState({ ...disk, directorProjects: [...byId.values()] });
 };
 
 // ---------- 通用不可变更新辅助 ----------
@@ -420,28 +461,28 @@ export const updateDirectorProject = (state, projectId, updates) => ({
 });
 
 export const createDirectorGroup = (state, name) => {
-  const groups = state.directorGroups || [];
+  const groups = (state.directorGroups || []).filter((group) => !group.fixed);
   const group = {
     id: uid(),
     name: name?.trim() || `分组 ${groups.length + 1}`,
     createdAt: now(),
     updatedAt: now(),
   };
-  return { ...state, directorGroups: [...groups, group] };
+  return { ...state, directorGroups: [...DIRECTOR_FIXED_GROUPS.map((fixed) => ({ ...fixed })), ...groups, group] };
 };
 
 export const renameDirectorGroup = (state, groupId, name) => ({
   ...state,
   directorGroups: (state.directorGroups || []).map(group =>
-    group.id === groupId ? { ...group, name: name.trim(), updatedAt: now() } : group
+    group.id === groupId && !group.fixed ? { ...group, name: name.trim(), updatedAt: now() } : group
   ),
 });
 
 export const deleteDirectorGroup = (state, groupId) => ({
   ...state,
-  directorGroups: (state.directorGroups || []).filter(group => group.id !== groupId),
+  directorGroups: (state.directorGroups || []).filter(group => group.id !== groupId || group.fixed),
   directorProjects: state.directorProjects.map(project =>
-    project.groupId === groupId ? { ...project, groupId: null, updatedAt: now() } : project
+    project.groupId === groupId ? { ...project, groupId: 'director-workbench', updatedAt: now() } : project
   ),
 });
 
@@ -457,6 +498,14 @@ export const updateDirectorEpisode = (state, projectId, episodeId, updates) => {
   });
   return { ...state, directorProjects: projects };
 };
+
+// 仅移除导演工作台分集视图，总剧本 masterScript 保持不变。
+export const deleteDirectorEpisode = (state, projectId, episodeId) => ({
+  ...state,
+  directorProjects: state.directorProjects.map((project) => project.id === projectId
+    ? { ...project, episodes: project.episodes.filter((episode) => episode.id !== episodeId), updatedAt: now() }
+    : project),
+});
 
 export const addDirectorPrompt = (state, projectId, episodeId, promptData) => {
   const pIdx = state.directorProjects.findIndex(p => p.id === projectId);
@@ -491,9 +540,141 @@ export const updateDirectorPrompt = (state, projectId, episodeId, promptId, upda
       );
       return { ...e, prompts };
     });
-    return { ...p, episodes, updatedAt: now() };
+    const promptHistory = (p.promptHistory || []).map((pr) =>
+      pr.id === promptId ? { ...pr, ...updates } : pr
+    );
+    return { ...p, episodes, promptHistory, updatedAt: now() };
   });
   return { ...state, directorProjects: projects };
+};
+
+// ---------- 历史提示词（项目级，独立于分集；修改总剧本/添加集数不会丢失） ----------
+// 原子追加分集提示词：在 setState 回调内基于最新状态合并，按 id 去重，
+// 支持并发生成与云端轮询同时进行而互不覆盖。
+export const appendDirectorEpisodePrompts = (state, projectId, episodeId, newPrompts, extraUpdates = {}) => ({
+  ...state,
+  directorProjects: state.directorProjects.map((project) => {
+    if (project.id !== projectId) return project;
+    const episodes = (project.episodes || []).map((episode) => {
+      if (episode.id !== episodeId) return episode;
+      const tombstones = episode.deletedPromptIds || [];
+      const seen = new Set((episode.prompts || []).map((item) => item.id));
+      const added = (newPrompts || []).filter((item) => item && item.id && !seen.has(item.id) && !tombstones.includes(item.id));
+      return { ...episode, ...extraUpdates, prompts: [...(episode.prompts || []), ...added] };
+    });
+    return { ...project, episodes, updatedAt: now() };
+  }),
+});
+
+// 汇总项目的历史提示词：promptHistory 为主，同时并入当前各分集尚未入册的提示词（老项目回填）。
+export const collectDirectorPromptHistory = (project) => {
+  const map = new Map();
+  for (const item of project?.promptHistory || []) if (item && item.id) map.set(item.id, item);
+  for (const episode of project?.episodes || []) {
+    for (const prompt of episode?.prompts || []) {
+      if (prompt && prompt.id && !map.has(prompt.id)) map.set(prompt.id, prompt);
+    }
+  }
+  return [...map.values()];
+};
+
+// 生成提示词后调用：把新提示词（连同尚未入册的旧提示词）写入项目级历史。
+export const appendDirectorPromptHistory = (state, projectId, prompts) => ({
+  ...state,
+  directorProjects: state.directorProjects.map((project) => {
+    if (project.id !== projectId) return project;
+    const existing = collectDirectorPromptHistory(project);
+    const seen = new Set(existing.map((item) => item.id));
+    const added = (prompts || []).filter((item) => item && item.id && !seen.has(item.id));
+    return { ...project, promptHistory: [...existing, ...added], updatedAt: now() };
+  }),
+});
+
+// 用户手动删除提示词：同时从历史提示词与所有分集中移除，并在分集留下墓碑
+// （deletedPromptIds），云端合并时不会让已删除的提示词复活。
+export const deleteDirectorPromptsEverywhere = (state, projectId, promptIds) => {
+  const ids = new Set(promptIds || []);
+  return {
+    ...state,
+    directorProjects: state.directorProjects.map((project) => project.id === projectId
+      ? {
+          ...project,
+          promptHistory: collectDirectorPromptHistory(project).filter((item) => !ids.has(item.id)),
+          episodes: (project.episodes || []).map((episode) => {
+            const removed = (episode.prompts || []).filter((item) => ids.has(item.id)).map((item) => item.id);
+            return {
+              ...episode,
+              prompts: (episode.prompts || []).filter((item) => !ids.has(item.id)),
+              deletedPromptIds: removed.length ? [...new Set([...(episode.deletedPromptIds || []), ...removed])] : (episode.deletedPromptIds || []),
+            };
+          }),
+          updatedAt: now(),
+        }
+      : project),
+  };
+};
+
+// 在历史提示词中编辑：同步更新历史与仍挂在分集上的同一条提示词。
+export const updateDirectorPromptEverywhere = (state, projectId, promptId, updates) => ({
+  ...state,
+  directorProjects: state.directorProjects.map((project) => project.id === projectId
+    ? {
+        ...project,
+        promptHistory: collectDirectorPromptHistory(project).map((item) => item.id === promptId ? { ...item, ...updates } : item),
+        episodes: (project.episodes || []).map((episode) => ({
+          ...episode,
+          prompts: (episode.prompts || []).map((item) => item.id === promptId ? { ...item, ...updates } : item),
+        })),
+        updatedAt: now(),
+      }
+    : project),
+});
+
+// 按提示词编号首段（集数）分组：卡片“1”囊括 1-1-1、1-2-4、1-5-9……
+export const groupDirectorPromptHistory = (prompts) => {
+  const groups = new Map();
+  for (const prompt of prompts || []) {
+    const match = String(prompt?.label || '').trim().match(/^(\d+)/);
+    const key = match ? match[1] : '未编号';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(prompt);
+  }
+  const byLabel = (a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'zh-CN', { numeric: true });
+  return [...groups.entries()]
+    .sort((a, b) => {
+      const na = Number(a[0]); const nb = Number(b[0]);
+      if (Number.isNaN(na) && Number.isNaN(nb)) return 0;
+      if (Number.isNaN(na)) return 1;
+      if (Number.isNaN(nb)) return -1;
+      return na - nb;
+    })
+    .map(([key, items]) => ({ key, prompts: [...items].sort(byLabel) }));
+};
+
+// 导出整个项目的历史提示词为文档文本（带 x-x-x 标题：集数-场景-第几条）。
+export const buildPromptHistoryExport = (project) => {
+  const groups = groupDirectorPromptHistory(collectDirectorPromptHistory(project));
+  const lines = [`《${project?.name || '未命名项目'}》提示词导出`, ''];
+  for (const group of groups) {
+    for (const prompt of group.prompts) {
+      lines.push(`【${prompt.label || '未编号'}】`);
+      lines.push(String(prompt.content || '').trim());
+      lines.push('');
+    }
+  }
+  return lines.join('\n');
+};
+
+// 导出单个集数分组的提示词文本。
+export const buildPromptGroupExport = (project, group) => {
+  const title = group.key === '未编号' ? '未编号提示词' : `第 ${group.key} 集`;
+  const lines = [`《${project?.name || '未命名项目'}》${title} 提示词导出`, ''];
+  for (const prompt of group.prompts) {
+    lines.push(`【${prompt.label || '未编号'}】`);
+    lines.push(String(prompt.content || '').trim());
+    lines.push('');
+  }
+  return lines.join('\n');
 };
 
 export const deleteDirectorPrompt = (state, projectId, episodeId, promptId) => {

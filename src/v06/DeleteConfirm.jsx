@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { X, AlertTriangle } from 'lucide-react';
 
 /**
@@ -14,7 +15,7 @@ import { X, AlertTriangle } from 'lucide-react';
 export function DeleteConfirm({ open, title, name, detail, onCancel, onConfirm }) {
   if (!open) return null;
 
-  return (
+  return createPortal((
     <div className="veil delete-confirm-veil">
       <div className="modal delete-confirm">
         <div className="delete-confirm-icon">
@@ -29,7 +30,7 @@ export function DeleteConfirm({ open, title, name, detail, onCancel, onConfirm }
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 export default DeleteConfirm;
