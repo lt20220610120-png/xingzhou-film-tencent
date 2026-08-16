@@ -18,6 +18,15 @@ test('注册窗口支持找回账号（邮箱+验证码）', () => {
   const src = read('src/v06/AccountAccess.jsx');
   assert.match(src, /找回账号/);
   assert.match(src, /authRecover/);
+  assert.match(src, /authRecover\(\{ username: form\.username, email: form\.email/);
+  assert.match(src, /mode === 'recover' \? '请输入要找回的账号'/);
+});
+
+test('登录错误只显示用户可读信息，不暴露 Electron IPC 技术前缀', () => {
+  const src = read('src/v06/AccountAccess.jsx');
+  assert.match(src, /humanizeError/);
+  assert.match(src, /Error invoking remote method/);
+  assert.match(src, /setError\(humanizeError\(reason/);
 });
 
 test('主进程注册云端账号与管理后台全部 IPC 通道', () => {

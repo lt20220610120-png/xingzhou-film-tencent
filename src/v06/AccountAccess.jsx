@@ -7,6 +7,11 @@ const roleMeta = {
   director: { label: '导演', destination: '导演工作台', icon: Film },
 };
 
+function humanizeError(reason, fallback) {
+  const message = String(reason?.message || fallback);
+  return message.replace(/^Error invoking remote method '[^']+': Error:\s*/, '');
+}
+
 function useCountdown() {
   const [seconds, setSeconds] = useState(0);
   const timer = useRef(null);
@@ -33,7 +38,7 @@ export function SendCodeButton({ email, onError }) {
       await window.xingzhou.authSendEmailCode({ email });
       start(60);
     } catch (reason) {
-      onError(reason.message || '验证码发送失败，请稍后重试');
+      onError(humanizeError(reason, '验证码发送失败，请稍后重试'));
     } finally {
       setSending(false);
     }
@@ -68,11 +73,11 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
         const account = await window.xingzhou.authLogin({ username: form.username, password: form.password });
         onLogin(account);
       } else {
-        const found = await window.xingzhou.authRecover({ email: form.email, emailCode: form.emailCode, newPassword: form.password || undefined });
+        const found = await window.xingzhou.authRecover({ username: form.username, email: form.email, emailCode: form.emailCode, newPassword: form.password || undefined });
         setNotice(`该邮箱绑定的账号是：${found.username}${form.password ? '，新密码已生效，请切换到登录页登录。' : '，可直接用原密码登录。'}`);
       }
     } catch (reason) {
-      setError(reason.message || '操作失败，请检查后重试');
+      setError(humanizeError(reason, '操作失败，请检查后重试'));
     } finally {
       setSubmitting(false);
     }
@@ -99,7 +104,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>已有账号登录</button>
             <button type="button" className={mode === 'recover' ? 'active' : ''} onClick={() => switchMode('recover')}>找回账号</button>
           </div>
-          {mode !== 'recover' && <label>账号<input autoFocus value={form.username} onChange={update('username')} placeholder="例如 staff001" autoComplete="username" /></label>}
+          <label>账号<input autoFocus value={form.username} onChange={update('username')} placeholder={mode === 'recover' ? '请输入要找回的账号' : '例如 staff001'} autoComplete="username" /></label>
           {mode === 'register' && <label>姓名或称呼<input value={form.displayName} onChange={update('displayName')} placeholder="例如 张导演" /></label>}
           {mode !== 'recover' && <label>密码<input type="password" value={form.password} onChange={update('password')} placeholder="至少 6 位" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>}
           {mode === 'register' && <label>确认密码<input type="password" value={form.confirmPassword} onChange={update('confirmPassword')} placeholder="再次输入密码" autoComplete="new-password" /></label>}
@@ -130,7 +135,7 @@ export function LockedRoleDialog({ targetRole, onClose, onUnlocked }) {
     event.preventDefault();
     setSubmitting(true); setError('');
     try { onUnlocked(await window.xingzhou.authUnlockRole({ inviteCode })); }
-    catch (reason) { setError(reason.message || '解锁失败'); }
+    catch (reason) { setError(humanizeError(reason, '解锁失败')); }
     finally { setSubmitting(false); }
   };
   return <div className="role-lock-veil"><form className="role-lock-dialog" onSubmit={submit}>
