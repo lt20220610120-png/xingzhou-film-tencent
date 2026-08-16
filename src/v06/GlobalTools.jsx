@@ -407,6 +407,7 @@ export function ApiLibrary({ state, setState }) {
   const [mediaDialogOpen, setMediaDialogOpen] = useState(false);
   const [editingApi, setEditingApi] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [activeApiKind, setActiveApiKind] = useState('chat');
 
   const apiProfiles = state.apiProfiles || [];
   const mediaProfiles = state.mediaProfiles || [];
@@ -450,19 +451,20 @@ export function ApiLibrary({ state, setState }) {
         <p>统一管理语言模型和图片/视频生成 API；生图配置会同步用于画布、项目协作的美术与资产。</p>
       </header>
 
-      <div className="resource-grid">
-        <button className="resource-card resource-add" onClick={() => { setEditingApi(null); setDialogOpen(true); }}>
+      <nav className="api-library-tabs" aria-label="API 类型"><button className={activeApiKind === 'chat' ? 'active' : ''} onClick={() => setActiveApiKind('chat')}>对话式 API</button><button className={activeApiKind === 'image' ? 'active' : ''} onClick={() => setActiveApiKind('image')}>图片生成 API</button><button className={activeApiKind === 'video' ? 'active' : ''} onClick={() => setActiveApiKind('video')}>视频 API</button></nav>
+      <div className="resource-grid api-resource-grid">
+        {activeApiKind === 'chat' && <button className="resource-card resource-add" onClick={() => { setEditingApi(null); setDialogOpen(true); }}>
           <div className="resource-icon"><Plus /></div>
           <h3>添加 API</h3>
           <p>配置新的语言模型 API</p>
-        </button>
-        <button className="resource-card resource-add" onClick={() => setMediaDialogOpen(true)}>
+        </button>}
+        {activeApiKind !== 'chat' && <button className="resource-card resource-add" onClick={() => setMediaDialogOpen(true)}>
           <div className="resource-icon"><Sparkles /></div>
           <h3>添加生图 / 视频 API</h3>
           <p>供画布、项目协作美术与资产共用</p>
-        </button>
+        </button>}
 
-        {apiProfiles.map((api) => (
+        {activeApiKind === 'chat' && apiProfiles.map((api) => (
           <article key={api.id} className={`resource-card api-card ${api.id === activeApiId ? 'active-check' : ''}`}>
             <h3>{api.name}</h3>
             <p>{api.provider} · {api.model}</p>
@@ -484,8 +486,8 @@ export function ApiLibrary({ state, setState }) {
             </div>
           </article>
         ))}
-        {renderMediaGroup('image')}
-        {renderMediaGroup('video')}
+        {activeApiKind === 'image' && renderMediaGroup('image')}
+        {activeApiKind === 'video' && renderMediaGroup('video')}
       </div>
 
       {/* API 编辑/创建对话框 */}

@@ -39,6 +39,11 @@
 
 /* ── Skill Library: Enhanced Cards ─────────────────────── */
 .resource-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}
+.api-library-tabs{display:flex;gap:8px;margin:24px 0 18px;padding:5px;background:#eaf6f8;border:1px solid #c7dfe5;border-radius:13px;width:max-content;max-width:100%;}
+.api-library-tabs button{border:0;border-radius:9px;background:transparent;color:#527080;padding:9px 18px;white-space:nowrap;}
+.api-library-tabs button.active{background:#123f53;color:#fff;box-shadow:0 5px 14px #0b52622b;}
+.api-resource-grid{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start;}
+.api-resource-grid .api-media-section{grid-column:1/-1;min-width:0;}
 .skill-card-enhanced{border:1.5px solid var(--line);border-radius:var(--radius-lg);padding:22px;background:var(--surface);cursor:default;transition:all var(--normal) var(--ease);position:relative;overflow:hidden}
 .skill-card-enhanced::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--gold),var(--emerald));opacity:0;transition:opacity var(--fast) var(--ease)}
 .skill-card-enhanced:hover{border-color:var(--gold);box-shadow:var(--shadow-md);transform:translateY(-3px)}

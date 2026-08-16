@@ -23,3 +23,11 @@ test('项目AI助手直接使用API接口页当前启用的配置',()=>{
  assert.match(source,/state\.apiProfiles\?\.find\(\(p\) => p\.id === state\.activeApiId\)/);
  assert.doesNotMatch(source,/localStorage\.getItem\('xz-ai-config'\)/);
 });
+
+test('API 接口按对话、图片、视频分区展示，卡片不再全部堆叠',()=>{
+ const source=ui();
+ assert.match(source,/api-library-tabs/);
+ assert.match(source,/activeApiKind/);
+ assert.match(source,/api-resource-grid/);
+ assert.match(source,/activeApiKind === 'chat'/);
+});

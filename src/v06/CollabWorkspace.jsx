@@ -157,7 +157,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
 /* ================================================================
  * 生图框（美术/资产共用）：模型 + 画幅 + @参考 + 生成/上传
  * ================================================================ */
-function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit }) {
+function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -173,16 +173,18 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit })
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
 
   const generate = async () => {
-    if (busy || !canEdit) return;
+    if (generating || !canEdit) return;
     if (!profile) { setError('请先在画布或 API 配置中添加图片生成接口'); return; }
-    setBusy(true); setError('');
+    setError('');
     try {
       const prompt = buildImagePrompt(asset, refAsset, project.style, project.genre);
-      const generated = api.mediaGenerateImage ? await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size }) : null;
-      if (generated?.filePath && api.collabAttachGeneratedAssetImage) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
-      await refresh();
+      if (onGenerateImage) await onGenerateImage({ asset, profile, prompt, size });
+      else {
+        const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+        if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
+        await refresh();
+      }
     } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
   };
 
   const uploadLocal = async () => {
@@ -193,7 +195,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit })
     finally { setBusy(false); }
   };
   const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
-  const downloadImage = async () => { if (!selectedImage) return; await api.collabExportImages({ folderName: `${project.name}-${asset.name}`, images: [{ ...selectedImage, assetName: asset.name }] }); };
+  const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: asset.name, images: [{ ...selectedImage, assetName: asset.name }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
 
   return (
     <div className="collab-image-box">
@@ -205,7 +207,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit })
         <select value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         {mates.length > 0 && <label className="collab-ref-picker"><AtSign size={13} /><select value={refId} onChange={(e) => setRefId(e.target.value)}><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
-        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={busy || !canEdit}>{busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} 生成图片</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
+        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || !canEdit}>{generating ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating ? '生成中…' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
         {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的样貌，仅替换服饰/状态</small>}
         {error && <div className="collab-error">{error}</div>}
       </div>
@@ -216,7 +218,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit })
 /* ================================================================
  * 资产详情：左列表已选中的资产 → 描述编辑 + 生图框
  * ================================================================ */
-function AssetDetail({ project, asset, assets, api, state, refresh, canEdit }) {
+function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage }) {
   const prefixed = withAssetPrefix(asset.category, asset.description || '');
   const [draft, setDraft] = useState(prefixed);
   const [saving, setSaving] = useState(false);
@@ -262,7 +264,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit }) {
           <button className="secondary" onClick={() => { setModifyError(''); setModifyOpen(true); }} disabled={!canEdit}>修改提示词</button>
         </div>
       </section>
-      <AssetImageBox project={project} asset={asset} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} />
+      <AssetImageBox project={project} asset={asset} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generating} onGenerateImage={onGenerateImage} />
       {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => event.target === event.currentTarget && setModifyOpen(false)}>
         <div className="modal collab-modify-prompt-modal">
           <h2>修改提示词</h2>
@@ -296,25 +298,48 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [batchSelectedIds, setBatchSelectedIds] = useState([]);
   const [batchBusy, setBatchBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
+  const generatingAssetIdsRef = useRef(new Set());
   const scriptEpisodeCount = (project.episodes || []).filter((item) => item.kind !== 'setting' && item.title !== '设定和小传').length;
   const episodes = [...new Set([...Array.from({ length: scriptEpisodeCount }, (_, index) => index + 1), ...episodeNumbersFromAssets(assets)])].sort((a, b) => a - b);
   const imagesForAssets = (rows) => rows.flatMap((item) => (item.images || []).map((image) => ({ ...image, assetName: item.name })));
   const projectImages = imagesForAssets(assets);
-  const exportImages = (images, folderName) => api.collabExportImages({ folderName, images });
+  const exportImages = async (images, folderName) => { setExportError(''); try { await api.collabExportImages({ archive: true, folderName, images }); } catch (e) { setExportError(`导出失败：${e.message}`); } };
   useEffect(() => {
     if (episode !== null) setBatchSelectedIds(buildAssetGenerationJobs(assets, episode).map((asset) => asset.id));
-  }, [episode, assets]);
+  }, [episode]);
+  const onGenerateImage = useCallback(async ({ asset, profile, prompt, size }) => {
+    if (generatingAssetIdsRef.current.has(asset.id)) return;
+    generatingAssetIdsRef.current.add(asset.id);
+    setGeneratingAssetIds((current) => new Set(current).add(asset.id));
+    try {
+      const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+      if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
+      await refresh();
+    } finally {
+      generatingAssetIdsRef.current.delete(asset.id);
+      setGeneratingAssetIds((current) => { const next = new Set(current); next.delete(asset.id); return next; });
+    }
+  }, [api, project.id, refresh]);
   const generateBatch = async () => {
     const profile = activeMediaProfile(state, 'image');
-    const jobs = buildAssetGenerationJobs(assets, episode, ['character', 'scene', 'prop']).filter((asset) => batchSelectedIds.includes(asset.id));
+    const jobs = buildAssetGenerationJobs(assets, episode, ['character', 'scene', 'prop']).filter((asset) => batchSelectedIds.includes(asset.id) && !generatingAssetIdsRef.current.has(asset.id));
     if (!profile || !jobs.length || batchBusy || !canEdit) return;
     setBatchBusy(true);
-    await Promise.allSettled(jobs.map(async (asset) => {
-      const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: '1024x1024' });
-      if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
-    }));
-    await refresh();
-    setBatchBusy(false);
+    jobs.forEach((asset) => generatingAssetIdsRef.current.add(asset.id));
+    setGeneratingAssetIds((current) => new Set([...current, ...jobs.map((asset) => asset.id)]));
+    try {
+      await Promise.allSettled(jobs.map(async (asset) => {
+        const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: '1024x1024' });
+        if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
+      }));
+      await refresh();
+    } finally {
+      jobs.forEach((asset) => generatingAssetIdsRef.current.delete(asset.id));
+      setGeneratingAssetIds((current) => { const next = new Set(current); jobs.forEach((asset) => next.delete(asset.id)); return next; });
+      setBatchBusy(false);
+    }
   };
 
   if (!assets.length) {
@@ -351,18 +376,14 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
   return (
     <div className="collab-art">
       <div className="collab-art-head">
-        <button className="ghost" onClick={() => setEpisode(null)}><ArrowLeft size={15} /> 全部集数</button>
-        <b>第 {episode} 集</b>
-        <button className="secondary" onClick={() => exportImages(episodeImages, `${project.name}-第${episode}集美术图片`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button>
-        <button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button>
-        <button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button>
-        <button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
-        <div className="collab-cat-tabs">
+        <div className="collab-art-head-left"><button className="ghost" onClick={() => setEpisode(null)}><ArrowLeft size={15} /> 全部集数</button><b>第 {episode} 集</b><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button><div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
             <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSelectedName(''); }}>{label}</button>
           ))}
-        </div>
+        </div></div>
+        <div className="collab-art-head-right"><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
       </div>
+      {exportError && <div className="collab-error">{exportError}</div>}
       <div className="collab-art-body">
         <nav className="collab-asset-rail">
           {list.map((a) => (
@@ -374,7 +395,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
           {!list.length && <div className="collab-empty small">本集没有{ASSET_CATEGORIES[category]}资产</div>}
         </nav>
         {selected
-          ? <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} />
+          ? <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}
@@ -385,8 +406,23 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
   const [category, setCategory] = useState('character');
   const [selectedId, setSelectedId] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
+  const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
+  const generatingAssetIdsRef = useRef(new Set());
   const list = assets.filter((a) => a.category === category);
   const selected = list.find((a) => a.id === selectedId) || list[0] || null;
+  const onGenerateImage = useCallback(async ({ asset, profile, prompt, size }) => {
+    if (generatingAssetIdsRef.current.has(asset.id)) return;
+    generatingAssetIdsRef.current.add(asset.id);
+    setGeneratingAssetIds((current) => new Set(current).add(asset.id));
+    try {
+      const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+      if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
+      await refresh();
+    } finally {
+      generatingAssetIdsRef.current.delete(asset.id);
+      setGeneratingAssetIds((current) => { const next = new Set(current); next.delete(asset.id); return next; });
+    }
+  }, [api, project.id, refresh]);
 
   if (!assets.length) {
     return <div className="collab-empty"><Box size={30} /><p>资产总览为空。完成「信息读取」的分析后，全剧资产会汇总在这里。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
@@ -413,7 +449,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
           ))}
         </nav>
         {selected
-          ? <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} />
+          ? <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}
@@ -965,6 +1001,7 @@ export function CollabWorkspace({ state, api, account }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState('');
   const restoredRef = useRef(false);
+  const refreshRequestRef = useRef(0);
 
   const loadProjects = useCallback(async () => {
     try { const rows = await api.collabListProjects() || []; setProjects(rows); writeCache('projects', rows); setListError(''); }
@@ -981,6 +1018,7 @@ export function CollabWorkspace({ state, api, account }) {
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
+    const requestId = ++refreshRequestRef.current;
     const lastId = localStorage.getItem('xz-collab-last-project') || '';
     if (!lastId) return;
     const cachedProject = readCache(`project-${lastId}`);
@@ -995,6 +1033,7 @@ export function CollabWorkspace({ state, api, account }) {
       api.collabGetProject({ projectId: lastId }),
       api.collabListAssets({ projectId: lastId }),
     ]).then(([p, a]) => {
+      if (requestId !== refreshRequestRef.current) return;
       setProject(p); setAssets(a || []);
       writeCache(`project-${lastId}`, p); writeCache(`assets-${lastId}`, a || []);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
@@ -1013,14 +1052,18 @@ export function CollabWorkspace({ state, api, account }) {
 
   const refreshProject = useCallback(async () => {
     if (!project?.id) return;
+    const projectId = project.id;
+    const requestId = ++refreshRequestRef.current;
     try {
       const [p, a] = await Promise.all([
-        api.collabGetProject({ projectId: project.id }),
-        api.collabListAssets({ projectId: project.id }),
+        api.collabGetProject({ projectId }),
+        api.collabListAssets({ projectId }),
       ]);
+      if (requestId !== refreshRequestRef.current) return;
       setProject(p); setAssets(a || []);
-      writeCache(`project-${project.id}`, p); writeCache(`assets-${project.id}`, a || []);
+      writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, a || []);
     } catch (error) {
+      if (requestId !== refreshRequestRef.current) return;
       if (String(error?.message || '').includes('project_access_denied')) {
         setProject(null);
         setAssets([]);
@@ -1038,6 +1081,7 @@ export function CollabWorkspace({ state, api, account }) {
   }, [project?.id, refreshProject]);
 
   const openProject = async (id) => {
+    const requestId = ++refreshRequestRef.current;
     // 有缓存先立即显示，再后台拉取最新
     const cachedProject = readCache(`project-${id}`);
     if (cachedProject) {
@@ -1052,12 +1096,13 @@ export function CollabWorkspace({ state, api, account }) {
         api.collabGetProject({ projectId: id }),
         api.collabListAssets({ projectId: id }),
       ]);
+      if (requestId !== refreshRequestRef.current) return;
       setProject(p); setAssets(a || []);
       writeCache(`project-${id}`, p); writeCache(`assets-${id}`, a || []);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
       localStorage.setItem('xz-collab-last-project', id);
-    } catch (e) { if (!cachedProject) setListError(e.message); }
-    finally { setLoading(false); }
+    } catch (e) { if (requestId === refreshRequestRef.current && !cachedProject) setListError(e.message); }
+    finally { if (requestId === refreshRequestRef.current) setLoading(false); }
   };
 
   const createProject = async (directorProjectId) => {
@@ -1123,7 +1168,7 @@ export function CollabWorkspace({ state, api, account }) {
   return (
     <div className="collab-shell">
       <aside className="collab-rail">
-        <button className="collab-back" onClick={() => { setProject(null); setAssets([]); localStorage.removeItem('xz-collab-last-project'); loadProjects(); }}>
+        <button className="collab-back" onClick={() => { refreshRequestRef.current += 1; setProject(null); setAssets([]); localStorage.removeItem('xz-collab-last-project'); loadProjects(); }}>
           <ArrowLeft size={15} /> 所有协作项目
         </button>
         <h2>{project.name}</h2>
