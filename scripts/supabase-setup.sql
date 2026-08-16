@@ -10,10 +10,14 @@ create table if not exists app_users (
   roles text[] not null default '{}',
   active_role text,
   is_admin boolean not null default false,
+  is_producer boolean not null default false,
   banned boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- 兼容已经初始化过的数据库：create table if not exists 不会补加新字段。
+alter table app_users add column if not exists is_producer boolean not null default false;
 
 create table if not exists invites (
   id uuid primary key default gen_random_uuid(),
