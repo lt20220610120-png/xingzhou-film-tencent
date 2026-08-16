@@ -110,7 +110,19 @@ ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dial
 ipcMain.handle('collab-attach-generated-asset-image',(_,payload)=>collabService.attachGeneratedAssetImage(payload));
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
-ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=[]})=>{const r=await dialog.showOpenDialog({title:'选择图片导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;const safe=s=>String(s||'图片').replace(/[\\/:*?"<>|]/g,'_').slice(0,100);const dir=ensureDir(path.join(r.filePaths[0],safe(folderName)));const failures=[];await Promise.all((images||[]).map(async(image,index)=>{try{const response=await fetch(String(image.url||''));if(!response.ok)throw new Error(`HTTP ${response.status}`);const ext=path.extname(String(image.filename||''))||'.png';const file=path.join(dir,`${String(index+1).padStart(3,'0')}-${safe(image.assetName||image.note||'图片')}${ext}`);fs.writeFileSync(file,Buffer.from(await response.arrayBuffer()))}catch(error){failures.push(`${image.assetName||image.id||index+1}: ${error.message}`)}}));if(failures.length)throw new Error(`导出完成，但有 ${failures.length} 张失败：${failures.join('；')}`);return {dir,count:(images||[]).length}});
+ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=[],archive=true,filename='图片'})=>{
+ const safe=s=>String(s||'图片').replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
+ const imageExt=image=>{const ext=path.extname(String(image?.filename||'')).toLowerCase();return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png'};
+ const fetchImage=async image=>{if(!image?.url)throw new Error('图片地址为空');const response=await fetch(String(image.url));if(!response.ok)throw new Error(`HTTP ${response.status}`);return Buffer.from(await response.arrayBuffer())};
+ const uniqueFile=target=>{if(!fs.existsSync(target))return target;const ext=path.extname(target);const base=target.slice(0,-ext.length);let index=2;while(fs.existsSync(`${base} (${index})${ext}`))index+=1;return `${base} (${index})${ext}`};
+ if(!Array.isArray(images)||!images.length)throw new Error('没有可导出的图片');
+ const first=images[0];
+ if(!archive){const ext=imageExt(first);const r=await dialog.showSaveDialog({title:'保存图片',defaultPath:`${safe(filename||first.assetName||'图片')}${ext}`,filters:[{name:'图片文件',extensions:[ext.slice(1)]}]});if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,await fetchImage(first));return {file:r.filePath,count:1}}
+ const r=await dialog.showOpenDialog({title:'选择图片导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;
+ const dir=ensureDir(path.join(r.filePaths[0],safe(folderName)));const failures=[];
+ await Promise.all(images.map(async(image,index)=>{try{const ext=imageExt(image);const target=path.join(dir,`${String(index+1).padStart(3,'0')}-${safe(image.assetName||image.note||'图片')}${ext}`);fs.writeFileSync(uniqueFile(target),await fetchImage(image))}catch(error){failures.push(`${image.assetName||image.id||index+1}: ${error.message}`)}}));
+ if(failures.length)throw new Error(`导出完成，但有 ${failures.length} 张失败：${failures.join('；')}`);return {dir,count:images.length}
+});
 ipcMain.handle('collab-list-members',(_,payload)=>collabService.listMembers(payload));
 ipcMain.handle('collab-add-member',(_,payload)=>collabService.addMember(payload));
 ipcMain.handle('collab-update-member-role',(_,payload)=>collabService.updateMemberRole(payload));

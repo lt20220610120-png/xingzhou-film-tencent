@@ -1,5 +1,5 @@
 {
-  "version": "1.9.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.9.2/Xingzhou-Film-Setup-1.9.2.exe",
-  "notes": "修复管理员账号登录与找回：补齐 app_users.is_producer 数据库字段；找回账号时同时核对账号名与已验证邮箱；区分数据库故障与密码错误；隐藏 Electron IPC 技术前缀；新增旧数据库迁移脚本。"
+  "version": "1.9.3",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v1.9.3/Xingzhou-Film-Setup-1.9.3.exe",
+  "notes": "项目协作美术与资产支持多张图片独立并发生成；取消全选后可自由勾选批量任务；重排美术工具栏；单图直接下载为命名图片，整集导出才建立文件夹；API 接口按对话、图片和视频独立分区。"
 }
