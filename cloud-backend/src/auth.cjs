@@ -26,7 +26,17 @@ async function sendEmailCode(payload, repository, mailer) {
   const code = generateEmailCode();
   try {
     await repository.saveEmailCode(email, hashEmailCode(code), codeExpiry());
-    await mailer.sendMail({ to: email, subject: '行舟影视验证码', text: `你的行舟影视验证码是 ${code}，10 分钟内有效。若非本人操作请忽略。` });
+    await mailer.sendMail({
+      to: email,
+      subject: '行舟影视 · 邮箱验证码',
+      text: `行舟影视 · 邮箱验证码\n\n你的验证码是：${code}\n\n验证码 1 小时内有效。如果不是你本人操作，请忽略这封邮件。`,
+      html: `<div style="font-family:-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;color:#0f172a;line-height:1.7">`
+        + `<h2 style="margin:0 0 18px;font-size:20px">行舟影视 · 邮箱验证码</h2>`
+        + `<p style="margin:0 0 10px">你的验证码是：</p>`
+        + `<p style="margin:0 0 18px;font-size:34px;font-weight:700;letter-spacing:6px">${code}</p>`
+        + `<p style="margin:0;color:#475569">验证码 1 小时内有效。如果不是你本人操作，请忽略这封邮件。</p>`
+        + `</div>`,
+    });
   } catch { return { status: 503, body: { error: '验证码发送失败，请稍后重试' } }; }
   return { status: 200, body: { ok: true } };
 }

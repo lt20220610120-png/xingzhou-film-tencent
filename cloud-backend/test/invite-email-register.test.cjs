@@ -40,7 +40,7 @@ function createMemoryRepo(seed = {}) {
 }
 
 const futureIso = () => new Date(Date.now() + 5 * 60000).toISOString();
-const validCode = '123456';
+const validCode = '12345678';
 
 function inviteRow(overrides) {
   const code = overrides.code;
@@ -120,8 +120,9 @@ test('发送邮箱验证码会保存哈希验证码并调用邮件发送', async
   assert.equal(result.status, 200);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, 'boss@example.com');
-  assert.match(sent[0].text, /\d{6}/);
-  const code = sent[0].text.match(/(\d{6})/)[1];
+  assert.match(sent[0].text, /\d{8}/);
+  assert.match(sent[0].html, /\d{8}/);
+  const code = sent[0].text.match(/(\d{8})/)[1];
   assert.equal(repo.emailCode.code_hash, hashEmailCode(code));
   assert.doesNotMatch(JSON.stringify(repo.emailCode), new RegExp(code));
 });
@@ -146,4 +147,22 @@ test('找回账号需要邮箱验证码，验证后返回账号名', async () =>
 test('邀请码规范化忽略大小写和空格，摘要稳定', () => {
   assert.equal(normalizeInviteCode(' xz-admin-1 '), 'XZ-ADMIN-1');
   assert.equal(digestInvite('xz-admin-1'), digestInvite('XZ-ADMIN-1'));
+});
+
+test('验证码为 8 位且有效期 1 小时，邮件同时包含纯文本与 HTML 正文', async () => {
+  const { CODE_TTL_MS, generateEmailCode } = require('../src/email-code.cjs');
+  const { buildMessage } = require('../src/mailer.cjs');
+  assert.equal(CODE_TTL_MS, 60 * 60 * 1000);
+  assert.match(generateEmailCode(), /^\d{8}$/);
+  const repo = createMemoryRepo();
+  const sent = [];
+  await sendEmailCode({ email: 'boss@example.com' }, repo, { sendMail: async (m) => { sent.push(m); } });
+  assert.match(sent[0].subject, /行舟影视/);
+  assert.match(sent[0].text, /1 小时内有效/);
+  const raw = buildMessage({ from: 'no-reply@example.com', ...sent[0] });
+  assert.match(raw, /multipart\/alternative/);
+  assert.match(raw, /text\/plain; charset=UTF-8/);
+  assert.match(raw, /text\/html; charset=UTF-8/);
+  // 验证码不得以明文出现在邮件头部
+  assert.doesNotMatch(raw.split('\r\n\r\n')[0], /\d{8}/);
 });
