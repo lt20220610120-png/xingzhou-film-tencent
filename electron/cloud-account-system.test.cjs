@@ -69,8 +69,8 @@ test('客户端账号服务只使用 Edge Function Token，不再包含服务端
 
 test('公开云端配置不包含服务端密钥', () => {
   const src = read('electron/cloud-config.public.cjs');
-  assert.match(src, /supabase\.co/);
   assert.match(src, /EDGE_FUNCTION_URL/);
+  assert.match(src, /106\.55\.41\.128|腾讯云/);
   assert.doesNotMatch(src, /SECRET_KEY|sb_secret_/);
 });
 

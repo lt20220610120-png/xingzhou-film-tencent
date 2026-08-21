@@ -1,6 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron');
-const { spawn } = require('child_process');
+const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell } = require('electron');
 const path = require('path');
+app.setName('行舟影视（腾讯云版）');
+app.setAppUserModelId('com.xingzhou.film.tencent');
+app.setPath('userData', path.join(app.getPath('appData'), '行舟影视-腾讯云版'));
+const { spawn } = require('child_process');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const mammoth = require('mammoth');
