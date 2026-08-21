@@ -1,13 +1,12 @@
 !macro customInstall
   SetShellVarContext all
-  Delete "$DESKTOP\行舟影视.lnk"
+  CreateShortCut "$DESKTOP\Xingzhou Film Tencent.lnk" "$INSTDIR\Xingzhou Film Tencent Edition.exe" "" "$INSTDIR\Xingzhou Film Tencent Edition.exe" 0 SW_SHOWNORMAL "" "Xingzhou Film Tencent"
   SetShellVarContext current
-  Delete "$DESKTOP\行舟影视.lnk"
-  CreateShortCut "$DESKTOP\行舟影视.lnk" "$INSTDIR\行舟影视.exe" "" "$INSTDIR\行舟影视.exe" 0 SW_SHOWNORMAL "" "行舟影视"
+  CreateShortCut "$DESKTOP\Xingzhou Film Tencent.lnk" "$INSTDIR\Xingzhou Film Tencent Edition.exe" "" "$INSTDIR\Xingzhou Film Tencent Edition.exe" 0 SW_SHOWNORMAL "" "Xingzhou Film Tencent"
 !macroend
 !macro customUnInstall
   SetShellVarContext all
-  Delete "$DESKTOP\行舟影视.lnk"
+  Delete "$DESKTOP\Xingzhou Film Tencent.lnk"
   SetShellVarContext current
-  Delete "$DESKTOP\行舟影视.lnk"
+  Delete "$DESKTOP\Xingzhou Film Tencent.lnk"
 !macroend
