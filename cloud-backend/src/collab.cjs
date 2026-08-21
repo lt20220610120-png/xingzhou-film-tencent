@@ -5,6 +5,18 @@ const ok = (body) => ({ status: 200, body });
 // 统一处理：仓储返回 null 表示无权限或不存在。
 const guard = (value) => (value === null || value === undefined ? null : value);
 
+// 客户端按 myRole 决定可见功能区：
+//   producer 看全部；artist 看美术；collaborator 看分镜。
+// 所有者恒为 producer，其余取成员表角色，默认 collaborator。
+async function attachRole(row, user, repo) {
+  if (!row) return row;
+  if (row.owner_id === user.id) return { ...row, myRole: 'producer' };
+  let members = [];
+  try { members = (await repo.listMembers(row.id, user.id)) || []; } catch { members = []; }
+  const mine = members.find((m) => m.user_id === user.id);
+  return { ...row, myRole: mine && mine.role ? mine.role : 'collaborator' };
+}
+
 async function handleAction(action, payload, user, repo) {
   if (!user) return { status: 401, body: { error: '请先登录账号' } };
   const projectId = payload.projectId || payload.id;
@@ -13,9 +25,15 @@ async function handleAction(action, payload, user, repo) {
   if (action === 'producer-status') return ok({ isProducer: producer });
 
   // ---- 协作项目 ----
-  if (action === 'project-create') return ok(await repo.createProject({ ...payload, ownerId: user.id, ownerName: user.display_name || user.username }));
-  if (action === 'project-list') return ok(await repo.listProjects(user.id));
-  if (action === 'project-get') { const r = guard(await repo.getProject(projectId, user.id)); return r ? ok(r) : NOT_FOUND; }
+  if (action === 'project-create') {
+    const created = await repo.createProject({ ...payload, ownerId: user.id, ownerName: user.display_name || user.username, ownerUsername: user.username });
+    return ok(await attachRole(created, user, repo));
+  }
+  if (action === 'project-list') {
+    const rows = (await repo.listProjects(user.id)) || [];
+    return ok(await Promise.all(rows.map((row) => attachRole(row, user, repo))));
+  }
+  if (action === 'project-get') { const r = guard(await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
   if (action === 'project-update') { const r = guard(await repo.updateProject(projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'project-delete') { const r = guard(await repo.softDeleteProject(projectId, user.id)); return r ? ok({ ok: true, purgeAfter: r.purge_after }) : DENY; }
   if (action === 'project-restore') { const r = guard(await repo.restoreProject(projectId, user.id)); return r ? ok({ ok: true }) : { status: 410, body: { error: '恢复窗口已过期' } }; }
@@ -55,7 +73,16 @@ async function handleAction(action, payload, user, repo) {
   if (action === 'member-role') { const r = guard(await repo.updateMemberRole(projectId, payload, user.id)); return r ? ok(r) : DENY; }
 
   // ---- 资产 ----
-  if (action === 'assets-list') return ok(await repo.listAssets(projectId, user.id));
+  if (action === 'assets-list') {
+    const rows = (await repo.listAssets(projectId, user.id)) || [];
+    let images = [];
+    try { images = (await repo.listAssetImages(projectId, user.id)) || []; } catch { images = []; }
+    // 资产附带图片列表：signer 在 media 层负责签名，这里只给出对象路径。
+    return ok(rows.map((row) => ({
+      ...row,
+      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, objectKey: img.object_path, filename: img.filename, mime: img.mime })),
+    })));
+  }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-update') { const r = guard(await repo.updateAsset(payload.assetId || payload.id, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'assets-replace') { const r = guard(await repo.replaceAssets(projectId, payload.assets || payload.list, user.id)); return r ? ok(r) : DENY; }
