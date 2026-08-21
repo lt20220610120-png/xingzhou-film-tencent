@@ -1,5 +1,5 @@
 {
-  "version": "1.9.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.4/Xingzhou-Film-Tencent-Setup-1.9.4.exe",
-  "notes": "腾讯云版更新通道已切换到本项目 GitHub Release；修复更新清单、安装包和下载对话框链接。"
+  "version": "1.9.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.5/Xingzhou-Film-Tencent-Setup-1.9.5.exe",
+  "notes": "修复腾讯云注册 502；修复腾讯云版安装器误删原版快捷方式；腾讯云版与原版可并存。"
 }
