@@ -71,4 +71,10 @@ create table if not exists app_sessions (
   token_hash text unique not null, expires_at timestamptz not null, created_at timestamptz default now()
 );
 create index if not exists app_sessions_token_idx on app_sessions(token_hash, expires_at);
+create table if not exists email_codes (
+  email text primary key,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
 create index if not exists collab_media_project_idx on collab_media(project_id, kind, created_at);
