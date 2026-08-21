@@ -1,0 +1,32 @@
+const { Pool } = require('pg');
+const crypto = require('node:crypto');
+
+function createRepository(databaseUrl) {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000 });
+  const select = 'id, username, display_name, email, roles, active_role, is_admin, is_producer, banned, created_at, password_hash';
+  return {
+    async findUser(username) { const r = await pool.query(`select ${select} from app_users where username=$1 limit 1`, [username]); return r.rows[0] || null; },
+    async findEmail(email) { const r = await pool.query('select id from app_users where email=$1 limit 1', [email]); return r.rows[0] || null; },
+    async countUsers() { const r = await pool.query('select count(*)::int as count from app_users'); return r.rows[0].count; },
+    async createUser(input) { const r = await pool.query("insert into app_users (username,display_name,email,password_hash,roles,active_role,is_admin,is_producer) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id,username,display_name,email,roles,active_role,is_admin,is_producer,banned,created_at,password_hash", [input.username,input.displayName,input.email,input.passwordHash,[input.role],input.role,input.isAdmin,input.isProducer]); return r.rows[0]; },
+    async createSession(userId, rawToken) { await pool.query("insert into app_sessions (user_id,token_hash,expires_at) values ($1,$2,now()+interval '7 days')", [userId, crypto.createHash('sha256').update(rawToken).digest('hex')]); return rawToken; },
+    async findBySession(hash) { const r = await pool.query(`select ${select} from app_users u join app_sessions s on s.user_id=u.id where s.token_hash=$1 and s.expires_at>now() limit 1`, [hash]); return r.rows[0] || null; },
+    async createProject(p) { const r=await pool.query('insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes) values($1,$2,$3,$4,$5,$6,$7) returning *',[p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',p.genre||'',p.script||'',p.episodes||[]]); return r.rows[0]; },
+    async listProjects(uid) { const r=await pool.query('select distinct p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.deleted_at is null and (p.owner_id=$1 or m.user_id=$1) order by p.updated_at desc',[uid]); return r.rows; },
+    async getProject(id,uid) { const r=await pool.query('select p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.id=$1 and (p.owner_id=$2 or m.user_id=$2) limit 1',[id,uid]); return r.rows[0]||null; },
+    async updateProject(id,p,uid) { const r=await pool.query('update collab_projects set name=coalesce($1,name),style=coalesce($2,style),genre=coalesce($3,genre),script=coalesce($4,script),episodes=coalesce($5,episodes),updated_at=now() where id=$6 and owner_id=$7 returning *',[p.name,p.style,p.genre,p.script,p.episodes,id,uid]); return r.rows[0]||null; },
+    async listMembers(pid,uid) { const r=await pool.query('select m.* from collab_members m join collab_projects p on p.id=m.project_id where m.project_id=$1 and (p.owner_id=$2 or m.user_id=$2) order by m.created_at',[pid,uid]); return r.rows; },
+    async addMember(pid,p,uid) { const r=await pool.query('insert into collab_members(project_id,user_id,username,display_name,role) select $1,u.id,u.username,u.display_name,$2 from app_users u join collab_projects p on p.owner_id=$3 where u.username=$4 and p.id=$1 on conflict(project_id,user_id) do update set role=excluded.role returning *',[pid,p.role||'collaborator',uid,p.username]); return r.rows[0]||null; },
+    async removeMember(pid,userId,uid) { const r=await pool.query('delete from collab_members m using collab_projects p where m.project_id=p.id and m.project_id=$1 and m.user_id=$2 and p.owner_id=$3 returning m.*',[pid,userId,uid]); return r.rows[0]||null; },
+    async listAssets(pid,uid) { const r=await pool.query('select a.* from collab_assets a join collab_projects p on p.id=a.project_id left join collab_members m on m.project_id=p.id where a.project_id=$1 and (p.owner_id=$2 or m.user_id=$2) order by a.created_at',[pid,uid]); return r.rows; },
+    async createAsset(pid,p,uid) { const r=await pool.query('insert into collab_assets(project_id,category,name,description,first_episode,episodes) select $1,$2,$3,$4,$5,$6 where exists(select 1 from collab_projects where id=$1 and owner_id=$7) returning *',[pid,p.category||'character',p.name||'未命名资产',p.description||'',p.firstEpisode||1,p.episodes||[],uid]); return r.rows[0]||null; },
+    async updateAsset(id,p,uid) { const r=await pool.query('update collab_assets a set name=coalesce($1,name),description=coalesce($2,description),image_url=coalesce($3,image_url),updated_at=now() from collab_projects p where a.project_id=p.id and a.id=$4 and p.owner_id=$5 returning a.*',[p.name,p.description,p.imageUrl,id,uid]); return r.rows[0]||null; },
+    async listTasks(pid,uid) { const r=await pool.query('select t.* from collab_tasks t join collab_projects p on p.id=t.project_id left join collab_members m on m.project_id=p.id where t.project_id=$1 and (p.owner_id=$2 or m.user_id=$2) order by t.episode,t.assigned_at',[pid,uid]); return r.rows; },
+    async upsertTask(pid,p,uid) { const r=await pool.query('insert into collab_tasks(project_id,episode,title,assignee_id,assignee_name,status) select $1,$2,$3,$4,$5,$6 where exists(select 1 from collab_projects where id=$1 and owner_id=$7) returning *',[pid,p.episode||1,p.title||'',p.assigneeId||null,p.assigneeName||'',p.status||'进行中',uid]); return r.rows[0]||null; },
+    async listMessages(pid,uid) { const r=await pool.query('select msg.* from collab_messages msg join collab_projects p on p.id=msg.project_id left join collab_members m on m.project_id=p.id where msg.project_id=$1 and (p.owner_id=$2 or m.user_id=$2) order by msg.created_at',[pid,uid]); return r.rows; },
+    async sendMessage(pid,p,uid) { const r=await pool.query('insert into collab_messages(project_id,user_id,username,content,image_url) values($1,$2,$3,$4,$5) returning *',[pid,uid,p.username||'',p.content||'',p.imageUrl||'']); return r.rows[0]; },
+    async listMedia(pid,uid) { const r=await pool.query('select media.* from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.project_id=$1 and (p.owner_id=$2 or m.user_id=$2) order by media.created_at desc',[pid,uid]); return r.rows; },
+    async close() { await pool.end(); },
+  };
+}
+module.exports = { createRepository };

@@ -1,0 +1,14 @@
+{
+  "name": "xingzhou-cloud-backend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "行舟影视腾讯云后端迁移服务",
+  "main": "src/server.cjs",
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/server.cjs"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

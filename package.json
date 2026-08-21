@@ -1,6 +1,6 @@
 {
-  "name": "xingzhou-film",
-  "productName": "行舟影视",
+  "name": "xingzhou-film-tencent",
+  "productName": "行舟影视（腾讯云版）",
   "version": "1.9.3",
   "description": "行舟影视：剧本、导演、项目协作与 AI 影像生产工作台",
   "author": "行舟影视",
@@ -30,10 +30,10 @@
     "wait-on": "latest"
   },
   "build": {
-    "appId": "com.xingzhou.film",
-    "productName": "行舟影视",
+    "appId": "com.xingzhou.film.tencent",
+    "productName": "行舟影视（腾讯云版）",
     "directories": {
-      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-v193"
+      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-tencent-v193"
     },
     "files": [
       "dist/**/*",
@@ -48,7 +48,7 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "行舟影视-安装程序-${version}.${ext}"
+      "artifactName": "行舟影视-腾讯云版-安装程序-${version}.${ext}"
     },
     "nsis": {
       "installerIcon": "build/icon.ico",
@@ -59,7 +59,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "行舟影视"
+      "shortcutName": "行舟影视（腾讯云版）"
     }
   }
 }

@@ -1,6 +1,6 @@
-// Public client configuration only. Privileged keys live in Supabase Edge Functions.
+// 腾讯云版公开客户端配置。服务端密钥只保存在腾讯云服务器环境变量。
 module.exports = {
-  SUPABASE_URL: 'https://kqjimuwjnebcucyrmbee.supabase.co',
-  PUBLISHABLE_KEY: 'sb_publishable_jBLqcTDXMK8r4UfmN-pMIw_Dok4zOEi',
-  EDGE_FUNCTION_URL: 'https://kqjimuwjnebcucyrmbee.supabase.co/functions/v1/xingzhou-api',
+  SUPABASE_URL: 'http://106.55.41.128',
+  PUBLISHABLE_KEY: '',
+  EDGE_FUNCTION_URL: 'http://106.55.41.128/api/gateway',
 };
