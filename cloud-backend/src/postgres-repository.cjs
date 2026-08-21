@@ -26,7 +26,14 @@ function createRepository(databaseUrl) {
     async saveEmailCode(email, codeHash, expiresAt) { await pool.query('insert into email_codes (email, code_hash, expires_at) values ($1,$2,$3) on conflict (email) do update set code_hash=excluded.code_hash, expires_at=excluded.expires_at, created_at=now()', [email, codeHash, expiresAt]); return true; },
     async findEmailCode(email) { const r = await pool.query('select email, code_hash, expires_at from email_codes where email=$1 limit 1', [email]); return r.rows[0] || null; },
     async deleteEmailCode(email) { await pool.query('delete from email_codes where email=$1', [email]); return true; },
-    async createProject(p) { const r=await pool.query('insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes) values($1,$2,$3,$4,$5,$6,$7) returning *',[p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',p.genre||'',p.script||'',JSON.stringify(p.episodes||[])]); return r.rows[0]; },
+    async createProject(p) {
+      const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,director_project_id) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';
+      const r = await pool.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',p.genre||'',p.script||'',JSON.stringify(p.episodes||[]),p.directorProjectId||'']);
+      const row = r.rows[0];
+      // 所有者同时写入成员表：否则群成员为 0，且成员列表看不到自己。
+      await pool.query("insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,'producer') on conflict(project_id,user_id) do nothing", [row.id, p.ownerId, p.ownerUsername||p.ownerName||'', p.ownerName||'']);
+      return row;
+    },
     async listProjects(uid) { const r=await pool.query('select distinct p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.deleted_at is null and (p.owner_id=$1 or m.user_id=$1) order by p.updated_at desc',[uid]); return r.rows; },
     async getProject(id,uid) { const r=await pool.query('select p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.id=$1 and (p.owner_id=$2 or m.user_id=$2) limit 1',[id,uid]); return r.rows[0]||null; },
     async updateProject(id,p,uid) { const r=await pool.query('update collab_projects set name=coalesce($1,name),style=coalesce($2,style),genre=coalesce($3,genre),script=coalesce($4,script),episodes=coalesce($5,episodes),updated_at=now() where id=$6 and owner_id=$7 returning *',[p.name,p.style,p.genre,p.script,p.episodes===undefined?null:JSON.stringify(p.episodes),id,uid]); return r.rows[0]||null; },

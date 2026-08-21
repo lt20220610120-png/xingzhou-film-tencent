@@ -32,6 +32,7 @@ create table if not exists collab_projects (
   id uuid primary key default gen_random_uuid(), name text not null,
   owner_id uuid not null, owner_name text default '', style text default '', genre text default '',
   script text default '', analysis_output text default '', episodes jsonb default '[]'::jsonb,
+  director_project_id text default '',
   deleted_at timestamptz, purge_after timestamptz,
   created_at timestamptz default now(), updated_at timestamptz default now()
 );
@@ -78,3 +79,7 @@ create table if not exists email_codes (
   created_at timestamptz not null default now()
 );
 create index if not exists collab_media_project_idx on collab_media(project_id, kind, created_at);
+
+-- 幂等迁移：老库补列
+alter table collab_projects add column if not exists director_project_id text default '';
+alter table collab_projects add column if not exists analysis_output text default '';
