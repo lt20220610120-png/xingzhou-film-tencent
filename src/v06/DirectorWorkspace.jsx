@@ -281,12 +281,13 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     if (isSceneRunning(sceneLabel) || !currentSkill) return;
     const scene = segments.find((item) => item.label === sceneLabel);
     const vision = getSceneVision(episode, sceneLabel);
-    if (!scene?.content?.trim() || !vision.trim()) return;
+    // 创造模式只依据可编辑的“导演构想”生成，不读取左侧只读剧本展示框。
+    if (!vision.trim()) return;
     markSceneRunning(sceneLabel, true);
     try {
       if (currentSkill.id) localStorage.setItem('xz-last-used-skill', currentSkill.id);
       const preamble = buildProjectPreamble(project);
-      const sourceText = `${preamble ? `${preamble}\n\n` : ''}【剧本场景 ${sceneLabel}】\n${scene.content}\n\n【导演构想】\n${vision}`;
+      const sourceText = `${preamble ? `${preamble}\n\n` : ''}【导演构想】\n${vision}`;
       const result = await executeSkillWithAi({ api, state, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
       const outputParts = splitNumberedPromptOutput(result.output);
       const newPrompts = buildScenePromptRecords({
@@ -750,8 +751,9 @@ function SettingEditor({ project, episode, setState }) {
  * DirectorWorkspace - 主组件
  * ================================================================ */
 export function DirectorWorkspace({ state, setState, api, onAttach }) {
-  const [selectedProjectId, setSelectedProjectId] = useState(null);
-  const [activePane, setActivePane] = useState('master'); // 'master' | episodeId
+  // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
+  const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
+  const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [cloudProjects, setCloudProjects] = useState([]);
   const [collaborationProjects, setCollaborationProjects] = useState([]);
@@ -770,6 +772,21 @@ export function DirectorWorkspace({ state, setState, api, onAttach }) {
   const directorGroups = state.directorGroups || [];
   const scriptLibrary = state.scriptLibrary || [];
   const selectedProject = directorProjects.find((p) => p.id === selectedProjectId);
+
+  // 记忆持久化：选中项目/面板变化时写入，项目已不存在时清理记忆避免卡在空白页。
+  React.useEffect(() => {
+    if (selectedProjectId && selectedProject) localStorage.setItem('xz-director-last-project', selectedProjectId);
+    if (!selectedProjectId) localStorage.removeItem('xz-director-last-project');
+  }, [selectedProjectId, selectedProject]);
+  React.useEffect(() => {
+    if (activePane) localStorage.setItem('xz-director-last-pane', activePane);
+  }, [activePane]);
+  React.useEffect(() => {
+    if (selectedProjectId && directorProjects.length && !selectedProject) {
+      localStorage.removeItem('xz-director-last-project');
+      setSelectedProjectId(null);
+    }
+  }, [selectedProjectId, selectedProject, directorProjects.length]);
   const activeEpisode = selectedProject?.episodes?.find((ep) => ep.id === activePane);
 
   const loadCloudProjects = useCallback(async () => {

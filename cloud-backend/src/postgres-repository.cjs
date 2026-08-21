@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const crypto = require('node:crypto');
+const { extendRepository } = require('./repository-extras.cjs');
 
 function createRepository(databaseUrl) {
   const pool = new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000 });
@@ -43,6 +44,7 @@ function createRepository(databaseUrl) {
     async createMedia(pid,row,uid) { const r=await pool.query('insert into collab_media(project_id,asset_id,episode,scene,kind,url,object_path,filename,mime,note,user_id,username) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *',[pid,row.asset_id,row.episode,row.scene,row.kind,row.url||'',row.object_path,row.filename,row.mime,row.note,uid,row.username]); return r.rows[0]; },
     async findMedia(id,uid) { const r=await pool.query('select media.* from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.id=$1 and (p.owner_id=$2 or m.user_id=$2) limit 1',[id,uid]); return r.rows[0]||null; },
     async deleteMedia(id,uid) { const r=await pool.query('delete from collab_media media using collab_projects p where media.project_id=p.id and media.id=$1 and (media.user_id=$2 or p.owner_id=$2) returning media.*',[id,uid]); return r.rows[0]||null; },
+    ...extendRepository(pool),
     async close() { await pool.end(); },
   };
 }
