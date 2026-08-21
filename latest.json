@@ -1,5 +1,5 @@
 {
-  "version": "1.9.3",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.3/Xingzhou-Film-Tencent-Setup-1.9.3.exe",
-  "notes": "项目协作美术与资产支持多张图片独立并发生成；取消全选后可自由勾选批量任务；重排美术工具栏；单图直接下载为命名图片，整集导出才建立文件夹；API 接口按对话、图片和视频独立分区。"
+  "version": "1.9.4",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.4/Xingzhou-Film-Tencent-Setup-1.9.4.exe",
+  "notes": "腾讯云版更新通道已切换到本项目 GitHub Release；修复更新清单、安装包和下载对话框链接。"
 }
