@@ -64,6 +64,38 @@ function extendRepository(pool) {
       const role = ['producer','artist','collaborator','artist_collaborator'].includes(p.role) ? p.role : 'collaborator';
       return one('update collab_members set role=$1 where project_id=$2 and user_id=$3 returning *', [role, pid, p.userId]);
     },
+    // Supabase 契约：stats-get 返回 {members, activity, media} 三个数组，客户端会遍历它们。
+    async getStatsBundle(pid) {
+      const members = await many('select * from collab_members where project_id=$1 order by created_at', [pid]);
+      const activity = await many('select * from collab_activity where project_id=$1 order by created_at desc limit 500', [pid]);
+      const media = await many('select kind from collab_media where project_id=$1', [pid]);
+      return { members, activity, media };
+    },
+    async updateProjectFields(pid, fields) {
+      const cols = [];
+      const vals = [];
+      for (const [k, v] of Object.entries(fields || {})) {
+        if (!['name','style','genre','script','analysis_output','episodes'].includes(k)) continue;
+        cols.push(k + '=$' + (vals.length + 1));
+        vals.push(k === 'episodes' ? JSON.stringify(v || []) : v);
+      }
+      if (!cols.length) return one('select * from collab_projects where id=$1', [pid]);
+      vals.push(pid);
+      const sql = 'update collab_projects set ' + cols.join(',') + ', updated_at=now() where id=$' + vals.length + ' returning *';
+      return one(sql, vals);
+    },
+    async findMembership(pid, uid) {
+      return one('select * from collab_members where project_id=$1 and user_id=$2 limit 1', [pid, uid]);
+    },
+    async isProjectLocked(pid) {
+      const row = await one('select genre from collab_projects where id=$1', [pid]);
+      return String(row ? row.genre : '').includes(LOCK_SENTINEL);
+    },
+    async logActivity(pid, user, action, detail) {
+      const sql = 'insert into collab_activity(project_id,user_id,username,role,action,detail) values($1,$2,$3,$4,$5,$6)';
+      await pool.query(sql, [pid, user.id, user.username || '', user.role || '', action || '', detail || '']);
+      return true;
+    },
     async getStats(pid, uid) {
       if (!await canRead(pid, uid)) return null;
       const assets = await count('select count(*)::int as c from collab_assets where project_id=$1', [pid]);
@@ -98,7 +130,7 @@ function extendRepository(pool) {
     async recordAssetImage(pid, p, uid) {
       if (!await canRead(pid, uid)) return null;
       const sql = 'insert into collab_media(project_id,asset_id,episode,kind,url,object_path,filename,mime,user_id,username) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *';
-      const saved = await one(sql, [pid, p.assetId || null, p.episode || 0, 'asset', '', p.objectPath || p.objectKey || '', p.filename || '', p.mime || '', uid, p.username || '']);
+      const saved = await one(sql, [pid, p.assetId || null, p.episode || 0, 'asset-image', '', p.objectPath || p.objectKey || '', p.filename || '', p.mime || '', uid, p.username || '']);
       if (p.assetId) {
         await pool.query('update collab_assets set image_url=$1, updated_at=now() where id=$2 and project_id=$3', [p.objectPath || p.objectKey || '', p.assetId, pid]);
       }
@@ -118,7 +150,7 @@ function extendRepository(pool) {
         await pool.query('delete from collab_media where project_id=$1 and asset_id=$2', [pid, p.assetId]);
         await pool.query("update collab_assets set image_url='' where id=$1 and project_id=$2", [p.assetId, pid]);
       } else {
-        await pool.query("delete from collab_media where project_id=$1 and kind='asset'", [pid]);
+        await pool.query("delete from collab_media where project_id=$1 and kind='asset-image'", [pid]);
         await pool.query("update collab_assets set image_url='' where project_id=$1", [pid]);
       }
       return { ok: true };
@@ -145,7 +177,7 @@ function extendRepository(pool) {
     },
     async listAssetImages(pid, uid) {
       const sql = 'select media.id, media.asset_id, media.object_path, media.filename, media.mime from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.project_id=$1 and media.kind=$2 and (p.owner_id=$3 or m.user_id=$3) order by media.created_at';
-      return many(sql, [pid, 'asset', uid]);
+      return many(sql, [pid, 'asset-image', uid]);
     },
     async setProducer(userId, isProducer) {
       const sql = 'update app_users set is_producer=$1, updated_at=now() where id=$2 returning id, is_producer';

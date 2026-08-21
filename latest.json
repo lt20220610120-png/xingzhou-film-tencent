@@ -1,5 +1,5 @@
 {
-  "version": "1.9.8",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.8/Xingzhou-Film-Tencent-Setup-1.9.8.exe",
-  "notes": "恢复项目协作全部功能区：项目信息、美术、资产、分镜、邀请成员、统计、项目群；修复群成员为 0 与导演项目关联字段。"
+  "version": "1.9.9",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.9/Xingzhou-Film-Tencent-Setup-1.9.9.exe",
+  "notes": "修复项目协作工作区加载失败：统计接口按 Supabase 契约返回数组；补齐项目锁定、字段作用域、内部标记剥离与资产图片关联。"
 }
