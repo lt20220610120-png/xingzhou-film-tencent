@@ -1,5 +1,5 @@
 {
-  "version": "1.9.6",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.6/Xingzhou-Film-Tencent-Setup-1.9.6.exe",
-  "notes": "修复导演协作无法邀请成员、项目协作接口全部失效；创造模式改为只读取导演构想；导演工作台记住上次打开的项目。"
+  "version": "1.9.7",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.7/Xingzhou-Film-Tencent-Setup-1.9.7.exe",
+  "notes": "修复项目协作无法开启（jsonb 参数序列化）；启用 HTTPS 域名 xingzhoufilm.cn，账号与项目数据加密传输。"
 }
