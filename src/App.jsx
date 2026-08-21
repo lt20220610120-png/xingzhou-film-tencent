@@ -36,7 +36,9 @@ const normalizeAccount = (savedAccount) => savedAccount ? {
   roles: Array.isArray(savedAccount.roles) ? savedAccount.roles : [],
   activeRole: ['creator', 'director'].includes(savedAccount.activeRole) ? savedAccount.activeRole : null,
 } : null;
-const UPDATE_MANIFEST_URL = 'https://cdn.jsdelivr.net/gh/lt20220610120-png/xingzhou-film-tencent@main/latest.json';
+// 主源用 raw（实时），fetchUpdateManifest 会自动把它推导为 jsDelivr 镜像作为备用。
+// 不要把 CDN 设为主源：jsDelivr 缓存滞后会导致检查更新拿到旧版本。
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/lt20220610120-png/xingzhou-film-tencent/main/latest.json';
 
 export class RenderErrorBoundary extends React.Component {
   constructor(props) {
