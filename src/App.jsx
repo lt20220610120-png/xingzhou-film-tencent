@@ -36,7 +36,7 @@ const normalizeAccount = (savedAccount) => savedAccount ? {
   roles: Array.isArray(savedAccount.roles) ? savedAccount.roles : [],
   activeRole: ['creator', 'director'].includes(savedAccount.activeRole) ? savedAccount.activeRole : null,
 } : null;
-const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/lt20220610120-png/xingzhou-film-updates/main/latest.json';
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/lt20220610120-png/xingzhou-film-tencent/main/latest.json';
 
 export class RenderErrorBoundary extends React.Component {
   constructor(props) {
