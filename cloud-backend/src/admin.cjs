@@ -33,6 +33,10 @@ async function handleAdminAction(action, payload, user, repo) {
     const updated = await repo.setBanned(payload?.userId, payload?.banned === true);
     return updated ? { status: 200, body: { ok: true } } : { status: 404, body: { error: '账号不存在' } };
   }
+  if (action === 'admin-set-producer') {
+    const updated = await repo.setProducer(payload && payload.userId, payload && payload.isProducer === true);
+    return updated ? { status: 200, body: { ok: true, isProducer: updated.is_producer } } : { status: 404, body: { error: '账号不存在' } };
+  }
   if (action === 'admin-delete-user') {
     if (payload?.userId === user.id) return { status: 400, body: { error: '不能删除自己的管理员账号' } };
     await repo.deleteUser(payload?.userId);

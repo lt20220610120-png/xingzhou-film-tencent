@@ -1,5 +1,5 @@
 {
-  "version": "1.9.5",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.5/Xingzhou-Film-Tencent-Setup-1.9.5.exe",
-  "notes": "修复腾讯云注册 502；修复腾讯云版安装器误删原版快捷方式；腾讯云版与原版可并存。"
+  "version": "1.9.6",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.6/Xingzhou-Film-Tencent-Setup-1.9.6.exe",
+  "notes": "修复导演协作无法邀请成员、项目协作接口全部失效；创造模式改为只读取导演构想；导演工作台记住上次打开的项目。"
 }
