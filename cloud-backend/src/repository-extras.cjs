@@ -143,6 +143,10 @@ function extendRepository(pool) {
       const cleaned = String(row ? row.genre : '').replace(/\[COLLAB_SOURCE:[^\]]+\]/g, '').trim();
       return one('update collab_projects set genre=$1, updated_at=now() where id=$2 returning id, genre', [(cleaned + '\n' + tag).trim(), pid]);
     },
+    async listAssetImages(pid, uid) {
+      const sql = 'select media.id, media.asset_id, media.object_path, media.filename, media.mime from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.project_id=$1 and media.kind=$2 and (p.owner_id=$3 or m.user_id=$3) order by media.created_at';
+      return many(sql, [pid, 'asset', uid]);
+    },
     async setProducer(userId, isProducer) {
       const sql = 'update app_users set is_producer=$1, updated_at=now() where id=$2 returning id, is_producer';
       return one(sql, [Boolean(isProducer), userId]);

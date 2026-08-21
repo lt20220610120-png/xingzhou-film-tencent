@@ -9,9 +9,11 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'postgres-reposito
 //   collab_projects.episodes 是 jsonb  -> 必须 JSON.stringify
 //   collab_assets.episodes   是 int[]  -> 必须保持数组
 test('写入 collab_projects.episodes（jsonb）必须序列化为 JSON 文本', () => {
-  const createLine = src.split('\n').find((l) => l.includes('async createProject('));
-  assert.ok(createLine, 'createProject 不存在');
-  assert.match(createLine, /JSON\.stringify\(/, 'createProject 未对 jsonb 参数做 JSON.stringify');
+  const i = src.indexOf('async createProject(');
+  assert.ok(i > 0, 'createProject 不存在');
+  // createProject 现为多行实现，检查其函数体范围内是否序列化了 jsonb 参数
+  const block = src.slice(i, i + 900);
+  assert.match(block, /JSON\.stringify\(p\.episodes/, 'createProject 未对 jsonb 参数做 JSON.stringify');
 });
 
 test('更新 collab_projects.episodes（jsonb）同样必须序列化', () => {
