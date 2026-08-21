@@ -1,7 +1,7 @@
 {
   "name": "xingzhou-film-tencent",
   "productName": "行舟影视（腾讯云版）",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "description": "行舟影视：剧本、导演、项目协作与 AI 影像生产工作台",
   "author": "行舟影视",
   "private": true,
@@ -33,7 +33,7 @@
     "appId": "com.xingzhou.film.tencent",
     "productName": "Xingzhou Film Tencent Edition",
     "directories": {
-      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-tencent-v193"
+      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-tencent-v194"
     },
     "files": [
       "dist/**/*",
