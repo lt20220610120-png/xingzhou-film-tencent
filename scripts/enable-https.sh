@@ -1,36 +1,33 @@
 #!/usr/bin/env bash
-# 为行舟影视腾讯云版启用 HTTPS。
-# 用法（在服务器上执行）：sudo bash enable-https.sh your-domain.com
+# 为行舟影视腾讯云版启用 HTTPS。用法：sudo bash enable-https.sh <主域名> [附加域名...]
 set -euo pipefail
 
 DOMAIN="${1:-}"
-if [ -z "$DOMAIN" ]; then
-  echo "用法: sudo bash enable-https.sh <域名>" >&2
-  exit 1
-fi
+if [ -z "$DOMAIN" ]; then echo '用法: sudo bash enable-https.sh <域名> [附加域名...]' >&2; exit 1; fi
+shift || true
+EXTRA=("$@")
 
-echo "==> 检查域名解析是否已指向本机"
-SERVER_IP="$(curl -fsS https://api.ipify.org || echo unknown)"
-RESOLVED="$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)"
-if [ -z "$RESOLVED" ]; then
-  echo "域名 $DOMAIN 还没有解析记录，请先在域名控制台添加 A 记录指向 $SERVER_IP" >&2
-  exit 1
-fi
-if [ "$RESOLVED" != "$SERVER_IP" ]; then
-  echo "域名 $DOMAIN 解析到 $RESOLVED，但本机是 $SERVER_IP；请先更正 A 记录并等待解析生效" >&2
-  exit 1
-fi
-echo "解析正确：$DOMAIN -> $SERVER_IP"
+echo '==> 校验域名解析指向本机'
+LOCAL_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)"
+for d in "$DOMAIN" "${EXTRA[@]:-}"; do
+  [ -z "$d" ] && continue
+  R="$(getent hosts "$d" | awk '{print $1}' | head -1 || true)"
+  if [ -z "$R" ]; then echo "域名 $d 无解析记录，请先添加 A 记录" >&2; exit 1; fi
+  echo "  $d -> $R (本机内网 $LOCAL_IP)"
+done
 
-echo "==> 安装 certbot"
+echo '==> 安装 certbot'
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq certbot python3-certbot-nginx
 
-echo "==> 将 Nginx 站点绑定到域名"
+echo '==> 写入绑定域名的 Nginx 站点'
+NAMES="$DOMAIN"
+for d in "${EXTRA[@]:-}"; do [ -n "$d" ] && NAMES="$NAMES $d"; done
 cat >/etc/nginx/sites-available/xingzhou-api.conf <<NGINX
 server {
   listen 80 default_server;
-  server_name ${DOMAIN};
+  server_name $NAMES;
   client_max_body_size 200m;
   root /var/www/xingzhou;
   location /api/ {
@@ -40,22 +37,21 @@ server {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
   }
-  location /healthz {
-    proxy_pass http://127.0.0.1:4310/healthz;
-  }
+  location /healthz { proxy_pass http://127.0.0.1:4310/healthz; }
   location / { try_files \$uri \$uri/ /index.html; }
 }
 NGINX
+ln -sf /etc/nginx/sites-available/xingzhou-api.conf /etc/nginx/sites-enabled/xingzhou-api.conf
 nginx -t && systemctl reload nginx
 
-echo "==> 申请并安装证书（自动配置 HTTP 跳转 HTTPS）"
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect
+echo '==> 申请证书并开启 HTTP 跳转 HTTPS'
+CERT_ARGS=(--nginx -d "$DOMAIN")
+for d in "${EXTRA[@]:-}"; do [ -n "$d" ] && CERT_ARGS+=(-d "$d"); done
+certbot "${CERT_ARGS[@]}" --non-interactive --agree-tos --register-unsafely-without-email --redirect
 
-echo "==> 校验自动续期"
-systemctl list-timers 'certbot*' --no-pager || true
-certbot renew --dry-run
+echo '==> 校验自动续期'
+certbot renew --dry-run 2>&1 | tail -5
 
-echo "==> 验证 HTTPS"
-curl -fsS "https://${DOMAIN}/healthz" && echo ""
-echo "完成：https://${DOMAIN}"
-echo "接下来请把客户端 cloud-config.public.cjs 改为 https://${DOMAIN} 并重新发布安装包。"
+echo '==> 验证 HTTPS'
+curl -fsS "https://$DOMAIN/healthz" && echo ''
+echo "完成: https://$DOMAIN"
