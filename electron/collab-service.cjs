@@ -11,10 +11,22 @@ async function gateway(action, payload = {}, token = '') {
   const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch {}
   if (!response.ok) throw new Error(data?.error || `云端请求失败（${response.status}）`); return data;
 }
+// 通过服务端签名直传腾讯云 COS：大文件不再经过 JSON base64，避免内存暴涨与请求体超限。
 async function uploadToBucket(projectId, filePath, kindHint, token) {
   if (!filePath || !fs.existsSync(filePath)) throw new Error('素材文件不存在');
-  const ext = (path.extname(filePath) || '.bin').toLowerCase(); const key = `${kindHint || 'media'}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
-  const uploaded=await gateway('upload-media', { projectId, key, mime: mimeFor(ext), content: fs.readFileSync(filePath).toString('base64') }, token);return {url:uploaded.url,objectPath:uploaded.objectPath,filename:path.basename(filePath),mime:mimeFor(ext)};
+  const ext = (path.extname(filePath) || '.bin').toLowerCase();
+  const mime = mimeFor(ext);
+  const filename = path.basename(filePath);
+  const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
+  const signed = await gateway('media-upload-url', { projectId, filename, kind, mime }, token);
+  const body = fs.readFileSync(filePath);
+  const put = await fetch(signed.url, {
+    method: 'PUT',
+    headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
+    body,
+  });
+  if (!put.ok) throw new Error(`素材上传失败（${put.status}）`);
+  return { url: '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
 function createCollabService(getSession) {
   const session = () => getSession() || {};
