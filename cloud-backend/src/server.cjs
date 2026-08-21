@@ -5,6 +5,8 @@ const { createMailer } = require('./mailer.cjs');
 const { login, register, session, sendEmailCode, unlock, recover, tokenHash } = require('./auth.cjs');
 const { handleAction } = require('./collab.cjs');
 const { handleAdminAction } = require('./admin.cjs');
+const { createCosSigner } = require('./cos.cjs');
+const { handleMediaAction } = require('./media.cjs');
 
 const PUBLIC_ACTIONS = new Set(['login', 'register', 'send-email-code', 'recover']);
 
@@ -12,6 +14,7 @@ function createServer(env = process.env, deps = {}) {
   const config = readConfig(env);
   const repository = deps.repository || createRepository(config.databaseUrl);
   const mailer = deps.mailer !== undefined ? deps.mailer : createMailer(env);
+  const cosSigner = deps.cosSigner !== undefined ? deps.cosSigner : createCosSigner(env);
   return http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -43,6 +46,7 @@ function createServer(env = process.env, deps = {}) {
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
           if (action === 'unlock') return send(await unlock(payload, user, repository));
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
+          if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
           return send(await handleAction(action, payload, user, repository));
         } catch {
           return send({ status: 503, body: { error: '账号服务暂时不可用' } });

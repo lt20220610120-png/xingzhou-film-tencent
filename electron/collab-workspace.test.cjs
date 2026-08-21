@@ -77,8 +77,10 @@ test('项目删除采用三天恢复窗口字段', () => {
 test('collab-service：制片专属操作有权限守卫', () => {
   const service = read('electron/collab-service.cjs');
   assert.match(service, /gateway/);
-  assert.match(service, /upload-media/);
+  // 腾讯云版改为服务端签名 + COS 直传，不再把整个文件 base64 塞进 JSON。
+  assert.match(service, /media-upload-url/);
   assert.doesNotMatch(service, /SECRET_KEY|sb_secret_|\/rest\/v1\//i);
+  assert.doesNotMatch(service, /COS_SECRET|secretKey/);
 });
 
 test('管理后台可设定制片身份', () => {
