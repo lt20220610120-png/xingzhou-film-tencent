@@ -31,7 +31,7 @@
   },
   "build": {
     "appId": "com.xingzhou.film.tencent",
-    "productName": "行舟影视（腾讯云版）",
+    "productName": "Xingzhou Film Tencent Edition",
     "directories": {
       "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-tencent-v193"
     },
@@ -48,7 +48,7 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "行舟影视-腾讯云版-安装程序-${version}.${ext}"
+      "artifactName": "Xingzhou-Film-Tencent-Setup-${version}.${ext}"
     },
     "nsis": {
       "installerIcon": "build/icon.ico",
@@ -59,7 +59,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "行舟影视（腾讯云版）"
+      "shortcutName": "Xingzhou Film Tencent"
     }
   }
 }
