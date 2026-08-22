@@ -17,7 +17,13 @@ function extendRepository(pool) {
     async createDirectorProject(p, uid, ownerName) {
       const genre = String(p.genre || '') + '\n' + DIRECTOR_SENTINEL;
       const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,analysis_output) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';
-      return one(sql, [p.name || '未命名导演项目', uid, ownerName || '', p.style || '', genre.trim(), p.script || '', JSON.stringify(p.episodes || []), p.analysisOutput || ' ']);
+      const row = await one(sql, [p.name || '未命名导演项目', uid, ownerName || '', p.style || '', genre.trim(), p.script || '', JSON.stringify(p.episodes || []), p.directorProjectId || p.analysisOutput || ' ']);
+      // 所有者必须进成员表：否则 myRole 为空，管理协作按钮与成员列表都失效。
+      if (row) {
+        const ins = "insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,'producer') on conflict(project_id,user_id) do nothing";
+        await pool.query(ins, [row.id, uid, p.ownerUsername || '', ownerName || '']);
+      }
+      return row;
     },
     async listDirectorProjects(uid) {
       const sql = 'select distinct p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.deleted_at is null and p.genre like $2 and (p.owner_id=$1 or m.user_id=$1) order by p.updated_at desc';
@@ -83,6 +89,15 @@ function extendRepository(pool) {
       vals.push(pid);
       const sql = 'update collab_projects set ' + cols.join(',') + ', updated_at=now() where id=$' + vals.length + ' returning *';
       return one(sql, vals);
+    },
+    // 导演文档原始行（不做角色注入，由 collab 层统一处理）。
+    async listDirectorProjectRows(uid) {
+      const sql = 'select distinct p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.genre like $2 and (p.owner_id=$1 or m.user_id=$1) order by p.updated_at desc';
+      return many(sql, [uid, '%' + DIRECTOR_SENTINEL + '%']);
+    },
+    // 所有协作项目的引用标记，用于判断导演项目是否被项目协作占用。
+    async listCollabLinks() {
+      return many("select id, genre from collab_projects where genre like '%[COLLAB_PROJECT]%'", []);
     },
     async findMembership(pid, uid) {
       return one('select * from collab_members where project_id=$1 and user_id=$2 limit 1', [pid, uid]);
@@ -157,12 +172,22 @@ function extendRepository(pool) {
     },
     async softDeleteProject(pid, uid) {
       if (!await isOwner(pid, uid)) return null;
-      const sql = "update collab_projects set deleted_at=now(), purge_after=now()+interval '3 days' where id=$1 returning id, purge_after";
-      return one(sql, [pid]);
+      const row = await one('select genre from collab_projects where id=$1', [pid]);
+      if (!row) return null;
+      const purge = new Date(Date.now() + 3 * 86400000).toISOString();
+      // 与 Supabase 一致：删除态写进 genre 的 RECYCLE_UNTIL 标记，3 天后由清理任务物理删除。
+      const cleaned = String(row.genre || '').replace(/\n?\[RECYCLE_UNTIL:[^\]]+\]/g, '').trim();
+      const genre = (cleaned + '\n[RECYCLE_UNTIL:' + purge + ']').trim();
+      const saved = await one("update collab_projects set genre=$1, deleted_at=now(), purge_after=$2, updated_at=now() where id=$3 returning id, purge_after", [genre, purge, pid]);
+      return saved;
     },
     async restoreProject(pid, uid) {
       if (!await isOwner(pid, uid)) return null;
-      return one('update collab_projects set deleted_at=null, purge_after=null where id=$1 and purge_after > now() returning id', [pid]);
+      const row = await one('select genre, purge_after from collab_projects where id=$1', [pid]);
+      if (!row) return null;
+      if (row.purge_after && new Date(row.purge_after).getTime() <= Date.now()) return null;
+      const cleaned = String(row.genre || '').replace(/\n?\[RECYCLE_UNTIL:[^\]]+\]/g, '').trim();
+      return one('update collab_projects set genre=$1, deleted_at=null, purge_after=null, updated_at=now() where id=$2 returning id', [cleaned, pid]);
     },
     async deleteTask(pid, taskId, uid) {
       if (!await isOwner(pid, uid)) return null;
@@ -184,8 +209,8 @@ function extendRepository(pool) {
       return one(sql, [Boolean(isProducer), userId]);
     },
     async purgeExpiredProjects() {
-      await pool.query('delete from collab_projects where purge_after is not null and purge_after <= now()');
-      return true;
+      const r = await pool.query('delete from collab_projects where purge_after is not null and purge_after <= now() returning id');
+      return { deleted: r.rowCount, ids: r.rows.map((x) => x.id) };
     },
   };
 }

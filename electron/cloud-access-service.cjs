@@ -1,22 +1,42 @@
 const fs = require('fs');
 const path = require('path');
-const { EDGE_FUNCTION_URL } = require('./cloud-config.public.cjs');
+const { EDGE_FUNCTION_URL, gatewayUrls } = require('./cloud-config.public.cjs');
 
 const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
+
+// 端点自动回退：域名被备案拦截时自动切到服务器 IP。
+// 一旦某个端点成功，就记住它，后续请求不再逐个重试。
+const CANDIDATES = typeof gatewayUrls === 'function' ? gatewayUrls() : [EDGE_FUNCTION_URL];
+let activeUrl = null;
+const orderedUrls = () => (activeUrl ? [activeUrl, ...CANDIDATES.filter((u) => u !== activeUrl)] : [...CANDIDATES]);
+const isNetworkFailure = (error) => {
+  const code = String(error?.cause?.code || error?.code || '');
+  return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
+    || /fetch failed|network|socket hang up/i.test(String(error?.message || ''));
+};
 async function gateway(action, payload = {}, token = '') {
-  let response;
-  try {
-    response = await fetch(EDGE_FUNCTION_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ action, ...payload }),
-    });
-  } catch { throw new Error(NETWORK_ERROR); }
-  const text = await response.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { /* noop */ }
-  if (!response.ok) throw new Error(data?.error || `云端请求失败（${response.status}）`);
-  return data;
+  let lastNetworkError = null;
+  for (const url of orderedUrls()) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action, ...payload }),
+      });
+    } catch (error) {
+      // 该端点不可达（域名被拦截 / TLS 被重置）：记下来，换下一个端点。
+      if (isNetworkFailure(error)) { lastNetworkError = error; if (activeUrl === url) activeUrl = null; continue; }
+      throw new Error(NETWORK_ERROR);
+    }
+    activeUrl = url;
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { /* noop */ }
+    if (!response.ok) throw new Error(data?.error || `云端请求失败（${response.status}）`);
+    return data;
+  }
+  throw new Error(NETWORK_ERROR + (lastNetworkError ? '' : ''));
 }
 const publicAccount = (row) => row ? ({
   id: row.id, username: row.username, displayName: row.display_name || row.username,
