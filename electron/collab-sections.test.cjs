@@ -24,7 +24,7 @@ test('后端 project-get / project-list / project-create 都注入 myRole', () =
   assert.match(src, /async function attachRole/);
   const getLine = src.split('\n').find((l) => l.includes("action === 'project-get'"));
   assert.match(getLine, /attachRole/);
-  assert.match(src, /project-list[\s\S]{0,220}attachRole/);
+  assert.match(src, /project-list[\s\S]{0,600}attachRole/);
   assert.match(src, /project-create[\s\S]{0,260}attachRole/);
 });
 

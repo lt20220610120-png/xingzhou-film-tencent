@@ -2,15 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { EDGE_FUNCTION_URL, SUPABASE_URL } = require('./cloud-config.public.cjs');
+// 复用带端点回退的 gateway：域名被拦截时自动切到服务器 IP。
+const { gateway: sharedGateway } = require('./cloud-access-service.cjs');
 const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
 const mimeFor = (ext) => ({ '.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4' }[ext] || 'application/octet-stream');
-async function gateway(action, payload = {}, token = '') {
-  let response;
-  try { response = await fetch(EDGE_FUNCTION_URL, { method:'POST', headers:{'Content-Type':'application/json', ...(token ? {Authorization:`Bearer ${token}`} : {})}, body:JSON.stringify({action,...payload}) }); }
-  catch { throw new Error(NETWORK_ERROR); }
-  const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch {}
-  if (!response.ok) throw new Error(data?.error || `云端请求失败（${response.status}）`); return data;
-}
+const gateway = (action, payload = {}, token = '') => sharedGateway(action, payload, token);
 // 通过服务端签名直传腾讯云 COS：大文件不再经过 JSON base64，避免内存暴涨与请求体超限。
 async function uploadToBucket(projectId, filePath, kindHint, token) {
   if (!filePath || !fs.existsSync(filePath)) throw new Error('素材文件不存在');

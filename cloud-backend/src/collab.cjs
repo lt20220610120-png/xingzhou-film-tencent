@@ -10,6 +10,7 @@ const guard = (value) => (value === null || value === undefined ? null : value);
 const COLLAB_SENTINEL = '[COLLAB_PROJECT]';
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
 const LOCK_SENTINEL = '[PROJECT_LOCKED]';
+const recycleUntil = (genre) => (String(genre || '').match(/\[RECYCLE_UNTIL:([^\]]+)\]/) || [])[1] || '';
 const collabSource = (genre) => (String(genre || '').match(/\[COLLAB_SOURCE:([^\]]+)\]/) || [])[1] || '';
 const stripInternalGenre = (genre) => String(genre || '')
   .replace(/\n?\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_SOURCE:[^\]]+|RECYCLE_UNTIL:[^\]]+)\]/g, '')
@@ -25,6 +26,10 @@ function present(row, myRole) {
     genre: stripInternalGenre(row.genre),
     director_project_id: row.director_project_id || collabSource(row.genre),
     locked: String(row.genre || '').includes(LOCK_SENTINEL),
+    // 回收站：Supabase 用 genre 里的 RECYCLE_UNTIL 标记表达删除态，
+    // 客户端靠 deleted_at 显示“恢复项目”，靠 purge_after 显示到期时间。
+    deleted_at: recycleUntil(row.genre) ? new Date(new Date(recycleUntil(row.genre)).getTime() - 3 * 86400000).toISOString() : null,
+    purge_after: recycleUntil(row.genre) || null,
     myRole,
   };
 }
@@ -68,8 +73,10 @@ async function handleAction(action, payload, user, repo) {
     return ok(await attachRole(created, user, repo));
   }
   if (action === 'project-list') {
+    // 只返回“协作项目”（非导演文档）；含回收站中的项目，客户端据 deleted_at 显示恢复入口。
     const rows = (await repo.listProjects(user.id)) || [];
-    return ok(await Promise.all(rows.map((row) => attachRole(row, user, repo))));
+    const collabOnly = rows.filter((row) => !String(row.genre || '').includes(DIRECTOR_SENTINEL));
+    return ok(await Promise.all(collabOnly.map((row) => attachRole(row, user, repo))));
   }
   if (action === 'project-get') { const r = guard(await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
   if (action === 'project-update') {
@@ -103,9 +110,33 @@ async function handleAction(action, payload, user, repo) {
   // ---- 导演项目 ----
   if (action === 'director-project-create') {
     if (!producer) return { status: 403, body: { error: '需要制片人权限才能开启导演协作' } };
-    return ok(await repo.createDirectorProject(payload, user.id, user.display_name || user.username));
+    return ok(await repo.createDirectorProject({ ...payload, ownerUsername: user.username }, user.id, user.display_name || user.username));
   }
-  if (action === 'director-project-list') return ok(await repo.listDirectorProjects(user.id));
+  if (action === 'director-project-list') {
+    // 客户端 cloudForProject 依赖 analysis_output === 导演项目本地ID；
+    // “管理协作/开启导演协作”按钮依赖 myRole / locked / collaborationLinked。
+    const rows = (await repo.listDirectorProjectRows(user.id)) || [];
+    let links = [];
+    try { links = (await repo.listCollabLinks()) || []; } catch { links = []; }
+    const out = [];
+    for (const row of rows) {
+      const member = await repo.findMembership(row.id, user.id);
+      const myRole = row.owner_id === user.id ? 'producer' : (member && member.role ? member.role : '');
+      if (!myRole) continue;
+      const source = row.analysis_output || '';
+      // 被“项目协作”单向引用且该协作项目未进回收站时，禁止直接删除云端导演项目。
+      const collaborationLinked = links.some((link) => collabSource(link.genre) === source && !recycleUntil(link.genre));
+      out.push({
+        ...row,
+        genre: stripInternalGenre(row.genre),
+        analysis_output: source,
+        myRole,
+        locked: String(row.genre || '').includes(LOCK_SENTINEL),
+        collaborationLinked,
+      });
+    }
+    return ok(out);
+  }
   if (action === 'director-project-get') { const r = guard(await repo.getDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok(r) : NOT_FOUND; }
   if (action === 'director-project-update') { const r = guard(await repo.updateDirectorProject(payload.directorProjectId || projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'director-project-delete') { const r = guard(await repo.deleteDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok({ ok: true }) : DENY; }

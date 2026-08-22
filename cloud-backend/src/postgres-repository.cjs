@@ -27,14 +27,24 @@ function createRepository(databaseUrl) {
     async findEmailCode(email) { const r = await pool.query('select email, code_hash, expires_at from email_codes where email=$1 limit 1', [email]); return r.rows[0] || null; },
     async deleteEmailCode(email) { await pool.query('delete from email_codes where email=$1', [email]); return true; },
     async createProject(p) {
+      // 与 Supabase 一致：协作项目必须带 [COLLAB_PROJECT] 标记，
+      // 关联的导演项目本地ID写成 [COLLAB_SOURCE:xxx]，云端管理据此判断“项目协作使用中”。
+      const base = String(p.genre || '').replace(/\n?\[(?:COLLAB_PROJECT|COLLAB_SOURCE:[^\]]+)\]/g, '').trim();
+      const source = p.directorProjectId ? '\n[COLLAB_SOURCE:' + p.directorProjectId + ']' : '';
+      const genre = (base + '\n[COLLAB_PROJECT]' + source).trim();
       const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,director_project_id) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';
-      const r = await pool.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',p.genre||'',p.script||'',JSON.stringify(p.episodes||[]),p.directorProjectId||'']);
+      const r = await pool.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',genre,p.script||'',JSON.stringify(p.episodes||[]),p.directorProjectId||'']);
       const row = r.rows[0];
-      // 所有者同时写入成员表：否则群成员为 0，且成员列表看不到自己。
       await pool.query("insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,'producer') on conflict(project_id,user_id) do nothing", [row.id, p.ownerId, p.ownerUsername||p.ownerName||'', p.ownerName||'']);
       return row;
     },
-    async listProjects(uid) { const r=await pool.query('select distinct p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.deleted_at is null and (p.owner_id=$1 or m.user_id=$1) order by p.updated_at desc',[uid]); return r.rows; },
+    // 回收站需要看到已删除项目：这里不能过滤 deleted_at，
+    // 只排除已过 3 天恢复期的项目（由清理任务物理删除）。
+    async listProjects(uid) {
+      const sql = 'select distinct p.* from collab_projects p left join collab_members m on m.project_id=p.id where (p.purge_after is null or p.purge_after > now()) and (p.owner_id=$1 or m.user_id=$1) order by p.updated_at desc';
+      const r = await pool.query(sql, [uid]);
+      return r.rows;
+    },
     async getProject(id,uid) { const r=await pool.query('select p.* from collab_projects p left join collab_members m on m.project_id=p.id where p.id=$1 and (p.owner_id=$2 or m.user_id=$2) limit 1',[id,uid]); return r.rows[0]||null; },
     async updateProject(id,p,uid) { const r=await pool.query('update collab_projects set name=coalesce($1,name),style=coalesce($2,style),genre=coalesce($3,genre),script=coalesce($4,script),episodes=coalesce($5,episodes),updated_at=now() where id=$6 and owner_id=$7 returning *',[p.name,p.style,p.genre,p.script,p.episodes===undefined?null:JSON.stringify(p.episodes),id,uid]); return r.rows[0]||null; },
     async listMembers(pid,uid) { const r=await pool.query('select m.* from collab_members m join collab_projects p on p.id=m.project_id where m.project_id=$1 and (p.owner_id=$2 or m.user_id=$2) order by m.created_at',[pid,uid]); return r.rows; },
