@@ -1,5 +1,5 @@
 {
-  "version": "1.9.9",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.9/Xingzhou-Film-Tencent-Setup-1.9.9.exe",
-  "notes": "修复项目协作工作区加载失败：统计接口按 Supabase 契约返回数组；补齐项目锁定、字段作用域、内部标记剥离与资产图片关联。"
+  "version": "1.9.10",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.10/Xingzhou-Film-Tencent-Setup-1.9.10.exe",
+  "notes": "修复下载用户登录失败：域名不可用时自动切换服务器备用地址；恢复云端项目、管理协作邀请和3天项目回收站。"
 }
