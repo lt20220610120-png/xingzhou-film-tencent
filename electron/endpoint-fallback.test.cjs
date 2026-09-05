@@ -34,3 +34,15 @@ test('collab-service 复用带回退的 gateway，不再各自写死域名', () 
   assert.match(src, /sharedGateway/);
   assert.doesNotMatch(src, /async function gateway\(/);
 });
+
+test('云端暂时不可用时 session 不删除本地 Token', async () => {
+  const svc = require('./cloud-access-service.cjs');
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'xz-session-'));
+  fs.writeFileSync(path.join(dir, 'cloud-session.json'), JSON.stringify({ token: 'keep-me' }));
+  const realFetch = global.fetch;
+  global.fetch = async () => { const e = new Error('fetch failed'); e.cause = { code: 'ECONNRESET' }; throw e; };
+  try {
+    assert.equal(await svc.createCloudAccessService(dir).session(), null);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'cloud-session.json'), 'utf8')).token, 'keep-me');
+  } finally { global.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+});

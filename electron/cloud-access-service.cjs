@@ -33,7 +33,11 @@ async function gateway(action, payload = {}, token = '') {
     const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { /* noop */ }
-    if (!response.ok) throw new Error(data?.error || `云端请求失败（${response.status}）`);
+    if (!response.ok) {
+      const error = new Error(data?.error || `云端请求失败（${response.status}）`);
+      error.status = response.status;
+      throw error;
+    }
     return data;
   }
   throw new Error(NETWORK_ERROR + (lastNetworkError ? '' : ''));
@@ -51,7 +55,21 @@ function createCloudAccessService(userDataDir) {
   const clearSession = () => { try { fs.unlinkSync(sessionFile); } catch { /* noop */ } };
   const token = () => readSession()?.token || '';
   return {
-    async session() { const saved = readSession(); if (!saved?.token) return null; try { const r = await gateway('session', {}, saved.token); const a = publicAccount(r.account); writeSession({ token: saved.token, account: a }); return a; } catch { clearSession(); return null; } },
+    async session() {
+      const saved = readSession();
+      if (!saved?.token) return null;
+      try {
+        const r = await gateway('session', {}, saved.token);
+        const a = publicAccount(r.account);
+        writeSession({ token: saved.token, account: a });
+        return a;
+      } catch (error) {
+        // Only an explicit 401 proves that the token is invalid. Temporary
+        // network/TLS/5xx failures must not destroy the user's session.
+        if (error?.status === 401) clearSession();
+        return null;
+      }
+    },
     async login(payload) { const r = await gateway('login', payload); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
     async logout() { const s = readSession(); if (s?.token) await gateway('logout', {}, s.token).catch(() => {}); clearSession(); return true; },
     async sendEmailCode(payload) { return gateway('send-email-code', payload); },
