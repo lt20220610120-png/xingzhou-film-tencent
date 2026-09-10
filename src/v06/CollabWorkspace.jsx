@@ -38,6 +38,10 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
   const apiProfiles = state.apiProfiles || [];
   const [modelId, setModelId] = useState(state.activeApiId || apiProfiles[0]?.id || '');
   const profile = apiProfiles.find((p) => p.id === modelId);
+  useEffect(() => {
+    const nextId = state.activeApiId || apiProfiles[0]?.id || '';
+    if (!apiProfiles.some((item) => item.id === modelId)) setModelId(nextId);
+  }, [state.activeApiId, apiProfiles, modelId]);
 
   useEffect(() => { setScript(project.script || ''); }, [project.id]);
   useEffect(() => { setGenre(project.genre || ''); }, [project.id]);
@@ -62,6 +66,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
   const runAnalysis = async () => {
     if (collabAnalysisJobs.get(project.id)?.status === 'running') return;
     if (!profile) { setError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
+    if (!profile.model?.trim()) { setError('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称'); return; }
     if (!script.trim()) { setError('剧本内容为空，请先填写或在导演工作台上传剧本'); return; }
     if (!project.style) { setError('请先选择画风（AI真人 / 3D动漫 / 2D动漫）'); return; }
     if (!genre.trim()) { setError('请先填写题材与时代设定（如：现代都市 / 古代玄幻 / 民国谍战）'); return; }

@@ -39,6 +39,7 @@ async function downloadToFile(url, destDir, ext) {
 async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', destDir }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置图片生成 API');
   if (!prompt?.trim()) throw new Error('请填写画面描述');
+  if (!model?.trim()) throw new Error('请先在 API 接口中填写图片模型名称');
   const base = normalizeBase(endpoint);
   const response = await fetch(`${base}/images/generations`, {
     method: 'POST',

@@ -47,6 +47,20 @@ export const normalizeState = (partial) => {
   for (const key of arrayKeys) {
     if (!Array.isArray(merged[key])) merged[key] = [];
   }
+  // 兼容旧版本字段：部分历史配置把模型写成 modelName/model_id，
+  // 否则升级后下拉框仍显示配置名，但请求会收到空 model。
+  merged.apiProfiles = merged.apiProfiles.filter(Boolean).map((profile) => ({
+    ...profile,
+    endpoint: profile.endpoint || profile.baseUrl || '',
+    model: profile.model || profile.modelName || profile.model_id || '',
+    apiKey: profile.apiKey ?? profile.key ?? '',
+  }));
+  merged.mediaProfiles = merged.mediaProfiles.filter(Boolean).map((profile) => ({
+    ...profile,
+    endpoint: profile.endpoint || profile.baseUrl || '',
+    model: profile.model || profile.modelName || profile.model_id || '',
+    apiKey: profile.apiKey ?? profile.key ?? '',
+  }));
   const customGroups = merged.directorGroups.filter((group) => group && !DIRECTOR_FIXED_GROUPS.some((fixed) => fixed.id === group.id));
   const customIds = new Set(customGroups.map((group) => group.id));
   return {
