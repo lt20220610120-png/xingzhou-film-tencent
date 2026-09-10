@@ -218,3 +218,9 @@
 .collab-art-head-left{margin-right:auto;}
 .collab-art-head-right{margin-left:auto;}
 @media(max-width:900px){.collab-art-head-left,.collab-art-head-right{margin-left:0;margin-right:0;width:100%;}.collab-art-head-right{justify-content:flex-start;}}
+.collab-asset-image-button{display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in;border-radius:12px;overflow:hidden}
+.collab-image-lightbox{position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;padding:44px;background:rgba(3,13,28,.88);backdrop-filter:blur(8px);overflow:hidden}
+.collab-image-lightbox-stage{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.collab-image-lightbox-stage img{max-width:90%;max-height:90%;object-fit:contain;transition:transform .08s ease-out;transform-origin:center center;user-select:none}
+.collab-image-lightbox-close{position:fixed;right:24px;top:20px;z-index:1;width:42px;height:42px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.3);border-radius:50%;background:rgba(10,27,50,.78);color:#fff;cursor:pointer}
+.collab-image-lightbox-scale{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);padding:7px 12px;border-radius:999px;background:rgba(10,27,50,.78);color:#fff;font-size:12px}

@@ -25,6 +25,28 @@ const SECTION_ICONS = { info: FileText, art: Palette, assets: Box, storyboard: C
 const collabAnalysisJobs = new Map();
 const fmtTime = (v) => { try { return new Date(v).toLocaleString('zh-CN', { hour12: false }); } catch { return v || '—'; } };
 
+function ImageLightbox({ image, alt, onClose }) {
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    setScale(1);
+    const closeOnEscape = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [image, onClose]);
+  if (!image) return null;
+  return createPortal(
+    <div className="collab-image-lightbox" role="dialog" aria-modal="true" aria-label={`${alt || '资产图片'}大图预览`} onClick={onClose}
+      onWheel={(event) => { event.preventDefault(); setScale((current) => Math.min(6, Math.max(0.25, current * (event.deltaY < 0 ? 1.12 : 0.89)))); }}>
+      <button type="button" className="collab-image-lightbox-close" onClick={onClose} aria-label="关闭预览"><X size={22} /></button>
+      <div className="collab-image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
+        <img src={image} alt={alt || '资产图片'} draggable={false} style={{ transform: `scale(${scale})` }} />
+      </div>
+      <span className="collab-image-lightbox-scale">滚轮缩放 · {Math.round(scale * 100)}%</span>
+    </div>,
+    document.body,
+  );
+}
+
 /* ================================================================
  * 信息读取：剧本 + 画风/题材 + 分析模型 + 内置Skill分析
  * ================================================================ */
@@ -86,7 +108,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
         job.notice = `正在按三集一批分析：第 ${batch[0].episodeNumber}-${lastEpisode}/${analysisEpisodes.length} 集…`;
         job.taskId = `collab-analysis-${project.id}-${batch[0].episodeNumber}-${lastEpisode}`;
         const messages = buildEpisodeBatchAnalysisMessages({ style: project.style, genre, episodes: batch, previousSummaries: conversationHistory.slice(-2) });
-        const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
+        const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, requiresApiKey: profile.requiresApiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
         if (job.cancelled) throw new Error('任务已停止');
         const normalized = String(output || '');
         outputs.push(normalized);
@@ -168,6 +190,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
+  const [previewImage, setPreviewImage] = useState('');
   const imageProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'image');
   const defaultProfile = activeMediaProfile(state, 'image');
   const [profileId, setProfileId] = useState(defaultProfile?.id || imageProfiles[0]?.id || '');
@@ -207,7 +230,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   return (
     <div className="collab-image-box">
       <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <span className="collab-ep-badge">{images.length} 张</span></div>
-      {selectedImage ? <img className="collab-asset-image" src={selectedImage.url} alt={asset.name} /> : <div className="collab-asset-image empty"><ImageIcon size={28} /><span>尚未生成图片</span></div>}
+      {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={() => setPreviewImage(selectedImage.url)} title="点击放大查看"><img className="collab-asset-image" src={selectedImage.url} alt={asset.name} /></button> : <div className="collab-asset-image empty"><ImageIcon size={28} /><span>尚未生成图片</span></div>}
       {images.length > 1 && <div className="collab-image-thumbs">{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)}><img src={image.url} alt={`${asset.name}-${index + 1}`} /></button>)}</div>}
       {selectedImage && <div className="collab-image-item-actions"><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
       <div className="collab-image-controls">
@@ -218,6 +241,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的样貌，仅替换服饰/状态</small>}
         {error && <div className="collab-error">{error}</div>}
       </div>
+      <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
 }

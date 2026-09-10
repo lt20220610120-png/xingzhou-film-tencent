@@ -36,3 +36,12 @@ test('接口错误返回服务端可读原因而不是假装保存成功',async(
  const fetchFn=async()=>({ok:false,status:401,text:async()=>JSON.stringify({error:{message:'Invalid API key'}})});
  await assert.rejects(()=>testAiConnection({endpoint:'https://maxforai.top/v1',apiKey:'bad',model:'gpt-5.6-sol'},{fetchFn}),/Invalid API key/);
 });
+
+test('Electron IPC 不传测试选项时也使用默认超时并正常调用模型',async()=>{
+ const previous=global.fetch;
+ global.fetch=async()=>({ok:true,text:async()=>JSON.stringify({choices:[{message:{content:'连接成功'}}]})});
+ try{
+  const result=await testAiConnection({endpoint:'https://example.test/v1',apiKey:'secret',model:'demo'});
+  assert.equal(result.message,'连接成功');
+ }finally{global.fetch=previous}
+});
