@@ -1,5 +1,5 @@
 {
-  "version": "1.9.15",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v1.9.15/Xingzhou-Film-Tencent-Setup-1.9.15.exe",
-  "notes": "修复大模型返回内容兼容、美术图片立即回显；恢复逐集稳定分析；人物资产升级为角色主档案与多妆造分支。"
+  "version": "2.0.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.0.0/Xingzhou-Film-Tencent-Setup-2.0.0.exe",
+  "notes": "修复项目协作人物、场景、道具图片串台；修复分析请求 TypeError: terminated；画风选择只替换生图前置，美术清单 Agent 只读取题材。"
 }
