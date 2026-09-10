@@ -45,3 +45,12 @@ test('Electron IPC 不传测试选项时也使用默认超时并正常调用模�
   assert.equal(result.message,'连接成功');
  }finally{global.fetch=previous}
 });
+
+test('兼容模型把正文放在 reasoning_content、choices.text 或内容数组中',async()=>{
+ const base={endpoint:'https://example.test/v1',apiKey:'secret',model:'demo',messages:[]};
+ const response=data=>async()=>({ok:true,text:async()=>JSON.stringify(data)});
+ assert.equal(await requestChat(base,{fetchFn:response({choices:[{message:{content:'',reasoning_content:'推理正文'}}]})}),'推理正文');
+ assert.equal(await requestChat(base,{fetchFn:response({choices:[{text:'文本正文'}]})}),'文本正文');
+ assert.equal(await requestChat(base,{fetchFn:response({choices:[{message:{content:[{type:'text',text:'数组正文'}]}}]})}),'数组正文');
+ assert.equal(await requestChat(base,{fetchFn:response({output_text:'输出正文'})}),'输出正文');
+});

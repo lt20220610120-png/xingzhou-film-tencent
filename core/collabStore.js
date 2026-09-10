@@ -78,6 +78,23 @@ export const findBaseMates = (assets, name) => {
   return (assets || []).filter((a) => a.name !== name && parseAssetName(a.name).base === base);
 };
 
+// 人物是主实体，服饰/妆造是人物下的一对多分支。
+export const groupCharacterAssets = (assets) => {
+  const groups = new Map();
+  for (const asset of (assets || []).filter((item) => item?.category === 'character')) {
+    const parsed = parseAssetName(asset.name);
+    if (!parsed.base) continue;
+    if (!groups.has(parsed.base)) groups.set(parsed.base, []);
+    groups.get(parsed.base).push({ ...asset, variant: parsed.variant });
+  }
+  return [...groups.entries()].map(([base, variants]) => {
+    const main = variants.find((item) => !item.variant)
+      || variants.find((item) => item.images?.length || item.image_url)
+      || variants[0];
+    return { base, main, variants };
+  });
+};
+
 // ---------- Agent 输出解析 ----------
 // 支持结构：### 第N集 → 人物：/场景：/道具： → - 【资产名】（首次/复用自第X集）描述
 const EP_HEAD = /^#{0,6}\s*第\s*(\d+)\s*集\s*$/;

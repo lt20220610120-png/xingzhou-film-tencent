@@ -12,11 +12,11 @@ import {
 } from 'lucide-react';
 import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
-  sectionsForRole, parseAssetName, findBaseMates, parseArtAnalysis,
+  sectionsForRole, parseAssetName, findBaseMates, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
 } from '../../core/collabStore.js';
-import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildEpisodeBatchAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
+import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
@@ -100,19 +100,17 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
       if (!analysisEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先同步导演项目');
       const outputs = [];
       const conversationHistory = [];
-      // 兼容旧版静态检查：批处理仍保持同一分析会话；旧逐集循环标记保留在此注释中：for (const [index, episode] of analysisEpisodes.entries())
-      for (let index = 0; index < analysisEpisodes.length; index += 3) {
+      for (const [index, episode] of analysisEpisodes.entries()) {
         if (job.cancelled) throw new Error('任务已停止');
-        const batch = analysisEpisodes.slice(index, index + 3).map((episode, offset) => ({ episodeNumber: index + offset + 1, title: episode.title, content: episode.content || '' }));
-        const lastEpisode = batch[batch.length - 1].episodeNumber;
-        job.notice = `正在按三集一批分析：第 ${batch[0].episodeNumber}-${lastEpisode}/${analysisEpisodes.length} 集…`;
-        job.taskId = `collab-analysis-${project.id}-${batch[0].episodeNumber}-${lastEpisode}`;
-        const messages = buildEpisodeBatchAnalysisMessages({ style: project.style, genre, episodes: batch, previousSummaries: conversationHistory.slice(-2) });
+        const episodeNumber = index + 1;
+        job.notice = `正在逐集稳定分析：第 ${episodeNumber}/${analysisEpisodes.length} 集…`;
+        job.taskId = `collab-analysis-${project.id}-${episodeNumber}`;
+        const messages = buildEpisodeAnalysisMessages({ style: project.style, genre, episodeNumber, title: episode.title, content: episode.content || '', previousSummaries: conversationHistory.slice(-2) });
         const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, requiresApiKey: profile.requiresApiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
         if (job.cancelled) throw new Error('任务已停止');
         const normalized = String(output || '');
         outputs.push(normalized);
-        conversationHistory.push(`第${batch[0].episodeNumber}-${lastEpisode}集已完成，已使用的资产命名如下，请后续保持一致：\n${normalized.slice(0, 5000)}`);
+        conversationHistory.push(`第${episodeNumber}集已完成，已使用的资产命名如下，请后续保持一致：\n${normalized.slice(0, 5000)}`);
       }
       const combinedOutput = outputs.join('\n\n');
       const parsed = ensureArtEpisodeCoverage(parseArtAnalysis(combinedOutput), analysisEpisodes.length);
@@ -191,6 +189,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
   const [previewImage, setPreviewImage] = useState('');
+  const [localImages, setLocalImages] = useState([]);
   const imageProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'image');
   const defaultProfile = activeMediaProfile(state, 'image');
   const [profileId, setProfileId] = useState(defaultProfile?.id || imageProfiles[0]?.id || '');
@@ -199,7 +198,8 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const profile = imageProfiles.find((p) => p.id === profileId) || defaultProfile;
   const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.length)), [assets, asset.name]);
   const refAsset = mates.find((m) => m.id === refId) || null;
-  const images = asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : []);
+  useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
+  const images = [...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages];
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
 
   const generate = async () => {
@@ -208,11 +208,15 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     setError('');
     try {
       const prompt = buildImagePrompt(asset, refAsset, project.style, project.genre);
-      if (onGenerateImage) await onGenerateImage({ asset, profile, prompt, size });
+      if (onGenerateImage) {
+        const attached = await onGenerateImage({ asset, profile, prompt, size });
+        if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
+      }
       else {
         const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
-        if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
+        const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
         await refresh();
+        return attached;
       }
     } catch (e) { setError(e.message); }
   };
@@ -220,7 +224,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const uploadLocal = async () => {
     if (busy || !canEdit) return;
     setBusy(true); setError('');
-    try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r) await refresh(); }
+    try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== r.id), r]); setSelectedImageId(r.id); } if (r) await refresh(); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -346,8 +350,9 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
       const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
-      if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
+      const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
+      return attached;
     } finally {
       generatingAssetIdsRef.current.delete(asset.id);
       setGeneratingAssetIds((current) => { const next = new Set(current); next.delete(asset.id); return next; });
@@ -440,15 +445,18 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
   const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
   const generatingAssetIdsRef = useRef(new Set());
   const list = assets.filter((a) => a.category === category);
-  const selected = list.find((a) => a.id === selectedId) || list[0] || null;
+  const characterGroups = category === 'character' ? groupCharacterAssets(list) : [];
+  const selectedCharacter = characterGroups.find((group) => group.variants.some((item) => item.id === selectedId)) || characterGroups[0] || null;
+  const selected = list.find((a) => a.id === selectedId) || selectedCharacter?.main || list[0] || null;
   const onGenerateImage = useCallback(async ({ asset, profile, prompt, size }) => {
     if (generatingAssetIdsRef.current.has(asset.id)) return;
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
       const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
-      if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath });
+      const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
+      return attached;
     } finally {
       generatingAssetIdsRef.current.delete(asset.id);
       setGeneratingAssetIds((current) => { const next = new Set(current); next.delete(asset.id); return next; });
@@ -472,15 +480,24 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
       </div>
       <div className="collab-art-body">
         <nav className="collab-asset-rail">
-          {list.map((a) => (
+          {category === 'character' ? characterGroups.map((group) => (
+            <button key={group.base} className={selectedCharacter?.base === group.base ? 'active' : ''} onClick={() => setSelectedId(group.main.id)}>
+              <span>{group.base}</span>
+              <small>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || 0), 0)} 张图片</small>
+            </button>
+          )) : list.map((a) => (
             <button key={a.id} className={selected?.id === a.id ? 'active' : ''} onClick={() => setSelectedId(a.id)}>
               <span>{a.name}</span>
-              <small>{(a.episodes || []).map((e) => `第${e}集`).join('、')}{a.image_url ? ' · 已生成' : ''}</small>
+              <small>{(a.episodes || []).map((e) => `第${e}集`).join('、')}{a.images?.length ? ' · 已生成' : ''}</small>
             </button>
           ))}
         </nav>
         {selected
-          ? <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
+          ? <section className="character-asset-workspace">
+              {category === 'character' && selectedCharacter && <div className="character-profile-header"><div><span>角色主档案</span><h3>{selectedCharacter.base}</h3><small>所有妆造共用同一人物身份；选择已有形象作为参考，仅改变服装、妆容和剧情状态。</small></div><span className="character-look-count">{selectedCharacter.variants.length} 套妆造</span></div>}
+              {category === 'character' && selectedCharacter && <div className="character-variant-branches"><b>妆造分支</b><div>{selectedCharacter.variants.map((variant) => <button key={variant.id} className={selected?.id === variant.id ? 'active' : ''} onClick={() => setSelectedId(variant.id)}><span>{variant.variant || '基础形象'}</span><small>{variant.images?.length || 0} 张</small></button>)}<button className="add-look" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 添加妆造</button></div></div>}
+              <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
+            </section>
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COLLAB_ROLES, sectionsForRole, canSee, parseAssetName, findBaseMates,
-  parseArtAnalysis, buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
+  parseArtAnalysis, buildAssetRows, assetsForEpisode, episodeNumbersFromAssets, groupCharacterAssets,
   buildImagePrompt, summarizeActivity,
 } from './collabStore.js';
 
@@ -26,6 +26,20 @@ test('资产名解析：角色-服饰拆分', () => {
   assert.deepEqual(parseAssetName('【姜蓝-剑道服】'), { base: '姜蓝', variant: '剑道服' });
   assert.deepEqual(parseAssetName('【蜡烛】'), { base: '蜡烛', variant: '' });
   assert.deepEqual(parseAssetName('【梨园戏楼-日-内】'), { base: '梨园戏楼', variant: '日-内' });
+});
+
+test('角色资产按人物聚合，并把便服、晚宴服和练功服作为妆造分支', () => {
+  const groups = groupCharacterAssets([
+    { id: 'base', name: '【苏沫】', category: 'character', images: [{ id: 'i1' }] },
+    { id: 'casual', name: '【苏沫-便服】', category: 'character' },
+    { id: 'dinner', name: '【苏沫-晚宴服】', category: 'character' },
+    { id: 'training', name: '【苏沫-练功服】', category: 'character' },
+    { id: 'other', name: '【陈南】', category: 'character' },
+  ]);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].base, '苏沫');
+  assert.equal(groups[0].main.id, 'base');
+  assert.deepEqual(groups[0].variants.map((item) => item.variant), ['', '便服', '晚宴服', '练功服']);
 });
 
 test('同角色不同服饰可以互相作为参考（@引用）', () => {

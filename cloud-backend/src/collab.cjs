@@ -176,7 +176,13 @@ async function handleAction(action, payload, user, repo, signer = null) {
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-update') { const r = guard(await repo.updateAsset(payload.assetId || payload.id, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'assets-replace') { const r = guard(await repo.replaceAssets(projectId, payload.assets || payload.list, user.id)); return r ? ok(r) : DENY; }
-  if (action === 'asset-image-record') { const r = guard(await repo.recordAssetImage(projectId, { ...payload, username: user.display_name || user.username }, user.id)); return r ? ok(r) : DENY; }
+  if (action === 'asset-image-record') {
+    const r = guard(await repo.recordAssetImage(projectId, { ...payload, username: user.display_name || user.username }, user.id));
+    if (!r) return DENY;
+    const objectKey = r.object_path || payload.objectPath || payload.objectKey;
+    const url = objectKey && signer ? signer.signDownload({ objectKey }).url : '';
+    return ok({ ...r, objectKey, url });
+  }
   if (action === 'asset-image-delete') { const r = guard(await repo.deleteAssetImage(projectId, payload, user.id)); return r ? ok({ ok: true }) : DENY; }
   if (action === 'asset-images-clear') { const r = guard(await repo.clearAssetImages(projectId, payload, user.id)); return r ? ok({ ok: true }) : DENY; }
 
