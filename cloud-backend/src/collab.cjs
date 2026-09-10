@@ -52,7 +52,7 @@ async function attachRole(row, user, repo) {
   return present(row, mine && mine.role ? mine.role : 'collaborator');
 }
 
-async function handleAction(action, payload, user, repo) {
+async function handleAction(action, payload, user, repo, signer = null) {
   if (!user) return { status: 401, body: { error: '请先登录账号' } };
   const projectId = payload.projectId || payload.id;
   const producer = user.is_producer === true || user.is_admin === true;
@@ -170,7 +170,7 @@ async function handleAction(action, payload, user, repo) {
     // 资产附带图片列表：signer 在 media 层负责签名，这里只给出对象路径。
     return ok(rows.map((row) => ({
       ...row,
-      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, objectKey: img.object_path, filename: img.filename, mime: img.mime })),
+      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, objectKey: img.object_path, url: img.object_path && signer ? signer.signDownload({ objectKey: img.object_path }).url : '', filename: img.filename, mime: img.mime })),
     })));
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }

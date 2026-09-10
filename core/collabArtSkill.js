@@ -101,3 +101,9 @@ export const buildEpisodeAnalysisMessages = ({ style, genre, episodeNumber, titl
     content: `现在分析第${episodeNumber}集《${title || `第${episodeNumber}集`}》。必须输出且只输出以下结构：\n### 第${episodeNumber}集\n人物：\n- 【资产名】描述\n场景：\n- 【资产名】描述\n道具：\n- 【资产名】描述\n即使某类没有内容，也保留类别标题。不要漏掉本集。\n\n【本集完整剧本】\n${content || '（本集内容为空）'}`,
   },
 ];
+
+export const buildEpisodeBatchAnalysisMessages = ({ style, genre, episodes, previousSummaries = [] }) => [
+  { role: 'system', content: `你是行舟影视的美术统筹 AI。请严格遵循下方 Skill，一次分析下面最多三集；每集独立输出，不能串集，不要输出总览。\n\n画风：${style || '未指定'}\n题材与时代：${genre || '未指定'}\n\n【Skill】\n${COLLAB_ART_SKILL}` },
+  ...previousSummaries.map((summary) => ({ role: 'assistant', content: summary })),
+  { role: 'user', content: episodes.map(({ episodeNumber, title, content }) => `现在分析第${episodeNumber}集《${title || `第${episodeNumber}集`}》。必须输出且只输出以下结构：\n### 第${episodeNumber}集\n人物：\n- 【资产名】描述\n场景：\n- 【资产名】描述\n道具：\n- 【资产名】描述\n即使某类没有内容，也保留类别标题。\n\n【本集完整剧本】\n${content || '（本集内容为空）'}`).join('\n\n') },
+];

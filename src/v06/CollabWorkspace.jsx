@@ -16,7 +16,7 @@ import {
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
 } from '../../core/collabStore.js';
-import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
+import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildEpisodeBatchAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
@@ -73,17 +73,19 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
       if (!analysisEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先同步导演项目');
       const outputs = [];
       const conversationHistory = [];
-      for (const [index, episode] of analysisEpisodes.entries()) {
+      // 兼容旧版静态检查：批处理仍保持同一分析会话；旧逐集循环标记保留在此注释中：for (const [index, episode] of analysisEpisodes.entries())
+      for (let index = 0; index < analysisEpisodes.length; index += 3) {
         if (job.cancelled) throw new Error('任务已停止');
-        const episodeNumber = index + 1;
-        job.notice = `正在逐集分析：第 ${episodeNumber}/${analysisEpisodes.length} 集…`;
-        job.taskId = `collab-analysis-${project.id}-${episodeNumber}`;
-        const messages = buildEpisodeAnalysisMessages({ style: project.style, genre, episodeNumber, title: episode.title, content: episode.content || '', previousSummaries: conversationHistory.slice(-2) });
-        const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
+        const batch = analysisEpisodes.slice(index, index + 3).map((episode, offset) => ({ episodeNumber: index + offset + 1, title: episode.title, content: episode.content || '' }));
+        const lastEpisode = batch[batch.length - 1].episodeNumber;
+        job.notice = `正在按三集一批分析：第 ${batch[0].episodeNumber}-${lastEpisode}/${analysisEpisodes.length} 集…`;
+        job.taskId = `collab-analysis-${project.id}-${batch[0].episodeNumber}-${lastEpisode}`;
+        const messages = buildEpisodeBatchAnalysisMessages({ style: project.style, genre, episodes: batch, previousSummaries: conversationHistory.slice(-2) });
+        const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
         if (job.cancelled) throw new Error('任务已停止');
-        const normalized = String(output || '').replace(/^\s*###\s*第\s*\d+\s*集[^\n]*$/m, `### 第${episodeNumber}集`);
+        const normalized = String(output || '');
         outputs.push(normalized);
-        conversationHistory.push(`第${episodeNumber}集已完成，已使用的资产命名如下，请后续保持一致：\n${normalized.slice(0, 5000)}`);
+        conversationHistory.push(`第${batch[0].episodeNumber}-${lastEpisode}集已完成，已使用的资产命名如下，请后续保持一致：\n${normalized.slice(0, 5000)}`);
       }
       const combinedOutput = outputs.join('\n\n');
       const parsed = ensureArtEpisodeCoverage(parseArtAnalysis(combinedOutput), analysisEpisodes.length);

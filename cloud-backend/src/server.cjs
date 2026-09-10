@@ -47,7 +47,7 @@ function createServer(env = process.env, deps = {}) {
           if (action === 'unlock') return send(await unlock(payload, user, repository));
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
-          return send(await handleAction(action, payload, user, repository));
+          return send(await handleAction(action, payload, user, repository, cosSigner));
         } catch {
           return send({ status: 503, body: { error: '账号服务暂时不可用' } });
         }

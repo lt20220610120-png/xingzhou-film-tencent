@@ -30,7 +30,12 @@ export const COLLAB_STYLES = ['AI真人', '3D动漫', '2D动漫'];
 export const ASSET_CATEGORIES = { character: '人物', scene: '场景', prop: '道具' };
 
 // ---------- 资产描述固定前缀：复制即用，无需手动补充 ----------
-export const CHARACTER_PROMPT_PREFIX = '真人拍摄，但不能跟现实当中任何的明星撞脸。纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。';
+export const CHARACTER_PROMPT_PREFIXES = {
+  'AI真人': '真人拍摄，但不能跟现实当中任何的明星撞脸。真人写实人像摄影，8K超高清原生画质，电影级柔和自然光影，无畸变广角，还原真实人像质感。皮肤通透细腻，精准呈现皮肤的次表面散射，自带自然原生的珠光光泽，超逼真还原皮肤纹理、原生毛孔、面部细碎绒毛等细节，五官立体精致，画面干净通透，光影过渡自然，整体真实与呼吸感，细节拉满。纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
+  '3D动漫': '新中式3D国漫角色，融合英式动画的柔和质感与东方古典审美，极具东方温婉气韵，虚拟引擎5超高清渲染，8K极致精度。线条流畅灵动，五官精致舒展，自带古典故事感，光影柔和通透，色彩雅致高级。精准还原国风织锦、刺绣、纱质面料的细腻质感，发丝根根分明，皮肤纹理自然真实，材质表现整体画面唯美大气。纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
+  '2D动漫': '风格:日本二次元动画风格，整体经典日漫2D手绘动画风格，4K超高清，细腻光影，强情绪张力，全程画风统一不跳变，无厚涂质感，细腻的人物情绪刻画，流畅无崩坏动画。纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
+};
+export const CHARACTER_PROMPT_PREFIX = CHARACTER_PROMPT_PREFIXES['AI真人'];
 export const SCENE_PROMPT_PREFIX = '只要场景不要出现任何人物。';
 export const PROP_PROMPT_PREFIX = '纯白色背景。';
 
@@ -185,9 +190,9 @@ export const buildImagePrompt = (asset, refAsset, style, genre) => {
   if (refAsset) {
     parts.push(`参考角色形象（同一人物，保持脸型五官发型身材完全一致）：${refAsset.name}\n${refAsset.description || ''}`);
     parts.push(`本次变化（服装/状态差异）：${asset.description || parseAssetName(asset.name).variant}`);
-    if (asset.category === 'character') parts.unshift(CHARACTER_PROMPT_PREFIX);
+    if (asset.category === 'character') parts.unshift(CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX);
   } else {
-    parts.push(withAssetPrefix(asset.category, asset.description || asset.name));
+    parts.push(asset.category === 'character' ? `${CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX}\n${asset.description || asset.name}` : withAssetPrefix(asset.category, asset.description || asset.name));
   }
   return parts.filter(Boolean).join('\n\n');
 };

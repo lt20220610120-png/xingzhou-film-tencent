@@ -22,7 +22,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
     body,
   });
   if (!put.ok) throw new Error(`素材上传失败（${put.status}）`);
-  return { url: '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
+  return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
 function createCollabService(getSession) {
   const session = () => getSession() || {};
