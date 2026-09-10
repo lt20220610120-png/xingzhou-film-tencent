@@ -112,8 +112,9 @@ test('内置美术 Skill 锁死且包含分级输出规则', async () => {
   assert.match(mod.COLLAB_ART_SKILL, /复用免描/);
   const messages = mod.buildCollabAnalysisMessages({ style: 'AI真人', genre: '现代都市', script: '第1集……' });
   assert.equal(messages.length, 2);
-  assert.match(messages[0].content, /画风：AI真人/);
-  assert.match(messages[0].content, /题材与时代：现代都市/);
+  assert.doesNotMatch(messages[0].content, /画风：AI真人/);
+  assert.match(messages[0].content, /不加入AI真人、3D动漫或2D动漫画风前置/);
+  assert.match(messages[0].content, /【题材与时代 · 请先读取】\n现代都市/);
   const ws = read('src/v06/CollabWorkspace.jsx');
   assert.doesNotMatch(ws, /selectSkill.*COLLAB_ART_SKILL/, 'Skill 必须锁定不可选择');
 });

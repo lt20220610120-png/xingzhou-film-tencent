@@ -91,7 +91,7 @@ test('美术/资产人物与场景描述自动加固定前缀', () => {
   assert.match(store, /只要场景不要出现任何人物/);
   assert.match(store, /withAssetPrefix/);
   const collab = read('src/v06/CollabWorkspace.jsx');
-  assert.match(collab, /withAssetPrefix\(asset\.category, asset\.description \|\| ''\)/);
+  assert.match(collab, /withAssetPrefix\(asset\.category, asset\.description \|\| '', project\.style\)/);
 });
 
 // 10. 分镜同步提示词读取云端完整文档

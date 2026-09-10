@@ -53,6 +53,7 @@ function ImageLightbox({ image, alt, onClose }) {
 function InfoSection({ project, refresh, api, state, canEdit }) {
   const [script, setScript] = useState(project.script || '');
   const [genre, setGenre] = useState(project.genre || '');
+  const [selectedStyle, setSelectedStyle] = useState(project.style || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -67,6 +68,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
 
   useEffect(() => { setScript(project.script || ''); }, [project.id]);
   useEffect(() => { setGenre(project.genre || ''); }, [project.id]);
+  useEffect(() => { setSelectedStyle(project.style || ''); }, [project.id, project.style]);
   useEffect(() => {
     const syncJob = () => {
       const job = collabAnalysisJobs.get(project.id);
@@ -90,12 +92,12 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
     if (!profile) { setError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
     if (!profile.model?.trim()) { setError('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称'); return; }
     if (!script.trim()) { setError('剧本内容为空，请先填写或在导演工作台上传剧本'); return; }
-    if (!project.style) { setError('请先选择画风（AI真人 / 3D动漫 / 2D动漫）'); return; }
+    if (!selectedStyle) { setError('请先选择画风（AI真人 / 3D动漫 / 2D动漫）'); return; }
     if (!genre.trim()) { setError('请先填写题材与时代设定（如：现代都市 / 古代玄幻 / 民国谍战）'); return; }
     const job = { status: 'running', error: '', notice: '大语言模型正在读取前置信息与 Skill，通读剧本分析中，请耐心等待…', cancelled: false, taskId: '' };
     collabAnalysisJobs.set(project.id, job); setError(''); setNotice(job.notice); setJobVersion((value) => value + 1);
     try {
-      await api.collabUpdateProject({ projectId: project.id, updates: { script, genre } });
+      if (genre !== (project.genre || '')) await api.collabUpdateProject({ projectId: project.id, updates: { genre } });
       const analysisEpisodes = (project.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传');
       if (!analysisEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先同步导演项目');
       const outputs = [];
@@ -105,7 +107,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
         const episodeNumber = index + 1;
         job.notice = `正在逐集稳定分析：第 ${episodeNumber}/${analysisEpisodes.length} 集…`;
         job.taskId = `collab-analysis-${project.id}-${episodeNumber}`;
-        const messages = buildEpisodeAnalysisMessages({ style: project.style, genre, episodeNumber, title: episode.title, content: episode.content || '', previousSummaries: conversationHistory.slice(-2) });
+        const messages = buildEpisodeAnalysisMessages({ genre, episodeNumber, title: episode.title, content: episode.content || '', previousSummaries: conversationHistory.slice(-2) });
         const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, requiresApiKey: profile.requiresApiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
         if (job.cancelled) throw new Error('任务已停止');
         const normalized = String(output || '');
@@ -141,8 +143,8 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
         <div className="collab-panel-title"><Palette size={15} /> 画风</div>
         <div className="collab-style-chips">
           {COLLAB_STYLES.map((s) => (
-            <button key={s} disabled={!canEdit} className={`style-chip ${project.style === s ? 'active' : ''}`}
-              onClick={() => saveInfo({ style: project.style === s ? '' : s })}>{s}</button>
+            <button key={s} disabled={!canEdit} className={`style-chip ${selectedStyle === s ? 'active' : ''}`}
+              onClick={() => { const next = selectedStyle === s ? '' : s; setSelectedStyle(next); saveInfo({ style: next }); }}>{s}</button>
           ))}
         </div>
         <div className="collab-panel-title"><FileText size={15} /> 题材</div>
@@ -190,6 +192,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const [selectedImageId, setSelectedImageId] = useState('');
   const [previewImage, setPreviewImage] = useState('');
   const [localImages, setLocalImages] = useState([]);
+  useEffect(() => { setSelectedImageId(''); setPreviewImage(''); setLocalImages([]); setRefId(''); }, [asset.id]);
   const imageProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'image');
   const defaultProfile = activeMediaProfile(state, 'image');
   const [profileId, setProfileId] = useState(defaultProfile?.id || imageProfiles[0]?.id || '');
@@ -254,14 +257,14 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
  * 资产详情：左列表已选中的资产 → 描述编辑 + 生图框
  * ================================================================ */
 function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage }) {
-  const prefixed = withAssetPrefix(asset.category, asset.description || '');
+  const prefixed = withAssetPrefix(asset.category, asset.description || '', project.style);
   const [draft, setDraft] = useState(prefixed);
   const [saving, setSaving] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [modifying, setModifying] = useState(false);
   const [modifyError, setModifyError] = useState('');
-  useEffect(() => { setDraft(withAssetPrefix(asset.category, asset.description || '')); }, [asset.id, asset.description]);
+  useEffect(() => { setDraft(withAssetPrefix(asset.category, asset.description || '', project.style)); }, [asset.id, asset.description, project.style]);
 
   const save = async () => {
     if (!canEdit || draft === prefixed) return;
@@ -431,7 +434,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
           {!list.length && <div className="collab-empty small">本集没有{ASSET_CATEGORIES[category]}资产</div>}
         </nav>
         {selected
-          ? <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
+          ? <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}
@@ -496,7 +499,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
           ? <section className="character-asset-workspace">
               {category === 'character' && selectedCharacter && <div className="character-profile-header"><div><span>角色主档案</span><h3>{selectedCharacter.base}</h3><small>所有妆造共用同一人物身份；选择已有形象作为参考，仅改变服装、妆容和剧情状态。</small></div><span className="character-look-count">{selectedCharacter.variants.length} 套妆造</span></div>}
               {category === 'character' && selectedCharacter && <div className="character-variant-branches"><b>妆造分支</b><div>{selectedCharacter.variants.map((variant) => <button key={variant.id} className={selected?.id === variant.id ? 'active' : ''} onClick={() => setSelectedId(variant.id)}><span>{variant.variant || '基础形象'}</span><small>{variant.images?.length || 0} 张</small></button>)}<button className="add-look" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 添加妆造</button></div></div>}
-              <AssetDetail project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
+              <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
             </section>
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>

@@ -29,8 +29,20 @@ async function gateway(action, payload = {}, token = '') {
       if (isNetworkFailure(error)) { lastNetworkError = error; if (activeUrl === url) activeUrl = null; continue; }
       throw new Error(NETWORK_ERROR);
     }
+    let text;
+    try {
+      text = await response.text();
+    } catch (error) {
+      // fetch 可能已收到响应头，但在读取正文时连接被服务端终止。
+      // 这同样是网络失败，必须清除当前端点并尝试备用地址。
+      if (isNetworkFailure(error) || /terminated/i.test(String(error?.message || ''))) {
+        lastNetworkError = error;
+        if (activeUrl === url) activeUrl = null;
+        continue;
+      }
+      throw new Error(NETWORK_ERROR);
+    }
     activeUrl = url;
-    const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { /* noop */ }
     if (!response.ok) {

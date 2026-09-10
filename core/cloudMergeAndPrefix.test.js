@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { mergeCloudEpisodes } from './directorCloudProjects.js';
-import { withAssetPrefix, buildImagePrompt, CHARACTER_PROMPT_PREFIX, SCENE_PROMPT_PREFIX } from './collabStore.js';
+import { withAssetPrefix, buildImagePrompt, CHARACTER_PROMPT_PREFIX, CHARACTER_PROMPT_PREFIXES, SCENE_PROMPT_PREFIX } from './collabStore.js';
 
 describe('云端提示词双向合并', () => {
   it('本地新生成的提示词在云端刷新后保留（闪跳修复核心）', () => {
@@ -56,6 +56,15 @@ describe('资产描述固定前缀', () => {
     const out = withAssetPrefix('character', '尖下巴，柳叶眉');
     assert.ok(out.startsWith(CHARACTER_PROMPT_PREFIX));
     assert.ok(out.includes('尖下巴'));
+  });
+  it('切换画风只替换人物前置，不改变人物自身描述', () => {
+    const live = withAssetPrefix('character', '圆脸，黑色短发，佩戴珍珠耳钉', 'AI真人');
+    const anime3d = withAssetPrefix('character', live, '3D动漫');
+    const anime2d = withAssetPrefix('character', anime3d, '2D动漫');
+    assert.ok(anime3d.startsWith(CHARACTER_PROMPT_PREFIXES['3D动漫']));
+    assert.ok(anime2d.startsWith(CHARACTER_PROMPT_PREFIXES['2D动漫']));
+    assert.ok(anime2d.includes('圆脸，黑色短发，佩戴珍珠耳钉'));
+    assert.ok(!anime2d.includes(CHARACTER_PROMPT_PREFIXES['AI真人']));
   });
   it('场景描述自动加上无人物前缀', () => {
     const out = withAssetPrefix('scene', '月银沙漠');

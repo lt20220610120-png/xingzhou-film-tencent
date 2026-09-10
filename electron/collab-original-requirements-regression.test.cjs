@@ -23,6 +23,23 @@ test('项目协作资产图片可点击进入居中预览并用滚轮缩放', ()
   assert.match(cloud, /asset-image-record[\s\S]*?signDownload/);
 });
 
+test('切换人物、场景或道具时图片状态按资产 ID 隔离，不能串台', () => {
+  const ui = read('src/v06/CollabWorkspace.jsx');
+  assert.match(ui, /<AssetDetail key=\{selected\.id\}/);
+  assert.match(ui, /setLocalImages\(\[\]\)/);
+  assert.match(ui, /\[asset\.id\]/);
+});
+
+test('分析不再重复上传整部剧本，画风不发送给美术清单 Agent', () => {
+  const ui = read('src/v06/CollabWorkspace.jsx');
+  const run = ui.match(/const runAnalysis[\s\S]*?const stopAnalysis/)?.[0] || '';
+  const skill = read('core/collabArtSkill.js');
+  assert.doesNotMatch(run, /updates:\s*\{\s*script,\s*genre/);
+  assert.match(ui, /selectedStyle/);
+  const perEpisode = skill.match(/export const buildEpisodeAnalysisMessages[\s\S]*?\];/)?.[0] || '';
+  assert.doesNotMatch(perEpisode, /画风：/);
+});
+
 test('腾讯云 PostgreSQL 列表查询不会按项目成员数量复制资产和媒体', () => {
   const repo = read('cloud-backend/src/postgres-repository.cjs');
   const listAssets = repo.match(/async listAssets[\s\S]*?async createAsset/)?.[0] || '';

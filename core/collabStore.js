@@ -40,9 +40,17 @@ export const SCENE_PROMPT_PREFIX = '只要场景不要出现任何人物。';
 export const PROP_PROMPT_PREFIX = '纯白色背景。';
 
 // 给资产描述加上类别固定前缀（人物/场景/道具），已有前缀时不重复添加。
-export const withAssetPrefix = (category, description = '') => {
-  const prefix = category === 'character' ? CHARACTER_PROMPT_PREFIX : category === 'scene' ? SCENE_PROMPT_PREFIX : category === 'prop' ? PROP_PROMPT_PREFIX : '';
-  const text = String(description || '');
+const stripCharacterPromptPrefix = (description = '') => {
+  let text = String(description || '').trim();
+  for (const prefix of Object.values(CHARACTER_PROMPT_PREFIXES)) {
+    if (text.startsWith(prefix)) text = text.slice(prefix.length).trim();
+  }
+  return text;
+};
+
+export const withAssetPrefix = (category, description = '', style = 'AI真人') => {
+  const prefix = category === 'character' ? (CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX) : category === 'scene' ? SCENE_PROMPT_PREFIX : category === 'prop' ? PROP_PROMPT_PREFIX : '';
+  const text = category === 'character' ? stripCharacterPromptPrefix(description) : String(description || '');
   if (!prefix || text.startsWith(prefix)) return text;
   return text ? `${prefix}\n${text}` : prefix;
 };
@@ -205,11 +213,11 @@ export const buildImagePrompt = (asset, refAsset, style, genre) => {
   if (style) parts.push(`画风：${style}`);
   if (genre) parts.push(`题材设定：${genre}`);
   if (refAsset) {
-    parts.push(`参考角色形象（同一人物，保持脸型五官发型身材完全一致）：${refAsset.name}\n${refAsset.description || ''}`);
-    parts.push(`本次变化（服装/状态差异）：${asset.description || parseAssetName(asset.name).variant}`);
+    parts.push(`参考角色形象（同一人物，保持脸型五官发型身材完全一致）：${refAsset.name}\n${stripCharacterPromptPrefix(refAsset.description || '')}`);
+    parts.push(`本次变化（服装/状态差异）：${stripCharacterPromptPrefix(asset.description || '') || parseAssetName(asset.name).variant}`);
     if (asset.category === 'character') parts.unshift(CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX);
   } else {
-    parts.push(asset.category === 'character' ? `${CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX}\n${asset.description || asset.name}` : withAssetPrefix(asset.category, asset.description || asset.name));
+    parts.push(withAssetPrefix(asset.category, asset.description || asset.name, style));
   }
   return parts.filter(Boolean).join('\n\n');
 };

@@ -29,6 +29,21 @@ test('gateway 在首个端点网络失败时自动回退到下一个端点', asy
   } finally { global.fetch = realFetch; }
 });
 
+test('响应正文读取时 terminated 也会回退到下一个端点', async () => {
+  const svc = require('./cloud-access-service.cjs');
+  const realFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return { ok: true, status: 200, text: async () => { const error = new TypeError('terminated'); error.cause = { code: 'UND_ERR_SOCKET' }; throw error; } };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ recovered: true }) };
+  };
+  try {
+    assert.deepEqual(await svc.gateway('project-update', { projectId: 'p' }, 'tok'), { recovered: true });
+    assert.ok(calls >= 2);
+  } finally { global.fetch = realFetch; }
+});
+
 test('collab-service 复用带回退的 gateway，不再各自写死域名', () => {
   const src = fs.readFileSync(path.join(__dirname, 'collab-service.cjs'), 'utf8');
   assert.match(src, /sharedGateway/);
