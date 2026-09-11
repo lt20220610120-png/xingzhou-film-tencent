@@ -1,5 +1,5 @@
 {
-  "version": "2.1.2",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.2/Xingzhou-Film-Tencent-Setup-2.1.2.exe",
+  "version": "2.1.3",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.3/Xingzhou-Film-Tencent-Setup-2.1.3.exe",
   "notes": "修复腾讯云版桌面端发布与更新链路，提交完整源代码并重新构建 Windows 安装包。"
 }
