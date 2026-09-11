@@ -1,7 +1,7 @@
 {
   "name": "xingzhou-film-tencent",
   "productName": "行舟影视（腾讯云版）",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "行舟影视：剧本、导演、项目协作与 AI 影像生产工作台",
   "author": "行舟影视",
   "private": true,
@@ -9,7 +9,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "test": "node --test",
-    "build": "vite build",
+    "build": "vite build --configLoader runner",
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && electron .\"",
     "dist": "npm run test && npm run build && electron-builder --win nsis",
     "preview": "vite preview"
@@ -33,7 +33,7 @@
     "appId": "com.xingzhou.film.tencent",
     "productName": "Xingzhou Film Tencent Edition",
     "directories": {
-      "output": "C:/Users/11599/AppData/Local/Temp/xingzhou-release-tencent-v1911"
+      "output": "release"
     },
     "files": [
       "dist/**/*",

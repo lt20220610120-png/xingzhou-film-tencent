@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { IMAGE_FORMATS, videoModelCapabilities } from './canvasStore.js';
 
 test('图片生成提供标准画幅选项并映射到兼容尺寸', () => {
-  assert.deepEqual(IMAGE_FORMATS.map((item) => item.value), ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']);
+  assert.deepEqual(IMAGE_FORMATS.map((item) => item.value), ['16:9', '1:1', '9:16', '4:3', '3:4', '3:2', '2:3']);
   assert.ok(IMAGE_FORMATS.every((item) => item.size));
 });
 

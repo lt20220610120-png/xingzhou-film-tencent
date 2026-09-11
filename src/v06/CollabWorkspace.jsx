@@ -108,7 +108,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
         job.notice = `正在逐集稳定分析：第 ${episodeNumber}/${analysisEpisodes.length} 集…`;
         job.taskId = `collab-analysis-${project.id}-${episodeNumber}`;
         const messages = buildEpisodeAnalysisMessages({ genre, episodeNumber, title: episode.title, content: episode.content || '', previousSummaries: conversationHistory.slice(-2) });
-        const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, requiresApiKey: profile.requiresApiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
+        const output = await api.aiChat({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, requiresApiKey: profile.requiresApiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
         if (job.cancelled) throw new Error('任务已停止');
         const normalized = String(output || '');
         outputs.push(normalized);
@@ -196,7 +196,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const imageProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'image');
   const defaultProfile = activeMediaProfile(state, 'image');
   const [profileId, setProfileId] = useState(defaultProfile?.id || imageProfiles[0]?.id || '');
-  const [size, setSize] = useState('1024x1024');
+  const [size, setSize] = useState(IMAGE_FORMATS[0].size);
   const [refId, setRefId] = useState('');
   const profile = imageProfiles.find((p) => p.id === profileId) || defaultProfile;
   const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.length)), [assets, asset.name]);
@@ -216,7 +216,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
       }
       else {
-        const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
         const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
         await refresh();
         return attached;
@@ -280,7 +280,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     setModifying(true); setModifyError('');
     try {
       const messages = buildAssetRevisionMessages({ instruction, originalContent: draft, category: asset.category });
-      const output = await api.aiChat({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
+      const output = await api.aiChat({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
       const nextDescription = String(output || '').trim();
       if (!nextDescription) throw new Error('模型没有返回新的提示词');
       await api.collabUpdateAsset({ projectId: project.id, assetId: asset.id, updates: { description: nextDescription } });
@@ -293,7 +293,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     <div className="collab-asset-detail">
       <section className="collab-asset-desc">
         <div className="collab-panel-title">
-          <PencilLine size={15} /> {asset.name} 描述（可修改）
+          <PencilLine size={15} /><strong>{asset.name} 描述（可修改）</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
         <textarea value={draft} readOnly={!canEdit} onChange={(e) => setDraft(e.target.value)} placeholder="这里是 Agent 输出的资产描述，可修改后保存。" />
@@ -336,6 +336,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [batchSelectedIds, setBatchSelectedIds] = useState([]);
   const [batchBusy, setBatchBusy] = useState(false);
+  const [batchSize, setBatchSize] = useState(IMAGE_FORMATS[0].size);
   const [exportError, setExportError] = useState('');
   const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
   const generatingAssetIdsRef = useRef(new Set());
@@ -352,7 +353,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
       return attached;
@@ -369,10 +370,12 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
     jobs.forEach((asset) => generatingAssetIdsRef.current.add(asset.id));
     setGeneratingAssetIds((current) => new Set([...current, ...jobs.map((asset) => asset.id)]));
     try {
-      await Promise.allSettled(jobs.map(async (asset) => {
-        const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: '1024x1024' });
+      const results = await Promise.allSettled(jobs.map(async (asset) => {
+        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: batchSize });
         if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
       }));
+      const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].name}：${result.reason?.message || '生成失败'}`] : []);
+      setExportError(failed.length ? `${failed.length} 项未完成：${failed.join('；')}` : '');
       await refresh();
     } finally {
       jobs.forEach((asset) => generatingAssetIdsRef.current.delete(asset.id));
@@ -420,7 +423,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
             <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSelectedName(''); }}>{label}</button>
           ))}
         </div></div>
-        <div className="collab-art-head-right"><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
+        <div className="collab-art-head-right"><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{IMAGE_FORMATS.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
       </div>
       {exportError && <div className="collab-error">{exportError}</div>}
       <div className="collab-art-body">
@@ -456,7 +459,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
       return attached;
@@ -634,7 +637,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
     try {
       if (!window.confirm(`确定使用 ${profile.name || profile.model} 生成 ${duration} 秒、${resolution} 的视频吗？`)) return;
       const firstFrameUrl = media.find((item) => item.kind === 'image' && (!item.scene || item.scene === currentScene))?.url || '';
-      const generated = await api.mediaGenerateVideo({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl });
+      const generated = await api.mediaGenerateVideo({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl });
       await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: currentScene });
       await loadMedia();
     } catch (e) { setError(e.message); }
@@ -691,7 +694,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
             const prompt = p.content || '';
             if (!window.confirm(`确定生成提示词 ${p.label}？\n模型：${profile.name || profile.model}\n${duration} 秒 · ${resolution}\n参考素材：${refs.map((a) => a.name).join('、') || '无'}`)) return;
             setBusy(true); setError('');
-            try { const selectedUploaded = uploadedImages.find((item) => item.id === selectedUploadedRefId) || uploadedImages[0]; const generated = await api.mediaGenerateVideo({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl: selectedUploaded?.url || '' }); await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: p.label }); await loadMedia(); }
+            try { const selectedUploaded = uploadedImages.find((item) => item.id === selectedUploadedRefId) || uploadedImages[0]; const generated = await api.mediaGenerateVideo({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl: selectedUploaded?.url || '' }); await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: p.label }); await loadMedia(); }
             catch (e) { setError(e.message); } finally { setBusy(false); }
           };
           return <article className="collab-shot-card" key={p.id}>

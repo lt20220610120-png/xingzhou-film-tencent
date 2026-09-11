@@ -6,8 +6,8 @@ import { uid, now } from './projectStore.js';
 
 export const CANVAS_NODE_SIZE = { image: { w: 360, h: 300 }, video: { w: 420, h: 300 } };
 export const IMAGE_FORMATS = [
-  { value: '1:1', label: '1:1 · 方形', size: '1024x1024' },
   { value: '16:9', label: '16:9 · 横屏', size: '1280x720' },
+  { value: '1:1', label: '1:1 · 方形', size: '1024x1024' },
   { value: '9:16', label: '9:16 · 竖屏', size: '720x1280' },
   { value: '4:3', label: '4:3 · 横屏', size: '1024x768' },
   { value: '3:4', label: '3:4 · 竖屏', size: '768x1024' },
@@ -49,7 +49,7 @@ export const addCanvasNode = (state, canvasId, type, position = {}) => {
     id: uid(), type,
     x: Math.round(position.x ?? 120), y: Math.round(position.y ?? 120), w: size.w, h: size.h,
     prompt: '', status: 'empty', mediaFile: '', error: '',
-    params: type === 'video' ? { ratio: '16:9', duration: 5, resolution: '720p', firstFrameNodeId: '' } : { size: '1024x1024' },
+    params: type === 'video' ? { ratio: '16:9', duration: 5, resolution: '720p', firstFrameNodeId: '' } : { size: IMAGE_FORMATS[0].size },
     createdAt: now(),
   };
   return {

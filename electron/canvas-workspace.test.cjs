@@ -18,7 +18,7 @@ test('画布状态层：建画布、加节点、更新与删除', async () => {
   state = store.addCanvasNode(state, canvasId, 'image', { x: 100, y: 80 });
   state = store.addCanvasNode(state, canvasId, 'video');
   assert.equal(state.canvases[0].nodes.length, 2);
-  assert.equal(state.canvases[0].nodes[0].params.size, '1024x1024');
+  assert.equal(state.canvases[0].nodes[0].params.size, '1280x720');
   assert.equal(state.canvases[0].nodes[1].params.ratio, '16:9');
   const nodeId = state.canvases[0].nodes[0].id;
   state = store.updateCanvasNode(state, canvasId, nodeId, { prompt: '一只猫' });
@@ -75,7 +75,7 @@ test('preload 暴露媒体生成 API', () => {
 test('导演侧边栏包含画布入口，Electron 内嵌 iframe、浏览器回退 CanvasWorkspace', () => {
   const src = read('src/App.jsx');
   assert.match(src, /\['canvas', Palette, '画布'\]/);
-  assert.match(src, /nav === 'canvas' && \(window\.xingzhou/);
+  assert.match(src, /canvasVisited/);
   assert.match(src, /<CanvasWorkspace/);
   const nav = src.slice(src.indexOf('const directorNav'), src.indexOf('const adminNav'));
   assert.match(nav, /canvas/, '画布必须在导演导航中');

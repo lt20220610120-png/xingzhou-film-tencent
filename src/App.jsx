@@ -1,3 +1,4 @@
+import packageInfo from '../package.json';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Film, BookOpen, Library, Settings, Sparkles, KeyRound,
@@ -1250,6 +1251,9 @@ function App() {
   const [nav, setNav] = useState('fruit');
   const [canvasRoute, setCanvasRoute] = useState(() => localStorage.getItem('xz-canvas-last-route') || '#/canvas');
   const canvasFrameRef = useRef(null);
+  const [canvasVisited, setCanvasVisited] = useState(false);
+  const initialCanvasRoute = useRef(canvasRoute);
+  useEffect(() => { if (nav === 'canvas') setCanvasVisited(true); }, [nav]);
   const [account, setAccount] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [registerRole, setRegisterRole] = useState(null);
@@ -1267,7 +1271,7 @@ function App() {
 
   useEffect(() => {
     const receiveCanvasRoute = (event) => {
-      if (canvasFrameRef.current && event.source !== canvasFrameRef.current.contentWindow) return;
+      if (!canvasFrameRef.current || event.source !== canvasFrameRef.current.contentWindow) return;
       if (event.data?.type !== 'xingzhou-canvas-route' || !String(event.data.hash || '').startsWith('#/')) return;
       const route = String(event.data.hash);
       localStorage.setItem('xz-canvas-last-route', route);
@@ -1422,7 +1426,7 @@ function App() {
           <button onClick={handleLogout}>
             <LogOut size={18} /> <span>退出登录</span>
           </button>
-          <small>本地资料 · 1.8.8</small>
+          <small>本地资料 · {packageInfo.version}</small>
         </div>
       </nav>
 
@@ -1441,9 +1445,9 @@ function App() {
         {nav === 'settings' && <SettingsPage state={state} setState={setState} />}
         {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
         {nav === 'collab' && <CollabWorkspace state={state} api={api} account={account} />}
-        {nav === 'canvas' && (window.xingzhou
-          ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html${canvasRoute}`} title="无限画布" allow="clipboard-read; clipboard-write" />
-          : <CanvasWorkspace state={state} setState={setState} api={api} />)}
+        {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
+          ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />
+          : <CanvasWorkspace state={state} setState={setState} api={api} />}</div>}
         {nav === 'director' && (
           <DirectorWorkspace
             state={state}

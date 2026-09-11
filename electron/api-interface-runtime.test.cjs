@@ -7,14 +7,14 @@ const app=()=>fs.readFileSync(path.join(__dirname,'../src/App.jsx'),'utf8');
 
 test('API测试连接正确读取主进程对象结果，不能把对象直接渲染导致页面崩溃',()=>{
  const source=ui();
- assert.match(source,/result\?\.message \|\|/);
+ assert.match(source,/reply: result\.message/);
  assert.doesNotMatch(source,/message: result \|\| '连接成功'/);
 });
 
 test('无需密钥的本地兼容服务允许测试和保存',()=>{
  const source=ui();
- assert.match(source,/selectedProvider\?\.requiresApiKey/);
- assert.match(source,/requiresApiKey: selectedProvider\?\.requiresApiKey/);
+ assert.match(source,/form\.requiresApiKey/);
+ assert.match(source,/requiresApiKey: initial\.requiresApiKey/);
 });
 
 test('项目AI助手直接使用API接口页当前启用的配置',()=>{
@@ -28,6 +28,6 @@ test('API 接口按对话、图片、视频分区展示，卡片不再全部堆�
  const source=ui();
  assert.match(source,/api-library-tabs/);
  assert.match(source,/activeApiKind/);
- assert.match(source,/api-resource-grid/);
+ assert.match(source,/api-connection-list/);
  assert.match(source,/activeApiKind === 'chat'/);
 });

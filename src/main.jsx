@@ -22,3 +22,4 @@ if (root) {
     </React.StrictMode>
   );
 }
+import './workspace-polish.css';

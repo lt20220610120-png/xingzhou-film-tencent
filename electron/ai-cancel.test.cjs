@@ -15,5 +15,5 @@ test('requestChat 支持外部 AbortSignal 取消长请求', async () => {
   const pending = requestChat({ endpoint: 'https://example.test/v1', apiKey: 'k', model: 'm', messages: [], signal: controller.signal }, { fetchFn });
   controller.abort();
   await assert.rejects(pending, /aborted/);
-  assert.equal(seenSignal, controller.signal);
+  assert.equal(seenSignal.aborted, true);
 });

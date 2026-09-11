@@ -122,7 +122,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
             afterUserMessages: attachmentContent ? [{ role: 'user', content: attachmentContent }] : [],
           })).output
         : await api.aiChat({
-            endpoint: apiCfg.endpoint, model: apiCfg.model, apiKey: apiCfg.apiKey,
+            protocol: apiCfg.protocol, provider: apiCfg.provider, requiresApiKey: apiCfg.requiresApiKey, endpoint: apiCfg.endpoint, model: apiCfg.model, apiKey: apiCfg.apiKey,
             messages: [...history, { role: 'user', content: text }, ...(attachmentContent ? [{ role: 'user', content: attachmentContent }] : [])],
           });
 

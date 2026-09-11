@@ -203,7 +203,8 @@ function parseSegments(text) {
  * EpisodeDirector - 逐集导演编辑（支持 creative/quick 模式）
  * ================================================================ */
 function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice }) {
-  const [mode, setMode] = useState('creative'); // 'creative' | 'quick'
+  const [mode, setMode] = useState(() => localStorage.getItem('xz-director-mode') || 'creative');
+  useEffect(() => { localStorage.setItem('xz-director-mode', mode); }, [mode]);
   const [selectedSkillId, setSelectedSkillId] = useState(() => {
     try {
       const lastId = localStorage.getItem('xz-last-used-skill');
@@ -219,7 +220,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     return next;
   });
   const isSceneRunning = (label) => runningScenes.has(label);
-  const [sceneInputs, setSceneInputs] = useState({}); // 快速模式下各场景的编辑框
+  const sceneInputs = episode.quickSceneEdits || {};
+  const saveQuickScene = (sceneLabel, content) => setState((s) => updateDirectorEpisode(s, project.id, episode.id, (current) => ({
+    quickSceneEdits: { ...(current.quickSceneEdits || {}), [sceneLabel]: content },
+  })));
   // 快速模式下选中的场景
   const [activeScene, setActiveScene] = useState(null);
   const promptCardRefs = useRef({});
@@ -351,7 +355,6 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         sourceText,
       });
       setState((s) => appendDirectorPromptHistory(appendDirectorEpisodePrompts(s, project.id, episode.id, newPrompts, {
-        quickSceneEdits: { ...(episode.quickSceneEdits || {}), [sceneLabel]: inputText },
         status: '已生成提示词',
         lastUsedSkill: currentSkill?.name || '',
       }), project.id, newPrompts));
@@ -580,11 +583,11 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 <textarea
                   className="quick-scene-textarea"
                   value={currentSceneContent}
-                  onChange={(e) => setSceneInputs((prev) => ({ ...prev, [currentScene]: e.target.value }))}
+                  onChange={(e) => saveQuickScene(currentScene, e.target.value)}
                   placeholder={`编辑场景 ${currentScene} 的剧本内容……`}
                 />
                 <div className="quick-scene-info">
-                  <small>场景描述 · 可用（1）（2）（3）……划分，Skill 输出会按相同编号自动拆成独立提示词框</small>
+                  <small>修改自动保存 · 切换场景或功能区后继续编辑。可用（1）（2）（3）划分提示词。</small>
                 </div>
               </div>
             ) : (

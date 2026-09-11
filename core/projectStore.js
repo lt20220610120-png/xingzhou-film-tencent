@@ -506,7 +506,7 @@ export const updateDirectorEpisode = (state, projectId, episodeId, updates) => {
   const projects = state.directorProjects.map((p, i) => {
     if (i !== pIdx) return p;
     const episodes = p.episodes.map(e =>
-      e.id === episodeId ? { ...e, ...updates } : e
+      e.id === episodeId ? { ...e, ...(typeof updates === 'function' ? updates(e) : updates) } : e
     );
     return { ...p, episodes, updatedAt: now() };
   });

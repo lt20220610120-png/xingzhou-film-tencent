@@ -9,6 +9,13 @@ electron/cloud-config.cjs
 scripts/e2e-cloud-test.cjs
 scripts/verify-collab-cloud.cjs
 release/
+release-app-2.1.0/
+release-app-payload-2.1.0/
+release-portable/
+release-squirrel-2.1.0/
+nuget-appdata/
+nuget-local/
+nuget-user/
 reference-v100/
 *.png
 nul
@@ -18,3 +25,9 @@ __pycache__/
 latest-check.json
 scripts/cdp_probe.py
 scripts/repro_legacy_white_screen.py
+
+qa/
+*.log
+.cache/
+!src/assets/company-logo.png
+!build/icon-master.png

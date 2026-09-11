@@ -17,6 +17,11 @@
         <script>
             const reportCanvasRoute = () => window.parent !== window && window.parent.postMessage({ type: 'xingzhou-canvas-route', hash: window.location.hash || '#/canvas' }, '*');
             window.addEventListener('hashchange', reportCanvasRoute);
+            window.addEventListener('popstate', reportCanvasRoute);
+            ['pushState', 'replaceState'].forEach(method => {
+                const original = history[method];
+                history[method] = function(...args) { const result = original.apply(this, args); reportCanvasRoute(); return result; };
+            });
             window.addEventListener('load', reportCanvasRoute);
         </script>
       <script type="module" crossorigin src="./assets/index-D8wpn5PA.js"></script>
