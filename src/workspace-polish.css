@@ -1,4 +1,6 @@
 /* 2.1: compact production workspace. Keep decoration outside editable content. */
+.workspace-preserved { height:100vh; overflow:auto; min-width:0; width:100%; }
+.workspace-preserved[hidden] { display:none!important; }
 :root { --paper:#f3f6f8; --surface:#fff; --ink:#203b4b; --muted:#657b88; --line:#dbe4e9; --deep:#07536c; --shadow:0 8px 24px #173c5010; }
 body { background:var(--paper); }
 .app { grid-template-columns:176px minmax(0,1fr); }
@@ -177,3 +179,35 @@ body { background:var(--paper); }
   .collab-image-box { max-height:none; }
 }
 @media(max-width:1050px) { .collab-rail { width:150px; } }
+
+.collab-asset-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.collab-draft-status { color:var(--muted); font-size:11px; line-height:1.6; }
+.collab-modify-prompt-modal { width:min(720px,calc(100vw - 40px)); max-height:calc(100dvh - 40px); overflow:auto; padding:24px; }
+.collab-modify-prompt-modal textarea { width:100%; min-height:100px; max-height:30vh; }
+.collab-modify-prompt-modal .modify-original-content { min-height:130px; }
+.collab-art { height:auto; min-height:calc(100vh - 36px); }
+.collab-art-body { align-items:flex-start; }
+.collab-asset-desc textarea { height:clamp(320px,54vh,650px); flex:auto; }
+.collab-asset-rail { max-height:calc(100vh - 180px); }
+.collab-art-head button,.collab-asset-actions button { white-space:nowrap; }
+.collab-info-side,.collab-image-box { background:#fff; border-color:var(--line); }
+.collab-cat-tabs { background:#e8eef2; }
+.collab-cat-tabs button.active { background:var(--deep); color:#fff; }
+@media(max-width:1180px) {
+  .collab-art-body { flex-direction:column; }
+  .collab-asset-rail { width:100%; flex-direction:row; flex-wrap:wrap; max-height:120px; overflow:auto; }
+  .collab-asset-rail button { flex:0 1 auto; max-width:260px; }
+  .collab-asset-detail { width:100%; }
+}
+@media(max-width:850px) {
+  .collab-rail { width:128px; padding:12px 6px; }
+  .collab-rail>button { padding:9px 6px; font-size:12px; gap:5px; }
+  .collab-stage { padding:12px; }
+  .collab-asset-detail { flex-direction:column; }
+  .collab-asset-desc,.collab-image-box { width:100%; min-width:0; flex-basis:auto; }
+  .collab-image-box { max-height:none; }
+  .collab-info { flex-direction:column; }
+  .collab-info-side { width:100%; }
+  .collab-image-box .collab-asset-image { max-height:240px; object-fit:contain; }
+  .director-stage>header,.director-master>header { flex-wrap:wrap; gap:10px; }
+}

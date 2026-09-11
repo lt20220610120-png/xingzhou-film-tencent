@@ -48,8 +48,11 @@ function createServer(env = process.env, deps = {}) {
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
           return send(await handleAction(action, payload, user, repository, cosSigner));
-        } catch {
-          return send({ status: 503, body: { error: '账号服务暂时不可用' } });
+        } catch (error) {
+          // Log only operation and database code, never prompts, tokens or SQL values.
+          (deps.logger || console).error('gateway_failed', { action, code: error?.code || 'unknown' });
+          const message = action === 'asset-update' ? '提示词保存失败，编辑内容仍保留，请稍后重试保存' : '云端服务暂时不可用，请稍后重试';
+          return send({ status: 503, body: { error: message } });
         }
       });
       return;

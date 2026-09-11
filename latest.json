@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.0/Xingzhou-Film-Tencent-Setup-2.1.0.exe",
-  "notes": "默认图片画幅调整为 16:9 横屏；优化 API 配置与模型正文解析；优化导演快速模式自动保存、画布页面记忆和工作区布局。"
+  "version": "2.1.2",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.2/Xingzhou-Film-Tencent-Setup-2.1.2.exe",
+  "notes": "修复腾讯云版桌面端发布与更新链路，提交完整源代码并重新构建 Windows 安装包。"
 }

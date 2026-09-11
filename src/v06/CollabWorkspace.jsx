@@ -18,6 +18,7 @@ import {
 } from '../../core/collabStore.js';
 import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
+import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
 
@@ -186,7 +187,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
 /* ================================================================
  * 生图框（美术/资产共用）：模型 + 画幅 + @参考 + 生成/上传
  * ================================================================ */
-function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage }) {
+function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -206,10 +207,11 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
 
   const generate = async () => {
-    if (generating || !canEdit) return;
+    if (generating || busy || !canEdit) return;
     if (!profile) { setError('请先在画布或 API 配置中添加图片生成接口'); return; }
-    setError('');
+    setError(''); setBusy(true);
     try {
+      if (beforeGenerate) await beforeGenerate();
       const prompt = buildImagePrompt(asset, refAsset, project.style, project.genre);
       if (onGenerateImage) {
         const attached = await onGenerateImage({ asset, profile, prompt, size });
@@ -221,7 +223,8 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         await refresh();
         return attached;
       }
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(readableCloudError(e)); }
+    finally { setBusy(false); }
   };
 
   const uploadLocal = async () => {
@@ -242,9 +245,9 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
       {selectedImage && <div className="collab-image-item-actions"><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
       <div className="collab-image-controls">
         <select value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
-        <select value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
+        <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         {mates.length > 0 && <label className="collab-ref-picker"><AtSign size={13} /><select value={refId} onChange={(e) => setRefId(e.target.value)}><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
-        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || !canEdit}>{generating ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating ? '生成中…' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
+        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
         {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的样貌，仅替换服饰/状态</small>}
         {error && <div className="collab-error">{error}</div>}
       </div>
@@ -256,20 +259,47 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
 /* ================================================================
  * 资产详情：左列表已选中的资产 → 描述编辑 + 生图框
  * ================================================================ */
-function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage }) {
-  const prefixed = withAssetPrefix(asset.category, asset.description || '', project.style);
-  const [draft, setDraft] = useState(prefixed);
+function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, draftStore }) {
+  const prefixed = asset.description ?? '';
+  const [draft, setDraft] = useState(() => draftStore.read(project.id, asset.id)?.content ?? prefixed);
+  const draftRef = useRef(draft);
+  const savedRef = useRef(prefixed);
+  const [saveError, setSaveError] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
   const [saving, setSaving] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [modifying, setModifying] = useState(false);
   const [modifyError, setModifyError] = useState('');
-  useEffect(() => { setDraft(withAssetPrefix(asset.category, asset.description || '', project.style)); }, [asset.id, asset.description, project.style]);
+  useEffect(() => {
+    draftStore.reconcile(project.id, asset);
+    const pending = draftStore.read(project.id, asset.id);
+    const next = pending?.content ?? prefixed;
+    savedRef.current = prefixed;
+    draftRef.current = next;
+    setDraft(next);
+  }, [asset.id, asset.description, project.style]);
+
+  const edit = (content) => {
+    draftRef.current = content;
+    setDraft(content);
+    draftStore.write(project.id, asset.id, content);
+    setSaveError(''); setSaveNotice('草稿已保留；离开编辑框或点击生成时保存到云端');
+  };
 
   const save = async () => {
-    if (!canEdit || draft === prefixed) return;
-    setSaving(true);
-    try { await api.collabUpdateAsset({ projectId: project.id, assetId: asset.id, updates: { description: draft } }); await refresh(); }
+    const content = draftRef.current;
+    if (!canEdit || content === savedRef.current && !draftStore.read(project.id, asset.id)) return;
+    setSaving(true); setSaveError('');
+    try {
+      await draftStore.save(api, project.id, asset.id, content);
+      savedRef.current = content;
+      if (draftRef.current === content) setSaveNotice('提示词已保存到云端');
+      await refresh();
+    } catch (error) {
+      setSaveNotice(''); setSaveError(`${readableCloudError(error)}。修改内容已保留，可重试保存。`);
+      throw error;
+    }
     finally { setSaving(false); }
   };
 
@@ -283,9 +313,9 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
       const output = await api.aiChat({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
       const nextDescription = String(output || '').trim();
       if (!nextDescription) throw new Error('模型没有返回新的提示词');
-      await api.collabUpdateAsset({ projectId: project.id, assetId: asset.id, updates: { description: nextDescription } });
-      setDraft(nextDescription); await refresh(); setModifyOpen(false); setInstruction('');
-    } catch (error) { setModifyError(error.message || '修改提示词失败'); }
+      edit(nextDescription); setModifyOpen(false); setInstruction('');
+      await save();
+    } catch (error) { setModifyError(readableCloudError(error)); }
     finally { setModifying(false); }
   };
 
@@ -293,25 +323,27 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     <div className="collab-asset-detail">
       <section className="collab-asset-desc">
         <div className="collab-panel-title">
-          <PencilLine size={15} /><strong>{asset.name} 描述（可修改）</strong>
+          <PencilLine size={15} /><strong>{asset.name} 提示词</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
-        <textarea value={draft} readOnly={!canEdit} onChange={(e) => setDraft(e.target.value)} placeholder="这里是 Agent 输出的资产描述，可修改后保存。" />
+        <textarea aria-label="资产提示词" value={draft} readOnly={!canEdit || modifying} onChange={(e) => edit(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         <div className="collab-asset-actions">
-          <button className="ghost" onClick={save} disabled={!canEdit || saving || draft === prefixed}><Save size={14} /> {saving ? '保存中…' : '保存描述'}</button>
-          <button className="secondary" onClick={() => { setModifyError(''); setModifyOpen(true); }} disabled={!canEdit}>修改提示词</button>
+          <button className="primary" onClick={() => save().catch(() => {})} disabled={!canEdit || saving || modifying}><Save size={14} /> {saving ? '保存中…' : '保存提示词'}</button>
+          <button className="secondary" onClick={() => { setModifyError(''); setModifyOpen(true); }} disabled={!canEdit || modifying}>AI 修改提示词</button>
         </div>
+        <small className="collab-draft-status" role="status">{saveNotice || '可直接手动编辑；单张和批量生成均使用最新提示词。'}</small>
+        {saveError && <div className="collab-error" role="alert">{saveError}</div>}
       </section>
-      <AssetImageBox project={project} asset={asset} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generating} onGenerateImage={onGenerateImage} />
-      {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => event.target === event.currentTarget && setModifyOpen(false)}>
-        <div className="modal collab-modify-prompt-modal">
-          <h2>修改提示词</h2>
-          <label>原来的编辑框内容</label>
+      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} />
+      {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
+        <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
+          <h2>AI 修改提示词</h2>
+          <label>当前提示词</label>
           <textarea className="modify-original-content" value={draft} readOnly />
           <label>修改意见</label>
-          <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="请填写希望 A 准如何修改" autoFocus />
+          <textarea aria-label="修改意见" value={instruction} disabled={modifying} onChange={(event) => setInstruction(event.target.value)} placeholder="描述你希望 AI 调整的内容，例如建筑年代、人物服装或构图。" autoFocus />
           {modifyError && <div className="collab-error">{modifyError}</div>}
-          <div className="modal-actions"><button className="ghost" onClick={() => setModifyOpen(false)}>取消</button><button className="primary" onClick={modifyPrompt} disabled={!instruction.trim() || modifying}>{modifying ? '重新生成中…' : '确定'}</button></div>
+          <div className="modal-actions"><button className="ghost" disabled={modifying} onClick={() => setModifyOpen(false)}>取消</button><button className="primary" onClick={modifyPrompt} disabled={!instruction.trim() || modifying}>{modifying ? '正在修改…' : '应用 AI 修改'}</button></div>
         </div>
       </div>, document.body)}
     </div>
@@ -329,7 +361,7 @@ function ManualAssetDialog({ project, api, refresh, onClose }) {
 /* ================================================================
  * 美术：按集分框 → 人物/场景/道具 → 资产列表+描述+生图
  * ================================================================ */
-function ArtSection({ project, assets, api, state, refresh, canEdit }) {
+function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore }) {
   const [episode, setEpisode] = useState(null);
   const [category, setCategory] = useState('character');
   const [selectedName, setSelectedName] = useState('');
@@ -371,6 +403,11 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
     setGeneratingAssetIds((current) => new Set([...current, ...jobs.map((asset) => asset.id)]));
     try {
       const results = await Promise.allSettled(jobs.map(async (asset) => {
+        const draft = draftStore.read(project.id, asset.id);
+        if (draft) {
+          await draftStore.save(api, project.id, asset.id, draft.content);
+          asset = { ...asset, description: draft.content };
+        }
         const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: batchSize });
         if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
       }));
@@ -437,14 +474,14 @@ function ArtSection({ project, assets, api, state, refresh, canEdit }) {
           {!list.length && <div className="collab-empty small">本集没有{ASSET_CATEGORIES[category]}资产</div>}
         </nav>
         {selected
-          ? <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
+          ? <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}
     </div>
   );
 }
-function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
+function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore }) {
   const [category, setCategory] = useState('character');
   const [selectedId, setSelectedId] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
@@ -502,7 +539,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit }) {
           ? <section className="character-asset-workspace">
               {category === 'character' && selectedCharacter && <div className="character-profile-header"><div><span>角色主档案</span><h3>{selectedCharacter.base}</h3><small>所有妆造共用同一人物身份；选择已有形象作为参考，仅改变服装、妆容和剧情状态。</small></div><span className="character-look-count">{selectedCharacter.variants.length} 套妆造</span></div>}
               {category === 'character' && selectedCharacter && <div className="character-variant-branches"><b>妆造分支</b><div>{selectedCharacter.variants.map((variant) => <button key={variant.id} className={selected?.id === variant.id ? 'active' : ''} onClick={() => setSelectedId(variant.id)}><span>{variant.variant || '基础形象'}</span><small>{variant.images?.length || 0} 张</small></button>)}<button className="add-look" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 添加妆造</button></div></div>}
-              <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} />
+              <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
             </section>
           : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
       </div>
@@ -1038,6 +1075,7 @@ function StartProjectDialog({ directorProjects, onClose, onCreate, busy, error }
  * CollabWorkspace 主组件
  * ================================================================ */
 export function CollabWorkspace({ state, api, account }) {
+  const draftStore = useMemo(() => createAssetDraftStore(localStorage, account?.id || 'local'), [account?.id]);
   // 缓存优先：先展示上次的云端数据，网络请求返回后再刷新（解决“2G 般的显现慢”）
   const cacheKey = (suffix) => `xz-collab-cache-${suffix}`;
   const readCache = (suffix) => { try { return JSON.parse(localStorage.getItem(cacheKey(suffix))) || null; } catch { return null; } };
@@ -1239,8 +1277,8 @@ export function CollabWorkspace({ state, api, account }) {
       </aside>
       <main className="collab-stage">
         {section === 'info' && <InfoSection project={project} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} />}
-        {section === 'art' && <ArtSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} />}
-        {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} />}
+        {section === 'art' && <ArtSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} />}
+        {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditBoard} isProducer={myRole === 'producer'} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}

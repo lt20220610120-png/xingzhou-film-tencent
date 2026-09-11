@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { readRemembered, useRememberedState } from '../useRememberedState.js';
 import {
   ArrowLeft, Upload, FileText, BookOpen, Plus, Trash2, Sparkles,
   Save, Bot, X, Check, Pin, Copy, RefreshCw, Film, PencilLine, Users, Lock, Unlock, Cloud
@@ -202,9 +203,9 @@ function parseSegments(text) {
 /* ================================================================
  * EpisodeDirector - 逐集导演编辑（支持 creative/quick 模式）
  * ================================================================ */
-function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice }) {
-  const [mode, setMode] = useState(() => localStorage.getItem('xz-director-mode') || 'creative');
-  useEffect(() => { localStorage.setItem('xz-director-mode', mode); }, [mode]);
+function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId }) {
+  const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
+  const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
   const [selectedSkillId, setSelectedSkillId] = useState(() => {
     try {
       const lastId = localStorage.getItem('xz-last-used-skill');
@@ -225,7 +226,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     quickSceneEdits: { ...(current.quickSceneEdits || {}), [sceneLabel]: content },
   })));
   // 快速模式下选中的场景
-  const [activeScene, setActiveScene] = useState(null);
+  const [activeScene, setActiveScene] = useRememberedState(`xz-director-scene:${accountId}:${project.id}:${episode.id}`, null);
   const promptCardRefs = useRef({});
   const [promptSelectionOpen, setPromptSelectionOpen] = useState(false);
   const [selectedPromptIds, setSelectedPromptIds] = useState(() => new Set());
@@ -237,7 +238,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
   const segments = parseDirectorScenes(episode.content, episodeNumber);
   // 快速模式自动选中第一个场景
-  const currentScene = activeScene || (segments.length > 0 ? segments[0].label : null);
+  const currentScene = segments.some((scene) => scene.label === activeScene) ? activeScene : segments[0]?.label || null;
   const currentSceneContent = currentScene
     ? (sceneInputs[currentScene] !== undefined
       ? sceneInputs[currentScene]
@@ -753,7 +754,7 @@ function SettingEditor({ project, episode, setState }) {
 /* ================================================================
  * DirectorWorkspace - 主组件
  * ================================================================ */
-export function DirectorWorkspace({ state, setState, api, onAttach }) {
+export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local' }) {
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
   const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
@@ -783,7 +784,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach }) {
   }, [selectedProjectId, selectedProject]);
   React.useEffect(() => {
     if (activePane) localStorage.setItem('xz-director-last-pane', activePane);
-  }, [activePane]);
+    if (selectedProjectId && activePane) localStorage.setItem(`xz-director-pane:${accountId}:${selectedProjectId}`, activePane);
+  }, [activePane, selectedProjectId, accountId]);
   React.useEffect(() => {
     if (selectedProjectId && directorProjects.length && !selectedProject) {
       localStorage.removeItem('xz-director-last-project');
@@ -845,7 +847,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach }) {
   const handleOpenProject = (id) => {
     setSelectedProjectId(id);
     const project = directorProjects.find((p) => p.id === id);
-    setActivePane(project?.episodes?.[0]?.id || 'master');
+    const lastPane = readRemembered(`xz-director-pane:${accountId}:${id}`, null);
+    setActivePane(lastPane === 'master' || project?.episodes?.some((ep) => ep.id === lastPane) ? lastPane : project?.episodes?.[0]?.id || 'master');
     setMasterDraft(project?.masterScript || '');
   };
 
@@ -1059,6 +1062,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach }) {
         <SettingEditor project={selectedProject} episode={activeEpisode} setState={setState}/>
       ) : activeEpisode ? (
         <EpisodeDirector
+          key={`${selectedProject.id}:${activeEpisode.id}`}
+          accountId={accountId}
           project={selectedProject}
           episode={activeEpisode}
           episodeNumber={Math.max(1, (selectedProject.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').findIndex((episode) => episode.id === activeEpisode.id) + 1)}

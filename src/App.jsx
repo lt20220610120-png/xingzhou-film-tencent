@@ -1252,6 +1252,10 @@ function App() {
   const [canvasRoute, setCanvasRoute] = useState(() => localStorage.getItem('xz-canvas-last-route') || '#/canvas');
   const canvasFrameRef = useRef(null);
   const [canvasVisited, setCanvasVisited] = useState(false);
+  const [visitedWorkspaces, setVisitedWorkspaces] = useState({});
+  useEffect(() => {
+    if (nav === 'director' || nav === 'collab') setVisitedWorkspaces((current) => current[nav] ? current : { ...current, [nav]: true });
+  }, [nav]);
   const initialCanvasRoute = useRef(canvasRoute);
   useEffect(() => { if (nav === 'canvas') setCanvasVisited(true); }, [nav]);
   const [account, setAccount] = useState(null);
@@ -1414,7 +1418,7 @@ function App() {
         <BrandLogo compact />
         <div className="nav-label">{role === 'director' ? '导演' : '内容创作者'}</div>
         {navItems.map(([key, Icon, label]) => (
-          <button key={key} className={nav === key ? 'active' : ''} onClick={() => setNav(key)}>
+          <button key={key} aria-label={label} title={label} className={nav === key ? 'active' : ''} onClick={() => setNav(key)}>
             <Icon size={19} />
             <span>{label}</span>
           </button>
@@ -1444,18 +1448,20 @@ function App() {
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} />}
         {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
-        {nav === 'collab' && <CollabWorkspace state={state} api={api} account={account} />}
+        {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
           ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />
           : <CanvasWorkspace state={state} setState={setState} api={api} />}</div>}
-        {nav === 'director' && (
+        {(visitedWorkspaces.director || nav === 'director') && <div className="workspace-preserved" hidden={nav !== 'director'}>
           <DirectorWorkspace
+            key={account?.id}
+            accountId={account?.id}
             state={state}
             setState={setState}
             api={api}
             onAttach={(attachment) => { setAiAttachment(attachment); setAiOpen(true); }}
           />
-        )}
+        </div>}
       </section>
 
       {/* 全局 AI 持久会话抽屉 */}

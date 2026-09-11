@@ -36,7 +36,7 @@ test('App.jsx：项目协作位于导演工作台与画布之间，且有浏览�
   const idxCanvas = app.indexOf("['canvas', Palette, '画布']");
   assert.ok(idxDirector > -1 && idxCollab > -1 && idxCanvas > -1, '导航项缺失');
   assert.ok(idxDirector < idxCollab && idxCollab < idxCanvas, '项目协作必须在导演工作台与画布之间');
-  assert.match(app, /nav === 'collab' && <CollabWorkspace/);
+  assert.match(app, /hidden=\{nav !== 'collab'\}><CollabWorkspace/);
   assert.match(app, /collabIsProducer: \(\) => Promise\.resolve\(false\)/);
 });
 

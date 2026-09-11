@@ -174,7 +174,21 @@ async function handleAction(action, payload, user, repo, signer = null) {
     })));
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
-  if (action === 'asset-update') { const r = guard(await repo.updateAsset(payload.assetId || payload.id, payload, user.id)); return r ? ok(r) : DENY; }
+  if (action === 'asset-update') {
+    if (!projectId || !payload.assetId) return { status: 400, body: { error: '缺少项目或资产编号' } };
+    const myRole = await roleOf(projectId, user, repo);
+    if (!['producer', 'artist', 'artist_collaborator'].includes(myRole)) return DENY;
+    const updates = payload.updates || payload;
+    const fields = {};
+    for (const key of ['name', 'description']) {
+      if (key in updates) {
+        if (typeof updates[key] !== 'string') return { status: 400, body: { error: '资产名称和提示词必须是文本' } };
+        fields[key] = updates[key];
+      }
+    }
+    const r = guard(await repo.updateAsset(payload.assetId, fields, user.id, projectId));
+    return r ? ok(r) : NOT_FOUND;
+  }
   if (action === 'assets-replace') { const r = guard(await repo.replaceAssets(projectId, payload.assets || payload.list, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-image-record') {
     const r = guard(await repo.recordAssetImage(projectId, { ...payload, username: user.display_name || user.username }, user.id));
