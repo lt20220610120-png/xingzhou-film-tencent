@@ -144,6 +144,7 @@
 .collab-video-result button{align-self:flex-end;display:flex;align-items:center;gap:4px;}
 .collab-video-empty{flex:1;min-height:220px;border:1px dashed #cbd5e1;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#8b9aae;}
 .collab-add-ref{width:86px;height:86px;border:1px dashed #b7c3d0;border-radius:9px;background:#f7f9fc;color:#6b7f94;display:grid;place-items:center;cursor:pointer;}
+.collab-create-storyboard{width:100%;min-height:260px;border:1px dashed #8bc5d0;border-radius:16px;background:linear-gradient(145deg,#f7fdfe,#e8f6f8);color:#2c7080;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:inset 0 1px 0 #fff,0 12px 30px #277c8c12}.collab-create-storyboard strong{font-size:16px;color:#176d83}.collab-create-storyboard span{font-size:12px;color:#6c8d98}
 .asset-delete-mini{border:0;background:transparent;color:#b42318;cursor:pointer;padding:0;vertical-align:middle;}
 .manual-add-button{display:flex;align-items:center;gap:5px;white-space:nowrap;}
 .collab-manual-asset-modal{width:520px;max-width:92vw;display:flex;flex-direction:column;gap:10px;}

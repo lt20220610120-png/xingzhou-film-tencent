@@ -26,6 +26,7 @@ import { RegistrationScreen, LockedRoleDialog } from './v06/AccountAccess.jsx';
 import { AdminPanel } from './v06/AdminPanel.jsx';
 import { CanvasWorkspace } from './v06/CanvasWorkspace.jsx';
 import { CollabWorkspace } from './v06/CollabWorkspace.jsx';
+import { GenerationWorkspace } from './v06/GenerationWorkspace.jsx';
 import { splitFullScript } from '../core/scriptImport.js';
 import { buildSkillManifest } from '../core/skillContext.js';
 import { executeSkillWithAi, createSkillExecution } from '../core/skillExecution.js';
@@ -1344,6 +1345,7 @@ function App() {
   const directorNav = [
     ['director', Film, '导演工作台'],
     ['collab', Users, '项目协作'],
+    ['generation', Sparkles, '图视生成'],
     ['canvas', Palette, '画布'],
     ...toolsNav,
   ];
@@ -1388,6 +1390,7 @@ function App() {
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} />}
         {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
+        {nav === 'generation' && <GenerationWorkspace state={state} api={api} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
           ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />

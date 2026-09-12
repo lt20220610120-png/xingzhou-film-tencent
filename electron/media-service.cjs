@@ -21,6 +21,43 @@ async function readJson(response) {
   catch { throw new Error(`接口返回异常：${text.slice(0, 160) || '空响应'}`); }
 }
 
+function isFeituoEndpoint(endpoint = '') {
+  try { return new URL(endpoint).hostname === 'feituokuajing.com'; } catch { return false; }
+}
+function buildFeituoVideoPayload({ model, prompt, ratio, duration, resolution, imageUrls = [], videoUrls = [], audioUrls = [] }) {
+  return { model: String(model || '').trim(), prompt: String(prompt || '').trim(), ratio, duration, ...(resolution ? { resolution } : {}), imageUrls, videoUrls, audioUrls };
+}
+function parseFeituoStatus(data) {
+  const status = String(data?.status || '').toLowerCase();
+  if (['success', 'succeeded', 'completed'].includes(status)) {
+    if (!data.videoUrl) throw new Error('飞拓任务完成但没有返回视频地址');
+    return { state: 'success', url: data.videoUrl };
+  }
+  if (['failed', 'cancelled', 'canceled', 'error'].includes(status)) throw new Error(data.errorMessage || '视频生成失败');
+  return { state: 'pending', jobId: data?.jobId || '' };
+}
+async function generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, imageUrls = [], destDir, onStatus = () => {} }) {
+  if (!apiKey?.trim()) throw new Error('请在 API 接口中填写飞拓 API Key');
+  if (!model?.trim()) throw new Error('请先选择飞拓视频模型');
+  const base = 'https://feituokuajing.com';
+  const auth = `Bearer ${apiKey.trim()}`;
+  const create = await fetch(`${base}/api/open/v1/video/generate`, { method: 'POST', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(buildFeituoVideoPayload({ model, prompt, ratio, duration, resolution, imageUrls })), signal: AbortSignal.timeout(120000) });
+  const submitted = await readJson(create);
+  if (!create.ok || submitted.success === false) throw new Error(submitted.error || submitted.errorMessage || `飞拓提交失败（${create.status}）`);
+  if (!submitted.jobId) throw new Error('飞拓接口未返回 jobId');
+  onStatus('submitted');
+  const deadline = Date.now() + 30 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 15000));
+    const response = await fetch(`${base}/api/open/v1/video/status?jobId=${encodeURIComponent(submitted.jobId)}&_=${Date.now()}`, { cache: 'no-store', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(60000) });
+    const result = await readJson(response);
+    if (!response.ok || result.success === false) throw new Error(result.error || result.errorMessage || `飞拓状态查询失败（${response.status}）`);
+    const parsed = parseFeituoStatus(result); onStatus(parsed.state);
+    if (parsed.state === 'success') return downloadToFile(parsed.url, destDir, 'mp4');
+  }
+  throw new Error('飞拓视频生成超时，请稍后在任务记录中查看');
+}
+
 async function downloadToFile(url, destDir, ext) {
   fs.mkdirSync(destDir, { recursive: true });
   const file = path.join(destDir, `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`);
@@ -71,6 +108,8 @@ function buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, 
 async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, destDir, onStatus = () => {} }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置视频生成 API');
   if (!prompt?.trim()) throw new Error('请填写视频描述');
+  const localFrame = firstFramePath && fs.existsSync(firstFramePath) ? `data:image/png;base64,${fs.readFileSync(firstFramePath).toString('base64')}` : '';
+  if (isFeituoEndpoint(endpoint)) return generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, onStatus, destDir, imageUrls: firstFrameUrl || localFrame ? [firstFrameUrl || localFrame] : [] });
   const base = normalizeBase(endpoint);
   let firstFrameDataUrl = '';
   if (firstFramePath && fs.existsSync(firstFramePath)) {
@@ -110,4 +149,4 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   throw new Error('视频生成超时（10 分钟），请稍后在服务商控制台查看任务');
 }
 
-module.exports = { generateImage, generateVideo, normalizeBase, buildVideoContent };
+module.exports = { generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };

@@ -1,7 +1,7 @@
 {
-  "version": "2.1.7",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.7/Xingzhou-Film-Tencent-Setup-2.1.7.exe",
-  "notes": "浅紫淡青全新界面，正文放大并加深；资产新增人物、场景、道具快速定位，每个人物框内切换服装并保留草稿；美术新增本集顶部快速定位；生图不再附加项目题材，前置可编辑，群像支持多人同框；固定添加资产操作栏，恢复可自由拖动的行舟 AI 按钮。",
-  "sha256": "17f0d4db9d473c745bddaa78ea2511ecd61f4e99e4d3a442e0dc5670baa1ac53",
-  "size": 102133450
+  "version": "2.1.12",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.12/Xingzhou-Film-Tencent-Setup-2.1.12.exe",
+  "notes": "分镜支持无限创建；飞拓视频生成接入全部文档模型，支持模型对应时长、比例、分辨率、首帧参考和异步任务状态。",
+  "sha256": "ad20ba853e79de83435614846da619729c47c992416eb2ed3f8e39459d69a070",
+  "size": 102079009
 }

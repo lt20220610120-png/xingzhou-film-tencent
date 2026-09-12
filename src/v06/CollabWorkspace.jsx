@@ -693,6 +693,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [selectedUploadedRefId, setSelectedUploadedRefId] = useState('');
+  const [emptyEditorOpen, setEmptyEditorOpen] = useState(false);
   const profile = videoProfiles.find((p) => p.id === profileId);
   const capabilities = videoModelCapabilities(profile?.model);
   useEffect(() => {
@@ -778,6 +779,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
   if (!sceneLabels.length) sceneLabels.push(`${epNumber}-1`);
   const currentScene = sceneLabels[Math.min(sceneIdx, sceneLabels.length - 1)];
   const scenePrompts = prompts.filter((p) => String(p.label || '').match(new RegExp(`^${currentScene.replace('-', '\\-')}(?:-|$)`)));
+  const editableScenePrompts = scenePrompts.length ? scenePrompts : (emptyEditorOpen ? [{ id: `empty-${currentScene}`, label: currentScene, content: videoPrompt, manual: true }] : []);
   const sceneScript = parsedScenes.find((s) => s.label === currentScene)?.content || episode.content || '';
   const epAssets = assets.filter((a) => (a.episodes || []).includes(epNumber) && a.image_url);
 
@@ -836,7 +838,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
       </aside>
       <section className="collab-sb-mid collab-sb-prompt-stack">
         <div className="collab-panel-title"><Sparkles size={15} /> 场景 {currentScene} · 导演工作台提示词</div>
-        {scenePrompts.length ? scenePrompts.map((p) => {
+        {editableScenePrompts.length ? editableScenePrompts.map((p) => {
           const linked = epAssets.filter((a) => a.image_url && String(p.content || '').includes(`@${a.name}`));
           const uploadedImages = sceneMedia.filter((m) => m.kind === 'image' && m.note === p.label);
           const refs = linked.length ? linked : epAssets;
@@ -844,7 +846,7 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
 
           const run = async () => {
             if (busy || !canEdit || !profile) return;
-            const prompt = p.content || '';
+            const prompt = p.manual ? videoPrompt.trim() : (p.content || '');
             if (!window.confirm(`确定生成提示词 ${p.label}？\n模型：${profile.name || profile.model}\n${duration} 秒 · ${resolution}\n参考素材：${refs.map((a) => a.name).join('、') || '无'}`)) return;
             setBusy(true); setError('');
             try { const selectedUploaded = uploadedImages.find((item) => item.id === selectedUploadedRefId) || uploadedImages[0]; const generated = await api.mediaGenerateVideo({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl: selectedUploaded?.url || '' }); await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: p.label }); await loadMedia(); }
@@ -860,10 +862,10 @@ function StoryboardSection({ project, assets, api, state, refresh, canEdit, isPr
               <label><input type="checkbox" checked={audioEnabled} disabled={!capabilities.audio} onChange={(e) => setAudioEnabled(e.target.checked)} /> 音画同出</label>
               <button className="primary" onClick={run} disabled={busy || !canEdit}><Film size={14} /> {busy ? '生成中…' : '生成视频'}</button>
             </div>
-            <div className="collab-shot-main"><div className="collab-shot-prompt"><textarea value={promptDrafts[p.id] ?? p.content} onChange={(event) => setPromptDrafts((current) => ({ ...current, [p.id]: event.target.value }))} disabled={!canEdit}/>{canEdit && <button className="secondary collab-prompt-save" onClick={() => saveStoryboardPrompt(p)} disabled={(promptDrafts[p.id] ?? p.content).trim() === String(p.content || '').trim()}><Save size={14}/>保存提示词</button>}</div><aside className="collab-shot-video"><div className="collab-shot-video-head"><b><Film size={14} /> 视频结果（{videos.length}）</b><button className="ghost" onClick={() => uploadAssetFor(p.label)} disabled={!canEdit || busy}><Plus size={14} /> 选择视频</button></div>{videos.length ? videos.map((m) => <div key={m.id} className="collab-video-result"><video src={m.url} controls preload="metadata" /><button className="danger" onClick={async () => await api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={13} /> 删除</button></div>) : <div className="collab-video-empty"><Film size={26} /><span>暂无视频</span></div>}</aside></div>
+            <div className="collab-shot-main"><div className="collab-shot-prompt"><textarea value={p.manual ? videoPrompt : (promptDrafts[p.id] ?? p.content)} onChange={(event) => p.manual ? setVideoPrompt(event.target.value) : setPromptDrafts((current) => ({ ...current, [p.id]: event.target.value }))} disabled={!canEdit}/>{canEdit && !p.manual && <button className="secondary collab-prompt-save" onClick={() => saveStoryboardPrompt(p)} disabled={(promptDrafts[p.id] ?? p.content).trim() === String(p.content || '').trim()}><Save size={14}/>保存提示词</button>}</div><aside className="collab-shot-video"><div className="collab-shot-video-head"><b><Film size={14} /> 视频结果（{videos.length}）</b><button className="ghost" onClick={() => uploadAssetFor(p.label)} disabled={!canEdit || busy}><Plus size={14} /> 选择视频</button></div>{videos.length ? videos.map((m) => <div key={m.id} className="collab-video-result"><video src={m.url} controls preload="metadata" /><button className="danger" onClick={async () => await api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={13} /> 删除</button></div>) : <div className="collab-video-empty"><Film size={26} /><span>暂无视频</span></div>}</aside></div>
             <div className="collab-shot-assets"><b><ImageIcon size={14} /> 参考素材（@ 标记会自动关联）</b>{refs.map((a) => <figure key={a.id}><img src={a.image_url} alt={a.name} /><figcaption>{a.name}</figcaption></figure>)}{uploadedImages.map((m) => <figure key={m.id}><img src={m.url} alt="已上传参考图" /><figcaption>{m.note || '场景参考图'} <button className="asset-delete-mini" onClick={() => api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={11} /></button></figcaption></figure>)}{uploadedImages.length > 0 && <label className="uploaded-reference-picker">本次首帧<select value={selectedUploadedRefId || uploadedImages[0].id} onChange={(event) => setSelectedUploadedRefId(event.target.value)}>{uploadedImages.map((item) => <option key={item.id} value={item.id}>{item.note || '上传参考图'}</option>)}</select></label>}<button className="collab-add-ref" onClick={uploadAsset} disabled={!canEdit || busy}><Plus size={22} /></button>{!refs.length && !uploadedImages.length && <small>请先上传参考图片，上传完成后才可选择并作为首帧使用</small>}</div>
           </article>;
-        }) : <div className="collab-empty small"><p>该场景还没有提示词，请先在导演工作台快速模式按场景生成。</p></div>}
+        }) : <button className="collab-empty small collab-create-storyboard" onClick={() => { setVideoPrompt(''); setEmptyEditorOpen(true); }} disabled={!canEdit}><Film size={28}/><strong>创建分镜</strong><span>当前场景暂无导演提示词，点击后直接编辑并生成视频。</span></button>}
         {error && <div className="collab-error">{error}</div>}
       </section>
     </div>

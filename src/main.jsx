@@ -12,6 +12,7 @@ import './v100-compat.css';
 import './account-access.css';
 import './canvas.css';
 import './collab.css';
+import './generation.css';
 import './ocean-theme.css';
 
 const root = document.getElementById('root');
