@@ -1,5 +1,7 @@
 {
-  "version": "2.1.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.4/Xingzhou-Film-Tencent-Setup-2.1.4.exe",
-  "notes": "修复腾讯云版桌面端发布与更新链路，提交完整源代码并重新构建 Windows 安装包。"
+  "version": "2.1.7",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.1.7/Xingzhou-Film-Tencent-Setup-2.1.7.exe",
+  "notes": "浅紫淡青全新界面，正文放大并加深；资产新增人物、场景、道具快速定位，每个人物框内切换服装并保留草稿；美术新增本集顶部快速定位；生图不再附加项目题材，前置可编辑，群像支持多人同框；固定添加资产操作栏，恢复可自由拖动的行舟 AI 按钮。",
+  "sha256": "17f0d4db9d473c745bddaa78ea2511ecd61f4e99e4d3a442e0dc5670baa1ac53",
+  "size": 102133450
 }
