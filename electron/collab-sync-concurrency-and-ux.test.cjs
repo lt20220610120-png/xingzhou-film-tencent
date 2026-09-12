@@ -84,7 +84,7 @@ test('项目协作使用本地缓存先显后台刷新，并记住上次打开�
 });
 
 // 9. 人物/场景描述固定前缀
-test('生图保留人物与场景固定前缀，编辑框保留保存的原文', () => {
+test('生图读取逐资产前置设置，编辑框保留保存的原文', () => {
   const store = read('core/collabStore.js');
   assert.match(store, /CHARACTER_PROMPT_PREFIX/);
   assert.match(store, /真人拍摄，但不能跟现实当中任何的明星撞脸/);
@@ -92,7 +92,8 @@ test('生图保留人物与场景固定前缀，编辑框保留保存的原文',
   assert.match(store, /withAssetPrefix/);
   const collab = read('src/v06/CollabWorkspace.jsx');
   assert.match(collab, /const prefixed = asset\.description \?\? ''/);
-  assert.match(store, /withAssetPrefix\(asset\.category, asset\.description \|\| asset\.name, style\)/);
+  assert.match(store, /const settings = readAssetPrompt\(asset, style\)/);
+  assert.match(collab, /serializeAssetPrompt/);
 });
 
 // 10. 分镜同步提示词读取云端完整文档

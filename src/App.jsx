@@ -29,6 +29,8 @@ import { CollabWorkspace } from './v06/CollabWorkspace.jsx';
 import { splitFullScript } from '../core/scriptImport.js';
 import { buildSkillManifest } from '../core/skillContext.js';
 import { executeSkillWithAi, createSkillExecution } from '../core/skillExecution.js';
+import { FloatingAIButton } from './v06/FloatingAIButton.jsx';
+import { StudioRoleScreen } from './v06/StudioRoleScreen.jsx';
 
 // ========== 常量 ==========
 const STORAGE = 'xingzhou-film-v1';
@@ -58,45 +60,6 @@ export class RenderErrorBoundary extends React.Component {
       <button className="primary" onClick={() => window.location.reload()}>重新加载工作区</button>
     </div>;
   }
-}
-
-function DraggableAIButton({ onOpen }) {
-  const [position, setPosition] = useState(null);
-  const drag = React.useRef(null);
-  const suppressClick = React.useRef(false);
-  const buttonRef = React.useRef(null);
-
-  const startDrag = (event) => {
-    if (event.button !== undefined && event.button !== 0) return;
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    drag.current = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, moved: false };
-    buttonRef.current.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
-  };
-
-  const moveDrag = (event) => {
-    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    const rect = buttonRef.current?.getBoundingClientRect();
-    const width = rect?.width || 164;
-    const height = rect?.height || 44;
-    const sidebarRect = document.getElementById('app-sidebar')?.getBoundingClientRect();
-    const minLeft = Math.max(8, (sidebarRect?.right || 0) + 8);
-    const left = Math.max(minLeft, Math.min(window.innerWidth - width - 8, event.clientX - drag.current.offsetX));
-    const top = Math.max(8, Math.min(window.innerHeight - height - 8, event.clientY - drag.current.offsetY));
-    drag.current.moved = true;
-    setPosition({ left, top });
-  };
-
-  const endDrag = (event) => {
-    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    suppressClick.current = drag.current.moved;
-    buttonRef.current?.releasePointerCapture?.(event.pointerId);
-    drag.current = null;
-  };
-
-  const style = position ? { left: `${position.left}px`, top: `${position.top}px`, right: 'auto', transform: 'none' } : undefined;
-  return <button ref={buttonRef} className="global-ai-launch draggable" style={style} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onOpen(); }} title="拖动行舟 AI 到窗口内任意位置"><Bot /> <span>行舟 AI</span><small className="drag-hint">⋮⋮</small></button>;
 }
 
 // API 对象：Electron 环境用 window.xingzhou，浏览器 fallback
@@ -1361,32 +1324,9 @@ function App() {
   // 角色选择界面
   if (!role) {
     return (
-      <div className="role-screen v06">
-        <BrandLogo />
-        <div className="role-copy">
-          <span className="eyebrow">XINGZHOU FILM STUDIO</span>
-          <h1>选择你的工作身份</h1>
-          <p>剧本、分镜与 AI 影像生产工作台。</p>
-        </div>
-        <div className="role-cards">
-          <button onClick={() => handleRoleSelect('creator')}>
-            <div><UserRound /></div>
-            <span>01</span>
-            <h2>内容创作者</h2>
-            <p>剧本创作 · 内容资产 · AI 辅助</p>
-            <b>{account ? (account.roles.includes('creator') ? '进入创作空间 →' : '已锁定 · 输入解锁码 →') : '进入创作空间 →'}</b>
-          </button>
-          <button onClick={() => handleRoleSelect('director')}>
-            <div><Film /></div>
-            <span>02</span>
-            <h2>导演</h2>
-            <p>剧本拆解 · 分镜规划 · AI 视觉提示</p>
-            <b>{account ? (account.roles.includes('director') ? '进入导演工作台 →' : '已锁定 · 输入解锁码 →') : '进入导演工作台 →'}</b>
-          </button>
-        </div>
-        {account && <div className="role-account-bar"><span><UserRound /> {account.displayName || account.username}</span><button onClick={handleLogout}><LogOut /> 退出登录</button></div>}
+      <StudioRoleScreen account={account} onSelect={handleRoleSelect} onLogout={handleLogout}>
         {lockedRole && <LockedRoleDialog targetRole={lockedRole} onClose={() => setLockedRole(null)} onUnlocked={(nextAccount) => { setAccount(nextAccount); const nextRole = lockedRole; setLockedRole(null); enterRole(nextRole); }} />}
-      </div>
+      </StudioRoleScreen>
     );
   }
 
@@ -1424,10 +1364,10 @@ function App() {
           </button>
         ))}
         <div className="side-bottom">
-          <button onClick={() => { setRole(null); localStorage.removeItem('xz-role'); }}>
+          <button aria-label="切换身份" title="切换身份" onClick={() => { setRole(null); localStorage.removeItem('xz-role'); }}>
             <UserRound size={18} /> <span>切换身份</span>
           </button>
-          <button onClick={handleLogout}>
+          <button aria-label="退出登录" title="退出登录" onClick={handleLogout}>
             <LogOut size={18} /> <span>退出登录</span>
           </button>
           <small>本地资料 · {packageInfo.version}</small>
@@ -1438,7 +1378,7 @@ function App() {
       <section className="content">
         {/* 全局 AI 按钮（画布页有自己的顶栏，不显示悬浮按钮） */}
         {nav !== 'canvas' && (
-          <DraggableAIButton onOpen={() => setAiOpen(true)} />
+          <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
         {nav === 'fruit' && <FruitLibrary state={state} setState={setState} api={api} />}

@@ -5,10 +5,11 @@ const path = require('node:path');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 test('行舟AI拖动边界以主导航右边缘为最小横坐标', () => {
-  const app = read('src/App.jsx');
-  assert.match(app, /getElementById\(['"]app-sidebar['"]\)/);
-  assert.match(app, /sidebarRect\?\.right/);
-  assert.match(app, /Math\.max\(minLeft/);
+  const button = read('src/v06/FloatingAIButton.jsx');
+  const bounds = read('core/floatingAiPosition.js');
+  assert.match(button, /getElementById\(['"]app-sidebar['"]\)/);
+  assert.match(button, /getBoundingClientRect\(\)\.right/);
+  assert.match(bounds, /Math\.max\(minLeft/);
 });
 
 test('导演云刷新按钮进入标题工具栏而不是固定悬浮遮挡', () => {

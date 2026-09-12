@@ -67,6 +67,6 @@ test('资产人物区按角色主档案组织，并在角色下选择不同妆�
   const ui = read('src/v06/CollabWorkspace.jsx');
   assert.match(ui, /groupCharacterAssets/);
   assert.match(ui, /角色主档案/);
-  assert.match(ui, /妆造分支/);
-  assert.match(ui, /character-variant-branches/);
+  assert.match(ui, /服装选择/);
+  assert.match(ui, /character-outfit-picker/);
 });

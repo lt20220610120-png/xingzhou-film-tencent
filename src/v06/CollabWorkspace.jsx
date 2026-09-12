@@ -15,12 +15,14 @@ import {
   sectionsForRole, parseAssetName, findBaseMates, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
+  ASSET_PROMPT_MODES, readAssetPrompt, serializeAssetPrompt, defaultAssetPromptPrefix,
 } from '../../core/collabStore.js';
 import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
+import '../art-workbench.css';
 
 const SECTION_ICONS = { info: FileText, art: Palette, assets: Box, storyboard: Clapperboard, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
@@ -193,6 +195,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const [selectedImageId, setSelectedImageId] = useState('');
   const [previewImage, setPreviewImage] = useState('');
   const [localImages, setLocalImages] = useState([]);
+  const [showPrompt, setShowPrompt] = useState(false);
   useEffect(() => { setSelectedImageId(''); setPreviewImage(''); setLocalImages([]); setRefId(''); }, [asset.id]);
   const imageProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'image');
   const defaultProfile = activeMediaProfile(state, 'image');
@@ -212,7 +215,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     setError(''); setBusy(true);
     try {
       if (beforeGenerate) await beforeGenerate();
-      const prompt = buildImagePrompt(asset, refAsset, project.style, project.genre);
+      const prompt = buildImagePrompt(asset, refAsset, project.style);
       if (onGenerateImage) {
         const attached = await onGenerateImage({ asset, profile, prompt, size });
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
@@ -240,24 +243,28 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   return (
     <div className="collab-image-box">
       <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <span className="collab-ep-badge">{images.length} 张</span></div>
-      {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={() => setPreviewImage(selectedImage.url)} title="点击放大查看"><img className="collab-asset-image" src={selectedImage.url} alt={asset.name} /></button> : <div className="collab-asset-image empty"><ImageIcon size={28} /><span>尚未生成图片</span></div>}
-      {images.length > 1 && <div className="collab-image-thumbs">{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)}><img src={image.url} alt={`${asset.name}-${index + 1}`} /></button>)}</div>}
+      <div className="collab-image-preview">
+        {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={() => setPreviewImage(selectedImage.url)} title="点击放大查看"><img className="collab-asset-image" src={selectedImage.url} alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
+        {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><img src={image.url} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
+      </div>
       {selectedImage && <div className="collab-image-item-actions"><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
       <div className="collab-image-controls">
-        <select value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
+        <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         {mates.length > 0 && <label className="collab-ref-picker"><AtSign size={13} /><select value={refId} onChange={(e) => setRefId(e.target.value)}><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
         <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
         {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的样貌，仅替换服饰/状态</small>}
         {error && <div className="collab-error">{error}</div>}
+        <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
+      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><p>包含本资产的前置、画风、描述和当前参考设置。</p><textarea readOnly value={buildImagePrompt(asset, refAsset, project.style)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
       <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
 }
 
 /* ================================================================
- * 资产详情：左列表已选中的资产 → 描述编辑 + 生图框
+ * 每行资产工作区：身份信息 → 描述编辑 → 生图框
  * ================================================================ */
 function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, draftStore }) {
   const prefixed = asset.description ?? '';
@@ -271,6 +278,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const [instruction, setInstruction] = useState('');
   const [modifying, setModifying] = useState(false);
   const [modifyError, setModifyError] = useState('');
+  const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style);
   useEffect(() => {
     draftStore.reconcile(project.id, asset);
     const pending = draftStore.read(project.id, asset.id);
@@ -287,6 +295,19 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     setSaveError(''); setSaveNotice('草稿已保留；离开编辑框或点击生成时保存到云端');
   };
 
+  const editContent = (content) => {
+    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style);
+    edit(current.customized ? serializeAssetPrompt({ ...current, content }) : content);
+  };
+  const editSettings = (updates) => {
+    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style);
+    edit(serializeAssetPrompt({ ...current, ...updates }));
+  };
+  const changePromptMode = (mode) => {
+    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style);
+    editSettings({ mode, prefix: defaultAssetPromptPrefix({ ...asset, description: current.content }, project.style, mode) });
+  };
+
   const save = async () => {
     const content = draftRef.current;
     if (!canEdit || content === savedRef.current && !draftStore.read(project.id, asset.id)) return;
@@ -294,7 +315,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     try {
       await draftStore.save(api, project.id, asset.id, content);
       savedRef.current = content;
-      if (draftRef.current === content) setSaveNotice('提示词已保存到云端');
+      if (draftRef.current === content) { setSaveError(''); setSaveNotice('提示词已保存到云端'); }
       await refresh();
     } catch (error) {
       setSaveNotice(''); setSaveError(`${readableCloudError(error)}。修改内容已保留，可重试保存。`);
@@ -309,11 +330,11 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     if (!profile) { setModifyError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
     setModifying(true); setModifyError('');
     try {
-      const messages = buildAssetRevisionMessages({ instruction, originalContent: draft, category: asset.category });
+      const messages = buildAssetRevisionMessages({ instruction, originalContent: promptSettings.content, category: asset.category });
       const output = await api.aiChat({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
       const nextDescription = String(output || '').trim();
       if (!nextDescription) throw new Error('模型没有返回新的提示词');
-      edit(nextDescription); setModifyOpen(false); setInstruction('');
+      editContent(nextDescription); setModifyOpen(false); setInstruction('');
       await save();
     } catch (error) { setModifyError(readableCloudError(error)); }
     finally { setModifying(false); }
@@ -326,7 +347,11 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
           <PencilLine size={15} /><strong>{asset.name} 提示词</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
-        <textarea aria-label="资产提示词" value={draft} readOnly={!canEdit || modifying} onChange={(e) => edit(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
+        <textarea aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
+        <div className="art-prompt-settings">
+          <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.customized ? '已自定义' : '自动识别 · 可修改'}</small></div>
+          <details className="art-prefix-editor"><summary>编辑前置 <span>{promptSettings.mode === 'group' ? '同图多人，各有不同' : promptSettings.prefix ? '查看并调整构图与画风要求' : '无额外前置'}</span></summary><textarea aria-label="生图前置" value={promptSettings.prefix} readOnly={!canEdit || modifying} onChange={event => editSettings({ prefix: event.target.value })} onBlur={() => save().catch(() => {})} placeholder="可自由填写，也可清空。不会再自动追加隐藏前置。" /><button type="button" className="ghost" disabled={!canEdit || modifying} onClick={() => changePromptMode(promptSettings.mode)}>恢复当前画风默认前置</button></details>
+        </div>
         <div className="collab-asset-actions">
           <button className="primary" onClick={() => save().catch(() => {})} disabled={!canEdit || saving || modifying}><Save size={14} /> {saving ? '保存中…' : '保存提示词'}</button>
           <button className="secondary" onClick={() => { setModifyError(''); setModifyOpen(true); }} disabled={!canEdit || modifying}>AI 修改提示词</button>
@@ -339,7 +364,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
           <h2>AI 修改提示词</h2>
           <label>当前提示词</label>
-          <textarea className="modify-original-content" value={draft} readOnly />
+          <textarea className="modify-original-content" value={promptSettings.content} readOnly />
           <label>修改意见</label>
           <textarea aria-label="修改意见" value={instruction} disabled={modifying} onChange={(event) => setInstruction(event.target.value)} placeholder="描述你希望 AI 调整的内容，例如建筑年代、人物服装或构图。" autoFocus />
           {modifyError && <div className="collab-error">{modifyError}</div>}
@@ -350,12 +375,105 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   );
 }
 
-function ManualAssetDialog({ project, api, refresh, onClose }) {
-  const [name, setName] = useState(''); const [description, setDescription] = useState(''); const [category, setCategory] = useState('character'); const [episodes, setEpisodes] = useState([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const projectEpisodes = (project.episodes || []).map((_, i) => i + 1);
+function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', initialCategory = 'character', initialEpisode = null }) {
+  const [name, setName] = useState(initialName); const [description, setDescription] = useState(''); const [category, setCategory] = useState(initialCategory); const [episodes, setEpisodes] = useState(initialEpisode ? [initialEpisode] : []); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const dialogRef = useRef(null);
+  const projectEpisodes = (project.episodes || []).filter((item) => item.kind !== 'setting' && item.title !== '设定和小传').map((_, i) => i + 1);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    dialogRef.current?.querySelector('input')?.focus();
+    return () => previousFocus?.focus?.();
+  }, []);
+  const handleDialogKeyDown = (event) => {
+    if (event.key === 'Escape' && !busy) { event.preventDefault(); onClose(); }
+    if (event.key !== 'Tab') return;
+    const controls = [...(dialogRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') || [])];
+    const first = controls[0]; const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  };
   const toggleEpisode = (ep) => setEpisodes((xs) => xs.includes(ep) ? xs.filter((x) => x !== ep) : [...xs, ep].sort((a, b) => a - b));
   const submit = async () => { if (!name.trim() || !episodes.length) { setError('请填写资产名称并选择至少一集'); return; } setBusy(true); try { await api.collabCreateAsset({ projectId: project.id, name: `【${name.trim().replace(/^【|】$/g, '')}】`, category, episodes, description }); await refresh(); onClose(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
-  return <div className="veil"><div className="modal collab-manual-asset-modal"><h2>手动添加资产</h2><input value={name} onChange={(e) => setName(e.target.value)} placeholder="名称，例如：姜蓝-白衣常服" /><select value={category} onChange={(e) => setCategory(e.target.value)}>{Object.entries(ASSET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="资产描绘，可稍后在右侧继续编辑" /><div className="manual-episode-picks"><b>同步到集数</b>{projectEpisodes.map((ep) => <label key={ep}><input type="checkbox" checked={episodes.includes(ep)} onChange={() => toggleEpisode(ep)} /> 第{ep}集</label>)}</div>{error && <div className="collab-error">{error}</div>}<div className="modal-actions"><button className="ghost" onClick={onClose}>取消</button><button className="primary" onClick={submit} disabled={busy}>{busy ? '保存中…' : '添加资产'}</button></div></div></div>;
+  return createPortal(
+    <div className="veil collab-manual-asset-veil" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}>
+      <div ref={dialogRef} className="modal collab-manual-asset-modal" role="dialog" aria-modal="true" aria-labelledby="manual-asset-title" onKeyDown={handleDialogKeyDown}>
+        <header className="manual-asset-header"><div><span className="eyebrow">ASSET LIBRARY</span><h2 id="manual-asset-title">手动添加资产</h2></div><button type="button" className="ghost" onClick={onClose} disabled={busy} aria-label="关闭添加资产"><X size={19} /></button></header>
+        <div className="manual-asset-body">
+          <div className="manual-asset-fields"><label>资产名称<input value={name} disabled={busy} onChange={(e) => setName(e.target.value)} placeholder="例如：姜蓝-白衣常服" /></label><label>资产类型<select value={category} disabled={busy} onChange={(e) => setCategory(e.target.value)}>{Object.entries(ASSET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label></div>
+          <label className="manual-description-field">资产描绘<textarea value={description} disabled={busy} onChange={(e) => setDescription(e.target.value)} placeholder="描述形象、服装或场景细节，可在创建后继续编辑。" /></label>
+          <div className="manual-episode-heading"><b>同步到集数</b><span>已选 {episodes.length} 集</span><button type="button" className="ghost" disabled={busy || !projectEpisodes.length} onClick={() => setEpisodes(episodes.length === projectEpisodes.length ? [] : projectEpisodes)}>{episodes.length === projectEpisodes.length && projectEpisodes.length ? '清空选择' : '选择全部'}</button></div>
+          <div className="manual-episode-picks">{projectEpisodes.map((ep) => <label key={ep} className={episodes.includes(ep) ? 'selected' : ''}><input type="checkbox" disabled={busy} checked={episodes.includes(ep)} onChange={() => toggleEpisode(ep)} /><span>第 {ep} 集</span></label>)}</div>
+          {!projectEpisodes.length && <p className="collab-hint">请先在项目中添加剧本分集，再将资产关联到集数。</p>}
+        </div>
+        <footer className="manual-asset-footer">{error && <div className="collab-error" role="alert">{error}</div>}<div className="modal-actions"><small>已选 {episodes.length} 集</small><button className="ghost" onClick={onClose} disabled={busy}>取消</button><button className="primary" onClick={submit} disabled={busy}>{busy ? '保存中…' : '添加资产'}</button></div></footer>
+      </div>
+    </div>, document.body,
+  );
+}
+
+function AssetIdentity({ asset, index, checked, onToggle, generating, children }) {
+  const imageCount = asset.images?.length || (asset.image_url ? 1 : 0);
+  const parsed = parseAssetName(asset.name);
+  return <aside className="art-row-identity">
+    <div className="art-row-index"><span>{String(index + 1).padStart(2, '0')}</span>{onToggle && <input type="checkbox" aria-label={`选择 ${asset.name} 批量生成`} checked={checked} onChange={onToggle} />}</div>
+    <strong>{parsed.base || asset.name}</strong>
+    {parsed.variant && <span className="art-row-variant">{parsed.variant}</span>}
+    <small>{asset.reused ? `复用自第 ${asset.first_episode} 集` : asset.first_episode ? `首现 · 第 ${asset.first_episode} 集` : ASSET_CATEGORIES[asset.category]}</small>
+    <span className={`art-row-state ${generating ? 'generating' : imageCount ? 'ready' : ''}`}>{generating ? <Loader2 size={11} className="spin" /> : <span />}{generating ? '生成中' : imageCount ? `${imageCount} 张图片` : '待生成'}</span>
+    {children}
+  </aside>;
+}
+
+// Keep anchor offsets in sync when the toolbar wraps at smaller window sizes.
+function useAssetLocator(scope) {
+  const root = useRef(null);
+  const targets = useRef(new Map());
+  const [active, setActive] = useState('');
+  useEffect(() => {
+    setActive('');
+    const node = root.current;
+    if (!node) return;
+    const head = node.querySelector('.collab-art-head');
+    const subhead = node.querySelector('.art-workbench-subhead');
+    const measure = () => {
+      const headHeight = head?.offsetHeight || 0;
+      node.style.setProperty('--art-head-height', `${headHeight}px`);
+      node.style.setProperty('--art-anchor-offset', `${headHeight + (subhead?.offsetHeight || 0) + 24}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    if (head) observer.observe(head);
+    if (subhead) observer.observe(subhead);
+    measure();
+    return () => observer.disconnect();
+  }, [scope]);
+  const register = (key) => (node) => { if (node) targets.current.set(key, node); else targets.current.delete(key); };
+  const locate = (key) => {
+    const target = targets.current.get(key);
+    if (!target) return;
+    setActive(key);
+    target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    target.focus({ preventScroll: true });
+  };
+  return { root, active, register, locate };
+}
+
+function assetLocations(rows, category) {
+  if (category === 'character') return groupCharacterAssets(rows).map((group) => ({
+    id: group.variants[0].id, name: group.base, count: `${group.variants.length} 套妆造`,
+    images: group.variants.reduce((total, item) => total + (item.images?.length || (item.image_url ? 1 : 0)), 0),
+  }));
+  return rows.map((asset) => ({ id: asset.id, name: asset.name.replace(/^【|】$/g, ''), count: ASSET_CATEGORIES[category], images: asset.images?.length || (asset.image_url ? 1 : 0) }));
+}
+
+function AssetQuickNav({ entries, locator, rail = false }) {
+  return <nav className={rail ? 'asset-locator-rail' : 'art-quick-nav'} aria-label={rail ? '全剧资产快速定位' : '本集资产快速定位'}>
+    {rail && <div className="asset-locator-heading"><b>快速定位</b><span>{entries.length} 项</span></div>}
+    <div className="asset-locator-items">{entries.map((entry, index) => <button type="button" key={entry.id} className={locator.active === entry.id ? 'active' : ''} aria-current={locator.active === entry.id ? 'location' : undefined} onClick={() => locator.locate(entry.id)} title={`${entry.name} · ${entry.count}`}>
+      {rail && <span className="asset-locator-number">{String(index + 1).padStart(2, '0')}</span>}
+      <span className="asset-locator-copy"><b>{entry.name}</b><small>{entry.count}{rail ? ` · ${entry.images} 张图片` : ''}</small></span>
+    </button>)}</div>
+    {!entries.length && <small className="asset-locator-empty">暂无匹配资产</small>}
+  </nav>;
 }
 
 /* ================================================================
@@ -364,7 +482,8 @@ function ManualAssetDialog({ project, api, refresh, onClose }) {
 function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore }) {
   const [episode, setEpisode] = useState(null);
   const [category, setCategory] = useState('character');
-  const [selectedName, setSelectedName] = useState('');
+  const [search, setSearch] = useState('');
+  const locator = useAssetLocator(`${project.id}:${episode}:${category}`);
   const [manualOpen, setManualOpen] = useState(false);
   const [batchSelectedIds, setBatchSelectedIds] = useState([]);
   const [batchBusy, setBatchBusy] = useState(false);
@@ -408,7 +527,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
           await draftStore.save(api, project.id, asset.id, draft.content);
           asset = { ...asset, description: draft.content };
         }
-        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style, project.genre), size: batchSize });
+        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style), size: batchSize });
         if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
       }));
       const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].name}：${result.reason?.message || '生成失败'}`] : []);
@@ -436,7 +555,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
           const props = assetsForEpisode(assets, ep, 'prop').length;
           const imageCount = imagesForAssets(assets.filter((asset) => (asset.episodes || []).includes(ep))).length;
           return (
-            <button key={ep} className="collab-episode-card" onClick={() => { setEpisode(ep); setCategory('character'); setSelectedName(''); }}>
+            <button key={ep} className="collab-episode-card" onClick={() => { setEpisode(ep); setCategory('character'); setSearch(''); }}>
               <b>第 {ep} 集</b>
               <small>人物 {chars} · 场景 {scenes} · 道具 {props} · 已生成 {imageCount} 张图片</small>
             </button>
@@ -447,50 +566,49 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
     );
   }
 
-  const list = assetsForEpisode(assets, episode, category);
-  const selected = list.find((a) => a.name === selectedName) || list[0] || null;
+  const categoryAssets = assetsForEpisode(assets, episode, category);
+  const filtered = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const list = category === 'character' ? groupCharacterAssets(filtered).flatMap((group) => group.variants) : filtered;
+  const locations = assetLocations(list, category);
   const episodeImages = imagesForAssets(assets.filter((asset) => (asset.episodes || []).includes(episode)));
   const episodeJobs = buildAssetGenerationJobs(assets, episode);
 
   return (
-    <div className="collab-art">
+    <div ref={locator.root} className="collab-art art-workbench">
       <div className="collab-art-head">
         <div className="collab-art-head-left"><button className="ghost" onClick={() => setEpisode(null)}><ArrowLeft size={15} /> 全部集数</button><b>第 {episode} 集</b><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button><div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
-            <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSelectedName(''); }}>{label}</button>
+            <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{label}</button>
           ))}
         </div></div>
         <div className="collab-art-head-right"><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{IMAGE_FORMATS.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
       </div>
       {exportError && <div className="collab-error">{exportError}</div>}
-      <div className="collab-art-body">
-        <nav className="collab-asset-rail">
-          {list.map((a) => (
-            <button key={a.id} className={selected?.id === a.id ? 'active' : ''} onClick={() => setSelectedName(a.name)}>
-              <span><input type="checkbox" checked={batchSelectedIds.includes(a.id)} onClick={(event) => event.stopPropagation()} onChange={() => setBatchSelectedIds((current) => current.includes(a.id) ? current.filter((id) => id !== a.id) : [...current, a.id])} />{a.name}</span>
-              <small>{a.reused ? `复用自第${a.first_episode}集` : '本集首次'}{a.image_url ? ' · 已生成' : ''}</small>
-            </button>
-          ))}
-          {!list.length && <div className="collab-empty small">本集没有{ASSET_CATEGORIES[category]}资产</div>}
-        </nav>
-        {selected
-          ? <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
-          : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
+      <div className="art-workbench-subhead"><span>{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项</span><AssetQuickNav entries={locations} locator={locator} /><input type="search" aria-label="搜索本集资产" placeholder="搜索资产名称" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      <div className="collab-art-body art-workbench-rows">
+        {list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${batchSelectedIds.includes(selected.id) ? 'is-selected' : ''}`} aria-label={selected.name}>
+          <AssetIdentity asset={selected} index={index} checked={batchSelectedIds.includes(selected.id)} onToggle={() => setBatchSelectedIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])} generating={generatingAssetIds.has(selected.id)} />
+          <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
+        </article>)}
+        {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `本集没有${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
-      {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}
+      {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} initialCategory={category} initialEpisode={episode} onClose={() => setManualOpen(false)} />}
     </div>
   );
 }
 function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore }) {
   const [category, setCategory] = useState('character');
-  const [selectedId, setSelectedId] = useState('');
+  const [search, setSearch] = useState('');
+  const [outfits, setOutfits] = useState({});
+  const locator = useAssetLocator(`${project.id}:${category}`);
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualName, setManualName] = useState('');
   const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
   const generatingAssetIdsRef = useRef(new Set());
-  const list = assets.filter((a) => a.category === category);
-  const characterGroups = category === 'character' ? groupCharacterAssets(list) : [];
-  const selectedCharacter = characterGroups.find((group) => group.variants.some((item) => item.id === selectedId)) || characterGroups[0] || null;
-  const selected = list.find((a) => a.id === selectedId) || selectedCharacter?.main || list[0] || null;
+  const categoryAssets = assets.filter((a) => a.category === category);
+  const list = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const characterGroups = category === 'character' ? groupCharacterAssets(categoryAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
+  const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category);
   const onGenerateImage = useCallback(async ({ asset, profile, prompt, size }) => {
     if (generatingAssetIdsRef.current.has(asset.id)) return;
     generatingAssetIdsRef.current.add(asset.id);
@@ -511,39 +629,37 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   }
 
   return (
-    <div className="collab-art">
+    <div ref={locator.root} className="collab-art art-workbench asset-library-workbench">
       <div className="collab-art-head">
         <b><Box size={16} /> 资产总览</b>
-        <button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
+        <button className="secondary manual-add-button" onClick={() => { setManualName(''); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
         <div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
-            <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSelectedId(''); }}>{key === 'character' ? '角色' : label}</button>
+            <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
           ))}
         </div>
       </div>
-      <div className="collab-art-body">
-        <nav className="collab-asset-rail">
-          {category === 'character' ? characterGroups.map((group) => (
-            <button key={group.base} className={selectedCharacter?.base === group.base ? 'active' : ''} onClick={() => setSelectedId(group.main.id)}>
-              <span>{group.base}</span>
-              <small>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || 0), 0)} 张图片</small>
-            </button>
-          )) : list.map((a) => (
-            <button key={a.id} className={selected?.id === a.id ? 'active' : ''} onClick={() => setSelectedId(a.id)}>
-              <span>{a.name}</span>
-              <small>{(a.episodes || []).map((e) => `第${e}集`).join('、')}{a.images?.length ? ' · 已生成' : ''}</small>
-            </button>
-          ))}
-        </nav>
-        {selected
-          ? <section className="character-asset-workspace">
-              {category === 'character' && selectedCharacter && <div className="character-profile-header"><div><span>角色主档案</span><h3>{selectedCharacter.base}</h3><small>所有妆造共用同一人物身份；选择已有形象作为参考，仅改变服装、妆容和剧情状态。</small></div><span className="character-look-count">{selectedCharacter.variants.length} 套妆造</span></div>}
-              {category === 'character' && selectedCharacter && <div className="character-variant-branches"><b>妆造分支</b><div>{selectedCharacter.variants.map((variant) => <button key={variant.id} className={selected?.id === variant.id ? 'active' : ''} onClick={() => setSelectedId(variant.id)}><span>{variant.variant || '基础形象'}</span><small>{variant.images?.length || 0} 张</small></button>)}<button className="add-look" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 添加妆造</button></div></div>}
+      <div className="art-workbench-subhead"><span>全剧{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项<span className="art-workbench-caption">{category === 'character' ? '按人物定位，框内切换妆造' : '提示词与生成结果一一对应'}</span></span><input type="search" aria-label="搜索全剧资产" placeholder="搜索角色、妆造或资产" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      <div className="asset-library-layout"><AssetQuickNav entries={locations} locator={locator} rail /><div className="collab-art-body art-workbench-rows">
+        {category === 'character' ? characterGroups.map((group, groupIndex) => {
+          const selected = group.variants.find((item) => item.id === outfits[group.base]) || group.variants[0];
+          return <section ref={locator.register(group.variants[0].id)} tabIndex={-1} className="character-asset-workspace art-character-group" key={group.base} aria-label={`${group.base} 角色主档案`}>
+            <header className="art-character-header"><div><span className="art-group-label">角色主档案</span><h3>{group.base}</h3><span>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || (item.image_url ? 1 : 0)), 0)} 张图片</span></div><button className="ghost" onClick={() => { setManualName(`${group.base}-`); setManualOpen(true); }} disabled={!canEdit}><Plus size={13} /> 添加妆造</button></header>
+            <article className="art-workbench-row" aria-label={selected.name}>
+              <AssetIdentity asset={selected} index={groupIndex} generating={generatingAssetIds.has(selected.id)}>
+                <nav className="character-outfit-picker" aria-label={`${group.base} 服装选择`}>{group.variants.map((variant, index) => <button type="button" key={variant.id} aria-pressed={selected.id === variant.id} onClick={() => setOutfits((current) => ({ ...current, [group.base]: variant.id }))}><span>{String(index + 1).padStart(2, '0')}</span><b>{variant.variant || '基础形象'}</b>{generatingAssetIds.has(variant.id) && <Loader2 size={12} className="spin" />}</button>)}</nav>
+              </AssetIdentity>
               <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
-            </section>
-          : <div className="collab-empty"><p>从左侧选择一个资产</p></div>}
+            </article>
+          </section>;
+        }) : list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className="art-workbench-row" aria-label={selected.name}>
+          <AssetIdentity asset={selected} index={index} generating={generatingAssetIds.has(selected.id)} />
+          <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
+        </article>)}
+        {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `暂无${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
-      {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}
+      </div>
+      {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} initialName={manualName} initialCategory={category} onClose={() => setManualOpen(false)} />}
     </div>
   );
 }
@@ -1028,21 +1144,21 @@ function DeletedProjects({ projects, api, onChanged }) {
 function StartProjectDialog({ directorProjects, onClose, onCreate, busy, error }) {
   const [selectedId, setSelectedId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  const filteredProjects = directorProjects.filter((p) => 
+
+  const filteredProjects = directorProjects.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
-  
+
   return (
     <div className="veil">
       <div className="modal collab-start-modal">
         <h2>开启协作项目</h2>
         <p>从导演工作台选择一部剧本项目，剧本、分集与已生成的提示词会同步到云端，与团队一起制作。</p>
         {directorProjects.length > 0 && (
-          <input 
-            type="text" 
-            className="collab-start-search" 
-            placeholder="搜索项目名称..." 
+          <input
+            type="text"
+            className="collab-start-search"
+            placeholder="搜索项目名称..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />

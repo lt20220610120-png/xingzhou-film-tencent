@@ -29,7 +29,7 @@ export const COLLAB_STYLES = ['AI真人', '3D动漫', '2D动漫'];
 
 export const ASSET_CATEGORIES = { character: '人物', scene: '场景', prop: '道具' };
 
-// ---------- 资产描述固定前缀：复制即用，无需手动补充 ----------
+// ---------- 默认生图前置。用户的逐资产设置与描述一同保存、同步。 ----------
 export const CHARACTER_PROMPT_PREFIXES = {
   'AI真人': '真人拍摄，但不能跟现实当中任何的明星撞脸。真人写实人像摄影，8K超高清原生画质，电影级柔和自然光影，无畸变广角，还原真实人像质感。皮肤通透细腻，精准呈现皮肤的次表面散射，自带自然原生的珠光光泽，超逼真还原皮肤纹理、原生毛孔、面部细碎绒毛等细节，五官立体精致，画面干净通透，光影过渡自然，整体真实与呼吸感，细节拉满。纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
   '3D动漫': '新中式3D国漫角色，融合英式动画的柔和质感与东方古典审美，极具东方温婉气韵，虚拟引擎5超高清渲染，8K极致精度。线条流畅灵动，五官精致舒展，自带古典故事感，光影柔和通透，色彩雅致高级。精准还原国风织锦、刺绣、纱质面料的细腻质感，发丝根根分明，皮肤纹理自然真实，材质表现整体画面唯美大气。纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
@@ -48,11 +48,49 @@ const stripCharacterPromptPrefix = (description = '') => {
   return text;
 };
 
+export const ASSET_PROMPT_MODES = { single: '单人多视图', group: '多人群像', free: '自由构图', scene: '场景', prop: '道具' };
+
+export const inferAssetPromptMode = (asset) => {
+  if (asset.category !== 'character') return ['scene', 'prop'].includes(asset.category) ? asset.category : 'free';
+  const text = `${asset.name || ''}\n${stripCharacterPromptPrefix(asset.description)}`;
+  // Generic occupations (司机、助理、工作人员) can be one person; require a collective or an explicit count.
+  const group = /群像|群演|一群|一众|众人|男女老少|男女老幼|百姓|民众|村民们|弟子们|士兵们|人群|群众|一家[二两三四五六七八九十\d]+口|(?:[2-9]\d*|[二两三四五六七八九十]+)\s*(?:个\s*人|人(?!称)|位(?:人物|角色|男女)|名(?:人物|角色|男女|百姓|村民|士兵|弟子))/.test(text);
+  return group ? 'group' : 'single';
+};
+
+export const defaultAssetPromptPrefix = (asset, style = 'AI真人', mode = inferAssetPromptMode(asset)) => {
+  if (mode === 'free') return '';
+  if (mode === 'scene') return SCENE_PROMPT_PREFIX;
+  if (mode === 'prop') return PROP_PROMPT_PREFIX;
+  const single = CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX;
+  if (mode !== 'group') return single;
+  const text = stripCharacterPromptPrefix(asset.description);
+  const count = text.match(/([2-9]\d*|[二两三四五六七八九十]+)\s*(?:个\s*人|人(?!称)|位|名)/)?.[1]
+    || text.match(/一家([二两三四五六七八九十\d]+)口/)?.[1] || '6';
+  const visualStyle = single.split('纯白色背景')[0];
+  return `${visualStyle}纯白色背景，在同一张完整画面中展示${count}位不同人物的群像，每个人完整全身入镜，人物之间留有间隔，不互相遮挡。人数以资产描述的明确要求为准；年龄与性别遵循描述，未限定时体现男女老少。属于同一类人，但每人的面貌、发型、身形与穿着细节各不相同。使用统一画风与时代设定，不重复同一人物，不使用单人多视图、特写拼贴或分镜排版。`;
+};
+
+// A readable envelope fits the existing cloud description field, so all collaborators
+// receive the same settings without requiring a server/schema upgrade.
+export const serializeAssetPrompt = ({ mode, prefix, content }) =>
+  `【生图前置 · ${ASSET_PROMPT_MODES[mode] || ASSET_PROMPT_MODES.free}】\n${prefix || ''}\n\n【资产描述】\n${content || ''}`;
+
+export const readAssetPrompt = (asset, style = 'AI真人') => {
+  const raw = String(asset.description || '');
+  const saved = raw.match(/^【生图前置 · (单人多视图|多人群像|自由构图|场景|道具)】\r?\n([\s\S]*?)\r?\n\r?\n【资产描述】\r?\n([\s\S]*)$/);
+  if (saved) return { mode: Object.keys(ASSET_PROMPT_MODES).find(key => ASSET_PROMPT_MODES[key] === saved[1]), prefix: saved[2], content: saved[3], customized: true };
+  const mode = inferAssetPromptMode(asset);
+  const prefix = defaultAssetPromptPrefix(asset, style, mode);
+  let content = stripCharacterPromptPrefix(raw);
+  if (asset.category === 'scene' && content.startsWith(SCENE_PROMPT_PREFIX)) content = content.slice(SCENE_PROMPT_PREFIX.length).trim();
+  if (asset.category === 'prop' && content.startsWith(PROP_PROMPT_PREFIX)) content = content.slice(PROP_PROMPT_PREFIX.length).trim();
+  return { mode, prefix, content, customized: false };
+};
+
 export const withAssetPrefix = (category, description = '', style = 'AI真人') => {
-  const prefix = category === 'character' ? (CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX) : category === 'scene' ? SCENE_PROMPT_PREFIX : category === 'prop' ? PROP_PROMPT_PREFIX : '';
-  const text = category === 'character' ? stripCharacterPromptPrefix(description) : String(description || '');
-  if (!prefix || text.startsWith(prefix)) return text;
-  return text ? `${prefix}\n${text}` : prefix;
+  const { prefix, content } = readAssetPrompt({ category, description }, style);
+  return [prefix, content].filter(Boolean).join('\n');
 };
 
 export const buildAssetRevisionMessages = ({ instruction, originalContent, category }) => {
@@ -208,16 +246,19 @@ export const episodeNumbersFromAssets = (assets) => {
 };
 
 // ---------- @引用：把同角色参考资产的描述并入生图提示词 ----------
-export const buildImagePrompt = (asset, refAsset, style, genre) => {
+export const buildImagePrompt = (asset, refAsset, style) => {
   const parts = [];
+  const settings = readAssetPrompt(asset, style);
+  if (settings.prefix) parts.push(settings.prefix);
   if (style) parts.push(`画风：${style}`);
-  if (genre) parts.push(`题材设定：${genre}`);
   if (refAsset) {
-    parts.push(`参考角色形象（同一人物，保持脸型五官发型身材完全一致）：${refAsset.name}\n${stripCharacterPromptPrefix(refAsset.description || '')}`);
-    parts.push(`本次变化（服装/状态差异）：${stripCharacterPromptPrefix(asset.description || '') || parseAssetName(asset.name).variant}`);
-    if (asset.category === 'character') parts.unshift(CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX);
+    const reference = readAssetPrompt(refAsset, style).content;
+    parts.push(settings.mode === 'single' || !asset.category
+      ? `参考角色形象（同一人物，保持脸型五官发型身材完全一致）：${refAsset.name}\n${reference}`
+      : `参考资产的画风与服装设定，人物数量和构图以本次生图前置与描述为准：${refAsset.name}\n${reference}`);
+    parts.push(`本次变化（服装/状态差异）：${settings.content || parseAssetName(asset.name).variant}`);
   } else {
-    parts.push(withAssetPrefix(asset.category, asset.description || asset.name, style));
+    parts.push(settings.content || asset.name);
   }
   return parts.filter(Boolean).join('\n\n');
 };

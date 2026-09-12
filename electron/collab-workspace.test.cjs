@@ -129,11 +129,12 @@ test('collab.css 已挂载且生成按钮防换行', () => {
 
 test('行舟 AI 浮动按钮可在窗口内拖动且拖动不会误打开会话', () => {
   const app = read('src/App.jsx');
-  const css = read('src/v100-exact.css');
-  assert.match(app, /DraggableAIButton/);
-  assert.match(app, /onPointerMove=\{moveDrag\}/);
-  assert.match(app, /suppressClick/);
-  assert.match(css, /global-ai-launch\.draggable/);
+  const button = read('src/v06/FloatingAIButton.jsx');
+  const css = read('src/studio-theme.css');
+  assert.match(app, /FloatingAIButton/);
+  assert.match(button, /onPointerMove=\{moveDrag\}/);
+  assert.match(button, /suppressClick/);
+  assert.match(css, /global-ai-launch\.studio-ai-launcher/);
 });
 
 test('分镜复用画布媒体入口、按场景展示剧本并提供视频历史删除', () => {

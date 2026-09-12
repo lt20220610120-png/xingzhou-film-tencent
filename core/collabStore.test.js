@@ -118,7 +118,7 @@ test('生图提示词：换装时并入参考资产描述', () => {
   const ref = { name: '【姜蓝-剑道服】', description: '剑眉星目，深蓝色剑道服。' };
   const prompt = buildImagePrompt(asset, ref, 'AI真人', '古代玄幻');
   assert.match(prompt, /画风：AI真人/);
-  assert.match(prompt, /题材设定：古代玄幻/);
+  assert.doesNotMatch(prompt, /题材设定：古代玄幻/);
   assert.match(prompt, /保持脸型五官发型身材完全一致/);
   assert.match(prompt, /剑眉星目/);
   assert.match(prompt, /灰色粗布便服/);
