@@ -78,7 +78,14 @@ async function handleAction(action, payload, user, repo, signer = null) {
     const collabOnly = rows.filter((row) => !String(row.genre || '').includes(DIRECTOR_SENTINEL));
     return ok(await Promise.all(collabOnly.map((row) => attachRole(row, user, repo))));
   }
-  if (action === 'project-get') { const r = guard(await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
+  if (action === 'project-get') { const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
+  if (action === 'storyboard-patch') {
+    if(await repo.isProjectLocked(projectId))return LOCKED;
+    const role=await roleOf(projectId,user,repo);
+    if(!['producer','collaborator','artist_collaborator'].includes(role))return DENY;
+    try{return ok(await attachRole(await repo.patchStoryboard(projectId,payload),user,repo));}
+    catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
+  }
   if (action === 'project-update') {
     // Supabase 契约：updates + scope，按 scope 限定可写字段与所需角色。
     if (await repo.isProjectLocked(projectId)) return LOCKED;
@@ -93,7 +100,7 @@ async function handleAction(action, payload, user, repo, signer = null) {
     const updates = payload.updates || payload;
     const allowed = {};
     for (const k of keys) if (k in updates) allowed[k] = updates[k];
-    const saved = guard(await repo.updateProjectFields(projectId, allowed));
+    const saved = guard(scope === 'director-sync' && repo.syncDirectorSnapshot ? await repo.syncDirectorSnapshot(projectId,allowed) : await repo.updateProjectFields(projectId, allowed));
     return saved ? ok(await attachRole(saved, user, repo)) : DENY;
   }
   if (action === 'project-delete') { const r = guard(await repo.softDeleteProject(projectId, user.id)); return r ? ok({ ok: true, purgeAfter: r.purge_after }) : DENY; }
@@ -138,7 +145,7 @@ async function handleAction(action, payload, user, repo, signer = null) {
     return ok(out);
   }
   if (action === 'director-project-get') { const r = guard(await repo.getDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok(r) : NOT_FOUND; }
-  if (action === 'director-project-update') { const r = guard(await repo.updateDirectorProject(payload.directorProjectId || projectId, payload, user.id)); return r ? ok(r) : DENY; }
+  if (action === 'director-project-update') { try { const r = guard(await repo.updateDirectorProject(payload.directorProjectId || projectId, payload, user.id)); return r ? ok(r) : DENY; } catch(error) { if(error.status)return {status:error.status,body:{error:error.message}};throw error; } }
   if (action === 'director-project-delete') { const r = guard(await repo.deleteDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok({ ok: true }) : DENY; }
   if (action === 'director-project-lock') { const r = guard(await repo.setProjectLocked(payload.directorProjectId || projectId, payload.locked !== false, user.id)); return r ? ok({ ok: true }) : DENY; }
 
@@ -170,6 +177,7 @@ async function handleAction(action, payload, user, repo, signer = null) {
     // 资产附带图片列表：signer 在 media 层负责签名，这里只给出对象路径。
     return ok(rows.map((row) => ({
       ...row,
+      image_url: row.image_url && signer && !/^https?:/.test(row.image_url) ? signer.signDownload({objectKey:row.image_url}).url : row.image_url,
       images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, objectKey: img.object_path, url: img.object_path && signer ? signer.signDownload({ objectKey: img.object_path }).url : '', filename: img.filename, mime: img.mime })),
     })));
   }

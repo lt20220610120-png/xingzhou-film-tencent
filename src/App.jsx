@@ -1,3 +1,4 @@
+import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -1354,7 +1355,7 @@ function App() {
   const navItems = [...(role === 'director' ? directorNav : [...creatorNav, ...toolsNav]), ...adminNav];
 
   return (
-    <div className="app v06-app">
+    <div className="app v06-app"><GenerationMonitor state={state} api={api} account={account}/>
       {/* 侧边导航栏 */}
       <nav className="sidebar" id="app-sidebar">
         <BrandLogo compact />

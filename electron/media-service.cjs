@@ -73,10 +73,17 @@ async function downloadToFile(url, destDir, ext) {
 }
 
 // ---------- 图片生成（OpenAI images API 兼容：/images/generations） ----------
-async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', destDir }) {
+async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, references = [], destDir }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置图片生成 API');
   if (!prompt?.trim()) throw new Error('请填写画面描述');
   if (!model?.trim()) throw new Error('请先在 API 接口中填写图片模型名称');
+  if(isFeituoEndpoint(endpoint)) {
+    const sizes={'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4','1152x768':'3:2','768x1152':'2:3'};
+    const result=await require('./feituo-client.cjs').submit({kind:'image',apiKey,model,prompt,ratio:ratio||sizes[size]||'auto',references});
+    if(!result.resultUrls?.length)throw new Error('飞拓没有返回图片结果');
+    return downloadToFile(result.resultUrls[0],destDir,'png');
+  }
+  if(references.length)throw new Error('当前自定义图片接口尚未配置参考图协议，请选择飞拓接口使用参考图');
   const base = normalizeBase(endpoint);
   const response = await fetch(`${base}/images/generations`, {
     method: 'POST',
@@ -105,9 +112,11 @@ function buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, 
   return content;
 }
 
-async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, destDir, onStatus = () => {} }) {
+async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, references = [], destDir, onStatus = () => {} }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置视频生成 API');
   if (!prompt?.trim()) throw new Error('请填写视频描述');
+  if(references.length>1 || references.some(r=>r.kind!=='image'))throw new Error('当前自定义视频接口仅支持一张首帧参考，请切换飞拓接口使用多素材参考');
+  firstFramePath=firstFramePath||references[0]?.filePath;firstFrameUrl=firstFrameUrl||references[0]?.url;
   const localFrame = firstFramePath && fs.existsSync(firstFramePath) ? `data:image/png;base64,${fs.readFileSync(firstFramePath).toString('base64')}` : '';
   if (isFeituoEndpoint(endpoint)) return generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, onStatus, destDir, imageUrls: firstFrameUrl || localFrame ? [firstFrameUrl || localFrame] : [] });
   const base = normalizeBase(endpoint);
@@ -149,4 +158,4 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   throw new Error('视频生成超时（10 分钟），请稍后在服务商控制台查看任务');
 }
 
-module.exports = { generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };
+module.exports = { downloadToFile, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };

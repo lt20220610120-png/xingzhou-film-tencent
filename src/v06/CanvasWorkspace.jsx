@@ -1,3 +1,4 @@
+import feituoModels from '../../core/feituo-models.json';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Film, Hand, Image as ImageIcon, KeyRound, Loader2, Minus, MousePointer2,
@@ -21,7 +22,16 @@ export function MediaApiSettings({ state, setState, onClose }) {
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const save = () => {
     if (!form.endpoint.trim()) return;
-    if (editingId) setState((s) => updateMediaProfile(s, editingId, { ...form }));
+    if (editingId) setState((s) => {let next=updateMediaProfile(s, editingId, { ...form });if(form.endpoint==='https://feituokuajing.com')for(const p of next.mediaProfiles||[])if(p.endpoint==='https://feituokuajing.com')next=updateMediaProfile(next,p.id,{apiKey:form.apiKey});return next;});
+    else if(form.endpoint.includes('feituokuajing.com')) setState(s=>{
+      let next=s;
+      for(const kind of ['video','image']){
+        const existing=(next.mediaProfiles||[]).find(p=>p.kind===kind&&p.endpoint.includes('feituokuajing.com'));
+        const fields={...form,kind,name:`飞拓${kind==='video'?'视频':'图片'}`,model:kind===form.kind?form.model:feituoModels.find(m=>m.kind===kind).id};
+        next=existing?updateMediaProfile(next,existing.id,fields):addMediaProfile(next,fields);
+        next=setActiveMediaApi(next,kind,(next.mediaProfiles||[]).find(p=>p.kind===kind&&p.endpoint.includes('feituokuajing.com')).id);
+      }return next;
+    });
     else setState((s) => addMediaProfile(s, form));
     setForm({ kind: form.kind, name: '', endpoint: '', model: '', apiKey: '' });
     setEditingId(null);
@@ -34,10 +44,10 @@ export function MediaApiSettings({ state, setState, onClose }) {
     })}{!items.length && <div className="media-api-empty">暂未配置{kind === 'video' ? '视频' : '图片'}生成 API</div>}</div></section>;
   };
   return (
-    <Dialog open title="画布生成接口设置" onClose={onClose}>
+    <Dialog open title="生成接口设置" onClose={onClose}>
       <div className="media-api-settings">
-        <p className="media-api-hint">图片接口需兼容 OpenAI 图片格式（/images/generations，如即梦、DALL·E、豆包）；视频接口需兼容火山方舟任务格式（/contents/generations/tasks，如 Seedance、即梦视频）。</p>
-        <div className="media-api-form">
+        <p className="media-api-hint">飞拓快捷接入会同时配置图片和视频接口。填写一次 API Key，即可在图视生成与分镜中切换飞拓全部已接入模型。也支持自定义 OpenAI 图片与火山方舟视频接口。</p>
+        <button className="secondary" onClick={()=>{setEditingId(null);setForm({kind:'video',name:'飞拓',endpoint:'https://feituokuajing.com',model:FEITUO_VIDEO_MODELS[12].id,apiKey:''});}}>飞拓快捷接入 · 只需填写 API Key</button><div className="media-api-form">
           <select value={form.kind} onChange={update('kind')}>
             <option value="image">图片生成接口</option>
             <option value="video">视频生成接口</option>

@@ -1,3 +1,5 @@
+import {Dialog} from './GlobalTools.jsx';
+import {threeWayMerge} from '../../core/threeWayMerge.js';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { readRemembered, useRememberedState } from '../useRememberedState.js';
@@ -21,7 +23,7 @@ import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterS
 import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
-import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
+import { acknowledgeDirectorCloudSave, reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
 
 /* ================================================================
  * ProjectCards - 导演工作台项目选择页
@@ -755,6 +757,7 @@ function SettingEditor({ project, episode, setState }) {
  * DirectorWorkspace - 主组件
  * ================================================================ */
 export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local' }) {
+  const cloudSavingRef = useRef(false);
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
   const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
@@ -807,7 +810,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     } catch { /* 网络短暂失败时保留现有云项目与本地投影 */ }
   }, [api]);
   React.useEffect(() => { loadCloudProjects(); }, [loadCloudProjects]);
-  React.useEffect(() => { setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
+  React.useEffect(() => { if(cloudSavingRef.current)return; setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
   React.useEffect(() => {
     if (!collaborationProjects.length) return;
     const linked = new Map(collaborationProjects
@@ -822,7 +825,21 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   }, [collaborationProjects]);
   const cloudForProject = (project) => cloudProjects.find((p) => p.id === project.cloudProjectId || p.analysis_output === project.id);
   const changeCollab = async (mode) => { if (!collabTarget) return; if (mode === 'create') { const dp = collabTarget.project; const episodes = dp.episodes || []; const cloud = await api.directorCollabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes }); setState((s) => updateDirectorProject(s, dp.id, { cloudProjectId: cloud.id, cloudRole: 'producer' })); setCollabTarget({ project: { ...dp, cloudProjectId: cloud.id }, cloud: { ...cloud, locked: false } }); } await loadCloudProjects(); };
-  React.useEffect(() => { if (!selectedProject?.cloudProjectId || selectedProject.cloudLocked) return; const timer = setTimeout(() => { api.directorCollabUpdateProject({ projectId: selectedProject.cloudProjectId, updates: { name: selectedProject.name, script: selectedProject.masterScript || '', episodes: selectedProject.episodes || [] } }).catch(() => {}); }, 900); return () => clearTimeout(timer); }, [selectedProject]);
+  React.useEffect(() => {
+    if (!selectedProject?.cloudProjectId || selectedProject.cloudLocked || selectedProject.cloudConflict || !selectedProject.cloudBase || cloudSavingRef.current) return;
+    const submitted={name:selectedProject.name,script:selectedProject.masterScript||'',episodes:selectedProject.episodes||[]};
+    if(JSON.stringify(submitted)===JSON.stringify(selectedProject.cloudBase))return;
+    const timer=setTimeout(async()=>{
+      if(cloudSavingRef.current)return;
+      cloudSavingRef.current=true;
+      try {
+        const cloud=await api.directorCollabUpdateProject({projectId:selectedProject.cloudProjectId,base:selectedProject.cloudBase,updates:submitted});
+        cloudSavingRef.current=false;
+        setState(current=>({...current,directorProjects:acknowledgeDirectorCloudSave(current.directorProjects||[],cloud,submitted)}));
+      } catch(error){setCloudRefreshNotice(error.message);} finally{cloudSavingRef.current=false;}
+    },900);
+    return ()=>clearTimeout(timer);
+  },[selectedProject]);
   React.useEffect(() => { const timer = setInterval(loadCloudProjects, 12000); return () => clearInterval(timer); }, [loadCloudProjects]);
   const refreshDirectorCloud = async () => {
     if (!selectedProject?.cloudProjectId || refreshingCloud) return;
@@ -830,12 +847,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     try {
       await loadCloudProjects();
       const cloud = await api.directorCollabGetProject({ projectId: selectedProject.cloudProjectId });
-      // 双向合并：结构以云端为准，提示词按 id 取并集（对方生成的、我生成的都保留）
-      const mergedEpisodes = mergeCloudEpisodes(selectedProject.episodes || [], cloud.episodes || []);
-      setState((s) => updateDirectorProject(s, selectedProject.id, { name: cloud.name, masterScript: cloud.script || '', episodes: mergedEpisodes, cloudLocked: cloud.locked, cloudRole: cloud.myRole }));
-      // 把合并结果推回云端，让双方看到同一份数据（锁定项目除外）
-      if (!cloud.locked) await api.directorCollabUpdateProject({ projectId: selectedProject.cloudProjectId, updates: { episodes: mergedEpisodes } }).catch(() => {});
-      setMasterDraft(cloud.script || ''); setMasterNotice('已刷新并合并云端项目'); setCloudRefreshNotice('已刷新并合并云端项目');
+      setState(current=>({...current,directorProjects:reconcileDirectorCloudProjects(current.directorProjects||[],[cloud])}));
+      setCloudRefreshNotice('已读取云端更新；未保存修改会保留，冲突时请核对提示');
       setTimeout(() => setCloudRefreshNotice(''), 2400);
     } catch (error) {
       setCloudRefreshNotice(`刷新失败：${error.message || '网络连接异常'}`);
@@ -861,7 +874,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       const parsed = parseMasterScript(sourceDraft);
       const episodes = (parsed.episodes.length ? parsed.episodes : splitFullScript(sourceDraft).episodes).map((ep, i) => ({ id: selectedProject.episodes?.[i]?.id || `master-${Date.now()}-${i}`, title: ep.title, content: ep.content, kind: ep.kind || 'episode', prompts: selectedProject.episodes?.[i]?.prompts || [], status: selectedProject.episodes?.[i]?.status || (ep.kind === 'setting' ? '设定资料' : '待导演处理') }));
       setState((s) => updateDirectorProject(s, selectedProject.id, { masterScript: sourceDraft, episodes }));
-      if (selectedProject.cloudProjectId) await api.directorCollabUpdateProject({ projectId: selectedProject.cloudProjectId, updates: { script: sourceDraft, episodes } });
+      // The shared autosave acknowledges this snapshot and preserves subsequent edits.
       setMasterNotice(`已保存并重新识别 ${episodes.length} 集`);
     } catch (e) { setMasterNotice(`保存失败：${e.message}`); } finally { setMasterSaving(false); }
   };
@@ -875,7 +888,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     const parsed = parseMasterScript(nextScript);
     const episodes = (parsed.episodes.length ? parsed.episodes : splitFullScript(nextScript).episodes).map((ep, i) => ({ id: selectedProject.episodes?.[i]?.id || `master-${Date.now()}-${i}`, title: ep.title, content: ep.content, kind: ep.kind || 'episode', prompts: selectedProject.episodes?.[i]?.prompts || [], status: selectedProject.episodes?.[i]?.status || (ep.kind === 'setting' ? '设定资料' : '待导演处理') }));
     setState((s) => updateDirectorProject(s, selectedProject.id, { masterScript: nextScript, episodes }));
-    if (selectedProject.cloudProjectId) await api.directorCollabUpdateProject({ projectId: selectedProject.cloudProjectId, updates: { script: nextScript, episodes } });
+    // Cloud synchronization uses the same serialized autosave as prompt editing.
     setMasterNotice(`已添加并识别第 ${number} 集，共 ${episodes.length} 集`);
     setActivePane(episodes[episodes.length - 1]?.id || 'master');
   };
@@ -1028,9 +1041,18 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     );
   }
 
+  const resolveCloudConflict=choice=>{
+    const remote=selectedProject.cloudRemote;
+    const local={name:selectedProject.name,script:selectedProject.masterScript||'',episodes:selectedProject.episodes||[]};
+    localStorage.setItem(`xz-director-conflict-backup:${selectedProject.id}`,JSON.stringify(local));
+    const merged=threeWayMerge(selectedProject.cloudBase,local,remote,'文档',choice);
+    setState(current=>updateDirectorProject(current,selectedProject.id,{name:merged.name,masterScript:merged.script,episodes:merged.episodes,cloudBase:remote,cloudConflict:''}));
+    setMasterDraft(merged.script);
+  };
   // 渲染项目编辑视图
   return (
     <div className="director-shell">
+      {selectedProject.cloudConflict&&<Dialog open title="导演项目存在协作冲突" onClose={()=>{}}><p>{selectedProject.cloudConflict}</p><p>本地版本已保留；其他不冲突的修改会自动合并。</p><details><summary>查看云端文档</summary><textarea readOnly value={JSON.stringify(selectedProject.cloudRemote,null,2)}/></details><button className="secondary" onClick={()=>resolveCloudConflict('remote')}>冲突处采用云端内容</button><button className="primary" onClick={()=>resolveCloudConflict('local')}>冲突处保留我的内容</button></Dialog>}
       <DirectorRail
         project={selectedProject}
         active={activePane}

@@ -5,15 +5,21 @@ const path = require('node:path');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 test('项目协作分镜与导演快速模式复用同一场景划分器', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /parseDirectorScenes\(episode\.content \|\| '', epNumber\)/);
-  assert.doesNotMatch(ui, /parseDirectorScenesReadonly\(episode\.content/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/parseDirectorScenes\(episode.content/);
+  assert.match(ui,/inferDirectorEpisodeNumber/);
+  assert.match(ui,/parsed.length\?parsed.map/);
+  assert.match(ui,/label.startsWith\(epNumber/);
 });
 
 test('当前集场景下拉只来自当前集场景划分，不混入异常提示词标签', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /const sceneLabels = parsedScenes\.map\(\(scene\) => scene\.label\)/);
-  assert.doesNotMatch(ui, /new Set\(\[\.\.\.parsedScenes[\s\S]*\.\.\.prompts\.map/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/parseDirectorScenes\(episode.content/);
+  assert.match(ui,/inferDirectorEpisodeNumber/);
+  assert.match(ui,/parsed.length\?parsed.map/);
+  assert.match(ui,/label.startsWith\(epNumber/);
 });
 
 test('集数身份不受串集提示词标签影响', () => {

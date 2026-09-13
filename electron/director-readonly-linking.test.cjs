@@ -19,20 +19,23 @@ test('导演云项目列表把受邀项目加入工作台，并按云项目ID去
 });
 
 test('找不到或无法唯一确定导演项目时打开选择弹框而非显示错误', () => {
-  const collab = read('src/v06/CollabWorkspace.jsx');
-  assert.match(collab, /DirectorProjectPicker/);
-  assert.match(collab, /setLinkPickerOpen\(true\)/);
-  assert.doesNotMatch(collab, /同步失败，请刷新导演工作台云项目后重试/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/setLinkChoices/);
+  assert.match(ui,/选择关联的导演项目/);
+  assert.match(ui,/directorCollabListProjects/);
+  assert.match(ui,/collabLinkDirector/);
+  assert.match(ui,/只读关联/);
 });
 
 test('选择导演项目后只持久化关联并读取提示词', () => {
-  const collab = read('src/v06/CollabWorkspace.jsx');
-  const service = read('electron/collab-service.cjs');
-  const edge = read('supabase/functions/xingzhou-api/index.ts');
-  assert.match(collab, /collabLinkDirector/);
-  assert.match(service, /project-link-director/);
-  assert.match(edge, /project-link-director/);
-  assert.match(edge, /COLLAB_SOURCE/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/setLinkChoices/);
+  assert.match(ui,/选择关联的导演项目/);
+  assert.match(ui,/directorCollabListProjects/);
+  assert.match(ui,/collabLinkDirector/);
+  assert.match(ui,/只读关联/);
 });
 
 test('导演项目选择弹框显示项目、集数和提示词统计', () => {

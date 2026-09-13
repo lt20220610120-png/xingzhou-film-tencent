@@ -138,13 +138,10 @@ test('行舟 AI 浮动按钮可在窗口内拖动且拖动不会误打开会话'
 });
 
 test('分镜复用画布媒体入口、按场景展示剧本并提供视频历史删除', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  const service = read('electron/collab-service.cjs');
-  const preload = read('electron/preload.cjs');
-  assert.match(ui, /parseDirectorScenes\(episode\.content/);
-  assert.match(ui, /collab-shot-video/);
-  assert.match(ui, /collabDeleteMedia/);
-  assert.match(ui, /mediaGenerateImage/);
-  assert.match(service, /attachGeneratedAssetImage/);
-  assert.match(preload, /collabAttachGeneratedAssetImage/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/GenerationComposer/);
+  assert.match(ui,/GenerationResults/);
+  assert.match(ui,/collabDeleteMedia/);
+  assert.match(ui,/parseDirectorScenes/);
 });

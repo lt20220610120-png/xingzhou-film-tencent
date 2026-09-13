@@ -1,3 +1,4 @@
+import {threeWayMerge} from './threeWayMerge.js';
 const cloudLocalId = (cloud) => `cloud-${cloud.id}`;
 
 // ---------- 提示词双向合并（云文档语义） ----------
@@ -36,20 +37,26 @@ export const mergeCloudEpisodes = (localEpisodes = [], cloudEpisodes = []) => {
   return merged;
 };
 
-const fromCloud = (cloud, existing = {}) => ({
+const fromCloud = (cloud, existing = {}) => {
+ const remote={name:cloud.name,script:cloud.script||'',episodes:cloud.episodes||[]};
+ let merged=remote,conflict='';
+ if(existing.cloudBase)try{merged=threeWayMerge(existing.cloudBase,{name:existing.name,script:existing.masterScript||'',episodes:existing.episodes||[]},remote);}catch(error){merged={name:existing.name,script:existing.masterScript||'',episodes:existing.episodes||[]};conflict=error.message;}
+ return ({
   ...existing,
   id: existing.id || cloudLocalId(cloud),
-  name: cloud.name || existing.name || '未命名导演项目',
+  name: merged.name || existing.name || '未命名导演项目',
+  cloudBase:conflict?existing.cloudBase:remote,cloudConflict:conflict,cloudRemote:remote,
   sourceType: existing.sourceType || 'cloud',
   sourceId: existing.sourceId || cloud.analysis_output || null,
   cloudProjectId: cloud.id,
-  cloudRole: cloud.myRole || 'collaborator',
-  cloudLocked: Boolean(cloud.locked),
+  cloudRole: cloud.myRole || existing.cloudRole || 'collaborator',
+  cloudLocked: Boolean(cloud.locked ?? existing.cloudLocked),
   groupId: 'director-cloud',
-  masterScript: cloud.script || existing.masterScript || '',
-  episodes: mergeCloudEpisodes(existing.episodes || [], Array.isArray(cloud.episodes) ? cloud.episodes : []),
+  masterScript: merged.script || '',
+  episodes: existing.cloudBase ? merged.episodes : mergeCloudEpisodes(existing.episodes || [], Array.isArray(cloud.episodes) ? cloud.episodes : []),
   updatedAt: cloud.updated_at || existing.updatedAt || new Date().toISOString(),
 });
+};
 
 export const reconcileDirectorCloudProjects = (localProjects = [], cloudProjects = []) => {
   const next = localProjects.map((project) => {
@@ -75,3 +82,8 @@ export const canManageDirectorCollab = (project, accountIsProducer = false) => {
   if (project?.cloudProjectId || project?.sourceType === 'cloud') return project?.cloudRole === 'producer';
   return Boolean(accountIsProducer);
 };
+
+// Acknowledging our own write uses the submitted snapshot as the merge baseline.
+// Edits made while the request was in flight remain local changes.
+export const acknowledgeDirectorCloudSave = (projects, cloud, submitted) => projects.map(project =>
+  project.cloudProjectId === cloud.id ? fromCloud(cloud, {...project, cloudBase:submitted}) : project);

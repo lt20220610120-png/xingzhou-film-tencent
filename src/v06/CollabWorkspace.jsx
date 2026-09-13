@@ -1,3 +1,5 @@
+import {autoReferences} from '../../core/generationReferences.js';
+import {StoryboardWorkbench} from './StoryboardWorkbench.jsx';
 // ============================================================
 // CollabWorkspace.jsx — 项目协作（云端实时协同）
 // 身份：制片(producer) / 美术(artist) / 协作者(collaborator)
@@ -217,11 +219,11 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
       if (beforeGenerate) await beforeGenerate();
       const prompt = buildImagePrompt(asset, refAsset, project.style);
       if (onGenerateImage) {
-        const attached = await onGenerateImage({ asset, profile, prompt, size });
+        const attached = await onGenerateImage({ asset, profile, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
       }
       else {
-        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
         const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
         await refresh();
         return attached;
@@ -242,7 +244,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
 
   return (
     <div className="collab-image-box">
-      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <span className="collab-ep-badge">{images.length} 张</span></div>
+      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
       <div className="collab-image-preview">
         {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={() => setPreviewImage(selectedImage.url)} title="点击放大查看"><img className="collab-asset-image" src={selectedImage.url} alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><img src={image.url} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
@@ -499,12 +501,12 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
   useEffect(() => {
     if (episode !== null) setBatchSelectedIds(buildAssetGenerationJobs(assets, episode).map((asset) => asset.id));
   }, [episode]);
-  const onGenerateImage = useCallback(async ({ asset, profile, prompt, size }) => {
+  const onGenerateImage = useCallback(async ({ asset, profile, prompt, size, references = [] }) => {
     if (generatingAssetIdsRef.current.has(asset.id)) return;
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
       return attached;
@@ -609,12 +611,12 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const list = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const characterGroups = category === 'character' ? groupCharacterAssets(categoryAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
   const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category);
-  const onGenerateImage = useCallback(async ({ asset, profile, prompt, size }) => {
+  const onGenerateImage = useCallback(async ({ asset, profile, prompt, size, references = [] }) => {
     if (generatingAssetIdsRef.current.has(asset.id)) return;
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size });
+      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
       return attached;
@@ -673,204 +675,7 @@ function DirectorProjectPicker({ projects, onClose, onSelect }) {
   return <div className="veil"><div className="modal director-project-picker"><header><div><span className="eyebrow">只读关联</span><h2>重新关联导演项目</h2></div><button className="ghost" onClick={onClose}><X size={16}/></button></header><p>选择正确的导演工作台项目。这里只读取剧本和提示词，不会创建、复制或修改导演项目。</p><div className="director-project-picker-grid">{projects.map((project) => { const id = project.analysis_output || project.id; const episodeCount = (project.episodes || []).filter((episode) => episode.kind !== 'setting').length; const promptCount = (project.episodes || []).reduce((sum, episode) => sum + (episode.prompts?.length || 0), 0); return <button key={id} className={selectedId === id ? 'active' : ''} onClick={() => setSelectedId(id)}><b>{project.name}</b><small>{episodeCount} 集 · {promptCount} 条提示词</small><span>{project.analysis_output ? '云端导演项目' : '本机导演项目'}</span></button>;})}{!projects.length && <div className="collab-empty small"><p>当前没有可读取的导演项目。请先在导演工作台导入剧本。</p></div>}</div><div className="modal-actions"><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={!selected} onClick={() => onSelect(selected)}>选择并同步</button></div></div></div>;
 }
 
-function StoryboardSection({ project, assets, api, state, refresh, canEdit, isProducer }) {
-  const episodes = Array.isArray(project.episodes) ? project.episodes : [];
-  const [epIndex, setEpIndex] = useState(null);
-  const [sceneIdx, setSceneIdx] = useState(0);
-  const [media, setMedia] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [syncing, setSyncing] = useState(false);
-  const [syncNotice, setSyncNotice] = useState('');
-  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
-  const [directorChoices, setDirectorChoices] = useState([]);
-  const [promptDrafts, setPromptDrafts] = useState({});
-  const videoProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'video');
-  const [profileId, setProfileId] = useState(activeMediaProfile(state, 'video')?.id || videoProfiles[0]?.id || '');
-  const [ratio, setRatio] = useState('9:16');
-  const [duration, setDuration] = useState(5);
-  const [resolution, setResolution] = useState('720p');
-  const [audioEnabled, setAudioEnabled] = useState(true);
-  const [videoPrompt, setVideoPrompt] = useState('');
-  const [selectedUploadedRefId, setSelectedUploadedRefId] = useState('');
-  const [emptyEditorOpen, setEmptyEditorOpen] = useState(false);
-  const profile = videoProfiles.find((p) => p.id === profileId);
-  const capabilities = videoModelCapabilities(profile?.model);
-  useEffect(() => {
-    setDuration((current) => capabilities.durations.includes(current) ? current : capabilities.durations[0]);
-    setResolution((current) => capabilities.resolutions.includes(current) ? current : capabilities.resolutions[0]);
-    setRatio((current) => capabilities.ratios.includes(current) ? current : capabilities.ratios[0]);
-  }, [profile?.model]);
-
-  const episode = epIndex !== null ? episodes[epIndex] : null;
-  const episodeFallbackNumber = epIndex === null ? 0 : episodes.slice(0, epIndex + 1).filter((item) => item.kind !== 'setting' && item.title !== '设定和小传').length;
-  const epNumber = episode ? inferDirectorEpisodeNumber(episode, Math.max(1, episodeFallbackNumber)) : 0;
-  const cloudProjectId = project.id;
-  const availableDirectorProjects = async () => {
-    const local = (state.directorProjects || []).filter((item) => item.sourceType !== 'cloud');
-    let cloud = [];
-    try { cloud = await api.directorCollabListProjects?.() || []; } catch { cloud = []; }
-    // 云端导演文档在前：同一项目本地副本可能滞后，同步必须以云端为准
-    const merged = [...cloud, ...local];
-    return merged.filter((item, index) => merged.findIndex((candidate) => (candidate.analysis_output || candidate.id) === (item.analysis_output || item.id)) === index);
-  };
-  const applyDirectorPrompts = async (sourceProject, persistLink = false) => {
-    const directorId = sourceProject.analysis_output || sourceProject.id;
-    if (persistLink) await api.collabLinkDirector({ projectId: cloudProjectId, directorProjectId: directorId });
-    // 云端导演文档：再拉一次完整详情，确保拿到最新提示词（列表行可能滞后或裁剪）
-    let source = sourceProject;
-    if (sourceProject.analysis_output || sourceProject.script !== undefined) {
-      try { source = { ...sourceProject, ...(await api.directorCollabGetProject({ projectId: sourceProject.id })) }; } catch { source = sourceProject; }
-    }
-    const nextEpisodes = (source.episodes || []).map((sourceEpisode) => ({
-      id: sourceEpisode.id,
-      title: sourceEpisode.title,
-      content: sourceEpisode.content || '',
-      kind: sourceEpisode.kind || 'episode',
-      status: sourceEpisode.status || '',
-      prompts: (sourceEpisode.prompts || []).map((prompt) => ({ ...prompt })),
-    }));
-    const count = nextEpisodes.reduce((n, ep) => n + (ep.prompts?.length || 0), 0);
-    const sourceScript = source.masterScript || source.script || nextEpisodes.map((episode) => `${episode.title || ''}\n${episode.content || ''}`).join('\n\n');
-    await api.collabUpdateProject({ projectId: cloudProjectId, scope: 'director-sync', updates: { script: sourceScript, episodes: nextEpisodes } });
-    await refresh(); setSyncNotice(`已重新读取《${source.name}》完整项目：同步 ${nextEpisodes.length} 集、${count} 条导演提示词；原有美术和资产保持不变`);
-  };
-  const syncDirectorPrompts = async () => {
-    setSyncing(true); setError(''); setSyncNotice('');
-    try {
-      const directorId = project.director_project_id || '';
-      const choices = await availableDirectorProjects();
-      const exact = choices.filter((p) => p.id === directorId || p.analysis_output === directorId);
-      const byName = choices.filter((p) => p.name === project.name);
-      const sourceProject = exact.length >= 1 ? exact[0] : (byName.length === 1 ? byName[0] : null);
-      if (!sourceProject) { setDirectorChoices(choices); setLinkPickerOpen(true); return; }
-      await applyDirectorPrompts(sourceProject, !directorId);
-    } catch (err) {
-      setError(`同步失败：${err?.message || '网络连接异常'}`);
-      try { const choices = await availableDirectorProjects(); setDirectorChoices(choices); setLinkPickerOpen(true); } catch { /* noop */ }
-    } finally { setSyncing(false); }
-  };
-
-  const loadMedia = useCallback(async () => {
-    if (!episode) return;
-    try { setMedia(await api.collabListMedia({ projectId: project.id, episode: epNumber }) || []); } catch { /* noop */ }
-  }, [project.id, epNumber, episode]);
-  useEffect(() => { loadMedia(); const timer = setInterval(loadMedia, 8000); return () => clearInterval(timer); }, [loadMedia]);
-
-  if (epIndex === null) {
-    if (!episodes.length) return <div className="collab-empty"><Clapperboard size={30} /><p>该项目还没有分集数据。开启项目时会从导演工作台同步分集与提示词。</p></div>;
-    return (
-      <>{isProducer && <div className="collab-storyboard-syncbar"><button className="secondary" onClick={syncDirectorPrompts} disabled={syncing}><RefreshCw size={14}/>{syncing ? '正在同步…' : '同步导演提示词'}</button></div>}{syncNotice && <div className="collab-notice">{syncNotice}</div>}{error && <div className="collab-error">{error}</div>}<div className="collab-episode-grid">
-        {episodes.map((ep, i) => (
-          <button key={i} className="collab-episode-card" onClick={() => { setEpIndex(i); setSceneIdx(0); setVideoPrompt(''); }}>
-            <b>{ep.title || `第 ${i + 1} 集`}</b>
-            <small>{(ep.content || '').replace(/\s+/g, ' ').slice(0, 46) || '（无剧本内容）'}…</small>
-            <span className="collab-ep-badge">{(ep.prompts || []).length} 条提示词</span>
-          </button>
-        ))}
-      </div>{linkPickerOpen && <DirectorProjectPicker projects={directorChoices} onClose={() => setLinkPickerOpen(false)} onSelect={async (sourceProject) => { setLinkPickerOpen(false); setSyncing(true); try { await applyDirectorPrompts(sourceProject, true); } finally { setSyncing(false); } }}/>}</>
-    );
-  }
-
-  // 场景划分：按提示词 label 前缀（如 1-1、1-2）分组；没有提示词时按整集
-  const prompts = episode.prompts || [];
-  const parsedScenes = parseDirectorScenes(episode.content || '', epNumber);
-  const sceneLabels = parsedScenes.map((scene) => scene.label);
-  if (!sceneLabels.length) sceneLabels.push(`${epNumber}-1`);
-  const currentScene = sceneLabels[Math.min(sceneIdx, sceneLabels.length - 1)];
-  const scenePrompts = prompts.filter((p) => String(p.label || '').match(new RegExp(`^${currentScene.replace('-', '\\-')}(?:-|$)`)));
-  const editableScenePrompts = scenePrompts.length ? scenePrompts : (emptyEditorOpen ? [{ id: `empty-${currentScene}`, label: currentScene, content: videoPrompt, manual: true }] : []);
-  const sceneScript = parsedScenes.find((s) => s.label === currentScene)?.content || episode.content || '';
-  const epAssets = assets.filter((a) => (a.episodes || []).includes(epNumber) && a.image_url);
-
-  const generateVideo = async () => {
-    if (busy || !canEdit) return;
-    if (!profile) { setError('请先在画布中配置视频生成 API'); return; }
-    const prompt = videoPrompt.trim() || scenePrompts.map((p) => p.content).join('\n\n');
-    if (!prompt) { setError('请填写视频描述，或先在导演工作台生成该场景的提示词'); return; }
-    setBusy(true); setError('');
-    try {
-      if (!window.confirm(`确定使用 ${profile.name || profile.model} 生成 ${duration} 秒、${resolution} 的视频吗？`)) return;
-      const firstFrameUrl = media.find((item) => item.kind === 'image' && (!item.scene || item.scene === currentScene))?.url || '';
-      const generated = await api.mediaGenerateVideo({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl });
-      await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: currentScene });
-      await loadMedia();
-    } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
-  };
-
-  const uploadAssetFor = async (note = '') => {
-    if (busy || !canEdit) return;
-    setBusy(true); setError('');
-    try { const r = await api.collabUploadMedia({ projectId: project.id, episode: epNumber, scene: currentScene, note }); if (r) await loadMedia(); }
-    catch (e) { setError(e.message); }
-    finally { setBusy(false); }
-  };
-
-  const uploadAsset = () => uploadAssetFor(currentScene);
-
-  const sceneMedia = media.filter((m) => !m.scene || m.scene === currentScene);
-  const saveStoryboardPrompt = async (prompt) => {
-    const content = String(promptDrafts[prompt.id] ?? prompt.content ?? '').trim();
-    if (!content || !canEdit) return;
-    const nextEpisodes = episodes.map((item, index) => index !== epIndex ? item : {
-      ...item,
-      prompts: (item.prompts || []).map((candidate) => candidate.id === prompt.id ? { ...candidate, content, edited_at: new Date().toISOString() } : candidate),
-    });
-    await api.collabUpdateProject({ projectId: project.id, scope: 'storyboard', updates: { episodes: nextEpisodes } });
-    setPromptDrafts((current) => { const next = { ...current }; delete next[prompt.id]; return next; });
-    await refresh();
-  };
-
-  return (
-    <div className="collab-storyboard">
-      <aside className="collab-sb-left">
-        <div className="collab-sb-ep-switch">
-          <select value={epIndex} onChange={(e) => { setEpIndex(Number(e.target.value)); setSceneIdx(0); setVideoPrompt(''); }}>
-            {episodes.map((ep, i) => <option key={i} value={i}>{ep.title || `第 ${i + 1} 集`}</option>)}
-          </select>
-          <select value={sceneIdx} onChange={(e) => setSceneIdx(Number(e.target.value))}>
-            {sceneLabels.map((label, i) => <option key={label} value={i}>{label}</option>)}
-          </select>
-          <button className="ghost" onClick={() => setEpIndex(null)}><ArrowLeft size={14} /> 返回</button>
-        </div>
-        <textarea className="collab-sb-script" readOnly value={sceneScript} placeholder="当前场景剧本内容" />
-      </aside>
-      <section className="collab-sb-mid collab-sb-prompt-stack">
-        <div className="collab-panel-title"><Sparkles size={15} /> 场景 {currentScene} · 导演工作台提示词</div>
-        {editableScenePrompts.length ? editableScenePrompts.map((p) => {
-          const linked = epAssets.filter((a) => a.image_url && String(p.content || '').includes(`@${a.name}`));
-          const uploadedImages = sceneMedia.filter((m) => m.kind === 'image' && m.note === p.label);
-          const refs = linked.length ? linked : epAssets;
-          const videos = sceneMedia.filter((m) => m.kind === 'video' && (!m.note || m.note === p.label));
-
-          const run = async () => {
-            if (busy || !canEdit || !profile) return;
-            const prompt = p.manual ? videoPrompt.trim() : (p.content || '');
-            if (!window.confirm(`确定生成提示词 ${p.label}？\n模型：${profile.name || profile.model}\n${duration} 秒 · ${resolution}\n参考素材：${refs.map((a) => a.name).join('、') || '无'}`)) return;
-            setBusy(true); setError('');
-            try { const selectedUploaded = uploadedImages.find((item) => item.id === selectedUploadedRefId) || uploadedImages[0]; const generated = await api.mediaGenerateVideo({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, ratio, duration, resolution, audioEnabled, firstFrameUrl: selectedUploaded?.url || '' }); await api.collabRecordGeneratedMedia({ projectId: project.id, episode: epNumber, scene: currentScene, kind: 'video', filePath: generated.filePath, note: p.label }); await loadMedia(); }
-            catch (e) { setError(e.message); } finally { setBusy(false); }
-          };
-          return <article className="collab-shot-card" key={p.id}>
-            <header><b className="collab-shot-badge">{p.label}</b><span>提示词与参考素材</span></header>
-            <div className="collab-shot-controls">
-              <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>{!videoProfiles.length && <option value="">未配置视频接口</option>}{videoProfiles.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.model}</option>)}</select>
-              <select value={duration} onChange={(e) => setDuration(Number(e.target.value))}>{capabilities.durations.map((x) => <option key={x} value={x}>{x} 秒</option>)}</select>
-              <select value={resolution} onChange={(e) => setResolution(e.target.value)}>{capabilities.resolutions.map((x) => <option key={x} value={x}>{x}</option>)}</select>
-              <select value={ratio} onChange={(e) => setRatio(e.target.value)}>{capabilities.ratios.map((x) => <option key={x} value={x}>{x}</option>)}</select>
-              <label><input type="checkbox" checked={audioEnabled} disabled={!capabilities.audio} onChange={(e) => setAudioEnabled(e.target.checked)} /> 音画同出</label>
-              <button className="primary" onClick={run} disabled={busy || !canEdit}><Film size={14} /> {busy ? '生成中…' : '生成视频'}</button>
-            </div>
-            <div className="collab-shot-main"><div className="collab-shot-prompt"><textarea value={p.manual ? videoPrompt : (promptDrafts[p.id] ?? p.content)} onChange={(event) => p.manual ? setVideoPrompt(event.target.value) : setPromptDrafts((current) => ({ ...current, [p.id]: event.target.value }))} disabled={!canEdit}/>{canEdit && !p.manual && <button className="secondary collab-prompt-save" onClick={() => saveStoryboardPrompt(p)} disabled={(promptDrafts[p.id] ?? p.content).trim() === String(p.content || '').trim()}><Save size={14}/>保存提示词</button>}</div><aside className="collab-shot-video"><div className="collab-shot-video-head"><b><Film size={14} /> 视频结果（{videos.length}）</b><button className="ghost" onClick={() => uploadAssetFor(p.label)} disabled={!canEdit || busy}><Plus size={14} /> 选择视频</button></div>{videos.length ? videos.map((m) => <div key={m.id} className="collab-video-result"><video src={m.url} controls preload="metadata" /><button className="danger" onClick={async () => await api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={13} /> 删除</button></div>) : <div className="collab-video-empty"><Film size={26} /><span>暂无视频</span></div>}</aside></div>
-            <div className="collab-shot-assets"><b><ImageIcon size={14} /> 参考素材（@ 标记会自动关联）</b>{refs.map((a) => <figure key={a.id}><img src={a.image_url} alt={a.name} /><figcaption>{a.name}</figcaption></figure>)}{uploadedImages.map((m) => <figure key={m.id}><img src={m.url} alt="已上传参考图" /><figcaption>{m.note || '场景参考图'} <button className="asset-delete-mini" onClick={() => api.collabDeleteMedia({ projectId: project.id, mediaId: m.id }).then(loadMedia).catch((err) => setError(err.message))}><Trash2 size={11} /></button></figcaption></figure>)}{uploadedImages.length > 0 && <label className="uploaded-reference-picker">本次首帧<select value={selectedUploadedRefId || uploadedImages[0].id} onChange={(event) => setSelectedUploadedRefId(event.target.value)}>{uploadedImages.map((item) => <option key={item.id} value={item.id}>{item.note || '上传参考图'}</option>)}</select></label>}<button className="collab-add-ref" onClick={uploadAsset} disabled={!canEdit || busy}><Plus size={22} /></button>{!refs.length && !uploadedImages.length && <small>请先上传参考图片，上传完成后才可选择并作为首帧使用</small>}</div>
-          </article>;
-        }) : <button className="collab-empty small collab-create-storyboard" onClick={() => { setVideoPrompt(''); setEmptyEditorOpen(true); }} disabled={!canEdit}><Film size={28}/><strong>创建分镜</strong><span>当前场景暂无导演提示词，点击后直接编辑并生成视频。</span></button>}
-        {error && <div className="collab-error">{error}</div>}
-      </section>
-    </div>
-  );
-}
+function StoryboardSection(props) { return <StoryboardWorkbench {...props}/>; }
 
 /* ================================================================
  * 邀请协作：协作者管理 + 任务分配
@@ -1265,10 +1070,12 @@ export function CollabWorkspace({ state, api, account }) {
     const projectId = project.id;
     const requestId = ++refreshRequestRef.current;
     try {
-      const [p, a] = await Promise.all([
+      let [p, a] = await Promise.all([
         api.collabGetProject({ projectId }),
         api.collabListAssets({ projectId }),
       ]);
+      const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
+      if(localSource&&p.myRole==='producer') p=await api.collabUpdateProject({projectId,scope:'director-sync',updates:{script:localSource.masterScript||'',episodes:localSource.episodes||[]}});
       if (requestId !== refreshRequestRef.current) return;
       setProject(p); setAssets(a || []);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, a || []);
@@ -1281,7 +1088,7 @@ export function CollabWorkspace({ state, api, account }) {
         await loadProjects();
       }
     }
-  }, [project?.id, loadProjects]);
+  }, [project?.id, loadProjects, state.directorProjects]);
 
   // 实时刷新：进入项目后轮询云端
   useEffect(() => {

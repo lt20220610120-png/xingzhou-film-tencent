@@ -29,10 +29,11 @@ test('导演工作台邀请成员只追加或踢出，不重置已有成员', ()
 });
 
 test('导演云项目支持手动刷新并拉取完整云端项目内容', () => {
-  const director = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(director, /已刷新并合并云端项目/);
-  assert.match(director, /refreshDirectorCloud/);
-  assert.match(director, /mergeCloudEpisodes\(selectedProject\.episodes \|\| \[\], cloud\.episodes \|\| \[\]\)/);
+  const director=read('src/v06/DirectorWorkspace.jsx');
+  assert.match(director,/directorCollabGetProject/);
+  assert.match(director,/reconcileDirectorCloudProjects/);
+  assert.match(director,/base:selectedProject.cloudBase/);
+  assert.doesNotMatch(director,/updates: \{ episodes: mergedEpisodes \}/);
 });
 
 test('项目协作删除不依赖缺失的 deleted_at 列，并保留三天恢复窗口', () => {

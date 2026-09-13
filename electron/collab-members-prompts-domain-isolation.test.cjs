@@ -35,20 +35,21 @@ test('制片邀请页面展示成员并可踢出，移出后成员记录消失',
 });
 
 test('项目协作分镜提示词可编辑并只写入协作项目副本', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /saveStoryboardPrompt/);
-  assert.match(ui, /collabUpdateProject/);
-  assert.match(ui, /保存提示词/);
-  assert.doesNotMatch(ui, /saveStoryboardPrompt[\s\S]{0,700}directorCollabUpdateProject/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/collabPatchStoryboard/);
+  assert.match(ui,/base:savingDraft.base/);
+  assert.match(ui,/updates:\{content:prompt,generationConfig\}/);
+  assert.doesNotMatch(ui,/directorCollabUpdateProject/);
+  assert.match(server,/for update/);
 });
 
 test('同步导演提示词只有制片可见且只替换剧本和分集提示词', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /isProducer/);
-  assert.match(ui, /isProducer &&[^\n]*同步导演提示词/);
-  assert.match(ui, /scope:\s*'director-sync'[\s\S]*updates:\s*\{\s*script:\s*sourceScript,\s*episodes:\s*nextEpisodes\s*\}/);
-  assert.doesNotMatch(ui, /updates:\s*\{[^}]*assets/);
-  assert.match(read('supabase/functions/xingzhou-api/index.ts'), /scope==='director-sync'&&m\.role!=='producer'/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/isProducer&&<button onClick=\{openLink\}/);
+  assert.match(read('cloud-backend/src/collab.cjs'),/scope === 'director-sync' && myRole !== 'producer'/);
+  assert.match(server,/syncDirectorSnapshot/);
 });
 
 test('导演协作与项目协作列表使用严格类型过滤，项目协作不会逆向生成导演卡片', () => {

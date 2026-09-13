@@ -5,13 +5,14 @@ const path = require('node:path');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 test('同步导演提示词同时更新协作云端总剧本和完整分集，但不替换美术资产', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  const apply = ui.match(/const applyDirectorPrompts[\s\S]*?const syncDirectorPrompts/)?.[0] || '';
-  assert.match(apply, /sourceProject\.masterScript|sourceProject\.script/);
-  assert.match(apply, /updates:\s*\{[^}]*script:[^}]*episodes:/s);
-  assert.match(apply, /scope:\s*'director-sync'/);
-  assert.doesNotMatch(apply, /collabReplaceAssets/);
-  assert.match(ui, /已重新读取/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/directorCollabGetProject/);
+  assert.match(ui,/scope:'director-sync'/);
+  assert.match(server,/refreshDirectorPrompts/);
+  assert.match(server,/mergeDirectorEpisodes/);
+  assert.match(server,/script/);
+  assert.doesNotMatch(ui,/collabReplaceAssets/);
 });
 
 test('美术分析按导演分集逐集调用同一模型会话并聚合完整结果', () => {

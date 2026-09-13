@@ -20,10 +20,11 @@ test('生成提示词使用 appendDirectorEpisodePrompts 原子追加，云端�
 });
 
 test('云端项目 reconcile 合并本地与云端提示词而不是直接覆盖', () => {
-  const core = read('core/directorCloudProjects.js');
-  assert.match(core, /mergeCloudEpisodes/);
-  assert.match(core, /deletedPromptIds/);
-  assert.match(core, /episodes: mergeCloudEpisodes\(existing\.episodes/);
+  const core=read('core/directorCloudProjects.js');
+  assert.match(core,/threeWayMerge/);
+  assert.match(core,/cloudBase/);
+  assert.match(core,/cloudConflict/);
+  assert.match(core,/mergeCloudEpisodes/);
 });
 
 // 3. 并发生成
@@ -37,9 +38,11 @@ test('创造/快速模式按场景独立 running，可并发生成不同场景',
 
 // 4. 刷新云端 = 双向合并
 test('刷新云端按钮双向合并提示词并回推云端', () => {
-  const director = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(director, /mergeCloudEpisodes\(selectedProject\.episodes \|\| \[\], cloud\.episodes \|\| \[\]\)/);
-  assert.match(director, /updates: \{ episodes: mergedEpisodes \}/);
+  const director=read('src/v06/DirectorWorkspace.jsx');
+  assert.match(director,/directorCollabGetProject/);
+  assert.match(director,/reconcileDirectorCloudProjects/);
+  assert.match(director,/base:selectedProject.cloudBase/);
+  assert.doesNotMatch(director,/updates: \{ episodes: mergedEpisodes \}/);
 });
 
 // 5. 快速模式定位工具条固定
@@ -98,8 +101,12 @@ test('生图读取逐资产前置设置，编辑框保留保存的原文', () =>
 
 // 10. 分镜同步提示词读取云端完整文档
 test('分镜同步提示词优先云端导演文档并拉取完整详情', () => {
-  const collab = read('src/v06/CollabWorkspace.jsx');
-  assert.match(collab, /const merged = \[\.\.\.cloud, \.\.\.local\]/);
-  assert.match(collab, /directorCollabGetProject\(\{ projectId: sourceProject\.id \}\)/);
-  assert.match(collab, /同步失败：/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/directorCollabGetProject/);
+  assert.match(ui,/scope:'director-sync'/);
+  assert.match(server,/refreshDirectorPrompts/);
+  assert.match(server,/mergeDirectorEpisodes/);
+  assert.match(server,/script/);
+  assert.doesNotMatch(ui,/collabReplaceAssets/);
 });

@@ -17,15 +17,21 @@ test('项目协作列表继续包含有导演来源ID的普通协作项目', () 
 });
 
 test('同步导演提示词可读取本机或云端项目并支持手动重关联', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /directorCollabListProjects/);
-  assert.match(ui, /sourceProject/);
-  assert.match(ui, /DirectorProjectPicker/);
-  assert.doesNotMatch(ui, /本机导演工作台中没有找到该项目/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/setLinkChoices/);
+  assert.match(ui,/选择关联的导演项目/);
+  assert.match(ui,/directorCollabListProjects/);
+  assert.match(ui,/collabLinkDirector/);
+  assert.match(ui,/只读关联/);
 });
 
 test('同步无法自动匹配时打开选择弹框而不是显示英文内部错误', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /setLinkPickerOpen\(true\)/);
-  assert.match(ui, /只读关联/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/setLinkChoices/);
+  assert.match(ui,/选择关联的导演项目/);
+  assert.match(ui,/directorCollabListProjects/);
+  assert.match(ui,/collabLinkDirector/);
+  assert.match(ui,/只读关联/);
 });

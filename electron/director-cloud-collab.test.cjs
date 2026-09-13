@@ -33,8 +33,12 @@ test('Electron 和 preload 暴露项目锁定与导演云端协作接口', () =>
 });
 
 test('项目协作分镜提供只刷新导演提示词的同步操作', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /同步导演提示词/);
-  assert.match(ui, /syncDirectorPrompts/);
-  assert.match(ui, /cloudProjectId/);
+  const ui = read('src/v06/StoryboardWorkbench.jsx');
+  const server = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(ui,/directorCollabGetProject/);
+  assert.match(ui,/scope:'director-sync'/);
+  assert.match(server,/refreshDirectorPrompts/);
+  assert.match(server,/mergeDirectorEpisodes/);
+  assert.match(server,/script/);
+  assert.doesNotMatch(ui,/collabReplaceAssets/);
 });

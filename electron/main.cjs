@@ -92,6 +92,7 @@ ipcMain.handle('collab-admin-set-producer',(_,payload)=>collabService.adminSetPr
 ipcMain.handle('collab-create-project',(_,payload)=>collabService.createProject(payload));
 ipcMain.handle('collab-list-projects',()=>collabService.listProjects());
 ipcMain.handle('collab-get-project',(_,payload)=>collabService.getProject(payload));
+ipcMain.handle('collab-patch-storyboard',(_,p)=>collabService.patchStoryboard(p));
 ipcMain.handle('collab-update-project',(_,payload)=>collabService.updateProject(payload));
 ipcMain.handle('collab-link-director',(_,payload)=>collabService.linkDirector(payload));
 ipcMain.handle('collab-set-project-locked',(_,payload)=>collabService.setProjectLocked(payload));
@@ -147,10 +148,19 @@ ipcMain.handle('collab-send-message',(_,payload)=>collabService.sendMessage(payl
 ipcMain.handle('collab-send-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'发送图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp','gif']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.sendMessage({projectId:payload.projectId,content:payload.content||'',imagePath:r.filePaths[0]})});
 ipcMain.handle('collab-get-stats',(_,payload)=>collabService.getStats(payload));
 function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
+const {createGenerationJobs}=require('./generation-jobs.cjs');
+const generationJobs=()=>createGenerationJobs(mediaDir());
+let generationManager;
+const jobs=()=>generationManager||(generationManager=generationJobs());
+ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
+ipcMain.handle('generation-list',()=>jobs().list());
+ipcMain.handle('generation-submit',(_,p)=>jobs().submit(p));
+ipcMain.handle('generation-refresh',(_,p)=>jobs().refresh(p));
+ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 ipcMain.handle('media-generate-image',async(_,payload)=>({filePath:await generateImage({...payload,destDir:mediaDir()})}));
 ipcMain.handle('media-generate-video',async(event,payload)=>({filePath:await generateVideo({...payload,destDir:mediaDir(),onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}})}));
-ipcMain.handle('media-import-file',async(_,kind)=>{const filters=kind==='video'?[{name:'视频文件',extensions:['mp4','mov','webm']}]:[{name:'图片文件',extensions:['png','jpg','jpeg','webp']}];const r=await dialog.showOpenDialog({title:kind==='video'?'导入视频':'导入图片',properties:['openFile'],filters});if(r.canceled||!r.filePaths[0])return null;const src=r.filePaths[0];const dest=path.join(mediaDir(),`${Date.now()}_${path.basename(src)}`);fs.copyFileSync(src,dest);return {filePath:dest}});
-ipcMain.handle('media-export-file',async(_,{filePath})=>{if(!filePath||!fs.existsSync(filePath))throw new Error('素材文件不存在');const r=await dialog.showSaveDialog({defaultPath:path.basename(filePath)});if(r.canceled)return null;fs.copyFileSync(filePath,r.filePath);return r.filePath});
+ipcMain.handle('media-import-file',async(_,kind)=>{const filters=kind==='audio'?[{name:'音频文件',extensions:['mp3','wav','m4a','aac','ogg']}]:kind==='video'?[{name:'视频文件',extensions:['mp4','mov','webm']}]:[{name:'图片文件',extensions:['png','jpg','jpeg','webp']}];const r=await dialog.showOpenDialog({title:kind==='video'?'导入视频':'导入图片',properties:['openFile'],filters});if(r.canceled||!r.filePaths[0])return null;const src=r.filePaths[0];const dest=path.join(mediaDir(),`${Date.now()}_${path.basename(src)}`);fs.copyFileSync(src,dest);return {filePath:dest}});
+ipcMain.handle('media-export-file',async(_,{filePath,url,kind})=>{if(!filePath&&url){if(!/^https?:\/\//.test(url))throw new Error('下载地址无效');filePath=await require('./media-service.cjs').downloadToFile(url,mediaDir(),kind==='image'?'png':'mp4');}if(!filePath||!fs.existsSync(filePath))throw new Error('素材文件不存在');const r=await dialog.showSaveDialog({defaultPath:path.basename(filePath)});if(r.canceled)return null;fs.copyFileSync(filePath,r.filePath);return r.filePath});
 let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false}});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL('xzapp://canvas/index.html');canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:{secure:true,supportFetchAPI:true,stream:true}},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);

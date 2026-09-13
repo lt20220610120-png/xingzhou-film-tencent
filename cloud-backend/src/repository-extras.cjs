@@ -1,3 +1,5 @@
+const {threeWayMerge}=require('./three-way-merge.cjs');
+const {mergeDirectorEpisodes,patchShot}=require('./storyboard-merge.cjs');
 // 导演协作 / 统计 / 资产图片 的仓储扩展。
 // 说明：导演项目与协作项目共用 collab_projects 表，用 genre 中的哨兵标记区分。
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
@@ -32,11 +34,25 @@ function extendRepository(pool) {
     async getDirectorProject(pid, uid) {
       return one('select p.* from collab_projects p ' + READ_SCOPE + ' limit 1', [pid, uid]);
     },
-    async updateDirectorProject(pid, p, uid) {
-      if (!await canRead(pid, uid)) return null;
-      const sql = 'update collab_projects set name=coalesce($1,name), style=coalesce($2,style), script=coalesce($3,script), episodes=coalesce($4,episodes), analysis_output=coalesce($5,analysis_output), updated_at=now() where id=$6 returning *';
-      const eps = p.episodes === undefined ? null : JSON.stringify(p.episodes);
-      return one(sql, [p.name ?? null, p.style ?? null, p.script ?? null, eps, p.analysisOutput ?? null, pid]);
+    async updateDirectorProject(pid,p,uid) {
+      if(!await canRead(pid,uid))return null;
+      const client=await pool.connect();
+      try{await client.query('BEGIN');
+        const row=(await client.query('select * from collab_projects where id=$1 for update',[pid])).rows[0];
+        if(!String(row.genre||'').includes(DIRECTOR_SENTINEL)){await client.query('ROLLBACK');return null;}
+        if(String(row.genre||'').includes(LOCK_SENTINEL))throw Object.assign(new Error('项目已锁定'),{status:423});
+        const updates=p.updates||p;
+        const remote={name:row.name,script:row.script||'',episodes:row.episodes||[]};
+        let merged;
+        if(p.base){try{merged=threeWayMerge(p.base,{...p.base,...Object.fromEntries(Object.entries(updates).filter(([k])=>['name','script','episodes'].includes(k)))},remote);}catch(error){throw Object.assign(error,{status:409});}}
+        else { // Older clients cannot safely overwrite a newer cloud document without a baseline.
+          const changed=Object.entries(updates).some(([k,v])=>k in remote&&JSON.stringify(v)!==JSON.stringify(remote[k]));
+          if(changed)throw Object.assign(new Error('请更新到 2.2.0 并刷新云端文档后保存，本地内容仍保留'),{status:409});
+          merged=remote;
+        }
+        const saved=(await client.query('update collab_projects set name=$2,script=$3,episodes=$4,updated_at=now() where id=$1 returning *',[pid,merged.name,merged.script,JSON.stringify(merged.episodes)])).rows[0];
+        await client.query('COMMIT');return saved;
+      }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     },
     async deleteDirectorProject(pid, uid) {
       return one('delete from collab_projects where id=$1 and owner_id=$2 returning id', [pid, uid]);
@@ -76,6 +92,43 @@ function extendRepository(pool) {
       const activity = await many('select * from collab_activity where project_id=$1 order by created_at desc limit 500', [pid]);
       const media = await many('select kind from collab_media where project_id=$1', [pid]);
       return { members, activity, media };
+    },
+    async patchStoryboard(pid,payload) {
+      const client=await pool.connect();
+      try {await client.query('BEGIN');
+        const row=(await client.query('select * from collab_projects where id=$1 for update',[pid])).rows[0];
+        if(!row)throw new Error('项目不存在');
+        const episodes=patchShot(row.episodes,payload);
+        const saved=(await client.query('update collab_projects set episodes=$2,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes)])).rows[0];
+        await client.query('COMMIT');return saved;
+      }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+    },
+    async refreshDirectorPrompts(pid,uid) {
+      if(!await canRead(pid,uid))return null;
+      const client=await pool.connect();
+      try {await client.query('BEGIN');
+        const row=(await client.query('select * from collab_projects where id=$1 for update',[pid])).rows[0];
+        if(String(row.genre||'').includes(LOCK_SENTINEL)){await client.query('COMMIT');return row;}
+        const source=(String(row.genre||'').match(/\[COLLAB_SOURCE:([^\]]+)\]/)||[])[1];
+        if(!source){await client.query('COMMIT');return row;}
+        const directors=(await client.query("select * from collab_projects where (id::text=$1 or analysis_output=$1) and genre like '%[DIRECTOR_PROJECT]%' and deleted_at is null",[source])).rows;
+        if(directors.length!==1){await client.query('COMMIT');return row;}
+        const director=directors[0],episodes=mergeDirectorEpisodes(row.episodes,director.episodes);
+        if(JSON.stringify(episodes)!==JSON.stringify(row.episodes)||director.script!==row.script){
+          const saved=(await client.query('update collab_projects set episodes=$2,script=$3,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes),director.script])).rows[0];
+          await client.query('COMMIT');return saved;
+        }
+        await client.query('COMMIT');return row;
+      }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+    },
+    async syncDirectorSnapshot(pid,fields) {
+      const client=await pool.connect();
+      try{await client.query('BEGIN');
+        const row=(await client.query('select * from collab_projects where id=$1 for update',[pid])).rows[0];
+        const episodes=mergeDirectorEpisodes(row.episodes,fields.episodes||[]);
+        const saved=(await client.query('update collab_projects set episodes=$2,script=$3,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes),fields.script??row.script])).rows[0];
+        await client.query('COMMIT');return saved;
+      }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     },
     async updateProjectFields(pid, fields) {
       const cols = [];
