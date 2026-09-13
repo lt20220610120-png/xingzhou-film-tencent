@@ -1,7 +1,7 @@
 {
-  "version": "2.2.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.0/Xingzhou-Film-Tencent-Setup-2.2.0.exe",
-  "notes": "图视生成全面升级，接入飞拓 24 个视频模型与 8 个图片模型；支持模型参数联动、图片/音频/视频参考、预览下载与复用。分镜持续创建，导演提示词按编号同步，新增分类素材选择、图片刷新与协作冲突保护。",
-  "sha256": "cf3747a78c0d9dab3481165bcba912835c8742e87ce6064d40d5cfb561add618",
-  "size": 102147184
+  "version": "2.2.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.1/Xingzhou-Film-Tencent-Setup-2.2.1.exe",
+  "notes": "修复添加接口无反应，飞拓 Key 保存一次即可切换全部模型；修复旧项目创建分镜与切集跳转，兼容导演和协作旧标识；移除重复刷新与关联入口，美化分集导航；图片、音频和视频支持批量导入。",
+  "sha256": "c380f3cc143395f574d762302df2c442da79c6e7e891a50b77c04b61f35f8c71",
+  "size": 102150764
 }
