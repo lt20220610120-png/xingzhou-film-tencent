@@ -79,6 +79,57 @@ export const removeCanvasNode = (state, canvasId, nodeId) => ({
 // ---------- 媒体生成 API 配置（图片 / 视频） ----------
 export const MEDIA_KINDS = { image: '图片生成', video: '视频生成' };
 
+export const FEITUO_ENDPOINT = 'https://feituokuajing.com';
+export const isFeituoEndpoint = (endpoint) => {
+  try {
+    const url = new URL(String(endpoint || '').trim());
+    return url.protocol === 'https:' && url.hostname === 'feituokuajing.com' && !url.username && !url.password;
+  } catch { return false; }
+};
+
+// Older versions stored a separate profile for each model, sometimes only for
+// video. Keep those IDs so pending jobs can still locate their credentials.
+export const feituoCredentialProfile = (state) => {
+  const profiles = (state.mediaProfiles || []).filter((profile) => isFeituoEndpoint(profile.endpoint) && String(profile.apiKey || '').trim());
+  return profiles.find((profile) => profile.id === state.activeVideoApiId)
+    || profiles.find((profile) => profile.id === state.activeImageApiId)
+    || profiles[0] || null;
+};
+
+export const generationMediaProfiles = (state, kind) => {
+  const credential = feituoCredentialProfile(state);
+  const profiles = (state.mediaProfiles || []).filter((profile) => profile.kind === kind).map((profile) =>
+    isFeituoEndpoint(profile.endpoint) && credential
+      ? { ...profile, endpoint: FEITUO_ENDPOINT, apiKey: credential.apiKey }
+      : profile);
+  if (credential && !profiles.some((profile) => isFeituoEndpoint(profile.endpoint))) {
+    profiles.push({ ...credential, kind, endpoint: FEITUO_ENDPOINT, name: `飞拓${MEDIA_KINDS[kind]}`, model: feituoModels.find((model) => model.kind === kind).id });
+  }
+  return profiles;
+};
+
+export const saveFeituoApiKey = (state, apiKey) => {
+  const key = String(apiKey || '').trim();
+  if (!key) throw new Error('请填写飞拓 API Key');
+  let next = {
+    ...state,
+    mediaProfiles: (state.mediaProfiles || []).map((profile) => isFeituoEndpoint(profile.endpoint)
+      ? { ...profile, endpoint: FEITUO_ENDPOINT, apiKey: key, updatedAt: now() }
+      : profile),
+  };
+  for (const kind of ['video', 'image']) {
+    const activeKey = kind === 'video' ? 'activeVideoApiId' : 'activeImageApiId';
+    let profile = next.mediaProfiles.find((item) => item.id === next[activeKey] && item.kind === kind && isFeituoEndpoint(item.endpoint))
+      || next.mediaProfiles.find((item) => item.kind === kind && isFeituoEndpoint(item.endpoint));
+    if (!profile) {
+      next = addMediaProfile(next, { kind, name: `飞拓${MEDIA_KINDS[kind]}`, endpoint: FEITUO_ENDPOINT, apiKey: key, model: feituoModels.find((model) => model.kind === kind).id });
+      profile = next.mediaProfiles.at(-1);
+    }
+    next = setActiveMediaApi(next, kind, profile.id);
+  }
+  return next;
+};
+
 export const addMediaProfile = (state, profile) => {
   const item = {
     id: uid(),
@@ -113,7 +164,8 @@ export const setActiveMediaApi = (state, kind, profileId) => ({
 
 export const activeMediaProfile = (state, kind) => {
   const activeId = kind === 'video' ? state.activeVideoApiId : state.activeImageApiId;
-  return (state.mediaProfiles || []).find((p) => p.id === activeId && p.kind === kind)
-    || (state.mediaProfiles || []).find((p) => p.kind === kind)
+  const profiles = generationMediaProfiles(state, kind);
+  return profiles.find((p) => p.id === activeId)
+    || profiles[0]
     || null;
 };

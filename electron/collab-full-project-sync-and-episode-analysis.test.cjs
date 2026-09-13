@@ -7,8 +7,8 @@ const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
 test('同步导演提示词同时更新协作云端总剧本和完整分集，但不替换美术资产', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
-  assert.match(ui,/directorCollabGetProject/);
-  assert.match(ui,/scope:'director-sync'/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/scope:'director-sync'/);
   assert.match(server,/refreshDirectorPrompts/);
   assert.match(server,/mergeDirectorEpisodes/);
   assert.match(server,/script/);

@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  generationArchive:p=>ipcRenderer.invoke('generation-archive',p),
  generationList:()=>ipcRenderer.invoke('generation-list'),generationSubmit:p=>ipcRenderer.invoke('generation-submit',p),generationRefresh:p=>ipcRenderer.invoke('generation-refresh',p),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
  mediaGenerateImage:payload=>ipcRenderer.invoke('media-generate-image',payload),mediaGenerateVideo:payload=>ipcRenderer.invoke('media-generate-video',payload),
- mediaImportFile:kind=>ipcRenderer.invoke('media-import-file',kind),mediaExportFile:payload=>ipcRenderer.invoke('media-export-file',payload),
+ mediaImportFile:kind=>ipcRenderer.invoke('media-import-file',kind),mediaImportFiles:kind=>ipcRenderer.invoke('media-import-files',kind),mediaExportFile:payload=>ipcRenderer.invoke('media-export-file',payload),
  onMediaTaskStatus:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('media-task-status',handler);return()=>ipcRenderer.removeListener('media-task-status',handler)},
  openCanvasWindow:()=>ipcRenderer.invoke('open-canvas-window'),
  collabIsProducer:()=>ipcRenderer.invoke('collab-is-producer'),collabAdminSetProducer:payload=>ipcRenderer.invoke('collab-admin-set-producer',payload),

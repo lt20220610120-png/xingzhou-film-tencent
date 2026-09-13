@@ -29,3 +29,15 @@ export function autoReferences(prompt, assets) {
   });
 }
 export const mediaSource = item => item.filePath ? `xzmedia://${encodeURIComponent(item.filePath).replace(/%5C/g,'/').replace(/%3A/g,':')}` : item.url || '';
+
+export function appendImportedReferences(existing, files, kind, caps = {}) {
+  const capKey = {image:'maxImages',audio:'maxAudios',video:'maxVideos'}[kind];
+  if (!capKey) throw new Error('不支持的参考素材类型');
+  const limit = caps[capKey];
+  const count = existing.filter(item => item.kind === kind).length + files.length;
+  if (limit != null && count > limit) {
+    const name = {image:'图片',audio:'音频',video:'视频'}[kind];
+    throw new Error(`当前模型最多支持 ${limit} 个参考${name}，本次导入后共 ${count} 个。请减少选择数量或切换模型。`);
+  }
+  return [...existing, ...files.map(file => ({...file,id:crypto.randomUUID(),kind,name:file.name || file.filePath.split(/[\\/]/).pop()}))];
+}

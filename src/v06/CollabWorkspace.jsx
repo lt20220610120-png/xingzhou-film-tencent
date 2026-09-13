@@ -1017,6 +1017,8 @@ export function CollabWorkspace({ state, api, account }) {
   const [deleteError, setDeleteError] = useState('');
   const restoredRef = useRef(false);
   const refreshRequestRef = useRef(0);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState('');
 
   const loadProjects = useCallback(async () => {
     try { const rows = await api.collabListProjects() || []; setProjects(rows); writeCache('projects', rows); setListError(''); }
@@ -1065,7 +1067,7 @@ export function CollabWorkspace({ state, api, account }) {
 
   useEffect(() => { try { if (section) localStorage.setItem('xz-collab-last-section', section); } catch { /* noop */ } }, [section]);
 
-  const refreshProject = useCallback(async () => {
+  const refreshProject = useCallback(async (options = {}) => {
     if (!project?.id) return;
     const projectId = project.id;
     const requestId = ++refreshRequestRef.current;
@@ -1075,12 +1077,15 @@ export function CollabWorkspace({ state, api, account }) {
         api.collabListAssets({ projectId }),
       ]);
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
-      if(localSource&&p.myRole==='producer') p=await api.collabUpdateProject({projectId,scope:'director-sync',updates:{script:localSource.masterScript||'',episodes:localSource.episodes||[]}});
+      if(localSource&&p.myRole==='producer'&&!p.locked) p=await api.collabUpdateProject({projectId,scope:'director-sync',updates:{script:localSource.masterScript||'',episodes:localSource.episodes||[]}});
       if (requestId !== refreshRequestRef.current) return;
       setProject(p); setAssets(a || []);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, a || []);
+      if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
+      return p;
     } catch (error) {
       if (requestId !== refreshRequestRef.current) return;
+      if (options.manual) setRefreshNotice(`刷新失败：${error.message || '请稍后重试'}，当前编辑内容已保留`);
       if (String(error?.message || '').includes('project_access_denied')) {
         setProject(null);
         setAssets([]);
@@ -1198,7 +1203,8 @@ export function CollabWorkspace({ state, api, account }) {
             </button>
           );
         })}
-        <button className="collab-refresh" onClick={refreshProject}><RefreshCw size={14} /> 刷新云端数据</button>
+        <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : '刷新云端数据'}</button>
+        {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
         {section === 'info' && <InfoSection project={project} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} />}

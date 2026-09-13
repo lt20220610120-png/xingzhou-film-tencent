@@ -47,7 +47,8 @@ test('项目协作分镜提示词可编辑并只写入协作项目副本', () =>
 test('同步导演提示词只有制片可见且只替换剧本和分集提示词', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
-  assert.match(ui,/isProducer&&<button onClick=\{openLink\}/);
+  assert.doesNotMatch(ui,/openLink|collabLinkDirector/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/p.myRole==='producer'/);
   assert.match(read('cloud-backend/src/collab.cjs'),/scope === 'director-sync' && myRole !== 'producer'/);
   assert.match(server,/syncDirectorSnapshot/);
 });

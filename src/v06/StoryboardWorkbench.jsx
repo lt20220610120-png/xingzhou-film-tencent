@@ -1,9 +1,10 @@
-import React,{useState,useEffect,useRef} from 'react';
-import {Plus,RefreshCw,Save,ArrowLeft,X} from 'lucide-react';
+import React,{useState,useEffect,useRef,useMemo} from 'react';
+import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard} from 'lucide-react';
 import {Dialog} from './GlobalTools.jsx';
 import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
 import {autoReferences,referenceName} from '../../core/generationReferences.js';
-import {parseDirectorScenes,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
+import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
+import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
 
 function ResourcePicker({assets,media,selected,onClose,onSelect,onUpload,onRefresh,initialTab}) {
  const [tab,setTab]=useState(initialTab==='audio'||initialTab==='video'?initialTab:'character'),[query,setQuery]=useState(''),[picked,setPicked]=useState(selected),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -15,7 +16,7 @@ function ResourcePicker({assets,media,selected,onClose,onSelect,onUpload,onRefre
  return <Dialog open title="选择项目参考素材" onClose={onClose}><div className="generation-resource-tabs">{categories.map(([k,n])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{n}</button>)}<button onClick={onRefresh}><RefreshCw size={14}/>刷新图片</button></div><input aria-label="搜索资源名称" placeholder="搜索资源名称" value={query} onChange={e=>setQuery(e.target.value)}/><div className="generation-resource-grid"><button onClick={upload} disabled={busy}><Plus/><span>{busy?'上传中…':'上传本地素材'}</span></button>{shown.map(r=><button key={r.id} className={picked.some(p=>p.id===r.id)?'selected':''} onClick={()=>setPicked(current=>current.some(p=>p.id===r.id)?current.filter(p=>p.id!==r.id):[...current,r])}>{r.kind==='image'?<img src={r.url} alt={r.name}/>:r.kind==='video'?<video src={r.url} preload="metadata"/>:<span>♫ 音频</span>}<small>{r.name}</small></button>)}</div>{error&&<p className="collab-error">{error}</p>}<footer className="generation-resource-tabs"><span>已选择 {picked.length} 项</span><button onClick={onClose}>取消</button><button className="primary" onClick={()=>onSelect(picked)}>确认引用</button></footer></Dialog>;
 }
 
-function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onCreate}) {
+function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onCreate,creating}) {
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}`;
  const read=()=>{try{return JSON.parse(localStorage.getItem(storageKey)||'null')}catch{return null}};
  const initial=()=>read()||{value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||autoReferences(shot.content||'',assets)},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false};
@@ -52,31 +53,53 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return (input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
   if(unresolved.length)throw new Error(`以下引用尚未选择图片：${unresolved.map(a=>a.name).join('、')}`);
   await api.generationSubmit({...input,projectId:project.id,episode:epNumber,scene,shotId:shot.id,shotLabel:shot.label});window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();
- }}>{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/></article><button className="collab-create-storyboard" disabled={!canEdit} onClick={onCreate}><Plus size={17}/>创建分镜</button>{picker&&<ResourcePicker initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
+ }}>{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/></article><button className="collab-create-storyboard" disabled={!canEdit||creating} onClick={onCreate}><Plus size={17}/>{creating?'创建中…':'创建分镜'}</button>{picker&&<ResourcePicker initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
 }
 
-export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,isProducer}) {
+export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit}) {
  const [episodeId,setEpisodeId]=useState(null),[scene,setScene]=useState(''),[media,setMedia]=useState([]),[tasks,setTasks]=useState([]),[error,setError]=useState(''),[creating,setCreating]=useState(false);
- const episodes=(project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传'),episode=episodes.find(e=>e.id===episodeId);
+ const episodes=useMemo(()=>normalizeStoryboardEpisodes(project.episodes).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传'),[project.episodes]);
+ const episode=episodes.find(e=>e.id===episodeId);
  const epNumber=episode?inferDirectorEpisodeNumber(episode,episodes.indexOf(episode)+1):0;
- const parsed=episode?parseDirectorScenes(episode.content||'',epNumber):[];
- const labels=parsed.length?parsed.map(s=>s.label):[...new Set((episode?.prompts||[]).map(p=>String(p.label||'').split('-').slice(0,2).join('-')).filter(label=>label.startsWith(epNumber+'-')&&/^\d+-\d+$/.test(label)))];
+ const parsed=episode?parseDirectorScenesReadonly(episode.content||'',epNumber):[];
+ const labels=[...new Set((parsed.length?parsed.map(s=>s.label):(episode?.prompts||[]).map(p=>String(p.label||'').split('-').slice(0,2).join('-'))).filter(label=>label.startsWith(epNumber+'-')&&/^\d+-\d+$/.test(label)))];
  if(!labels.length)labels.push(`${epNumber}-1`);
  const currentScene=labels.includes(scene)?scene:labels[0];
  const prompts=(episode?.prompts||[]).filter(p=>p.label===currentScene||p.label?.startsWith(currentScene+'-'));
- const [linkChoices,setLinkChoices]=useState(null),[linking,setLinking]=useState(false);
- const openLink=async()=>{try{const cloud=await api.directorCollabListProjects();const all=[...(cloud||[]).map(p=>({...p,isCloud:true})),...(state.directorProjects||[])];setLinkChoices(all.filter((p,i)=>all.findIndex(c=>(c.analysis_output||c.id)===(p.analysis_output||p.id))===i));}catch(e){setError(e.message);}};
- const relink=async sourceProject=>{setLinking(true);setError('');try{
-   const source=sourceProject.isCloud?await api.directorCollabGetProject({projectId:sourceProject.id}):sourceProject;
-   await api.collabLinkDirector({projectId:project.id,directorProjectId:source.analysis_output||source.id});
-   await api.collabUpdateProject({projectId:project.id,scope:'director-sync',updates:{script:source.script||source.masterScript||'',episodes:source.episodes||[]}});
-   setLinkChoices(null);await refresh();
- }catch(e){setError(e.message);}finally{setLinking(false);}};
- const linker=linkChoices&&<Dialog open title="选择关联的导演项目" onClose={()=>setLinkChoices(null)}><p>只读关联导演工作台；分镜编辑保存在项目协作中。</p>{linkChoices.map(sourceProject=><button className="secondary" disabled={linking} key={sourceProject.id} onClick={()=>relink(sourceProject)}>{sourceProject.name}</button>)}</Dialog>;
+ const selectEpisode=id=>{setEpisodeId(id);setScene('');setError('');};
  const request=useRef(0);
- const loadMedia=async()=>{const ticket=++request.current;try{const [m,t]=await Promise.all([api.collabListMedia({projectId:project.id}),api.generationList()]);if(ticket===request.current){setMedia(m||[]);setTasks(t||[]);}}catch(e){setError(e.message);}};
- useEffect(()=>{loadMedia();const timer=setInterval(loadMedia,8000);return()=>{request.current++;clearInterval(timer);};},[project.id]);
- const create=async()=>{if(creating)return;setCreating(true);setError('');try{await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,operation:'create',shotId:crypto.randomUUID(),scene:currentScene});await refresh();}catch(e){setError(e.message);}finally{setCreating(false);}};
- if(!episode)return <><div className="collab-storyboard-syncbar"><button onClick={refresh}><RefreshCw size={14}/>刷新云端数据与导演提示词</button>{isProducer&&<button onClick={openLink}>关联导演项目</button>}</div>{linker}{error&&<p className="collab-error">{error}</p>}<div className="collab-episode-grid">{episodes.map(ep=><button className="collab-episode-card" key={ep.id} onClick={()=>setEpisodeId(ep.id)}><b>{ep.title}</b><small>{ep.content?.slice(0,70)}</small><span>{ep.prompts?.length||0} 条提示词</span></button>)}</div>{!episodes.length&&<p>当前项目尚无分集，请在导演工作台完善项目后刷新。</p>}</>;
- return <div className="collab-storyboard">{linker}<aside className="collab-sb-left"><div className="collab-sb-ep-switch"><select value={episodeId} onChange={e=>setEpisodeId(e.target.value)}>{episodes.map(ep=><option key={ep.id} value={ep.id}>{ep.title}</option>)}</select><select value={currentScene} onChange={e=>setScene(e.target.value)}>{labels.map(label=><option key={label}>{label}</option>)}</select><button onClick={()=>setEpisodeId(null)}><ArrowLeft size={14}/>返回分集</button><button onClick={async()=>{await refresh();await loadMedia();}}><RefreshCw size={14}/>刷新云端数据</button>{isProducer&&<button onClick={openLink}>关联导演项目</button>}</div><textarea className="collab-sb-script" readOnly value={parsed.find(s=>s.label===currentScene)?.content||episode.content||''}/></aside><section className="collab-sb-mid collab-sb-prompt-stack"><div className="collab-panel-title">场景 {currentScene} · {prompts.length} 条分镜</div>{error&&<p className="collab-error">{error}</p>}{prompts.map(p=><Shot key={`${project.id}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} onCreate={create}/>)}{!prompts.length&&<button className="collab-create-storyboard" onClick={create} disabled={!canEdit||creating}><Plus/>创建分镜</button>}</section></div>;
+ const loadMedia=async()=>{const ticket=++request.current;try{const [m,t]=await Promise.all([api.collabListMedia({projectId:project.id}),api.generationList()]);if(ticket===request.current){setMedia(m||[]);setTasks(t||[]);}}catch(e){setError(e.message||'素材读取失败，请重试');}};
+ useEffect(()=>{selectEpisode(null);loadMedia();const timer=setInterval(loadMedia,8000);return()=>{request.current++;clearInterval(timer);};},[project.id]);
+ const create=async()=>{
+  if(creating||!canEdit||!episode)return;
+  setCreating(true);setError('');
+  try{
+   await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,operation:'create',shotId:crypto.randomUUID(),scene:currentScene});
+   await refresh();
+  }catch(e){setError(e.message||'创建分镜失败，请重试');}finally{setCreating(false);}
+ };
+ if(!episode)return <section className="collab-episode-overview">
+  <header className="collab-storyboard-heading"><div><Clapperboard size={21}/><h2>分镜工作台</h2></div><span>共 {episodes.length} 集 · 选择分集继续创作</span></header>
+  {error&&<p role="alert" className="collab-error">{error}</p>}
+  <div className="collab-episode-grid">{episodes.map(ep=><button className="collab-episode-card" key={ep.id} onClick={()=>selectEpisode(ep.id)}><b>{ep.title}</b><small>{ep.content?.slice(0,70)}</small><span>{ep.prompts?.length||0} 条分镜</span></button>)}</div>
+  {!episodes.length&&<p className="generation-empty">当前项目尚无分集，请在导演工作台完善项目后，点击左下角刷新云端数据。</p>}
+ </section>;
+ return <div className="collab-storyboard">
+  <aside className="collab-sb-left">
+   <nav className="collab-sb-navigation" aria-label="分镜导航">
+    <button className="collab-sb-back" onClick={()=>selectEpisode(null)}><ArrowLeft size={16}/>返回分集</button>
+    <div className="collab-sb-ep-switch">
+     <label>集数<select aria-label="选择集数" value={episodeId} onChange={e=>selectEpisode(e.target.value)}>{episodes.map(ep=><option key={ep.id} value={ep.id}>{ep.title}</option>)}</select></label>
+     <label>场景<select aria-label="选择场景" value={currentScene} onChange={e=>setScene(e.target.value)}>{labels.map(label=><option key={label} value={label}>{label}</option>)}</select></label>
+    </div>
+   </nav>
+   <textarea aria-label="当前场景剧本" className="collab-sb-script" readOnly value={parsed.find(s=>s.label===currentScene)?.content||episode.content||''}/>
+  </aside>
+  <section className="collab-sb-mid collab-sb-prompt-stack">
+   <div className="collab-panel-title">场景 {currentScene} · {prompts.length} 条分镜</div>
+   {error&&<p role="alert" className="collab-error">{error}</p>}
+   {prompts.map(p=><Shot key={`${project.id}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} creating={creating} onCreate={create}/>)}
+   {!prompts.length&&<button className="collab-create-storyboard" onClick={create} disabled={!canEdit||creating}><Plus size={20}/>{creating?'创建中…':'创建分镜'}</button>}
+  </section>
+ </div>;
 }

@@ -103,8 +103,8 @@ test('生图读取逐资产前置设置，编辑框保留保存的原文', () =>
 test('分镜同步提示词优先云端导演文档并拉取完整详情', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
-  assert.match(ui,/directorCollabGetProject/);
-  assert.match(ui,/scope:'director-sync'/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/scope:'director-sync'/);
   assert.match(server,/refreshDirectorPrompts/);
   assert.match(server,/mergeDirectorEpisodes/);
   assert.match(server,/script/);

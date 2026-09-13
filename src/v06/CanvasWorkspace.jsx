@@ -7,7 +7,8 @@ import {
 import {
   addCanvasNode, addMediaProfile, createCanvas, deleteCanvas, IMAGE_FORMATS,
   activeMediaProfile, removeCanvasNode, removeMediaProfile, renameCanvas,
-  setActiveMediaApi, updateCanvasNode, updateMediaProfile, FEITUO_VIDEO_MODELS, VIDEO_DURATIONS, VIDEO_RATIOS, videoModelCapabilities,
+  setActiveMediaApi, updateCanvasNode, updateMediaProfile, VIDEO_DURATIONS, VIDEO_RATIOS, videoModelCapabilities,
+  FEITUO_ENDPOINT, isFeituoEndpoint, feituoCredentialProfile, saveFeituoApiKey,
 } from '../../core/canvasStore.js';
 import { Dialog } from './GlobalTools.jsx';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
@@ -17,48 +18,75 @@ const mediaUrl = (filePath) => filePath ? `xzmedia://${encodeURIComponent(filePa
 /* ---------------- 媒体 API 设置弹窗 ---------------- */
 export function MediaApiSettings({ state, setState, onClose }) {
   const profiles = state.mediaProfiles || [];
-  const [form, setForm] = useState({ kind: 'image', name: '智启 gpt-image-2', endpoint: 'https://zhiqiapi.com/v1', model: 'gpt-image-2', apiKey: '' });
+  const credential = feituoCredentialProfile(state);
+  const [mode, setMode] = useState('feituo');
+  const [feituoKey, setFeituoKey] = useState(() => credential?.apiKey || '');
+  const [form, setForm] = useState({ kind: 'image', name: '', endpoint: '', model: '', apiKey: '' });
   const [editingId, setEditingId] = useState(null);
-  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  const save = () => {
-    if (!form.endpoint.trim()) return;
-    if (editingId) setState((s) => {let next=updateMediaProfile(s, editingId, { ...form });if(form.endpoint==='https://feituokuajing.com')for(const p of next.mediaProfiles||[])if(p.endpoint==='https://feituokuajing.com')next=updateMediaProfile(next,p.id,{apiKey:form.apiKey});return next;});
-    else if(form.endpoint.includes('feituokuajing.com')) setState(s=>{
-      let next=s;
-      for(const kind of ['video','image']){
-        const existing=(next.mediaProfiles||[]).find(p=>p.kind===kind&&p.endpoint.includes('feituokuajing.com'));
-        const fields={...form,kind,name:`飞拓${kind==='video'?'视频':'图片'}`,model:kind===form.kind?form.model:feituoModels.find(m=>m.kind===kind).id};
-        next=existing?updateMediaProfile(next,existing.id,fields):addMediaProfile(next,fields);
-        next=setActiveMediaApi(next,kind,(next.mediaProfiles||[]).find(p=>p.kind===kind&&p.endpoint.includes('feituokuajing.com')).id);
-      }return next;
-    });
-    else setState((s) => addMediaProfile(s, form));
-    setForm({ kind: form.kind, name: '', endpoint: '', model: '', apiKey: '' });
-    setEditingId(null);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const update = (key) => (event) => { setNotice(''); setError(''); setForm((current) => ({ ...current, [key]: event.target.value })); };
+  const saveFeituo = (event) => {
+    event.preventDefault(); setError(''); setNotice('');
+    if (!feituoKey.trim()) { setError('请填写飞拓 API Key'); return; }
+    if (typeof setState !== 'function') { setError('接口设置未能加载，请关闭后重试'); return; }
+    setState((current) => saveFeituoApiKey(current, feituoKey));
+    setNotice('API Key 已保存并启用。关闭设置后，直接切换图片或视频模型即可使用。');
+  };
+  const save = (event) => {
+    event.preventDefault(); setError(''); setNotice('');
+    let endpoint;
+    try { endpoint = new URL(form.endpoint.trim()); } catch { setError('请填写完整的接口地址，例如 https://example.com/v1'); return; }
+    if (!['https:', 'http:'].includes(endpoint.protocol)) { setError('接口地址须以 https:// 或 http:// 开头'); return; }
+    if (!form.apiKey.trim()) { setError('请填写 API Key'); return; }
+    if (typeof setState !== 'function') { setError('接口设置未能加载，请关闭后重试'); return; }
+    if (isFeituoEndpoint(endpoint.href)) {
+      setState((current) => saveFeituoApiKey(current, form.apiKey));
+      setFeituoKey(form.apiKey.trim()); setMode('feituo'); setEditingId(null);
+      setNotice('飞拓 API Key 已保存，图片和视频全部已接入模型共用此 Key。');
+      return;
+    }
+    if (!form.model.trim()) { setError('请填写模型 ID'); return; }
+    const values = { ...form, name: form.name.trim() || form.model.trim(), endpoint: form.endpoint.trim(), apiKey: form.apiKey.trim(), model: form.model.trim() };
+    setState((current) => editingId ? updateMediaProfile(current, editingId, values) : addMediaProfile(current, values));
+    setForm({ kind: form.kind, name: '', endpoint: '', model: '', apiKey: '' }); setEditingId(null);
+    setNotice(editingId ? '接口修改已保存。' : '接口已添加，可在生成界面选择使用。');
+  };
+  const edit = (profile) => {
+    setNotice(''); setError('');
+    if (isFeituoEndpoint(profile.endpoint)) {
+      setMode('feituo'); setFeituoKey(credential?.apiKey || profile.apiKey || ''); setEditingId(null);
+    } else {
+      setMode('custom'); setEditingId(profile.id);
+      setForm({ kind: profile.kind, name: profile.name || '', endpoint: profile.endpoint || '', model: profile.model || '', apiKey: profile.apiKey || '' });
+    }
   };
   const renderProfiles = (kind) => {
     const items = profiles.filter((profile) => profile.kind === kind);
-    return <section className={`media-api-group ${kind}`}><header><div>{kind === 'video' ? <Video size={16} /> : <ImageIcon size={16} />}<strong>{kind === 'video' ? '视频生成 API' : '图片生成 API'}</strong></div><small>{kind === 'video' ? '用于分镜视频与画布视频节点' : '用于美术、资产与画布图片节点'}</small></header><div className="media-api-group-list">{items.map((profile) => {
+    return <section className={`media-api-group ${kind}`}><header><div>{kind === 'video' ? <Video size={16} /> : <ImageIcon size={16} />}<strong>{kind === 'video' ? '视频生成 API' : '图片生成 API'}</strong></div><small>{kind === 'video' ? '用于图视生成、分镜与画布' : '用于图视生成、美术、资产与画布'}</small></header><div className="media-api-group-list">{items.map((profile) => {
       const activeId = kind === 'video' ? state.activeVideoApiId : state.activeImageApiId;
-      return <div key={profile.id} className={`media-api-item${profile.id === activeId ? ' active' : ''}`}><span className="kind">{kind === 'video' ? <Video size={14} /> : <ImageIcon size={14} />}</span><span className="name">{profile.name}<small>{profile.model || profile.endpoint}</small></span>{profile.id === activeId ? <b>使用中</b> : <button onClick={() => setState((s) => setActiveMediaApi(s, kind, profile.id))}>启用</button>}<button onClick={() => { setEditingId(profile.id); setForm({ kind: profile.kind, name: profile.name, endpoint: profile.endpoint, model: profile.model, apiKey: profile.apiKey || '' }); }}>编辑</button><button className="danger" onClick={() => setState((s) => removeMediaProfile(s, profile.id))}><Trash2 size={13} /></button></div>;
+      return <div key={profile.id} className={`media-api-item${profile.id === activeId ? ' active' : ''}`}><span className="kind">{kind === 'video' ? <Video size={14} /> : <ImageIcon size={14} />}</span><span className="name">{profile.name}<small>{isFeituoEndpoint(profile.endpoint) ? `共用飞拓 Key · 全部${kind === 'video' ? '视频' : '图片'}模型` : profile.model || profile.endpoint}</small></span>{profile.id === activeId ? <b>使用中</b> : <button onClick={() => setState((current) => setActiveMediaApi(current, kind, profile.id))}>启用</button>}<button onClick={() => edit(profile)}>编辑</button><button className="danger" aria-label={`删除接口 ${profile.name}`} onClick={() => setState((current) => removeMediaProfile(current, profile.id))}><Trash2 size={13} /></button></div>;
     })}{!items.length && <div className="media-api-empty">暂未配置{kind === 'video' ? '视频' : '图片'}生成 API</div>}</div></section>;
   };
   return (
     <Dialog open title="生成接口设置" onClose={onClose}>
       <div className="media-api-settings">
-        <p className="media-api-hint">飞拓快捷接入会同时配置图片和视频接口。填写一次 API Key，即可在图视生成与分镜中切换飞拓全部已接入模型。也支持自定义 OpenAI 图片与火山方舟视频接口。</p>
-        <button className="secondary" onClick={()=>{setEditingId(null);setForm({kind:'video',name:'飞拓',endpoint:'https://feituokuajing.com',model:FEITUO_VIDEO_MODELS[12].id,apiKey:''});}}>飞拓快捷接入 · 只需填写 API Key</button><div className="media-api-form">
-          <select value={form.kind} onChange={update('kind')}>
-            <option value="image">图片生成接口</option>
-            <option value="video">视频生成接口</option>
-          </select>
-          <input placeholder="名称（例如 即梦图片）" value={form.name} onChange={update('name')} />
-          <input placeholder="接口地址（例如 https://ark.cn-beijing.volces.com/api/v3）" value={form.endpoint} onChange={update('endpoint')} />
-          {form.kind === 'video' && <select value={FEITUO_VIDEO_MODELS.some((item) => item.id === form.model) ? form.model : ''} onChange={update('model')}><option value="">选择飞拓模型或手动填写</option>{FEITUO_VIDEO_MODELS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
-          <input placeholder="模型 ID（例如 doubao-seedance-1-0-pro）" value={form.model} onChange={update('model')} />
-          <input placeholder="API Key" type="password" value={form.apiKey} onChange={update('apiKey')} />
-          <button className="primary" onClick={save}><Save size={14} /> {editingId ? '保存修改' : '添加接口'}</button>
-        </div>
+        <div className="media-api-modes"><button className={mode === 'feituo' ? 'active' : ''} onClick={() => { setMode('feituo'); setError(''); setNotice(''); }}><KeyRound size={15} />飞拓快捷接入</button><button className={mode === 'custom' ? 'active' : ''} onClick={() => { setMode('custom'); setError(''); setNotice(''); }}>自定义接口</button></div>
+        {mode === 'feituo' ? <form className="media-feituo-connection" onSubmit={saveFeituo}>
+          <header><div><strong>一个 Key，所有飞拓模型</strong><p>保存一次，在生成界面直接切换模型，无需重复配置。</p></div><span className={credential ? 'connected' : ''}>{credential ? '已保存 Key' : '待填写 Key'}</span></header>
+          <label htmlFor="feituo-api-key">飞拓 API Key</label><input id="feituo-api-key" aria-label="飞拓 API Key" placeholder="粘贴你的飞拓 API Key" type="password" autoComplete="off" value={feituoKey} onChange={(event) => { setFeituoKey(event.target.value); setNotice(''); setError(''); }} />
+          <div className="media-feituo-details"><small>{feituoModels.filter((model) => model.kind === 'video').length} 个视频模型 · {feituoModels.filter((model) => model.kind === 'image').length} 个图片模型</small><small>{FEITUO_ENDPOINT}</small></div>
+          <button className="primary" type="submit"><Save size={15} />保存并启用</button>
+        </form> : <form className="media-api-form" onSubmit={save}>
+          <p className="media-api-hint">用于配置其他图片与视频服务；模型 ID 和接口地址请按该服务商文档填写。</p>
+          <select aria-label="接口类型" value={form.kind} onChange={update('kind')}><option value="image">图片生成接口</option><option value="video">视频生成接口</option></select>
+          <input aria-label="接口名称" placeholder="接口名称" value={form.name} onChange={update('name')} />
+          <input aria-label="接口地址" placeholder="接口地址，例如 https://example.com/v1" value={form.endpoint} onChange={update('endpoint')} />
+          <input aria-label="模型 ID" placeholder="模型 ID" value={form.model} onChange={update('model')} />
+          <input aria-label="自定义接口 API Key" placeholder="API Key" type="password" autoComplete="off" value={form.apiKey} onChange={update('apiKey')} />
+          <button className="primary" type="submit"><Save size={14} />{editingId ? '保存修改' : '添加接口'}</button>
+        </form>}
+        {error && <p className="media-api-feedback error" role="alert">{error}</p>}{notice && <p className="media-api-feedback" role="status">{notice}</p>}
         <div className="media-api-list">{renderProfiles('image')}{renderProfiles('video')}</div>
       </div>
     </Dialog>

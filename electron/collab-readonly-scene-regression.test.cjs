@@ -7,7 +7,7 @@ const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
 test('项目协作分镜复用导演场景解析，不按数组索引或提示词强制改写集数', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
-  assert.match(ui,/parseDirectorScenes\(episode.content/);
+  assert.match(ui,/parseDirectorScenesReadonly\(episode.content/);
   assert.match(ui,/inferDirectorEpisodeNumber/);
   assert.match(ui,/parsed.length\?parsed.map/);
   assert.match(ui,/label.startsWith\(epNumber/);
@@ -16,8 +16,8 @@ test('项目协作分镜复用导演场景解析，不按数组索引或提示�
 test('同步导演项目时完整读取标题、内容、类型和提示词', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
-  assert.match(ui,/directorCollabGetProject/);
-  assert.match(ui,/scope:'director-sync'/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
+  assert.match(read('src/v06/CollabWorkspace.jsx'),/scope:'director-sync'/);
   assert.match(server,/refreshDirectorPrompts/);
   assert.match(server,/mergeDirectorEpisodes/);
   assert.match(server,/script/);

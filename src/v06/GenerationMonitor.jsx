@@ -1,4 +1,5 @@
 import {useEffect,useRef} from 'react';
+import {generationMediaProfiles} from '../../core/canvasStore.js';
 export function GenerationMonitor({state,api,account}) {
  const current=useRef({state,account});current.current={state,account};
  useEffect(()=>{
@@ -9,7 +10,7 @@ export function GenerationMonitor({state,api,account}) {
     const rows=await api.generationList();
     for(let job of rows){
      if(stopped)break;
-     const profile=(current.current.state.mediaProfiles||[]).find(p=>p.id===job.profileId);
+     const profile=generationMediaProfiles(current.current.state,job.kind).find(p=>p.id===job.profileId);
      if(job.jobId&&!['success','failed','uncertain'].includes(job.status)&&profile?.apiKey)job=await api.generationRefresh({id:job.id,apiKey:profile.apiKey});
      if(job.status==='success'&&job.projectId&&!job.mediaId){
       try{const existing=await api.collabListMedia({projectId:job.projectId});
