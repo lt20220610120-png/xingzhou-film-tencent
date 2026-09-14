@@ -96,6 +96,8 @@ function extendRepository(pool) {
     async patchStoryboard(pid,payload) {
       const client=await pool.connect();
       try {await client.query('BEGIN');
+        await client.query("set local lock_timeout='3s'");
+        await client.query("set local statement_timeout='6s'");
         const row=(await client.query('select * from collab_projects where id=$1 for update',[pid])).rows[0];
         if(!row)throw new Error('项目不存在');
         const episodes=patchShot(row.episodes,payload);
@@ -107,6 +109,8 @@ function extendRepository(pool) {
       if(!await canRead(pid,uid))return null;
       const client=await pool.connect();
       try {await client.query('BEGIN');
+        await client.query("set local lock_timeout='3s'");
+        await client.query("set local statement_timeout='6s'");
         const row=(await client.query('select * from collab_projects where id=$1 for update',[pid])).rows[0];
         if(String(row.genre||'').includes(LOCK_SENTINEL)){await client.query('COMMIT');return row;}
         const source=(String(row.genre||'').match(/\[COLLAB_SOURCE:([^\]]+)\]/)||[])[1];

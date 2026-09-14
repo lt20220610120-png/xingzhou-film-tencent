@@ -6,14 +6,16 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
  const usedEpisodes=new Set();
  // Older collaboration copies omitted IDs that still exist in the director
  // source. Match a unique episode identity before adding a second copy.
- const legacyKey=ep=>normalizeStoryboardEpisodes([{...ep,id:undefined}])[0].id;
+ const identityCache=new Map();
+ const legacyKey=ep=>{if(!identityCache.has(ep))identityCache.set(ep,normalizeStoryboardEpisodes([{...ep,id:undefined,prompts:[]}])[0].id);return identityCache.get(ep);};
  const merged=incoming.map(ep=>{
   let old=current.find(e=>e.id===ep.id&&!usedEpisodes.has(e));
   if(!old){const key=legacyKey(ep),matches=current.filter(e=>!usedEpisodes.has(e)&&legacyKey(e)===key);
    if(matches.length===1&&incoming.filter(e=>legacyKey(e)===key).length===1)old=matches[0];
   }
   old=old||{};usedEpisodes.add(old);
-  const prompts=(ep.prompts||[]).map(source=>{
+  const deleted=new Set([...(old.deletedPromptIds||[]),...(ep.deletedPromptIds||[])]);
+  const prompts=(ep.prompts||[]).filter(source=>!deleted.has(source.id)&&!deleted.has('source-label:'+source.label)).map(source=>{
    let previous=(old.prompts||[]).find(p=>p.id===source.id);
    if(!previous&&source.label){const candidates=(old.prompts||[]).filter(p=>!p.manual&&p.label===source.label);
     if(candidates.length===1&&(ep.prompts||[]).filter(p=>p.label===source.label).length===1)previous=candidates[0];
@@ -33,7 +35,7 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
     }
     prompts.push(kept);
   }
-  return {...old,...ep,id:old.id||ep.id,prompts};
+  return {...old,...ep,id:old.id||ep.id,prompts,deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
  });
  for(const ep of current)if(!usedEpisodes.has(ep))merged.push(ep);
  return merged;
@@ -46,8 +48,17 @@ function patchShot(episodes,payload) {
   if(ep.prompts.some(p=>p.id===payload.shotId))return next;
   if(!String(payload.shotId||'').trim())throw Object.assign(new Error('分镜编号缺失，请重新创建'),{status:400});
   if(!/^\d+-\d+$/.test(payload.scene||''))throw Object.assign(new Error('场景编号不合法'),{status:400});
-  const max=Math.max(0,...ep.prompts.filter(p=>p.label?.startsWith(payload.scene+'-')).map(p=>Number(p.label.split('-')[2])||0));
+  const max=Math.max(0,ep.shotCounters?.[payload.scene]||0,...ep.prompts.filter(p=>p.label?.startsWith(payload.scene+'-')).map(p=>Number(p.label.split('-')[2])||0));
+  ep.shotCounters={...ep.shotCounters,[payload.scene]:max+1};
   ep.prompts.push({id:payload.shotId,label:`${payload.scene}-${max+1}`,content:'',manual:true});
+ }else if(payload.operation==='delete'){
+  const shot=ep.prompts.find(p=>p.id===payload.shotId);
+  if(!shot){if((ep.deletedPromptIds||[]).includes(payload.shotId))return next;throw Object.assign(new Error('分镜已变更，请刷新核对'),{status:409});}
+  for(const key of ['content','generationConfig'])if(!equal(shot[key]??null,payload.base?.[key]??null))throw Object.assign(new Error('此分镜已被协作者修改，请刷新核对后再删除'),{status:409});
+  const scene=shot.label.split('-').slice(0,2).join('-'),number=Number(shot.label.split('-')[2])||0;
+  ep.shotCounters={...ep.shotCounters,[scene]:Math.max(ep.shotCounters?.[scene]||0,number)};
+  ep.deletedPromptIds=[...new Set([...(ep.deletedPromptIds||[]),shot.id,...(!shot.manual?['source-label:'+shot.label]:[])])];
+  ep.prompts=ep.prompts.filter(p=>p.id!==shot.id);
  }else{
   const shot=ep.prompts.find(p=>p.id===payload.shotId);if(!shot)throw Object.assign(new Error('分镜已变更'),{status:409});
   for(const key of ['content','generationConfig'])if(key in (payload.updates||{})){

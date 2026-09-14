@@ -39,7 +39,7 @@ test('响应正文读取时 terminated 也会回退到下一个端点', async ()
     return { ok: true, status: 200, text: async () => JSON.stringify({ recovered: true }) };
   };
   try {
-    assert.deepEqual(await svc.gateway('project-update', { projectId: 'p' }, 'tok'), { recovered: true });
+    assert.deepEqual(await svc.gateway('project-get', { projectId: 'p' }, 'tok'), { recovered: true });
     assert.ok(calls >= 2);
   } finally { global.fetch = realFetch; }
 });

@@ -1018,11 +1018,13 @@ export function CollabWorkspace({ state, api, account }) {
   const restoredRef = useRef(false);
   const refreshRequestRef = useRef(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const refreshInFlight=useRef(null);
+  const applyProject=useCallback(saved=>{if(!saved?.id)return;refreshRequestRef.current+=1;setProject(current=>current?.id===saved.id?saved:current);writeCache(`project-${saved.id}`,saved);},[]);
   const [refreshNotice, setRefreshNotice] = useState('');
 
   const loadProjects = useCallback(async () => {
     try { const rows = await api.collabListProjects() || []; setProjects(rows); writeCache('projects', rows); setListError(''); }
-    catch (e) { setListError(e.message); }
+    catch (e) { setListError(String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,'')); }
     finally { setLoading(false); }
   }, []);
 
@@ -1068,6 +1070,8 @@ export function CollabWorkspace({ state, api, account }) {
   useEffect(() => { try { if (section) localStorage.setItem('xz-collab-last-section', section); } catch { /* noop */ } }, [section]);
 
   const refreshProject = useCallback(async (options = {}) => {
+    if(refreshInFlight.current)return refreshInFlight.current;
+    const work=(async()=>{
     if (!project?.id) return;
     const projectId = project.id;
     const requestId = ++refreshRequestRef.current;
@@ -1093,6 +1097,8 @@ export function CollabWorkspace({ state, api, account }) {
         await loadProjects();
       }
     }
+    })();
+    refreshInFlight.current=work;try{return await work;}finally{refreshInFlight.current=null;}
   }, [project?.id, loadProjects, state.directorProjects]);
 
   // 实时刷新：进入项目后轮询云端
@@ -1149,7 +1155,7 @@ export function CollabWorkspace({ state, api, account }) {
           <span className="eyebrow">项目协作 · 云端实时同步</span>
           <h1>项目协作</h1>
         </header>
-        {listError && <div className="collab-error">{listError}</div>}
+        {listError && <div className="collab-error" role="alert">{listError} <button onClick={loadProjects}>重新连接</button></div>}
         <div className="resource-grid collab-project-grid">
           {isProducer && (
             <button className="resource-card resource-add" onClick={() => { setCreateError(''); setDialogOpen(true); }}>
@@ -1210,7 +1216,7 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'info' && <InfoSection project={project} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} />}
         {section === 'art' && <ArtSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} />}
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} />}
-        {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditBoard} isProducer={myRole === 'producer'} />}
+        {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
         {section === 'group' && <GroupSection project={project} api={api} account={account} />}

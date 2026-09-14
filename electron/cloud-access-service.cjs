@@ -14,45 +14,37 @@ const isNetworkFailure = (error) => {
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
     || /fetch failed|network|socket hang up/i.test(String(error?.message || ''));
 };
-async function gateway(action, payload = {}, token = '') {
-  let lastNetworkError = null;
-  for (const url of orderedUrls()) {
-    let response;
+// Retry reads and idempotent storyboard writes only; ambiguous general writes
+// must be checked by the caller rather than silently repeated.
+const retryableAction = (action, payload) => /(?:-list|-get)$/.test(action) || ['session','project-list','assets-list','members-list','messages-list','media-list','is-producer'].includes(action) || (action==='storyboard-patch' && Boolean(payload.shotId));
+async function gateway(action, payload = {}, token = '', options = {}) {
+  const retryable=retryableAction(action,payload),timeoutMs=options.timeoutMs || 8000;
+  const urls=orderedUrls(),attempts=retryable?[...urls,urls.at(-1)]:urls;
+  for(let index=0;index<attempts.length;index++){
+    const url=attempts[index],controller=new AbortController();
+    let response,timer;
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ action, ...payload }),
-      });
-    } catch (error) {
-      // 该端点不可达（域名被拦截 / TLS 被重置）：记下来，换下一个端点。
-      if (isNetworkFailure(error)) { lastNetworkError = error; if (activeUrl === url) activeUrl = null; continue; }
-      throw new Error(NETWORK_ERROR);
-    }
-    let text;
-    try {
-      text = await response.text();
-    } catch (error) {
-      // fetch 可能已收到响应头，但在读取正文时连接被服务端终止。
-      // 这同样是网络失败，必须清除当前端点并尝试备用地址。
-      if (isNetworkFailure(error) || /terminated/i.test(String(error?.message || ''))) {
-        lastNetworkError = error;
-        if (activeUrl === url) activeUrl = null;
-        continue;
-      }
-      throw new Error(NETWORK_ERROR);
-    }
-    activeUrl = url;
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { /* noop */ }
-    if (!response.ok) {
-      const error = new Error(data?.error || `云端请求失败（${response.status}）`);
-      error.status = response.status;
-      throw error;
-    }
-    return data;
+      const pending=(async()=>{
+        response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
+        const text=await response.text();
+        let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
+        if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,transient:[502,503,504].includes(response.status)});
+        activeUrl=url;return data;
+      })();
+      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},timeoutMs);});
+      return await Promise.race([pending,deadline]);
+    } catch(error) {
+      const network=error.timeout||isNetworkFailure(error)||/terminated|aborted/i.test(error.message);
+      if(!network&&!error.transient)throw error;
+      if(activeUrl===url)activeUrl=null;
+      // A connection reset before any response may be a blocked hostname.
+      // Preserve fallback for this case, but do not replay an ambiguous write.
+      const preConnection=!response&&!error.timeout&&/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS/.test(String(error.cause?.code||error.code||''));
+      if(index+1<attempts.length&&(retryable||preConnection))continue;
+      throw new Error(retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
+    } finally {clearTimeout(timer);}
   }
-  throw new Error(NETWORK_ERROR + (lastNetworkError ? '' : ''));
+  throw new Error(NETWORK_ERROR);
 }
 const publicAccount = (row) => row ? ({
   id: row.id, username: row.username, displayName: row.display_name || row.username,

@@ -164,15 +164,17 @@ export const parseArtAnalysis = (text) => {
 
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line) { lastEntry = null; continue; }
+    if (!line || line.startsWith('```')) continue;
     const epMatch = line.match(EP_HEAD) || line.match(/^#{1,6}\s*第\s*(\d+)\s*集/);
-    if (!inOverview && epMatch) { currentEp = Number(epMatch[1]); currentCat = ''; lastEntry = null; continue; }
+    if (!inOverview && epMatch) { currentEp = Number(epMatch[1]); ensureEp(currentEp); currentCat = ''; lastEntry = null; continue; }
     if (OVERVIEW_HEAD.test(line)) { inOverview = true; currentCat = ''; lastEntry = null; continue; }
     if (inOverview) continue; // 总览由按集清单聚合生成，云端不重复解析
     const catMatch = line.match(CAT_HEAD);
     if (catMatch) { currentCat = CAT_KEY[catMatch[1]]; lastEntry = null; continue; }
     if (!currentEp || !currentCat) continue;
-    const entryMatch = line.match(ENTRY);
+    if(/^[-*•]?\s*无[（(]/.test(line)){lastEntry=null;continue;}
+    const fieldLine=/^(?:[-*•]\s*)?【(?:内层|中层|外层|下装|足饰|推断|待确认)】/.test(line);
+    const entryMatch = fieldLine ? null : line.match(ENTRY);
     if (entryMatch) {
       const name = `【${entryMatch[1].trim()}】`;
       const rest = entryMatch[2] || '';
@@ -181,6 +183,7 @@ export const parseArtAnalysis = (text) => {
         name,
         category: currentCat,
         episode: currentEp,
+        ...( /不生成(?:形象)?资产|仅提及|仅被提及/.test(rest) ? {generatable:false}:{}),
         reuseOf: reuseMatch ? Number(reuseMatch[1]) : 0,
         description: reuseMatch ? '' : rest.replace(/^（[^）]*）\s*/, '').trim(),
       };
@@ -203,6 +206,7 @@ export const buildAssetRows = (parsed) => {
   for (const ep of parsed.episodes || []) {
     for (const cat of ['character', 'scene', 'prop']) {
       for (const entry of ep[cat] || []) {
+        if(entry.generatable===false)continue;
         const existing = map.get(entry.name);
         if (existing) {
           if (!existing.episodes.includes(ep.episode)) existing.episodes.push(ep.episode);
