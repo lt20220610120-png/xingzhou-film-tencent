@@ -1,6 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
- saveTxt:payload=>ipcRenderer.invoke('save-txt',payload),saveTxtBatch:payload=>ipcRenderer.invoke('save-txt-batch',payload),aiChat:payload=>ipcRenderer.invoke('ai-chat',payload),cancelAiTask:payload=>ipcRenderer.invoke('cancel-ai-task',payload),testAiConnection:payload=>ipcRenderer.invoke('test-ai-connection',payload),importFullScript:()=>ipcRenderer.invoke('import-full-script'),
+ saveTxt:payload=>ipcRenderer.invoke('save-txt',payload),saveTxtBatch:payload=>ipcRenderer.invoke('save-txt-batch',payload),analysisLoad:p=>ipcRenderer.invoke('analysis-load',p),analysisSave:p=>ipcRenderer.invoke('analysis-save',p),collabPublishAnalysis:p=>ipcRenderer.invoke('collab-publish-analysis',p),aiChat:payload=>ipcRenderer.invoke('ai-chat',payload),cancelAiTask:payload=>ipcRenderer.invoke('cancel-ai-task',payload),testAiConnection:payload=>ipcRenderer.invoke('test-ai-connection',payload),importFullScript:()=>ipcRenderer.invoke('import-full-script'),
  importSkillDirectory:()=>ipcRenderer.invoke('import-skill-directory'),importSkillDocument:()=>ipcRenderer.invoke('import-skill-document'),
  storageInfo:()=>ipcRenderer.invoke('storage-info'),loadState:()=>ipcRenderer.invoke('load-state'),saveState:state=>ipcRenderer.invoke('save-state',state),
  loadDirectorProjects:()=>ipcRenderer.invoke('load-director-projects'),saveDirectorProjects:projects=>ipcRenderer.invoke('save-director-projects',projects),
@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  appVersion:()=>ipcRenderer.invoke('app-version'),checkUpdate:url=>ipcRenderer.invoke('check-update',url),
  downloadUpdate:payload=>ipcRenderer.invoke('download-update',payload),installUpdate:()=>ipcRenderer.invoke('install-update'),
  onUpdateProgress:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('update-progress',handler);return()=>ipcRenderer.removeListener('update-progress',handler)},
- authSession:()=>ipcRenderer.invoke('auth-session'),authRegister:payload=>ipcRenderer.invoke('auth-register',payload),authLogin:payload=>ipcRenderer.invoke('auth-login',payload),
+ authUpdateProfile:p=>ipcRenderer.invoke('auth-update-profile',p),selectProfileAvatar:()=>ipcRenderer.invoke('select-profile-avatar'),authSession:()=>ipcRenderer.invoke('auth-session'),authRegister:payload=>ipcRenderer.invoke('auth-register',payload),authLogin:payload=>ipcRenderer.invoke('auth-login',payload),
  authLogout:()=>ipcRenderer.invoke('auth-logout'),authUnlockRole:payload=>ipcRenderer.invoke('auth-unlock-role',payload),
  authSendEmailCode:payload=>ipcRenderer.invoke('auth-send-email-code',payload),authRecover:payload=>ipcRenderer.invoke('auth-recover',payload),
  adminListUsers:()=>ipcRenderer.invoke('admin-list-users'),adminDeleteUser:payload=>ipcRenderer.invoke('admin-delete-user',payload),adminSetBanned:payload=>ipcRenderer.invoke('admin-set-banned',payload),

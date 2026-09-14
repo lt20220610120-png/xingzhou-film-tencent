@@ -44,6 +44,7 @@ function createServer(env = process.env, deps = {}) {
           if (!user) return send({ status: 401, body: { error: '请先登录账号' } });
           if (user.banned) return send({ status: 403, body: { error: '账号已被停用' } });
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
+          if(action==='profile-update')return send(await require('./profile.cjs').updateProfile(payload,user,repository));
           if (action === 'unlock') return send(await unlock(payload, user, repository));
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));

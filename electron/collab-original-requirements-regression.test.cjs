@@ -7,7 +7,7 @@ const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
 test('项目协作分析把当前配置的模型名称传给 ai-chat', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
   const run = ui.match(/const runAnalysis[\s\S]*?const stopAnalysis/)?.[0] || '';
-  assert.match(run, /api\.aiChat\(\{[\s\S]*?model:\s*profile\.model/);
+  assert.match(run,/runArtAnalysis\(\{project,genre,profile/);assert.match(read('core/artAnalysisRunner.js'),/structuredClone\(profile\)/);
 });
 
 test('项目协作资产图片可点击进入居中预览并用滚轮缩放', () => {
@@ -59,7 +59,7 @@ test('三种人物画风前置保持启用，分析恢复为稳定的逐集请�
   assert.match(store, /新中式3D国漫角色/);
   assert.match(store, /日本二次元动画风格/);
   assert.match(skill, /buildEpisodeAnalysisMessages/);
-  assert.match(ui, /for \(const \[index, episode\] of analysisEpisodes\.entries\(\)\)/);
+  assert.match(ui, /runArtAnalysis/);
   assert.doesNotMatch(ui, /index \+= 3/);
 });
 

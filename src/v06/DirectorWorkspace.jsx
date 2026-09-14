@@ -1,3 +1,4 @@
+import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {threeWayMerge} from '../../core/threeWayMerge.js';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -206,6 +207,7 @@ function parseSegments(text) {
  * EpisodeDirector - 逐集导演编辑（支持 creative/quick 模式）
  * ================================================================ */
 function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId }) {
+  const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
   const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
   const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
   const [selectedSkillId, setSelectedSkillId] = useState(() => {
@@ -264,7 +266,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       if (skillId) localStorage.setItem('xz-last-used-skill', skillId);
       const preamble = buildProjectPreamble(project);
       const finalInput = preamble ? `${preamble}\n\n${inputText}` : inputText;
-      const result = await executeSkillWithAi({ api, state, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
+      const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
       const outputParts = splitNumberedPromptOutput(result.output);
       const newPrompts = outputParts.map((part, i) => ({
         id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
@@ -295,7 +297,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       if (currentSkill.id) localStorage.setItem('xz-last-used-skill', currentSkill.id);
       const preamble = buildProjectPreamble(project);
       const sourceText = `${preamble ? `${preamble}\n\n` : ''}【导演构想】\n${vision}`;
-      const result = await executeSkillWithAi({ api, state, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
+      const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
       const outputParts = splitNumberedPromptOutput(result.output);
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
@@ -331,7 +333,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       // 并发向大模型发起各分段请求，读取输出后按编号排序
       const results = await Promise.all(tasks.map(async (task) => {
         const taskInput = preamble ? `${preamble}\n\n${task.input}` : task.input;
-        const result = await executeSkillWithAi({ api, state, skillId, input: taskInput, assistantRole: '行舟影视导演提示词助手' });
+        const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId, input: taskInput, assistantRole: '行舟影视导演提示词助手' });
         return { task, output: result.output };
       }));
       const generatedParts = [];
@@ -446,6 +448,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         </div>
       </header>
 
+      <ModelSelect profiles={state.apiProfiles||[]} value={directorModelId} onChange={setDirectorModelId} label="本集提示词模型"/>
       {/* 项目设定功能区：风格与画幅（创造/快速模式共用，运行 Skill 前优先注入给大模型） */}
       <div className="project-style-bar">
         <div className="style-bar-label"><Film size={15} /> 项目设定</div>

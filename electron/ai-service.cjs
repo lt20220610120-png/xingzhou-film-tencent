@@ -26,35 +26,49 @@ function parseResponse(raw) {
     let data;
     try { data = JSON.parse(raw.replace(/^\uFEFF/, '')); }
     catch { throw new Error('接口返回的不是 JSON 或事件流，请检查接口地址与协议。'); }
-    checkResponse(data);
+    try { checkResponse(data); } catch(error) { error.partialText=responseText(data); throw error; }
     const result = responseText(data);
     if (result.trim()) return result;
     if (textContent(data?.choices?.[0]?.message?.reasoning_content)) throw new Error('模型只返回了推理过程，没有生成最终正文。请检查服务商输出额度或更换模型。');
     throw new Error('接口已响应，但没有返回模型正文。请核对协议和模型，并使用“测试正文”检查。');
   }
   let output = '', snapshot = '', complete = false;
+  const throwWithPartial = (error) => {
+    if (!error.partialText) error.partialText = snapshot || output || '';
+    throw error;
+  };
   for (const block of raw.replace(/\r\n/g, '\n').split(/\n\s*\n/)) {
     const payload = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
     if (!payload) continue;
     if (payload.trim() === '[DONE]') { complete = true; continue; }
     let event;
-    try { event = JSON.parse(payload); } catch { throw new Error('接口事件流格式损坏，未保存为成功结果。'); }
-    checkResponse(event);
-    if (event.type === 'response.failed' || event.type === 'response.incomplete') { checkResponse(event.response); throw new Error('服务商没有完成本次生成。'); }
-    if (event.type === 'response.completed') { checkResponse(event.response); snapshot = responseText(event.response); complete = true; }
-    if (event.type === 'response.output_text.delta') output += textContent(event.delta);
-    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') output += textContent(event.delta.text);
-    if (event.type === 'content_block_start') output += textContent(event.content_block);
-    if (event.type === 'message_delta') checkResponse({ stop_reason: event.delta?.stop_reason });
-    if (event.type === 'message_stop') complete = true;
+    try { event = JSON.parse(payload); } catch { throwWithPartial(new Error('接口事件流格式损坏，未保存为成功结果。')); }
+    // Capture the delta before checking finish_reason. A length/content-filter
+    // event can contain the last paid token that must remain resumable.
     const choice = event.choices?.[0];
     output += textContent(choice?.delta?.content);
     if (choice?.message) snapshot = responseText(event);
+    if (event.type === 'response.output_text.delta') output += textContent(event.delta);
+    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') output += textContent(event.delta.text);
+    if (event.type === 'content_block_start') output += textContent(event.content_block);
+    try { checkResponse(event); } catch (error) { throwWithPartial(error); }
+    if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+      try { checkResponse(event.response); } catch (error) { throwWithPartial(error); }
+      throwWithPartial(new Error('服务商没有完成本次生成。'));
+    }
+    if (event.type === 'response.completed') {
+      try { checkResponse(event.response); } catch (error) { throwWithPartial(error); }
+      snapshot = responseText(event.response); complete = true;
+    }
+    if (event.type === 'message_delta') {
+      try { checkResponse({ stop_reason: event.delta?.stop_reason }); } catch (error) { throwWithPartial(error); }
+    }
+    if (event.type === 'message_stop') complete = true;
     if (choice?.finish_reason) complete = true;
   }
-  if (!complete) throw new Error('接口传输中断，未收到生成完成标记。服务商可能已计费，请先检查请求记录。');
+  if (!complete) throwWithPartial(new Error('接口传输中断，未收到生成完成标记。服务商可能已计费，请先检查请求记录。'));
   const result = snapshot || output;
-  if (!result.trim()) throw new Error('接口已响应，但事件流没有返回正文。');
+  if (!result.trim()) throwWithPartial(new Error('接口已响应，但事件流没有返回正文。'));
   return result;
 }
 function resolveProtocol({ endpoint = '', protocol = 'auto', provider = '' }) {
@@ -88,6 +102,13 @@ async function requestChat(config, { fetchFn = fetch, timeout = 600000 } = {}) {
       system: messages.filter(m => ['system', 'developer'].includes(m.role)).map(m => textContent(m.content)).join('\n\n'),
       messages: messages.filter(m => !['system', 'developer'].includes(m.role)) };
   }
+  const budget=Number(config.maxOutputTokens);
+  if(budget>0){
+    const field=protocol==='responses'?'max_output_tokens':protocol==='chat'&&/^(?:gpt-5|o[134])/.test(model)?'max_completion_tokens':'max_tokens';
+    body[field]=Math.min(32768,Math.max(1024,budget));
+  }
+  // DeepSeek's documented switch preserves output budget for final art content.
+  if(config.analysisMode && protocol==='chat' && /deepseek/i.test(model))body.thinking={type:'disabled'};
   const configuredTimeout = Number(config.timeout);
   const timeoutMs = configuredTimeout > 0 ? configuredTimeout : timeout;
   const controller = new AbortController();

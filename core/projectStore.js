@@ -719,7 +719,7 @@ export const createChatSession = (state, title) => {
     createdAt: now(),
     updatedAt: now(),
   };
-  return { ...state, chatSessions: [...state.chatSessions, session] };
+  return { ...state, activeChatId:session.id, chatSessions: [...state.chatSessions, {...session,profileId:state.activeApiId||state.apiProfiles?.[0]?.id||''}] };
 };
 
 export const addChatMessage = (state, sessionId, role, content) => {

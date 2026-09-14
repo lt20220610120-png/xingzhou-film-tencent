@@ -1,3 +1,6 @@
+import {runArtAnalysis} from '../../core/artAnalysisRunner.js';
+import {mediaModelChoices} from '../../core/modelChoices.js';
+import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {autoReferences} from '../../core/generationReferences.js';
 import {StoryboardWorkbench} from './StoryboardWorkbench.jsx';
 // ============================================================
@@ -64,12 +67,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
   const [notice, setNotice] = useState('');
   const [, setJobVersion] = useState(0);
   const apiProfiles = state.apiProfiles || [];
-  const [modelId, setModelId] = useState(state.activeApiId || apiProfiles[0]?.id || '');
-  const profile = apiProfiles.find((p) => p.id === modelId);
-  useEffect(() => {
-    const nextId = state.activeApiId || apiProfiles[0]?.id || '';
-    if (!apiProfiles.some((item) => item.id === modelId)) setModelId(nextId);
-  }, [state.activeApiId, apiProfiles, modelId]);
+  const [modelId,setModelId,profile]=useWindowModel(`analysis:${project.id}`,apiProfiles,state.activeApiId);
 
   useEffect(() => { setScript(project.script || ''); }, [project.id]);
   useEffect(() => { setGenre(project.genre || ''); }, [project.id]);
@@ -83,7 +81,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
     syncJob(); const timer = setInterval(syncJob, 500); return () => clearInterval(timer);
   }, [project.id]);
   const analysisJob = collabAnalysisJobs.get(project.id);
-  const analyzing = analysisJob?.status === 'running';
+  const analyzing = ['running','stopping'].includes(analysisJob?.status);
 
   const saveInfo = async (updates) => {
     setSaving(true); setError('');
@@ -93,7 +91,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
   };
 
   const runAnalysis = async () => {
-    if (collabAnalysisJobs.get(project.id)?.status === 'running') return;
+    if (['running','stopping'].includes(collabAnalysisJobs.get(project.id)?.status)) return;
     if (!profile) { setError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
     if (!profile.model?.trim()) { setError('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称'); return; }
     if (!script.trim()) { setError('剧本内容为空，请先填写或在导演工作台上传剧本'); return; }
@@ -105,32 +103,16 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
       if (genre !== (project.genre || '')) await api.collabUpdateProject({ projectId: project.id, updates: { genre } });
       const analysisEpisodes = (project.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传');
       if (!analysisEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先同步导演项目');
-      const outputs = [];
-      const conversationHistory = [];
-      for (const [index, episode] of analysisEpisodes.entries()) {
-        if (job.cancelled) throw new Error('任务已停止');
-        const episodeNumber = index + 1;
-        job.notice = `正在逐集稳定分析：第 ${episodeNumber}/${analysisEpisodes.length} 集…`;
-        job.taskId = `collab-analysis-${project.id}-${episodeNumber}`;
-        const messages = buildEpisodeAnalysisMessages({ genre, episodeNumber, title: episode.title, content: episode.content || '', previousSummaries: conversationHistory.slice(-2) });
-        const output = await api.aiChat({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, requiresApiKey: profile.requiresApiKey, messages, timeout: 10 * 60 * 1000, taskId: job.taskId });
-        if (job.cancelled) throw new Error('任务已停止');
-        const normalized = String(output || '');
-        outputs.push(normalized);
-        conversationHistory.push(`第${episodeNumber}集已完成，已使用的资产命名如下，请后续保持一致：\n${normalized.slice(0, 5000)}`);
-      }
-      const combinedOutput = outputs.join('\n\n');
-      const parsed = ensureArtEpisodeCoverage(parseArtAnalysis(combinedOutput), analysisEpisodes.length);
-      const rows = buildAssetRows(parsed);
-      if (!rows.length) throw new Error('模型输出中没有识别到按集美术清单，请检查模型能力或重试');
-      await api.collabUpdateProject({ projectId: project.id, updates: { analysis_output: combinedOutput } });
-      await api.collabReplaceAssets({ projectId: project.id, assets: rows });
-      job.status = 'completed'; job.notice = `分析完成：逐集读取 ${analysisEpisodes.length} 集，识别出 ${rows.length} 个美术资产。`; job.taskId = '';
+      const result=await runArtAnalysis({project,genre,profile,api,job,
+        load:()=>api.analysisLoad({projectId:project.id}),
+        save:data=>api.analysisSave({projectId:project.id,data}),
+        onProgress:()=>setJobVersion(v=>v+1)});
+      job.status=job.cancelled?'stopped':'completed';job.notice=`分析完成：${result.completed} 集已保存并同步，已有资产图片和编辑均保留。`;job.taskId='';
       await refresh();
     } catch (e) {
       job.taskId = '';
-      if (job.cancelled || String(e.message || '').includes('任务已停止')) { job.status = 'stopped'; job.error = ''; job.notice = '分析已停止，未完成的结果不会覆盖原有内容。'; }
-      else { job.status = 'failed'; job.error = `分析失败：${e.message}`; job.notice = ''; }
+      if (job.cancelled || String(e.message || '').includes('任务已停止')) { job.status = 'stopped'; job.error = ''; job.notice = '分析已停止，已完成的段落已保存，再次点击可继续。'; }
+      else { job.status = 'failed'; job.error = `分析暂停：${readableCloudError(e)}。已完成的段落已保存，继续时仅处理未完成部分。`; job.notice = ''; }
     }
   };
 
@@ -139,7 +121,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
     if (!job || job.status !== 'running') return;
     job.cancelled = true; job.status = 'stopping'; job.notice = '正在停止分析…';
     if (job.taskId) await api.cancelAiTask?.({ taskId: job.taskId });
-    job.status = 'stopped'; job.notice = '分析已停止，未完成的结果不会覆盖原有内容。'; setJobVersion((value) => value + 1);
+    setJobVersion((value) => value + 1);
   };
 
   return (
@@ -157,7 +139,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
           onChange={(e) => setGenre(e.target.value)} onBlur={() => canEdit && genre !== (project.genre || '') && saveInfo({ genre })}
           placeholder={'手动填写整个剧本的题材与时代设定。\n例如：现代都市职场复仇 / 西方狼人吸血鬼 / 古代宫斗 / 民国谍战……'} />
         <div className="collab-panel-title"><Sparkles size={15} /> 分析模型</div>
-        <select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!canEdit}>
+        <select aria-label="分析模型" value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!canEdit || analyzing}>
           {!apiProfiles.length && <option value="">请先在 API 接口中添加模型</option>}
           {apiProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}
         </select>
@@ -168,10 +150,12 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
         </div>
         <div className="collab-analysis-actions">
           <button className="primary collab-analyze-btn" onClick={runAnalysis} disabled={!canEdit || analyzing}>
-            {analyzing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />} {analyzing ? '分析中…' : '分析'}
+            {analyzing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />} {analyzing ? '分析中…' : '分析 / 继续未完成'}
           </button>
           {analyzing && <button className="danger" onClick={stopAnalysis}><X size={16} /> 停止分析</button>}
         </div>
+        <button className="ghost" onClick={async()=>{try{const saved=await api.analysisLoad({projectId:project.id});const content=Object.values(saved?.episodes||{}).flatMap(r=>[...(r.outputs||[]).filter(Boolean),...(r.failure?.partialText?['【未完成片段 · 仅供核对】\n'+r.failure.partialText]:[])]).join('\n\n');if(!content){setNotice('暂无已保存的分析结果');return;}await api.saveTxt({name:project.name+'-已保存美术清单',content});}catch(e){setError(e.message);}}}>导出已保存清单</button>
+        <small className="analysis-checkpoint-note">逐段自动保存 · 中断可继续 · 每集完成同步资产</small>
         {error && <div className="collab-error">{error}</div>}
         {notice && <div className="collab-notice">{notice}</div>}
       </aside>
@@ -199,12 +183,11 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const [localImages, setLocalImages] = useState([]);
   const [showPrompt, setShowPrompt] = useState(false);
   useEffect(() => { setSelectedImageId(''); setPreviewImage(''); setLocalImages([]); setRefId(''); }, [asset.id]);
-  const imageProfiles = (state.mediaProfiles || []).filter((p) => p.kind === 'image');
+  const imageProfiles=mediaModelChoices(state,'image');
   const defaultProfile = activeMediaProfile(state, 'image');
-  const [profileId, setProfileId] = useState(defaultProfile?.id || imageProfiles[0]?.id || '');
+  const [profileId,setProfileId,profile]=useWindowModel(`asset-image:${project.id}:${asset.id}`,imageProfiles,imageProfiles.find(p=>p.profileId===defaultProfile?.id&&p.model===defaultProfile?.model)?.id);
   const [size, setSize] = useState(IMAGE_FORMATS[0].size);
   const [refId, setRefId] = useState('');
-  const profile = imageProfiles.find((p) => p.id === profileId) || defaultProfile;
   const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.length)), [assets, asset.name]);
   const refAsset = mates.find((m) => m.id === refId) || null;
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
@@ -223,7 +206,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
       }
       else {
-        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
+        const generated = await api.mediaGenerateImage({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
         const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
         await refresh();
         return attached;
@@ -269,6 +252,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
  * 每行资产工作区：身份信息 → 描述编辑 → 生图框
  * ================================================================ */
 function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, draftStore }) {
+  const [revisionModelId,setRevisionModelId,revisionProfile]=useWindowModel(`asset-revision:${project.id}:${asset.id}`,state.apiProfiles||[],state.activeApiId);
   const prefixed = asset.description ?? '';
   const [draft, setDraft] = useState(() => draftStore.read(project.id, asset.id)?.content ?? prefixed);
   const draftRef = useRef(draft);
@@ -328,12 +312,12 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
 
   const modifyPrompt = async () => {
     if (!canEdit || !instruction.trim() || modifying) return;
-    const profile = (state.apiProfiles || []).find((item) => item.id === state.activeApiId) || (state.apiProfiles || [])[0];
+    const profile=revisionProfile;
     if (!profile) { setModifyError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
     setModifying(true); setModifyError('');
     try {
       const messages = buildAssetRevisionMessages({ instruction, originalContent: promptSettings.content, category: asset.category });
-      const output = await api.aiChat({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
+      const output = await api.aiChat({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
       const nextDescription = String(output || '').trim();
       if (!nextDescription) throw new Error('模型没有返回新的提示词');
       editContent(nextDescription); setModifyOpen(false); setInstruction('');
@@ -364,7 +348,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
       <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} />
       {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
-          <h2>AI 修改提示词</h2>
+          <h2>AI 修改提示词</h2><ModelSelect profiles={state.apiProfiles||[]} value={revisionModelId} onChange={setRevisionModelId} disabled={modifying} label="修改提示词模型"/>
           <label>当前提示词</label>
           <textarea className="modify-original-content" value={promptSettings.content} readOnly />
           <label>修改意见</label>
@@ -482,6 +466,8 @@ function AssetQuickNav({ entries, locator, rail = false }) {
  * 美术：按集分框 → 人物/场景/道具 → 资产列表+描述+生图
  * ================================================================ */
 function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore }) {
+  const batchProfiles=mediaModelChoices(state,'image');
+  const [batchProfileId,setBatchProfileId,batchProfile]=useWindowModel(`batch-image:${project.id}`,batchProfiles);
   const [episode, setEpisode] = useState(null);
   const [category, setCategory] = useState('character');
   const [search, setSearch] = useState('');
@@ -506,7 +492,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
+      const generated = await api.mediaGenerateImage({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
       return attached;
@@ -516,7 +502,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
     }
   }, [api, project.id, refresh]);
   const generateBatch = async () => {
-    const profile = activeMediaProfile(state, 'image');
+    const profile=batchProfile;
     const jobs = buildAssetGenerationJobs(assets, episode, ['character', 'scene', 'prop']).filter((asset) => batchSelectedIds.includes(asset.id) && !generatingAssetIdsRef.current.has(asset.id));
     if (!profile || !jobs.length || batchBusy || !canEdit) return;
     setBatchBusy(true);
@@ -529,7 +515,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
           await draftStore.save(api, project.id, asset.id, draft.content);
           asset = { ...asset, description: draft.content };
         }
-        const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style), size: batchSize });
+        const generated = await api.mediaGenerateImage({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style), size: batchSize });
         if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
       }));
       const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].name}：${result.reason?.message || '生成失败'}`] : []);
@@ -583,7 +569,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
             <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{label}</button>
           ))}
         </div></div>
-        <div className="collab-art-head-right"><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{IMAGE_FORMATS.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
+        <div className="collab-art-head-right"><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{IMAGE_FORMATS.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(batchSelectedIds.length === episodeJobs.length ? [] : episodeJobs.map((asset) => asset.id))}>{batchSelectedIds.length === episodeJobs.length ? '取消全选' : '全选本集'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
       </div>
       {exportError && <div className="collab-error">{exportError}</div>}
       <div className="art-workbench-subhead"><span>{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项</span><AssetQuickNav entries={locations} locator={locator} /><input type="search" aria-label="搜索本集资产" placeholder="搜索资产名称" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
@@ -616,7 +602,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await api.mediaGenerateImage({ protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
+      const generated = await api.mediaGenerateImage({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       await refresh();
       return attached;

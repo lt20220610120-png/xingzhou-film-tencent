@@ -3,7 +3,7 @@ const { verifyPassword, hashPassword } = require('./password.cjs');
 const { digestInvite, inviteUsable, rolesForInvite, normalizeInviteCode } = require('./invites.cjs');
 const { hashEmailCode, generateEmailCode, codeExpiry, emailCodeValid } = require('./email-code.cjs');
 
-const publicAccount = (row) => ({ id: row.id, username: row.username, display_name: row.display_name || row.username, email: row.email || '', roles: row.roles || [], active_role: row.active_role || row.roles?.[0] || 'creator', is_admin: row.is_admin === true, is_producer: row.is_producer === true, banned: row.banned === true, created_at: row.created_at });
+const publicAccount = (row) => ({ id: row.id, username: row.username, display_name: row.display_name || row.username, email: row.email || '', avatar_data:row.avatar_data||'',bio:row.bio||'',profile_tags:row.profile_tags||[], roles: row.roles || [], active_role: row.active_role || row.roles?.[0] || 'creator', is_admin: row.is_admin === true, is_producer: row.is_producer === true, banned: row.banned === true, created_at: row.created_at });
 const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const newToken = () => crypto.randomUUID() + '-' + crypto.randomUUID();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

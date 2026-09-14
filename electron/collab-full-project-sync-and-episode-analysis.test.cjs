@@ -19,8 +19,8 @@ test('美术分析按导演分集逐集调用同一模型会话并聚合完整�
   const ui = read('src/v06/CollabWorkspace.jsx');
   const skill = read('core/collabArtSkill.js');
   assert.match(ui, /buildEpisodeAnalysisMessages/);
-  assert.match(ui, /for \(const \[index, episode\] of analysisEpisodes\.entries\(\)\)/);
-  assert.match(ui, /conversationHistory/);
+  assert.match(ui, /runArtAnalysis/);
+  assert.match(read('core/artAnalysisRunner.js'), /await save\(ledger\)/);
   assert.match(skill, /buildEpisodeAnalysisMessages/);
   assert.match(skill, /第\$\{episodeNumber\}集/);
 });
@@ -38,10 +38,10 @@ test('美术界面的集数以协作项目完整分集为下限，不因某集�
   assert.match(ui, /episodeNumbersFromAssets\(assets\)/);
 });
 
-test('同步更新剧本后只有再次分析才替换美术与资产', () => {
+test('同步不改美术资产；分析按集增量合并，保留已有图片与编辑', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
   const sync = ui.match(/const applyDirectorPrompts[\s\S]*?const syncDirectorPrompts/)?.[0] || '';
   const analysis = ui.match(/const runAnalysis[\s\S]*?return \(/)?.[0] || '';
   assert.doesNotMatch(sync, /collabReplaceAssets/);
-  assert.match(analysis, /collabReplaceAssets/);
+  assert.match(analysis,/runArtAnalysis/);assert.doesNotMatch(analysis,/collabReplaceAssets/);
 });

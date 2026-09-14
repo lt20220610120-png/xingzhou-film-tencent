@@ -17,10 +17,10 @@ test('无需密钥的本地兼容服务允许测试和保存',()=>{
  assert.match(source,/requiresApiKey: initial\.requiresApiKey/);
 });
 
-test('项目AI助手直接使用API接口页当前启用的配置',()=>{
+test('项目AI助手独立选择已保存接口，默认仅用于初始化',()=>{
  const source=app();
  assert.match(source,/function AiDrawer\(\{[^{]*state/);
- assert.match(source,/state\.apiProfiles\?\.find\(\(p\) => p\.id === state\.activeApiId\)/);
+ assert.match(source,/useWindowModel/);assert.match(source,/const config=drawerProfile/);
  assert.doesNotMatch(source,/localStorage\.getItem\('xz-ai-config'\)/);
 });
 

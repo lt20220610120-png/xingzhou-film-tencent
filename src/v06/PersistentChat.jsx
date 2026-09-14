@@ -1,3 +1,4 @@
+import {ModelSelect} from './ModelSelect.jsx';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Bot, Plus, X, MessageSquare, Sparkles, Pin, PinOff,
@@ -42,36 +43,28 @@ function SessionRow({ item, active, setState, setTarget }) {
  * 右侧：用户指令快速导航
  */
 export function PersistentChat({ open, onClose, state, setState, api, attachment }) {
-  const [input, setInput] = useState('');
+  const [inputs,setInputs]=useState({});
   const [skillId, setSkillId] = useState(() => {
     // 默认使用上次使用的 Skill
     try {
       return localStorage.getItem(LAST_USED_SKILL_KEY) || '';
     } catch { return ''; }
   });
-  const [sending, setSending] = useState(false);
+  const [busySessions,setBusySessions]=useState({});const sendingRef=useRef(new Set());
   const [deleteTarget, setDeleteTarget] = useState(null);
   const msgRefs = useRef({});
-
-  // 从 localStorage 读取共享的 API 配置作为后备
-  const getSharedApiProfile = () => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(API_STORAGE_KEY));
-      if (stored && stored.endpoint) return stored;
-    } catch {}
-    return null;
-  };
-
-  // 优先使用 state 中的 activeApi，其次使用 localStorage 中的配置
-  const activeApiProfile = state.apiProfiles?.find((p) => p.id === state.activeApiId)
-    || getSharedApiProfile()
-    || state.apiProfiles?.[0];
 
   const sessions = [...(state.chatSessions || [])].sort(
     (a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.updatedAt) - new Date(a.updatedAt)
   );
   const activeSession = sessions.find((s) => s.id === state.activeChatId) || sessions[0];
 
+  const profileId=activeSession?.profileId;
+  const activeApiProfile=state.apiProfiles?.find(p=>p.id===profileId);
+  const input=inputs[activeSession?.id]||'';
+  const setInput=text=>setInputs(values=>({...values,[activeSession?.id]:text}));
+  const sending=Boolean(busySessions[activeSession?.id]);
+  useEffect(()=>{if(activeSession&&!activeSession.profileId){const id=state.activeApiId||state.apiProfiles?.[0]?.id;if(id)setState(s=>({...s,chatSessions:s.chatSessions.map(c=>c.id===activeSession.id?{...c,profileId:id}:c)}));}},[activeSession?.id,activeSession?.profileId,state.apiProfiles?.length]);
   // 自动创建会话
   useEffect(() => {
     if (open && !activeSession) {
@@ -85,7 +78,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
 
   const sendMessage = async () => {
     const text = input.trim();
-    if (!text || sending || !activeSession) return;
+    if (!text || !activeSession || sendingRef.current.has(activeSession.id)) return;
 
     if (!activeApiProfile) {
       setState((s) => addChatMessage(s, activeSession.id, 'assistant', '请先到左侧"API 接口"或"设置"连接并选择一个语言模型。'));
@@ -110,7 +103,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
     // 添加用户消息
     setState((s) => addChatMessage(s, activeSession.id, 'user', text));
     setInput('');
-    setSending(true);
+    sendingRef.current.add(activeSession.id);setBusySessions(v=>({...v,[activeSession.id]:true}));
 
     try {
       const apiCfg = activeApiProfile.apiKey !== undefined ? activeApiProfile : { ...activeApiProfile };
@@ -122,7 +115,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
             afterUserMessages: attachmentContent ? [{ role: 'user', content: attachmentContent }] : [],
           })).output
         : await api.aiChat({
-            protocol: apiCfg.protocol, provider: apiCfg.provider, requiresApiKey: apiCfg.requiresApiKey, endpoint: apiCfg.endpoint, model: apiCfg.model, apiKey: apiCfg.apiKey,
+            profileId:apiCfg.id,protocol: apiCfg.protocol, provider: apiCfg.provider, requiresApiKey: apiCfg.requiresApiKey, endpoint: apiCfg.endpoint, model: apiCfg.model, apiKey: apiCfg.apiKey,
             messages: [...history, { role: 'user', content: text }, ...(attachmentContent ? [{ role: 'user', content: attachmentContent }] : [])],
           });
 
@@ -130,7 +123,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
     } catch (e) {
       setState((s) => addMessageToSession(s, activeSession.id, 'assistant', `连接失败：${e.message}`));
     } finally {
-      setSending(false);
+      sendingRef.current.delete(activeSession.id);setBusySessions(v=>({...v,[activeSession.id]:false}));
     }
   };
 
@@ -198,6 +191,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
               </small>
             </span>
           </div>
+          <ModelSelect profiles={state.apiProfiles||[]} value={profileId} disabled={sending} label="当前会话模型" onChange={id=>setState(s=>({...s,chatSessions:s.chatSessions.map(c=>c.id===activeSession.id?{...c,profileId:id}:c)}))}/>
           <button onClick={onClose}><X size={18} /></button>
         </header>
 

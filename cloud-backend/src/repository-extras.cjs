@@ -16,6 +16,7 @@ function extendRepository(pool) {
   const isOwner = async (pid, uid) => Boolean(await one('select 1 as ok from collab_projects where id=$1 and owner_id=$2 limit 1', [pid, uid]));
 
   return {
+    ...require('./analysis-repository.cjs').analysisRepository(pool),
     async createDirectorProject(p, uid, ownerName) {
       const genre = String(p.genre || '') + '\n' + DIRECTOR_SENTINEL;
       const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,analysis_output) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';

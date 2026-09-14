@@ -79,6 +79,11 @@ async function handleAction(action, payload, user, repo, signer = null) {
     return ok(await Promise.all(collabOnly.map((row) => attachRole(row, user, repo))));
   }
   if (action === 'project-get') { const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
+  if (action === 'analysis-publish'){
+    if(await roleOf(projectId,user,repo)!=='producer')return DENY;
+    try{const saved=await repo.publishAnalysis(projectId,payload,user.id);return saved?ok(await attachRole(saved,user,repo)):DENY;}
+    catch(e){if(e.status)return {status:e.status,body:{error:e.message}};throw e;}
+  }
   if (action === 'storyboard-patch') {
     if(await repo.isProjectLocked(projectId))return LOCKED;
     const role=await roleOf(projectId,user,repo);

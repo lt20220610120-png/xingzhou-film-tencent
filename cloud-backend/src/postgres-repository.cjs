@@ -4,14 +4,15 @@ const { extendRepository } = require('./repository-extras.cjs');
 
 function createRepository(databaseUrl, deps = {}) {
   const pool = deps.pool || new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000 });
-  const select = 'id, username, display_name, email, roles, active_role, is_admin, is_producer, banned, created_at, password_hash';
+  const select = 'id, username, display_name, email, roles, active_role, is_admin, is_producer, banned, created_at, avatar_data, bio, profile_tags, password_hash';
   return {
+    async updateProfile(id,p){const r=await pool.query('update app_users set display_name=$2,bio=$3,profile_tags=$4,avatar_data=$5,updated_at=now() where id=$1 returning '+select,[id,p.displayName,p.bio,p.tags,p.avatar]);return r.rows[0]||null;},
     async findUser(username) { const r = await pool.query(`select ${select} from app_users where username=$1 limit 1`, [username]); return r.rows[0] || null; },
     async findEmail(email) { const r = await pool.query('select id from app_users where email=$1 limit 1', [email]); return r.rows[0] || null; },
     async countUsers() { const r = await pool.query('select count(*)::int as count from app_users'); return r.rows[0].count; },
     async createUser(input) { const r = await pool.query("insert into app_users (username,display_name,email,password_hash,roles,active_role,is_admin,is_producer) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id,username,display_name,email,roles,active_role,is_admin,is_producer,banned,created_at,password_hash", [input.username,input.displayName,input.email,input.passwordHash,input.roles||[input.role],input.activeRole||input.role,input.isAdmin,input.isProducer]); return r.rows[0]; },
     async createSession(userId, rawToken) { await pool.query("insert into app_sessions (user_id,token_hash,expires_at) values ($1,$2,now()+interval '7 days')", [userId, crypto.createHash('sha256').update(rawToken).digest('hex')]); return rawToken; },
-    async findBySession(hash) { const r = await pool.query(`select u.id as id, u.username, u.display_name, u.email, u.roles, u.active_role, u.is_admin, u.is_producer, u.banned, u.created_at, u.password_hash from app_users u join app_sessions s on s.user_id=u.id where s.token_hash=$1 and s.expires_at>now() limit 1`, [hash]); return r.rows[0] || null; },
+    async findBySession(hash) { const r = await pool.query(`select u.id as id, u.username, u.display_name, u.email, u.roles, u.active_role, u.is_admin, u.is_producer, u.banned, u.created_at,u.avatar_data,u.bio,u.profile_tags, u.password_hash from app_users u join app_sessions s on s.user_id=u.id where s.token_hash=$1 and s.expires_at>now() limit 1`, [hash]); return r.rows[0] || null; },
     async deleteSession(hash) { await pool.query('delete from app_sessions where token_hash=$1', [hash]); return true; },
     async updatePassword(userId, passwordHash) { await pool.query('update app_users set password_hash=$1, updated_at=now() where id=$2', [passwordHash, userId]); return true; },
     async addRole(userId, role) { const r = await pool.query(`update app_users set roles = (select array_agg(distinct x) from unnest(roles || $1::text[]) x), updated_at=now() where id=$2 returning ${select}`, [[role], userId]); return r.rows[0] || null; },

@@ -378,7 +378,7 @@ export function ApiLibrary({ state, setState }) {
   };
   return <div className="resource-page api-library">
     <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1><p>为文本、图片和视频分别选择默认接口，所有创作工作区共用。</p></div><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></header>
-    <nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
+    <p className="api-parallel-note">所有已保存接口均可独立调用；默认仅用于新窗口。各会话、分镜和资产的选择互不影响。</p><nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
     <div className="api-list-toolbar"><span>{all.length} 个配置 · {all.find(p => p.id === activeId)?.name ? `默认：${all.find(p => p.id === activeId).name}` : '尚未设置默认接口'}</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>
       <div className="api-connection-icon">{activeApiKind === 'chat' ? <Bot size={22}/> : activeApiKind === 'image' ? <ImageIcon size={22}/> : <Video size={22}/>}</div>

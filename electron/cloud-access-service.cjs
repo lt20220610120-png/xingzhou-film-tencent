@@ -48,7 +48,7 @@ async function gateway(action, payload = {}, token = '', options = {}) {
 }
 const publicAccount = (row) => row ? ({
   id: row.id, username: row.username, displayName: row.display_name || row.username,
-  email: row.email, roles: row.roles || [], activeRole: row.active_role || row.roles?.[0] || 'creator',
+  email: row.email,avatarData:row.avatar_data||'',bio:row.bio||'',tags:row.profile_tags||[], roles: row.roles || [], activeRole: row.active_role || row.roles?.[0] || 'creator',
   isAdmin: row.is_admin === true, isProducer: row.is_producer === true,
   banned: row.banned === true, createdAt: row.created_at,
 }) : null;
@@ -74,6 +74,7 @@ function createCloudAccessService(userDataDir) {
         return null;
       }
     },
+    async updateProfile(payload){const r=await gateway('profile-update',payload,token());const account=publicAccount(r.account);writeSession({...readSession(),account});return account;},
     async login(payload) { const r = await gateway('login', payload); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
     async logout() { const s = readSession(); if (s?.token) await gateway('logout', {}, s.token).catch(() => {}); clearSession(); return true; },
     async sendEmailCode(payload) { return gateway('send-email-code', payload); },

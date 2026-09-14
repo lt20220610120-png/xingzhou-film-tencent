@@ -1,0 +1,3 @@
+/* The hover card is informational; it must not cover nearby navigation. */
+.account-hover-card { pointer-events: none; }
+.account-hover-card button { pointer-events: auto; }

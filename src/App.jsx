@@ -1,3 +1,5 @@
+import {UserProfile} from './v06/UserProfile.jsx';
+import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
 import React, { useState, useEffect, useRef } from 'react';
@@ -330,10 +332,8 @@ function SkillRunner({ skills, state, api, value, onSelect, input, title, onResu
  * AiDrawer - AI 创作助手抽屉
  * ================================================================ */
 function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, skills }) {
-  const activeApiProfile = state.apiProfiles?.find((p) => p.id === state.activeApiId)
-    || state.apiProfiles?.[0]
-    || { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '' };
-  const [config, setConfig] = useState(activeApiProfile);
+  const [drawerModelId,setDrawerModelId,drawerProfile]=useWindowModel(`drawer:${project?.id}:${episodeId||kind}`,state.apiProfiles||[],state.activeApiId);
+  const config=drawerProfile||{};
   const [scope, setScope] = useState('episode'); // 'project' | 'episode' | 'range' | 'multi'
   const [rangeStart, setRangeStart] = useState(0);
   const [rangeEnd, setRangeEnd] = useState(0);
@@ -392,7 +392,7 @@ function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, ski
   };
 
   const updateConfig = (patch) => {
-    setConfig((current) => ({ ...current, ...patch }));
+    // Connections are edited in the API library; this drawer selects one.
   };
 
   const toggleMultiSelect = (idx) => {
@@ -516,18 +516,7 @@ function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, ski
           </div>
         )}
 
-        <button className="config-toggle" onClick={() => setShowConfig(!showConfig)}>
-          <Settings size={15} /> API 设置
-        </button>
-
-        {showConfig && (
-          <div className="api-settings">
-            <label>接口地址 <input value={config.endpoint} onChange={(e) => updateConfig({ endpoint: e.target.value })} /></label>
-            <label>模型 <input value={config.model} onChange={(e) => updateConfig({ model: e.target.value })} /></label>
-            <label>API Key <input type="password" value={config.apiKey} onChange={(e) => updateConfig({ apiKey: e.target.value })} /></label>
-            <p>支持 OpenAI 兼容的 Chat Completions 接口。</p>
-          </div>
-        )}
+        <ModelSelect profiles={state.apiProfiles||[]} value={drawerModelId} onChange={setDrawerModelId} disabled={loading} label="当前编辑窗口模型"/>
       </aside>
     </div>
   );
@@ -1359,7 +1348,7 @@ function App() {
       {/* 侧边导航栏 */}
       <nav className="sidebar" id="app-sidebar">
         <BrandLogo compact />
-        <div className="nav-label">{role === 'director' ? '导演' : '内容创作者'}</div>
+        <UserProfile account={account} api={api} onUpdate={setAccount} role={role}/>
         {navItems.map(([key, Icon, label]) => (
           <button key={key} aria-label={label} title={label} className={nav === key ? 'active' : ''} onClick={() => setNav(key)}>
             <Icon size={19} />

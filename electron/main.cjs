@@ -61,10 +61,14 @@ const activeAiRequests=new Map();
 ipcMain.handle('ai-chat',async(_,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
- try{return await requestChat({...payload,signal:controller.signal})}
- catch(error){if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
+ try{const output=await requestChat({...payload,signal:controller.signal});return payload.resultEnvelope?{ok:true,output}:output}
+ catch(error){if(payload.resultEnvelope)return {ok:false,error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
  finally{if(taskId&&activeAiRequests.get(taskId)===controller)activeAiRequests.delete(taskId)}
 });
+const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');
+ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
+ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
+ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
 ipcMain.handle('test-ai-connection',async(_,_config)=>testAiConnection(_config));
 ipcMain.handle('app-version',()=>app.getVersion());
@@ -73,6 +77,14 @@ let downloadedInstaller=null,activeDownload=null;
 ipcMain.handle('download-update',async(event,{url,version})=>{if(activeDownload)return activeDownload;const dir=ensureDir(path.join(app.getPath('userData'),'updates'));activeDownload=downloadInstaller({url,version,destinationDir:dir,onProgress:p=>{if(!event.sender.isDestroyed())event.sender.send('update-progress',p)}}).then(filePath=>(downloadedInstaller=filePath,{filePath})).finally(()=>{activeDownload=null});return activeDownload});
 ipcMain.handle('install-update',async()=>{if(!downloadedInstaller||!fs.existsSync(downloadedInstaller))throw new Error('尚未下载更新安装包');const buf=Buffer.alloc(2);const fd=fs.openSync(downloadedInstaller,'r');fs.readSync(fd,buf,0,2,0);fs.closeSync(fd);if(buf[0]!==0x4d||buf[1]!==0x5a){const target=path.join(path.dirname(__dirname),'resources','app.asar');const backup=target+'.bak';if(fs.existsSync(target)){if(fs.existsSync(backup))fs.unlinkSync(backup);fs.copyFileSync(target,backup)}fs.copyFileSync(downloadedInstaller,target);setTimeout(()=>app.quit(),500);return true}const child=spawn(downloadedInstaller,['/S'],{detached:true,stdio:'ignore',windowsHide:false});child.unref();setTimeout(()=>app.quit(),350);return true});
 ipcMain.handle('open-external',(_,url)=>shell.openExternal(url));
+ipcMain.handle('auth-update-profile',(_,p)=>accessService.updateProfile(p));
+ipcMain.handle('select-profile-avatar',async()=>{
+ const result=await dialog.showOpenDialog({title:'选择个人头像',properties:['openFile'],filters:[{name:'头像图片',extensions:['png','jpg','jpeg','webp']}]});
+ if(result.canceled||!result.filePaths[0])return null;
+ const image=await require('electron').nativeImage.createThumbnailFromPath(result.filePaths[0],{width:256,height:256});
+ if(image.isEmpty())throw new Error('无法读取该图片');
+ const data='data:image/jpeg;base64,'+image.toJPEG(85).toString('base64');if(data.length>240000)throw new Error('头像文件过大，请选择较小图片');return data;
+});
 ipcMain.handle('auth-session',()=>accessService.session());
 ipcMain.handle('auth-register',(_,payload)=>accessService.register(payload));
 ipcMain.handle('auth-login',(_,payload)=>accessService.login(payload));
