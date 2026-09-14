@@ -11,6 +11,9 @@ test('公开配置提供多个候选端点，且含 IP 兜底', () => {
   assert.ok(cfg.ENDPOINTS.length >= 2, '至少要有主端点与兜底端点');
   assert.ok(cfg.gatewayUrls().every((u) => u.endsWith('/api/gateway')));
   assert.ok(cfg.ENDPOINTS.some((u) => /\d+\.\d+\.\d+\.\d+/.test(u)), '必须有 IP 兜底端点');
+  assert.ok(cfg.ENDPOINTS.every((u) => u.startsWith('https://')), '所有端点都必须使用 HTTPS');
+  assert.equal(cfg.IP_TLS_CERT_FINGERPRINT.length, 64, 'IP 备用证书必须固定指纹');
+  assert.match(fs.readFileSync(path.join(__dirname, cfg.IP_TLS_CA_FILE), 'utf8'), /BEGIN CERTIFICATE/);
 });
 
 test('gateway 在首个端点网络失败时自动回退到下一个端点', async () => {

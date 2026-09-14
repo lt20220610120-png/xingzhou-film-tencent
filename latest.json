@@ -1,7 +1,7 @@
 {
-  "version": "2.2.3",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.3/Xingzhou-Film-Tencent-Setup-2.2.3.exe",
-  "notes": "分析结果分集分段保存并支持中断续跑，云端同步失败不会重复付费；多接口多模型按窗口独立调用；新增账号头像与资料编辑；修复行舟 AI 消息文字对比度；美术清单 v4 运行时规范与旧资产兼容。",
-  "sha256": "470c9ef2a60fd1048df74559cfdb0b52788df7077f0e40cce1d2a95ac78465d4",
-  "size": 102198811
+  "version": "2.2.4",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.4/Xingzhou-Film-Tencent-Setup-2.2.4.exe",
+  "notes": "修复域名 TLS 被网络重置时无法登录的问题：新增固定证书的 HTTPS IP 备用入口，自动探活并安全回退；不再使用明文 HTTP，云端服务健康检查保持可用。",
+  "sha256": "5881c1b1bae8ad6203a93faea4a60b35088218ef34d1784ca8d735fc6df6a6d7",
+  "size": 102193969
 }

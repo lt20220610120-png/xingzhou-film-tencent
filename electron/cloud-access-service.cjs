@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { EDGE_FUNCTION_URL, gatewayUrls } = require('./cloud-config.public.cjs');
+const https = require('node:https');
+const { EDGE_FUNCTION_URL, gatewayUrls, IP_TLS_CA_FILE, IP_TLS_CERT_FINGERPRINT } = require('./cloud-config.public.cjs');
 
 const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
 
@@ -17,6 +18,71 @@ const isNetworkFailure = (error) => {
 // Retry reads and idempotent storyboard writes only; ambiguous general writes
 // must be checked by the caller rather than silently repeated.
 const retryableAction = (action, payload) => /(?:-list|-get)$/.test(action) || ['session','project-list','assets-list','members-list','messages-list','media-list','is-producer'].includes(action) || (action==='storyboard-patch' && Boolean(payload.shotId));
+const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
+const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
+
+// The fallback endpoint uses a dedicated certificate because some networks reset
+// xingzhoufilm.cn before the request reaches Nginx.  Keep the certificate public,
+// pinned, and bundled with the app; no TLS verification is disabled globally.
+let pinnedCa = null;
+try { pinnedCa = fs.readFileSync(path.join(__dirname, IP_TLS_CA_FILE), 'utf8'); } catch { /* source-only tests or a damaged package */ }
+function requestPinnedHttps(url, init = {}) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try { parsed = new URL(url); } catch (error) { reject(error); return; }
+    if (!pinnedCa) { reject(Object.assign(new Error('云端备用证书缺失，请更新行舟影视'), { code: 'CERT_PIN_MISSING' })); return; }
+    const headers = { ...(init.headers || {}) };
+    const body = init.body == null ? '' : String(init.body);
+    const request = https.request({
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: init.method || 'GET',
+      headers,
+      ca: pinnedCa,
+      // An empty SNI is intentional: the fallback certificate is for the IP.
+      servername: '',
+      rejectUnauthorized: true,
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          ok: response.statusCode >= 200 && response.statusCode < 300,
+          status: response.statusCode || 0,
+          text: async () => text,
+        });
+      });
+    });
+    const abort = () => request.destroy(Object.assign(new Error('aborted'), { code: 'ABORT_ERR' }));
+    if (init.signal) {
+      if (init.signal.aborted) { abort(); return; }
+      init.signal.addEventListener('abort', abort, { once: true });
+      request.once('close', () => init.signal.removeEventListener('abort', abort));
+    }
+    request.once('socket', (socket) => socket.once('secureConnect', () => {
+      const certificate = socket.getPeerCertificate();
+      if (normalizedFingerprint(certificate.fingerprint256) !== normalizedFingerprint(IP_TLS_CERT_FINGERPRINT)) {
+        request.destroy(Object.assign(new Error('云端备用证书校验失败'), { code: 'CERT_PIN_MISMATCH' }));
+      }
+    }));
+    request.on('error', reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
+async function requestGateway(url, init) {
+  try { return await fetch(url, init); } catch (error) {
+    // Tests and future builds may provide a working fetch implementation. Only
+    // use the native pinned transport after the normal request fails on the IP.
+    const tlsFailure = /CERT|TLS|certificate|SELF_SIGNED|UNABLE_TO_VERIFY|ALTNAME/i.test(String(error?.message || '') + String(error?.cause?.code || error?.code || ''));
+    if (isPinnedIpUrl(url) && tlsFailure) {
+      return requestPinnedHttps(url, init);
+    }
+    throw error;
+  }
+}
 async function gateway(action, payload = {}, token = '', options = {}) {
   const retryable=retryableAction(action,payload),timeoutMs=options.timeoutMs || 8000;
   const urls=orderedUrls(),attempts=retryable?[...urls,urls.at(-1)]:urls;
@@ -25,7 +91,7 @@ async function gateway(action, payload = {}, token = '', options = {}) {
     let response,timer;
     try {
       const pending=(async()=>{
-        response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
+        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,transient:[502,503,504].includes(response.status)});
@@ -34,7 +100,7 @@ async function gateway(action, payload = {}, token = '', options = {}) {
       const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},timeoutMs);});
       return await Promise.race([pending,deadline]);
     } catch(error) {
-      const network=error.timeout||isNetworkFailure(error)||/terminated|aborted/i.test(error.message);
+      const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));
       if(!network&&!error.transient)throw error;
       if(activeUrl===url)activeUrl=null;
       // A connection reset before any response may be a blocked hostname.
