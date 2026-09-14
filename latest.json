@@ -1,7 +1,7 @@
 {
-  "version": "2.2.1",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.1/Xingzhou-Film-Tencent-Setup-2.2.1.exe",
-  "notes": "修复添加接口无反应，飞拓 Key 保存一次即可切换全部模型；修复旧项目创建分镜与切集跳转，兼容导演和协作旧标识；移除重复刷新与关联入口，美化分集导航；图片、音频和视频支持批量导入。",
-  "sha256": "c380f3cc143395f574d762302df2c442da79c6e7e891a50b77c04b61f35f8c71",
-  "size": 102150764
+  "version": "2.2.2",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.2/Xingzhou-Film-Tencent-Setup-2.2.2.exe",
+  "notes": "优化分镜创建、保存与云端连接，增加超时重试及重新连接；分镜支持确认删除并防止刷新后重新出现；只在场景末尾保留统一大小的创建按钮；内置剧本美术清单升级 v4，兼容旧清单及资产读取。",
+  "sha256": "6cd9cea9f4e0c765ec8d01dfcfeb6bca4075cf6c103a7b3032d3c1a62013d4f6",
+  "size": 102191812
 }
