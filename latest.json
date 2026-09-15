@@ -1,7 +1,7 @@
 {
-  "version": "2.2.5",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.5/Xingzhou-Film-Tencent-Setup-2.2.5.exe",
-  "notes": "修复大项目云端传输超时；分析结果先保存本机，云端失败可免重复调用补传；分集与工作台切换不影响并发生成，各窗口独立使用所选模型；完善美术清单 v4.1 面容妆发与服装细节；修复头像浮层、批量生图栏及场景列表排版；仅自动清理过期云端快照。",
-  "sha256": "e593517d72ec3434fe8085d07ee0e6a6761f725641906293f52d99f040e7ccac",
-  "size": 102209198
+  "version": "2.2.6",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.6/Xingzhou-Film-Tencent-Setup-2.2.6.exe",
+  "notes": "修复资产总览妆造数量过多撑高编辑区的问题；服装、妆造列表独立滚动并与编辑框对齐，避免大片空白。",
+  "sha256": "a729edade640dff8e733c55caef9f7419315ac1b84bee28353f75f7f3e28b89a",
+  "size": 102201671
 }

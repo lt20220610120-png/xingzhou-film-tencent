@@ -219,8 +219,11 @@
 .art-quick-nav .asset-locator-items>button { flex:0 0 auto; width:auto; padding:6px 10px; background:#edf2fc; border-color:#dde6f7; }
 .art-quick-nav .asset-locator-copy { flex-direction:row; align-items:center; gap:7px; white-space:nowrap; }
 .art-quick-nav .asset-locator-copy>b { font-size:13px; }
-.art-workbench .character-outfit-picker { display:flex; flex-direction:column; gap:6px; width:100%; margin-top:10px; }
-.character-outfit-picker>button { display:flex; gap:7px; align-items:center; width:100%; min-width:0; padding:8px; border:1px solid #dce4ef; border-radius:7px; background:#fff; color:#4b607d; text-align:left; }
+/* Let the editor determine row height; outfits scroll within that same row. */
+.art-workbench .art-character-group .art-row-identity { contain:size; min-height:260px; }
+.art-workbench .art-character-group .art-row-identity > :not(.character-outfit-picker) { flex-shrink:0; }
+.art-workbench .character-outfit-picker { display:flex; flex-direction:column; gap:6px; width:100%; margin-top:10px; flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.character-outfit-picker>button { display:flex; flex-shrink:0; gap:7px; align-items:center; width:100%; min-width:0; padding:8px; border:1px solid #dce4ef; border-radius:7px; background:#fff; color:#4b607d; text-align:left; }
 .character-outfit-picker>button>span { font-size:12px; color:#697d9c; font-variant-numeric:tabular-nums; }
 .character-outfit-picker>button>b { font-size:13px; font-weight:550; line-height:1.5; overflow-wrap:anywhere; }
 .character-outfit-picker>button[aria-pressed="true"] { background:#e3eafa; border-color:#97afe2; color:#355c9d; box-shadow:inset 2px 0 #6d8dcf; }
@@ -230,7 +233,8 @@
   .asset-library-layout { grid-template-columns:145px minmax(0,1fr); gap:10px; }
 }
 @container (max-width: 690px) {
-  .art-workbench .character-outfit-picker { flex-direction:row; flex-wrap:wrap; flex-basis:100%; margin-top:0; }
+  .art-workbench .art-character-group .art-row-identity { contain:none; min-height:0; }
+  .art-workbench .character-outfit-picker { flex-direction:row; flex-wrap:wrap; flex-basis:100%; max-height:180px; margin-top:0; }
   .character-outfit-picker>button { width:auto; }
 }
 @container (max-width: 530px) {
