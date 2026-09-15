@@ -76,12 +76,15 @@ async function handleAction(action, payload, user, repo, signer = null) {
     // 只返回“协作项目”（非导演文档）；含回收站中的项目，客户端据 deleted_at 显示恢复入口。
     const rows = (await repo.listProjects(user.id)) || [];
     const collabOnly = rows.filter((row) => !String(row.genre || '').includes(DIRECTOR_SENTINEL));
-    return ok(await Promise.all(collabOnly.map((row) => attachRole(row, user, repo))));
+    const projects = await Promise.all(collabOnly.map((row) => attachRole(row, user, repo)));
+    return ok(payload.summary ? projects.map(({script, episodes, analysis_output, analysis_progress, ...row}) => ({
+      ...row, episodeCount: (episodes || []).length,
+    })) : projects);
   }
   if (action === 'project-get') { const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
   if (action === 'analysis-publish'){
     if(await roleOf(projectId,user,repo)!=='producer')return DENY;
-    try{const saved=await repo.publishAnalysis(projectId,payload,user.id);return saved?ok(await attachRole(saved,user,repo)):DENY;}
+    try{const saved=await repo.publishAnalysis(projectId,payload,user.id);return saved?ok(payload.ackOnly?{id:saved.id,updated_at:saved.updated_at,fingerprint:payload.fingerprint}:await attachRole(saved,user,repo)):DENY;}
     catch(e){if(e.status)return {status:e.status,body:{error:e.message}};throw e;}
   }
   if (action === 'storyboard-patch') {

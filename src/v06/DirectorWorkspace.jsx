@@ -1,7 +1,8 @@
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {threeWayMerge} from '../../core/threeWayMerge.js';
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useSyncExternalStore } from 'react';
+import { directorJobs } from '../../core/backgroundJobs.js';
 import { createPortal } from 'react-dom';
 import { readRemembered, useRememberedState } from '../useRememberedState.js';
 import {
@@ -216,15 +217,16 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       return state.skills?.some((skill) => skill.id === lastId) ? lastId : state.skills?.[0]?.id || '';
     } catch { return state.skills?.[0]?.id || ''; }
   });
-  const [running, setRunning] = useState(false);
+  useSyncExternalStore(directorJobs.subscribe, directorJobs.snapshot);
+  const jobPrefix = JSON.stringify([accountId,project.id,episode.id]);
+  const jobKey = label => `${jobPrefix}:${label}`;
+  const running = directorJobs.get(jobKey('whole'))?.status === 'running';
+  const setRunning = on => on ? directorJobs.start(jobKey('whole')) : directorJobs.get(jobKey('whole'))?.status === 'running' && directorJobs.finish(jobKey('whole'));
   // 并发生成：每个场景独立的运行状态，可同时对多个场景发起生成
-  const [runningScenes, setRunningScenes] = useState(() => new Set());
-  const markSceneRunning = (label, on) => setRunningScenes((current) => {
-    const next = new Set(current);
-    if (on) next.add(label); else next.delete(label);
-    return next;
-  });
-  const isSceneRunning = (label) => runningScenes.has(label);
+  const runningScenes = new Set(directorJobs.entries().filter(([key,job])=>key.startsWith(jobPrefix+':')&&job.status==='running').map(([key])=>key.slice(jobPrefix.length+1)));
+  const markSceneRunning = (label,on) => on ? directorJobs.start(jobKey(label),{model:directorProfile?.model}) : directorJobs.get(jobKey(label))?.status === 'running' && directorJobs.finish(jobKey(label));
+  const isSceneRunning = label => directorJobs.get(jobKey(label))?.status === 'running';
+  const generationErrors = directorJobs.entries().filter(([key,job])=>key.startsWith(jobPrefix+':')&&job.status==='failed');
   const sceneInputs = episode.quickSceneEdits || {};
   const saveQuickScene = (sceneLabel, content) => setState((s) => updateDirectorEpisode(s, project.id, episode.id, (current) => ({
     quickSceneEdits: { ...(current.quickSceneEdits || {}), [sceneLabel]: content },
@@ -259,7 +261,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
   // 运行 Skill 生成提示词（大模型先读取项目风格与画幅，再执行 Skill）
   const runSkill = async (inputText, title) => {
-    if (!inputText?.trim() || running || !currentSkill) return;
+    if (!inputText?.trim() || directorJobs.get(jobKey('whole'))?.status === 'running' || !currentSkill) return;
     setRunning(true);
     try {
       const skillId = currentSkill?.id;
@@ -280,6 +282,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         status: '已生成提示词',
       }), project.id, newPrompts));
     } catch (e) {
+      directorJobs.finish(jobKey('whole'),e.message || '生成失败');
       console.error('Skill 运行失败:', e);
     } finally {
       setRunning(false);
@@ -311,6 +314,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         lastUsedSkill: currentSkill?.name || '',
       }), project.id, newPrompts));
     } catch (error) {
+      directorJobs.finish(jobKey(sceneLabel),error.message || '生成失败');
       console.error('创造模式运行失败:', error);
     } finally {
       markSceneRunning(sceneLabel, false);
@@ -331,13 +335,13 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       const preamble = buildProjectPreamble(project);
       const tasks = buildNumberedSceneTasks(inputText, sceneLabel);
       // 并发向大模型发起各分段请求，读取输出后按编号排序
-      const results = await Promise.all(tasks.map(async (task) => {
+      const results = await Promise.allSettled(tasks.map(async (task) => {
         const taskInput = preamble ? `${preamble}\n\n${task.input}` : task.input;
         const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId, input: taskInput, assistantRole: '行舟影视导演提示词助手' });
         return { task, output: result.output };
       }));
       const generatedParts = [];
-      for (const { task, output } of results) {
+      for (const { value: { task, output } } of results.filter(result => result.status === 'fulfilled')) {
         const parsed = splitNumberedPromptOutput(output);
         if (parsed.length === 1) {
           const rawContent = parsed[0].content || output;
@@ -363,7 +367,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         status: '已生成提示词',
         lastUsedSkill: currentSkill?.name || '',
       }), project.id, newPrompts));
+      const failures = results.filter(result => result.status === 'rejected');
+      if (failures.length) throw new Error(`${failures.length} 段生成失败，成功的 ${results.length-failures.length} 段已保存。${failures[0].reason?.message || '请检查所选接口后重试失败段落'}`);
     } catch (e) {
+      directorJobs.finish(jobKey(sceneLabel),e.message || '生成失败');
       console.error('快速模式运行失败:', e);
     } finally {
       markSceneRunning(sceneLabel, false);
@@ -411,6 +418,8 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
   return (
     <main className="director-stage">
+      {runningScenes.size>0&&<div className="collab-notice" role="status">本集有 {runningScenes.size} 个任务正在生成，切换分集或工作台后会继续，结果自动保存。</div>}
+      {generationErrors.map(([key,job])=><div key={key} className="collab-error" role="alert">{key.slice(jobPrefix.length+1)}：{job.error}</div>)}
       {/* 头部 */}
       <header>
         <div className="eyebrow">

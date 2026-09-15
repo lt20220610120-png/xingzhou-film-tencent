@@ -1,3 +1,5 @@
 /* The hover card is informational; it must not cover nearby navigation. */
-.account-hover-card { pointer-events: none; }
+.account-hover-card { pointer-events: auto; }
 .account-hover-card button { pointer-events: auto; }
+.account-hover-portal { display:grid; gap:6px; position:fixed; z-index:12000; width:280px; box-sizing:border-box; max-height:250px; overflow:auto; }
+.account-hover-portal p { margin:4px 0; overflow-wrap:anywhere; }

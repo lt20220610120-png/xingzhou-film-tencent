@@ -1,7 +1,7 @@
 {
-  "version": "2.2.4",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.4/Xingzhou-Film-Tencent-Setup-2.2.4.exe",
-  "notes": "修复域名 TLS 被网络重置时无法登录的问题：新增固定证书的 HTTPS IP 备用入口，自动探活并安全回退；不再使用明文 HTTP，云端服务健康检查保持可用。",
-  "sha256": "5881c1b1bae8ad6203a93faea4a60b35088218ef34d1784ca8d735fc6df6a6d7",
-  "size": 102193969
+  "version": "2.2.5",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.5/Xingzhou-Film-Tencent-Setup-2.2.5.exe",
+  "notes": "修复大项目云端传输超时；分析结果先保存本机，云端失败可免重复调用补传；分集与工作台切换不影响并发生成，各窗口独立使用所选模型；完善美术清单 v4.1 面容妆发与服装细节；修复头像浮层、批量生图栏及场景列表排版；仅自动清理过期云端快照。",
+  "sha256": "e593517d72ec3434fe8085d07ee0e6a6761f725641906293f52d99f040e7ccac",
+  "size": 102209198
 }

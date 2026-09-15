@@ -1,4 +1,5 @@
 const http = require('node:http');
+const { gzip } = require('node:zlib');
 const { readConfig } = require('./config.cjs');
 const { createRepository } = require('./postgres-repository.cjs');
 const { createMailer } = require('./mailer.cjs');
@@ -26,8 +27,21 @@ function createServer(env = process.env, deps = {}) {
       request.on('data', (chunk) => { raw += chunk; });
       request.on('end', async () => {
         const send = (result) => {
-          response.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8' });
-          response.end(JSON.stringify(result.body));
+          const data = Buffer.from(JSON.stringify(result.body));
+          const finish = (body, compressed = false) => {
+            if (response.destroyed) return;
+            response.writeHead(result.status, {
+              'content-type': 'application/json; charset=utf-8',
+              'content-length': body.length,
+              'cache-control': 'no-store',
+              vary: 'Accept-Encoding',
+              ...(compressed ? { 'content-encoding': 'gzip' } : {}),
+            });
+            response.end(body);
+          };
+          if (data.length > 1024 && /\bgzip\b/.test(request.headers['accept-encoding'] || '')) {
+            gzip(data, (error, compressed) => finish(error ? data : compressed, !error));
+          } else finish(data);
         };
         let payload;
         try { payload = JSON.parse(raw || '{}'); } catch { return send({ status: 400, body: { error: 'invalid_json' } }); }

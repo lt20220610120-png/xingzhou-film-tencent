@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('node:https');
+const { gunzipSync, inflateSync, brotliDecompressSync } = require('node:zlib');
 const { EDGE_FUNCTION_URL, gatewayUrls, IP_TLS_CA_FILE, IP_TLS_CERT_FINGERPRINT } = require('./cloud-config.public.cjs');
 
 const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
@@ -17,7 +18,8 @@ const isNetworkFailure = (error) => {
 };
 // Retry reads and idempotent storyboard writes only; ambiguous general writes
 // must be checked by the caller rather than silently repeated.
-const retryableAction = (action, payload) => /(?:-list|-get)$/.test(action) || ['session','project-list','assets-list','members-list','messages-list','media-list','is-producer'].includes(action) || (action==='storyboard-patch' && Boolean(payload.shotId));
+const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer'].includes(action);
+const retryableAction = (action, payload) => readAction(action) || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
 
@@ -31,8 +33,9 @@ function requestPinnedHttps(url, init = {}) {
     let parsed;
     try { parsed = new URL(url); } catch (error) { reject(error); return; }
     if (!pinnedCa) { reject(Object.assign(new Error('云端备用证书缺失，请更新行舟影视'), { code: 'CERT_PIN_MISSING' })); return; }
-    const headers = { ...(init.headers || {}) };
+    const headers = { 'Accept-Encoding': 'gzip, deflate, br', ...(init.headers || {}) };
     const body = init.body == null ? '' : String(init.body);
+    if (body) headers['Content-Length'] = Buffer.byteLength(body);
     const request = https.request({
       hostname: parsed.hostname,
       port: parsed.port || 443,
@@ -45,9 +48,18 @@ function requestPinnedHttps(url, init = {}) {
       rejectUnauthorized: true,
     }, (response) => {
       const chunks = [];
+      response.on('aborted', () => reject(Object.assign(new Error('云端传输中断'), {code:'ECONNRESET'})));
+      response.on('error', reject);
       response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
       response.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
+        let data = Buffer.concat(chunks);
+        try {
+          const encoding = response.headers['content-encoding'];
+          if (encoding === 'gzip') data = gunzipSync(data);
+          if (encoding === 'deflate') data = inflateSync(data);
+          if (encoding === 'br') data = brotliDecompressSync(data);
+        } catch (error) { reject(error); return; }
+        const text = data.toString('utf8');
         resolve({
           ok: response.statusCode >= 200 && response.statusCode < 300,
           status: response.statusCode || 0,
@@ -83,8 +95,17 @@ async function requestGateway(url, init) {
     throw error;
   }
 }
-async function gateway(action, payload = {}, token = '', options = {}) {
-  const retryable=retryableAction(action,payload),timeoutMs=options.timeoutMs || 8000;
+const pendingReads = new Map();
+function gateway(action, payload = {}, token = '', options = {}) {
+  if (!readAction(action)) return performGateway(action,payload,token,options);
+  const key = JSON.stringify([action,payload,token,options.timeoutMs]);
+  if (pendingReads.has(key)) return pendingReads.get(key);
+  const pending = performGateway(action,payload,token,options).finally(() => pendingReads.delete(key));
+  pendingReads.set(key,pending);
+  return pending;
+}
+async function performGateway(action, payload = {}, token = '', options = {}) {
+  const retryable=retryableAction(action,payload),timeoutMs=options.timeoutMs || 30000;
   const urls=orderedUrls(),attempts=retryable?[...urls,urls.at(-1)]:urls;
   for(let index=0;index<attempts.length;index++){
     const url=attempts[index],controller=new AbortController();
@@ -94,6 +115,7 @@ async function gateway(action, payload = {}, token = '', options = {}) {
         response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
+        if (![502,503,504].includes(response.status)) activeUrl=url;
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,transient:[502,503,504].includes(response.status)});
         activeUrl=url;return data;
       })();

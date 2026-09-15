@@ -1,4 +1,5 @@
-import React,{useState,useEffect} from 'react';
+import React,{useState,useEffect,useRef} from 'react';
+import {createPortal} from 'react-dom';
 import {UserRound,Camera,PenLine,Copy} from 'lucide-react';
 import {Dialog} from './GlobalTools.jsx';
 import '../profile.css';
@@ -6,14 +7,18 @@ import '../profile-overrides.css';
 const tags=['制片','导演','美术','分镜','编剧','内容策划','配音','剪辑','发行'];
 export function UserProfile({account,api,onUpdate,role}){
  const [open,setOpen]=useState(false),[editing,setEditing]=useState(false),[draft,setDraft]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [hover,setHover]=useState(null),trigger=useRef(null),hideTimer=useRef(null);
+ const showHover=()=>{clearTimeout(hideTimer.current);const r=trigger.current?.getBoundingClientRect();if(r)setHover({left:Math.max(8,Math.min(r.left,window.innerWidth-292)),top:Math.max(8,Math.min(r.bottom+6,window.innerHeight-260))});};
+ const hideHover=()=>{hideTimer.current=setTimeout(()=>setHover(null),160);};
+ useEffect(()=>{const close=()=>setHover(null);const key=e=>{if(e.key==='Escape')close();};window.addEventListener('resize',close);window.addEventListener('scroll',close,true);window.addEventListener('keydown',key);return()=>{clearTimeout(hideTimer.current);window.removeEventListener('resize',close);window.removeEventListener('scroll',close,true);window.removeEventListener('keydown',key);};},[]);
  const begin=()=>{setDraft({displayName:account.displayName||account.username,bio:account.bio||'',tags:account.tags||[],avatarData:account.avatarData||''});setEditing(true);setError('');};
- const show=async()=>{setOpen(true);setError('');try{const latest=await api.authSession();if(latest)onUpdate(latest);}catch{}};
+ const show=async()=>{setHover(null);setOpen(true);setError('');try{const latest=await api.authSession();if(latest)onUpdate(latest);}catch{}};
  const avatar=(data,size)=>data?<img className={size} src={data} alt="用户头像"/>:<span className={size}><UserRound size={size==='profile-avatar-large'?44:20}/></span>;
  const upload=async()=>{try{const data=await api.selectProfileAvatar();if(data)setDraft(d=>({...d,avatarData:data}));}catch(e){setError(e.message);}};
  const save=async()=>{if(busy)return;setBusy(true);setError('');try{onUpdate(await api.authUpdateProfile(draft));setEditing(false);}catch(e){setError(e.message);}finally{setBusy(false);}};
  return <><div className="sidebar-account"><span className="account-role">{role==='director'?'导演':'创作者'}</span><div className="account-hover-zone">
- <button className="account-trigger" aria-label="个人资料" onClick={show}>{avatar(account.avatarData,'profile-avatar-small')}<span>{account.displayName||account.username}</span></button>
- <div className="account-hover-card"><b>{account.displayName||account.username}</b><span>@{account.username}</span><small>{account.email}</small><p>{account.bio||'还没有填写个人介绍'}</p><button onClick={show}>个人主页 · 编辑资料</button></div>
+ <button ref={trigger} className="account-trigger" aria-label="个人资料" onMouseEnter={showHover} onMouseLeave={hideHover} onFocus={showHover} onBlur={hideHover} onClick={show}>{avatar(account.avatarData,'profile-avatar-small')}<span>{account.displayName||account.username}</span></button>
+ {hover&&createPortal(<div className="account-hover-card account-hover-portal" style={hover} onMouseEnter={()=>clearTimeout(hideTimer.current)} onMouseLeave={hideHover} onFocus={()=>clearTimeout(hideTimer.current)} onBlur={hideHover}><b>{account.displayName||account.username}</b><span>@{account.username}</span><small>{account.email}</small><p>{account.bio||'还没有填写个人介绍'}</p><button onClick={show}>个人主页 · 编辑资料</button></div>,document.body)}
  </div></div>
  <Dialog open={open} title="个人主页" onClose={()=>{if(!busy){setOpen(false);setEditing(false);}}}>
  <div className="profile-hero"><div className="profile-avatar-wrap">{avatar(editing?draft.avatarData:account.avatarData,'profile-avatar-large')}{editing&&<button aria-label="上传头像" disabled={busy} onClick={upload}><Camera size={18}/></button>}</div><div className="profile-identity">{editing?<label>昵称<input maxLength={40} value={draft.displayName} onChange={e=>setDraft(d=>({...d,displayName:e.target.value}))}/></label>:<h2>{account.displayName||account.username}</h2>}<p>账号 @{account.username}</p><small>行舟 ID：{account.id}</small></div>{!editing&&<button className="secondary" onClick={begin}><PenLine size={15}/>编辑资料</button>}</div>

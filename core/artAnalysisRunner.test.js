@@ -13,8 +13,8 @@ test('75 episodes: failure at 26 preserves first 25; resume calls only unfinishe
  for(const p of f.calls){assert.equal(p.model,'chosen-model');assert.equal(p.apiKey,'chosen-key');assert.equal(p.endpoint,'https://chosen.example/v1');assert.equal(p.profileId,'chosen');assert.ok(p.messages[0].content.length<6000);}
 });
 test('cloud save failure retries saved content without another paid request',async()=>{
- const f=fixture(1);f.args.api.collabPublishAnalysis=async()=>{throw new Error('offline');};await assert.rejects(runArtAnalysis(f.args),/offline/);assert.equal(f.calls.length,1);
- f.args.api.collabPublishAnalysis=async()=>{};await runArtAnalysis(f.args);assert.equal(f.calls.length,1);
+ const f=fixture(3);f.args.api.collabPublishAnalysis=async()=>{throw new Error('offline');};const result=await runArtAnalysis(f.args);assert.equal(result.pending,3);assert.equal(f.calls.length,3);
+ f.args.api.collabPublishAnalysis=async()=>{};await f.args.job.sync();assert.equal(f.calls.length,3);assert.equal(f.args.job.pending,0);
 });
 test('changed episode invalidates only its own checkpoint; original input is split without omission',async()=>{
  const f=fixture(2);await runArtAnalysis(f.args);f.args.project.episodes[1].content='修改剧本';await runArtAnalysis(f.args);assert.equal(f.calls.length,3);

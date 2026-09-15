@@ -58,12 +58,14 @@ ipcMain.handle('import-skill-directory',async()=>{const r=await dialog.showOpenD
 ipcMain.handle('import-skill-document',async()=>{const r=await dialog.showOpenDialog({title:'导入 Skill 文档',properties:['openFile'],filters:[{name:'Skill 文档',extensions:['txt','md','markdown','text']}]});if(r.canceled||!r.filePaths[0])return null;const filePath=r.filePaths[0];return {fileName:path.basename(filePath),content:fs.readFileSync(filePath,'utf8').replace(/^\uFEFF/,'')}});
 ipcMain.handle('import-full-script',async()=>{const r=await dialog.showOpenDialog({title:'导入完整剧本',properties:['openFile'],filters:[{name:'剧本文档',extensions:['txt','md','text','docx']}]});if(r.canceled||!r.filePaths[0])return null;const filePath=r.filePaths[0];const ext=path.extname(filePath).toLowerCase();let content;if(ext==='.docx')content=(await mammoth.extractRawText({path:filePath})).value;else content=fs.readFileSync(filePath,'utf8').replace(/^\uFEFF/,'');return {filePath,fileName:path.basename(filePath),content}});
 const activeAiRequests=new Map();
+const aiTaskProgress=new Map();
+ipcMain.handle('ai-task-status',(_,p)=>aiTaskProgress.get(String(p?.taskId||''))||null);
 ipcMain.handle('ai-chat',async(_,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
- try{const output=await requestChat({...payload,signal:controller.signal});return payload.resultEnvelope?{ok:true,output}:output}
+ try{const output=await requestChat({...payload,signal:controller.signal},{onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
  catch(error){if(payload.resultEnvelope)return {ok:false,error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
- finally{if(taskId&&activeAiRequests.get(taskId)===controller)activeAiRequests.delete(taskId)}
+ finally{if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');
 ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));

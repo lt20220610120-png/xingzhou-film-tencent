@@ -42,6 +42,9 @@
 .art-workbench .collab-art-head button,
 .art-workbench .collab-art-head select { padding: 7px 10px; font-size:14px; min-height: 33px; }
 .art-workbench .collab-art-head b { font-size:15px; }
+.art-workbench .collab-art-head-right { align-items:flex-end; width:100%; margin-left:0; }
+.art-workbench .collab-art-head-right .window-model-select { flex:1 1 280px; max-width:480px; margin:0; }
+.art-workbench .collab-art-head-right button,.art-workbench .collab-art-head-right select { height:40px; min-height:40px; margin:0; }
 .art-workbench .collab-cat-tabs { padding: 3px; gap: 2px; border-radius: 7px; background: #e0e5f3; }
 .art-workbench .collab-cat-tabs button { min-height: 28px; padding: 5px 12px; font-size:14px; border-radius: 5px; }
 .art-workbench .collab-cat-tabs button.active { color: #fff; background: #232d4c; }

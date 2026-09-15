@@ -31,9 +31,9 @@ function createCollabService(getSession) {
   return {
     isProducer: () => call('producer-status').then(r => r.isProducer === true),
     adminSetProducer: (p) => call('admin-set-producer', p),
-    publishAnalysis:p=>call('analysis-publish',p),
+    publishAnalysis:p=>call('analysis-publish',{...p,ackOnly:true}),
     patchStoryboard: p => call('storyboard-patch',p),
-    createProject: (p) => call('project-create', p), listProjects: () => call('project-list'), getProject: (p) => call('project-get', p), updateProject: (p) => call('project-update', p), linkDirector: (p) => call('project-link-director', p), setProjectLocked: (p) => call('project-lock', p), deleteProject: (p) => call('project-delete', p), restoreProject: (p) => call('project-restore', p),
+    createProject: (p) => call('project-create', p), listProjects: () => call('project-list', {summary:true}), getProject: (p) => call('project-get', p), updateProject: (p) => call('project-update', p), linkDirector: (p) => call('project-link-director', p), setProjectLocked: (p) => call('project-lock', p), deleteProject: (p) => call('project-delete', p), restoreProject: (p) => call('project-restore', p),
     createDirectorProject: (p) => call('director-project-create', p), listDirectorProjects: () => call('director-project-list'), getDirectorProject: (p) => call('director-project-get', p), updateDirectorProject: (p) => call('director-project-update', p), deleteDirectorProject: (p) => call('director-project-delete', p), setDirectorProjectLocked: (p) => call('director-project-lock', p),
     directorListMembers: (p) => call('director-members-list', p), directorAddMember: (p) => call('director-member-add', p), directorRemoveMember: (p) => call('director-member-remove', p),
     replaceAssets: (p) => call('assets-replace', p), createAsset: (p) => call('asset-create', p), listAssets: (p) => call('assets-list', p), updateAsset: (p) => call('asset-update', p),

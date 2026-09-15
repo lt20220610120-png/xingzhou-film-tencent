@@ -1,4 +1,6 @@
 import {runArtAnalysis} from '../../core/artAnalysisRunner.js';
+import {createCloudCache} from '../../core/cloudCache.js';
+import {useAssetImageActivity} from './useAssetImageActivity.js';
 import {mediaModelChoices} from '../../core/modelChoices.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {autoReferences} from '../../core/generationReferences.js';
@@ -92,7 +94,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
 
   const runAnalysis = async () => {
     if (['running','stopping'].includes(collabAnalysisJobs.get(project.id)?.status)) return;
-    if (!profile) { setError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
+    if (!profile) { setError('请选择一个已配置的大语言模型'); return; }
     if (!profile.model?.trim()) { setError('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称'); return; }
     if (!script.trim()) { setError('剧本内容为空，请先填写或在导演工作台上传剧本'); return; }
     if (!selectedStyle) { setError('请先选择画风（AI真人 / 3D动漫 / 2D动漫）'); return; }
@@ -100,14 +102,14 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
     const job = { status: 'running', error: '', notice: '大语言模型正在读取前置信息与 Skill，通读剧本分析中，请耐心等待…', cancelled: false, taskId: '' };
     collabAnalysisJobs.set(project.id, job); setError(''); setNotice(job.notice); setJobVersion((value) => value + 1);
     try {
-      if (genre !== (project.genre || '')) await api.collabUpdateProject({ projectId: project.id, updates: { genre } });
+      if (genre !== (project.genre || '')) api.collabUpdateProject({ projectId: project.id, updates: { genre } }).catch(()=>{});
       const analysisEpisodes = (project.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传');
       if (!analysisEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先同步导演项目');
       const result=await runArtAnalysis({project,genre,profile,api,job,
         load:()=>api.analysisLoad({projectId:project.id}),
         save:data=>api.analysisSave({projectId:project.id,data}),
         onProgress:()=>setJobVersion(v=>v+1)});
-      job.status=job.cancelled?'stopped':'completed';job.notice=`分析完成：${result.completed} 集已保存并同步，已有资产图片和编辑均保留。`;job.taskId='';
+      job.status=job.cancelled?'stopped':'completed';job.notice=`分析完成：${result.completed} 集已保存到本机${result.pending?`，${result.pending} 集待同步云端，可点击下方重试同步，无需重新分析`:'并同步云端'}。已有资产图片和编辑均保留。`;job.taskId='';
       await refresh();
     } catch (e) {
       job.taskId = '';
@@ -156,6 +158,7 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
         </div>
         <button className="ghost" onClick={async()=>{try{const saved=await api.analysisLoad({projectId:project.id});const content=Object.values(saved?.episodes||{}).flatMap(r=>[...(r.outputs||[]).filter(Boolean),...(r.failure?.partialText?['【未完成片段 · 仅供核对】\n'+r.failure.partialText]:[])]).join('\n\n');if(!content){setNotice('暂无已保存的分析结果');return;}await api.saveTxt({name:project.name+'-已保存美术清单',content});}catch(e){setError(e.message);}}}>导出已保存清单</button>
         <small className="analysis-checkpoint-note">逐段自动保存 · 中断可继续 · 每集完成同步资产</small>
+        {(analysisJob?.pending>0)&&<button className="secondary" disabled={analyzing||analysisJob.syncing} onClick={async()=>{await analysisJob.sync?.();analysisJob.notice=analysisJob.pending?`${analysisJob.pending} 集已保存在本机，云端尚未同步，请稍后重试`:'已同步全部已完成的分析结果';await refresh();setJobVersion(v=>v+1);}}>{analysisJob.syncing?'同步中…':`同步已保存结果（${analysisJob.pending}）`}</button>}
         {error && <div className="collab-error">{error}</div>}
         {notice && <div className="collab-notice">{notice}</div>}
       </aside>
@@ -477,8 +480,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchSize, setBatchSize] = useState(IMAGE_FORMATS[0].size);
   const [exportError, setExportError] = useState('');
-  const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
-  const generatingAssetIdsRef = useRef(new Set());
+  const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
   const scriptEpisodeCount = (project.episodes || []).filter((item) => item.kind !== 'setting' && item.title !== '设定和小传').length;
   const episodes = [...new Set([...Array.from({ length: scriptEpisodeCount }, (_, index) => index + 1), ...episodeNumbersFromAssets(assets)])].sort((a, b) => a - b);
   const imagesForAssets = (rows) => rows.flatMap((item) => (item.images || []).map((image) => ({ ...image, assetName: item.name })));
@@ -591,8 +593,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const locator = useAssetLocator(`${project.id}:${category}`);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
-  const [generatingAssetIds, setGeneratingAssetIds] = useState(() => new Set());
-  const generatingAssetIdsRef = useRef(new Set());
+  const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
   const categoryAssets = assets.filter((a) => a.category === category);
   const list = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const characterGroups = category === 'character' ? groupCharacterAssets(categoryAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
@@ -986,9 +987,8 @@ function StartProjectDialog({ directorProjects, onClose, onCreate, busy, error }
 export function CollabWorkspace({ state, api, account }) {
   const draftStore = useMemo(() => createAssetDraftStore(localStorage, account?.id || 'local'), [account?.id]);
   // 缓存优先：先展示上次的云端数据，网络请求返回后再刷新（解决“2G 般的显现慢”）
-  const cacheKey = (suffix) => `xz-collab-cache-${suffix}`;
-  const readCache = (suffix) => { try { return JSON.parse(localStorage.getItem(cacheKey(suffix))) || null; } catch { return null; } };
-  const writeCache = (suffix, value) => { try { localStorage.setItem(cacheKey(suffix), JSON.stringify(value)); } catch { /* 缓存失败不影响功能 */ } };
+  const cloudCache=useMemo(()=>createCloudCache(localStorage,account?.id),[account?.id]);
+  const readCache=cloudCache.read,writeCache=cloudCache.write;
   const [projects, setProjects] = useState(() => readCache('projects') || []);
   const [loading, setLoading] = useState(true);
   const [isProducer, setIsProducer] = useState(false);

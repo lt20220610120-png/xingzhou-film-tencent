@@ -1264,7 +1264,8 @@ function App() {
   // 保存状态（debounce）
   useEffect(() => {
     if (!initialized) return;
-    localStorage.setItem(STORAGE, JSON.stringify(state));
+    // Browser cache quotas must never prevent saving paid output to disk.
+    try { localStorage.setItem(STORAGE, JSON.stringify(state)); } catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
     const timer = setTimeout(() => api.saveState(state), 250);
     const directorTimer = setTimeout(() => api.saveDirectorProjects?.(state.directorProjects || []), 250);
     return () => { clearTimeout(timer); clearTimeout(directorTimer); };

@@ -77,7 +77,7 @@ function resolveProtocol({ endpoint = '', protocol = 'auto', provider = '' }) {
   if (/\/messages\/?$/.test(endpoint) || /api\.anthropic\.com/.test(endpoint) || provider === 'claudeCodePool') return 'anthropic';
   return 'chat';
 }
-async function requestChat(config, { fetchFn = fetch, timeout = 600000 } = {}) {
+async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgress } = {}) {
   const { endpoint, apiKey = '', model, messages = [], requiresApiKey = true, signal } = config;
   if (!endpoint?.trim()) throw new Error('请填写接口地址');
   let parsedUrl;
@@ -88,17 +88,18 @@ async function requestChat(config, { fetchFn = fetch, timeout = 600000 } = {}) {
   const protocol = resolveProtocol(config);
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
-  let body = { model: model.trim(), messages, stream: false };
+  const streaming = config.stream ?? Boolean(config.analysisMode);
+  let body = { model: model.trim(), messages, stream: streaming };
   let suffix = '/chat/completions';
   if (protocol === 'responses') {
     suffix = '/responses';
-    body = { model: model.trim(), input: messages, stream: false, store: false };
+    body = { model: model.trim(), input: messages, stream: streaming, store: false };
   } else if (protocol === 'anthropic') {
     suffix = '/messages';
     delete headers.Authorization;
     headers['x-api-key'] = apiKey.trim();
     headers['anthropic-version'] = '2023-06-01';
-    body = { model: model.trim(), max_tokens: 8192, stream: false,
+    body = { model: model.trim(), max_tokens: 8192, stream: streaming,
       system: messages.filter(m => ['system', 'developer'].includes(m.role)).map(m => textContent(m.content)).join('\n\n'),
       messages: messages.filter(m => !['system', 'developer'].includes(m.role)) };
   }
@@ -115,16 +116,23 @@ async function requestChat(config, { fetchFn = fetch, timeout = 600000 } = {}) {
   const cancel = () => controller.abort(signal.reason);
   if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => controller.abort(new DOMException('模型响应超时', 'TimeoutError')), timeoutMs);
+  let raw = '';
   try {
+    onProgress?.({phase:'waiting',receivedBytes:0});
     const response = await fetchFn(`${normalizeEndpoint(endpoint)}${suffix}`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
-    const raw = await response.text();
+    if(response.body?.getReader){
+      const reader=response.body.getReader(),decoder=new TextDecoder();let receivedBytes=0;
+      try{while(true){const {done,value}=await reader.read();if(done)break;receivedBytes+=value.byteLength;raw+=decoder.decode(value,{stream:true});onProgress?.({phase:'receiving',receivedBytes});}raw+=decoder.decode();}
+      finally{reader.releaseLock();}
+    }else raw=await response.text();
     if (!response.ok) {
       let data; try { data = JSON.parse(raw); } catch {}
       throw new Error(data?.error?.message || `接口请求失败（HTTP ${response.status}），请检查地址、协议和模型权限。`);
     }
     return parseResponse(raw);
   } catch (error) {
-    if (controller.signal.aborted && !signal?.aborted) throw new Error('等待模型响应超时。服务商可能已计费，请先核对请求记录，避免重复生成。');
+    if(raw && !error.partialText){try{error.partialText=parseResponse(raw);}catch(partial){error.partialText=partial.partialText||'';}}
+    if (controller.signal.aborted && !signal?.aborted) throw Object.assign(new Error('等待模型响应超时。服务商可能已计费，请先核对请求记录，避免重复生成。'),{partialText:error.partialText||''});
     throw error;
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
 }
