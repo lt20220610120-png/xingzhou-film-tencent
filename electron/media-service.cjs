@@ -5,7 +5,7 @@ const crypto = require('crypto');
 
 function normalizeBase(endpoint = '') {
   return String(endpoint).trim().replace(/\/+$/, '')
-    .replace(/\/images\/generations$/, '')
+    .replace(/\/images\/(?:generations|edits)$/, '')
     .replace(/\/contents\/generations\/tasks$/, '');
 }
 
@@ -72,7 +72,33 @@ async function downloadToFile(url, destDir, ext) {
   return file;
 }
 
-// ---------- 图片生成（OpenAI images API 兼容：/images/generations） ----------
+async function imageReferenceFile(reference, index) {
+  if (reference.kind && reference.kind !== 'image') throw new Error('图片生成仅支持图片参考');
+  const source = reference.filePath || reference.url || '';
+  let bytes, mime = '';
+  if (reference.filePath) {
+    bytes = await fs.promises.readFile(reference.filePath).catch(() => { throw new Error('参考图片无法读取，请重新选择图片'); });
+  } else if (/^data:image\/(png|jpeg|webp);base64,/i.test(source)) {
+    mime = source.slice(5, source.indexOf(';')).toLowerCase();
+    bytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64');
+  } else if (/^https?:\/\//i.test(source)) {
+    // Reference hosts must never receive the generation provider's API key.
+    const response = await fetch(source, { signal: AbortSignal.timeout(120000) });
+    if (!response.ok) throw new Error(`参考图片读取失败（${response.status}），请刷新图片后重试`);
+    mime = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
+    bytes = Buffer.from(await response.arrayBuffer());
+  } else throw new Error('参考图片缺少有效地址，请重新选择图片');
+  if (!bytes.length) throw new Error('参考图片为空，请重新选择图片');
+  // Object storage may return application/octet-stream; identify actual image bytes.
+  if (bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) mime = 'image/png';
+  else if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) mime = 'image/jpeg';
+  else if (bytes.toString('ascii',0,4) === 'RIFF' && bytes.toString('ascii',8,12) === 'WEBP') mime = 'image/webp';
+  if (!['image/png','image/jpeg','image/webp'].includes(mime)) throw new Error('参考图片需为 PNG、JPEG 或 WebP 格式');
+  return { blob: new Blob([bytes], { type: mime }), name: `reference-${index + 1}.${mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1]}` };
+}
+
+// OpenAI-compatible APIs use multipart /images/edits when reference images are supplied.
+// https://developers.openai.com/api/reference/resources/images/methods/edit
 async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, references = [], destDir }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置图片生成 API');
   if (!prompt?.trim()) throw new Error('请填写画面描述');
@@ -83,16 +109,30 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
     if(!result.resultUrls?.length)throw new Error('飞拓没有返回图片结果');
     return downloadToFile(result.resultUrls[0],destDir,'png');
   }
-  if(references.length)throw new Error('当前自定义图片接口尚未配置参考图协议，请选择飞拓接口使用参考图');
   const base = normalizeBase(endpoint);
-  const response = await fetch(`${base}/images/generations`, {
+  const headers = authHeaders(apiKey);
+  let body;
+  if (references.length) {
+    body = new FormData();
+    for (const [key, value] of Object.entries({ model: model.trim(), prompt: prompt.trim(), size, n: 1 })) body.append(key, String(value));
+    for (const [index, reference] of references.entries()) {
+      const file = await imageReferenceFile(reference, index);
+      body.append(references.length === 1 ? 'image' : 'image[]', file.blob, file.name);
+    }
+    // fetch adds the multipart boundary; GPT Image edits return base64 by default.
+    delete headers['Content-Type'];
+  } else body = JSON.stringify({ model: model.trim(), prompt: prompt.trim(), size, n: 1, response_format: 'url' });
+  const response = await fetch(`${base}/images/${references.length ? 'edits' : 'generations'}`, {
     method: 'POST',
-    headers: authHeaders(apiKey),
-    body: JSON.stringify({ model: model?.trim() || undefined, prompt: prompt.trim(), size, n: 1, response_format: 'url' }),
+    headers,
+    body,
     signal: AbortSignal.timeout(300000),
   });
   const data = await readJson(response);
-  if (!response.ok) throw new Error(data?.error?.message || data?.message || `图片接口请求失败（${response.status}）`);
+  if (!response.ok) {
+    const reason = data?.error?.message || data?.message || `图片接口请求失败（${response.status}）`;
+    throw new Error(references.length ? `参考图生成失败：${reason}。请确认该接口与模型支持 /images/edits 图片编辑协议` : reason);
+  }
   const item = data?.data?.[0] || {};
   const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
   if (!url) throw new Error('接口已响应，但没有返回图片');

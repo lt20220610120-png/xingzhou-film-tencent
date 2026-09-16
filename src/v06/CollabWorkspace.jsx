@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
-  sectionsForRole, parseAssetName, findBaseMates, groupCharacterAssets, parseArtAnalysis,
+  sectionsForRole, parseAssetName, findBaseMates, resolveAssetReference, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
   ASSET_PROMPT_MODES, readAssetPrompt, serializeAssetPrompt, defaultAssetPromptPrefix,
@@ -178,6 +178,10 @@ function InfoSection({ project, refresh, api, state, canEdit }) {
 /* ================================================================
  * 生图框（美术/资产共用）：模型 + 画幅 + @参考 + 生成/上传
  * ================================================================ */
+const assetReferenceKey = (projectId, assetId) => `xz-asset-reference:${projectId}:${assetId}`;
+const readAssetReferenceChoice = (projectId, assetId) => {
+  try { return localStorage.getItem(assetReferenceKey(projectId, assetId)); } catch { return null; }
+};
 function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -185,14 +189,21 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const [previewImage, setPreviewImage] = useState('');
   const [localImages, setLocalImages] = useState([]);
   const [showPrompt, setShowPrompt] = useState(false);
-  useEffect(() => { setSelectedImageId(''); setPreviewImage(''); setLocalImages([]); setRefId(''); }, [asset.id]);
+  useEffect(() => { setSelectedImageId(''); setPreviewImage(''); setLocalImages([]); }, [asset.id]);
   const imageProfiles=mediaModelChoices(state,'image');
   const defaultProfile = activeMediaProfile(state, 'image');
   const [profileId,setProfileId,profile]=useWindowModel(`asset-image:${project.id}:${asset.id}`,imageProfiles,imageProfiles.find(p=>p.profileId===defaultProfile?.id&&p.model===defaultProfile?.model)?.id);
   const [size, setSize] = useState(IMAGE_FORMATS[0].size);
-  const [refId, setRefId] = useState('');
-  const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.length)), [assets, asset.name]);
-  const refAsset = mates.find((m) => m.id === refId) || null;
+  const referenceScope = assetReferenceKey(project.id, asset.id);
+  const [referenceChoice, setReferenceChoice] = useState(() => ({ scope: referenceScope, id: readAssetReferenceChoice(project.id, asset.id) }));
+  const refId = referenceChoice.scope === referenceScope ? referenceChoice.id : readAssetReferenceChoice(project.id, asset.id);
+  const setRefId = (id) => {
+    try { if (id === null) localStorage.removeItem(referenceScope); else localStorage.setItem(referenceScope, id); } catch {}
+    setReferenceChoice({ scope: referenceScope, id });
+  };
+  const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.some((image) => image.url))), [assets, asset.name]);
+  const defaultReference = resolveAssetReference(asset, assets);
+  const refAsset = resolveAssetReference(asset, assets, refId);
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = [...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages];
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
@@ -239,9 +250,9 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
       <div className="collab-image-controls">
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
-        {mates.length > 0 && <label className="collab-ref-picker"><AtSign size={13} /><select value={refId} onChange={(e) => setRefId(e.target.value)}><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
+        {mates.length > 0 && <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : "默认（不引用参考）"}</option><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
         <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
-        {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的样貌，仅替换服饰/状态</small>}
+        {refAsset && <small className="collab-ref-hint">将参考 {refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态</small>}
         {error && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
@@ -517,7 +528,9 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore 
           await draftStore.save(api, project.id, asset.id, draft.content);
           asset = { ...asset, description: draft.content };
         }
-        const generated = await api.mediaGenerateImage({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, null, project.style), size: batchSize });
+        const refAsset = resolveAssetReference(asset, assets, readAssetReferenceChoice(project.id, asset.id));
+        const references = refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [];
+        const generated = await api.mediaGenerateImage({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style), size: batchSize, references });
         if (generated?.filePath) await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath });
       }));
       const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].name}：${result.reason?.message || '生成失败'}`] : []);

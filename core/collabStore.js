@@ -124,6 +124,18 @@ export const findBaseMates = (assets, name) => {
   return (assets || []).filter((a) => a.name !== name && parseAssetName(a.name).base === base);
 };
 
+// 全剧资产按创建顺序排列，每套妆造的图片按生成顺序排列。
+// 默认始终保持最先定稿的角色形象；空字符串是用户明确选择不引用。
+export const resolveAssetReference = (asset, assets, selectedId = null) => {
+  const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
+  const peers = (assets || []).filter((item) => item.category === asset.category
+    && parseAssetName(item.name).base === parseAssetName(asset.name).base);
+  if (selectedId !== null) return peers.find((item) => item.id !== asset.id && item.id === selectedId && hasImage(item)) || null;
+  if (asset.category !== 'character') return null;
+  const first = peers.find(hasImage);
+  return first && first.id !== asset.id ? first : null;
+};
+
 // 人物是主实体，服饰/妆造是人物下的一对多分支。
 export const groupCharacterAssets = (assets) => {
   const groups = new Map();

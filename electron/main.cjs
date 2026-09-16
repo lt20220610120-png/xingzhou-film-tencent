@@ -127,7 +127,7 @@ ipcMain.handle('collab-create-asset',(_,payload)=>collabService.createAsset(payl
 ipcMain.handle('collab-list-assets',(_,payload)=>collabService.listAssets(payload));
 ipcMain.handle('collab-update-asset',(_,payload)=>collabService.updateAsset(payload));
 
-ipcMain.handle('collab-generate-asset-image',async(_,payload)=>{const filePath=await generateImage({endpoint:payload.endpoint,apiKey:payload.apiKey,model:payload.model,prompt:payload.prompt,size:payload.size,destDir:mediaDir()});return collabService.attachAssetImage({projectId:payload.projectId,assetId:payload.assetId,filePath})});
+ipcMain.handle('collab-generate-asset-image',async(_,payload)=>{const filePath=await generateImage({endpoint:payload.endpoint,apiKey:payload.apiKey,model:payload.model,prompt:payload.prompt,size:payload.size,references:payload.references||[],destDir:mediaDir()});return collabService.attachAssetImage({projectId:payload.projectId,assetId:payload.assetId,filePath})});
 ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'选择资产图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.attachAssetImage({...payload,filePath:r.filePaths[0]})});
 ipcMain.handle('collab-attach-generated-asset-image',(_,payload)=>collabService.attachGeneratedAssetImage(payload));
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));

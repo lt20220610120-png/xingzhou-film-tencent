@@ -1,7 +1,7 @@
 {
-  "version": "2.2.6",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.6/Xingzhou-Film-Tencent-Setup-2.2.6.exe",
-  "notes": "修复资产总览妆造数量过多撑高编辑区的问题；服装、妆造列表独立滚动并与编辑框对齐，避免大片空白。",
-  "sha256": "a729edade640dff8e733c55caef9f7419315ac1b84bee28353f75f7f3e28b89a",
-  "size": 102201671
+  "version": "2.2.7",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.7/Xingzhou-Film-Tencent-Setup-2.2.7.exe",
+  "notes": "修复自定义 OpenAI 兼容生图接口的参考图片传递；人物后续妆造默认参考该人物第一张图片，支持手动更换或取消参考，单张与批量生成保持一致。",
+  "sha256": "3a1ce685814ef3ffc24140363649d4c69ff38f63ecb93585b0bf7acbabf3bda9",
+  "size": 102210355
 }
