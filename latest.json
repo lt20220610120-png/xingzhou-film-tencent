@@ -1,7 +1,7 @@
 {
-  "version": "2.2.7",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.7/Xingzhou-Film-Tencent-Setup-2.2.7.exe",
-  "notes": "修复自定义 OpenAI 兼容生图接口的参考图片传递；人物后续妆造默认参考该人物第一张图片，支持手动更换或取消参考，单张与批量生成保持一致。",
-  "sha256": "3a1ce685814ef3ffc24140363649d4c69ff38f63ecb93585b0bf7acbabf3bda9",
-  "size": 102210355
+  "version": "2.2.8",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.8/Xingzhou-Film-Tencent-Setup-2.2.8.exe",
+  "notes": "新增协作美术添加集数与单集增量分析，复用已有清单并同步资产，不回写导演项目；内置剧本美术清单V5，修正手机和纯声音误分类、无依据换装及重复场景，人物后续造型只描述衣妆差异，同地点参考只改光线；统一参考图检查及四格三视图前置，保留旧图片、手工描述与已完成分析。",
+  "sha256": "894b0dbefc43b5f8547829428d756357b312ddf24c41b9573d0d3f32ca02b5aa",
+  "size": 102226780
 }
