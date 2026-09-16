@@ -22,8 +22,8 @@ test('缺少 myRole 会退化为只有项目群（说明后端必须提供该字
 test('后端 project-get / project-list / project-create 都注入 myRole', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'cloud-backend', 'src', 'collab.cjs'), 'utf8');
   assert.match(src, /async function attachRole/);
-  const getLine = src.split('\n').find((l) => l.includes("action === 'project-get'"));
-  assert.match(getLine, /attachRole/);
+  const getBlock = src.match(/if\s*\(action === 'project-get'\)\s*\{([\s\S]*?)\n\s{2}\}/)?.[1] || '';
+  assert.match(getBlock, /attachRole/);
   assert.match(src, /project-list[\s\S]{0,600}attachRole/);
   assert.match(src, /project-create[\s\S]{0,260}attachRole/);
 });

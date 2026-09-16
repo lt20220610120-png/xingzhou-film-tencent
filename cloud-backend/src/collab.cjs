@@ -1,6 +1,8 @@
 const DENY = { status: 403, body: { error: '你没有这个项目的操作权限' } };
 const NOT_FOUND = { status: 404, body: { error: '项目不存在或无权访问' } };
 const LOCKED = { status: 423, body: { error: '项目已锁定，暂不可编辑' } };
+const DELETED = { status: 410, body: { error: '项目已删除，请先恢复' } };
+const STATE_UNAVAILABLE = { status: 503, body: { error: '暂时无法确认项目锁定状态，请稍后重试' } };
 const ok = (body) => ({ status: 200, body });
 
 // 统一处理：仓储返回 null 表示无权限或不存在。
@@ -59,18 +61,39 @@ async function handleAction(action, payload, user, repo, signer = null) {
 
   if (action === 'producer-status') return ok({ isProducer: producer });
 
-  // Supabase 契约：项目锁定后禁止一切写操作。
-  const WRITE_ACTIONS = ['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send'];
-  if (WRITE_ACTIONS.includes(action) && projectId) {
-    let locked = false;
-    try { locked = await repo.isProjectLocked(projectId); } catch { locked = false; }
-    if (locked) return LOCKED;
+  const COLLAB_ACTIONS = ['project-get','project-update','project-delete','project-restore','project-lock','project-link-director','stats-get',
+    'art-episode-append','analysis-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear',
+    'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
+  let collabRow;
+  if(projectId&&COLLAB_ACTIONS.includes(action)) {
+    collabRow=await repo.getProject(projectId,user.id);
+    if(!collabRow||String(collabRow.genre||'').includes(DIRECTOR_SENTINEL))return action==='project-get'?NOT_FOUND:DENY;
+  }
+
+  // Ordinary writes fail closed. Restore may reactivate a recycled project;
+  // project-lock may unlock a live one, but cannot mutate a recycled one.
+  const WRITE_ACTIONS = ['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
+    'project-update','project-delete','project-link-director','art-episode-append','analysis-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
+  if (WRITE_ACTIONS.includes(action)) {
+    if (!projectId) return DENY;
+    const row = collabRow || await repo.getProject(projectId,user.id);
+    if (!row || String(row.genre||'').includes(DIRECTOR_SENTINEL)) return DENY;
+    if (row.deleted_at || String(row.genre||'').includes('[RECYCLE_UNTIL:')) return DELETED;
+    if (action !== 'project-lock') {
+      if (String(row.genre||'').includes(LOCK_SENTINEL)) return LOCKED;
+      let locked;
+      try { locked = await repo.isProjectLocked(projectId); } catch { return STATE_UNAVAILABLE; }
+      if (locked === true) return LOCKED;
+      if (locked !== false) return STATE_UNAVAILABLE;
+    }
   }
 
   // ---- 协作项目 ----
   if (action === 'project-create') {
-    const created = await repo.createProject({ ...payload, ownerId: user.id, ownerName: user.display_name || user.username, ownerUsername: user.username });
-    return ok(await attachRole(created, user, repo));
+    try {
+      const created = await repo.createProject({ ...payload, ownerId: user.id, ownerName: user.display_name || user.username, ownerUsername: user.username });
+      return ok(await attachRole(created, user, repo));
+    } catch (error) {if (error.status) return {status:error.status,body:{error:error.message}}; throw error;}
   }
   if (action === 'project-list') {
     // 只返回“协作项目”（非导演文档）；含回收站中的项目，客户端据 deleted_at 显示恢复入口。
@@ -81,9 +104,25 @@ async function handleAction(action, payload, user, repo, signer = null) {
       ...row, episodeCount: (episodes || []).length,
     })) : projects);
   }
-  if (action === 'project-get') { const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND; }
+  if (action === 'project-get') {
+    try {const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
+    catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
+  }
+  if (action === 'art-episode-append') {
+    if (await repo.isProjectLocked(projectId)) return LOCKED;
+    const row = await repo.getProject(projectId, user.id);
+    if (!row || String(row.genre || '').includes(DIRECTOR_SENTINEL)) return DENY;
+    if (!['producer', 'artist', 'artist_collaborator'].includes(await roleOf(projectId, user, repo))) return DENY;
+    try {
+      const saved = await repo.appendArtEpisode(projectId, payload, user.id);
+      return saved ? ok(await attachRole(saved, user, repo)) : DENY;
+    } catch (error) {
+      if (error.status) return {status: error.status, body: {error: error.message}};
+      throw error;
+    }
+  }
   if (action === 'analysis-publish'){
-    if(await roleOf(projectId,user,repo)!=='producer')return DENY;
+    if(!['producer','artist','artist_collaborator'].includes(await roleOf(projectId,user,repo)))return DENY;
     try{const saved=await repo.publishAnalysis(projectId,payload,user.id);return saved?ok(payload.ackOnly?{id:saved.id,updated_at:saved.updated_at,fingerprint:payload.fingerprint}:await attachRole(saved,user,repo)):DENY;}
     catch(e){if(e.status)return {status:e.status,body:{error:e.message}};throw e;}
   }
@@ -91,16 +130,20 @@ async function handleAction(action, payload, user, repo, signer = null) {
     if(await repo.isProjectLocked(projectId))return LOCKED;
     const role=await roleOf(projectId,user,repo);
     if(!['producer','collaborator','artist_collaborator'].includes(role))return DENY;
-    try{return ok(await attachRole(await repo.patchStoryboard(projectId,payload),user,repo));}
+    try{const saved=await repo.patchStoryboard(projectId,payload,user.id);return saved?ok(await attachRole(saved,user,repo)):DENY;}
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
   }
   if (action === 'project-update') {
     // Supabase 契约：updates + scope，按 scope 限定可写字段与所需角色。
     if (await repo.isProjectLocked(projectId)) return LOCKED;
+    const row = await repo.getProject(projectId, user.id);
+    if (!row || String(row.genre || '').includes(DIRECTOR_SENTINEL)) return DENY;
     const myRole = await roleOf(projectId, user, repo);
     if (!myRole) return DENY;
     const scope = String(payload.scope || '');
+    if (!['', 'director-sync', 'storyboard'].includes(scope)) return DENY;
     if (scope === 'director-sync' && myRole !== 'producer') return DENY;
+    if (!scope && myRole !== 'producer') return DENY;
     if (scope === 'storyboard' && !['producer', 'collaborator', 'artist_collaborator'].includes(myRole)) return DENY;
     const keys = scope === 'director-sync' ? ['script', 'episodes']
       : scope === 'storyboard' ? ['episodes']
@@ -108,13 +151,18 @@ async function handleAction(action, payload, user, repo, signer = null) {
     const updates = payload.updates || payload;
     const allowed = {};
     for (const k of keys) if (k in updates) allowed[k] = updates[k];
-    const saved = guard(scope === 'director-sync' && repo.syncDirectorSnapshot ? await repo.syncDirectorSnapshot(projectId,allowed) : await repo.updateProjectFields(projectId, allowed));
-    return saved ? ok(await attachRole(saved, user, repo)) : DENY;
+    try {
+      const saved = guard(scope === 'director-sync' && repo.syncDirectorSnapshot ? await repo.syncDirectorSnapshot(projectId,allowed,user.id) : await repo.updateProjectFields(projectId, allowed,user.id,scope));
+      return saved ? ok(await attachRole(saved, user, repo)) : DENY;
+    } catch (error) {if (error.status) return {status:error.status,body:{error:error.message}}; throw error;}
   }
   if (action === 'project-delete') { const r = guard(await repo.softDeleteProject(projectId, user.id)); return r ? ok({ ok: true, purgeAfter: r.purge_after }) : DENY; }
   if (action === 'project-restore') { const r = guard(await repo.restoreProject(projectId, user.id)); return r ? ok({ ok: true }) : { status: 410, body: { error: '恢复窗口已过期' } }; }
   if (action === 'project-lock') { const r = guard(await repo.setProjectLocked(projectId, payload.locked !== false, user.id)); return r ? ok({ ok: true }) : DENY; }
-  if (action === 'project-link-director') { const r = guard(await repo.linkDirectorProject(projectId, payload.directorProjectId, user.id)); return r ? ok({ ok: true }) : DENY; }
+  if (action === 'project-link-director') {
+    try{const r = guard(await repo.linkDirectorProject(projectId, payload.directorProjectId, user.id)); return r ? ok({ ok: true }) : DENY;}
+    catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
+  }
   if (action === 'stats-get') {
     // Supabase 契约：返回 {members, activity, media} 三个数组，客户端 summarizeActivity 会遍历。
     if (!await repo.getProject(projectId, user.id)) return NOT_FOUND;
@@ -123,6 +171,15 @@ async function handleAction(action, payload, user, repo, signer = null) {
   }
 
   // ---- 导演项目 ----
+  const DIRECTOR_ACTIONS = ['director-project-get','director-project-update','director-project-delete','director-project-lock',
+    'director-members-list','director-member-add','director-member-remove'];
+  if (DIRECTOR_ACTIONS.includes(action)) {
+    const pid = payload.directorProjectId || projectId;
+    const row = pid && await (repo.getProject ? repo.getProject(pid, user.id) : repo.getDirectorProject(pid, user.id));
+    if (!row || !String(row.genre || '').includes(DIRECTOR_SENTINEL)
+      || String(row.genre || '').includes(COLLAB_SENTINEL) || row.deleted_at || recycleUntil(row.genre))
+      return action === 'director-project-get' ? NOT_FOUND : DENY;
+  }
   if (action === 'director-project-create') {
     if (!producer) return { status: 403, body: { error: '需要制片人权限才能开启导演协作' } };
     return ok(await repo.createDirectorProject({ ...payload, ownerUsername: user.username }, user.id, user.display_name || user.username));
@@ -154,25 +211,29 @@ async function handleAction(action, payload, user, repo, signer = null) {
   }
   if (action === 'director-project-get') { const r = guard(await repo.getDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok(r) : NOT_FOUND; }
   if (action === 'director-project-update') { try { const r = guard(await repo.updateDirectorProject(payload.directorProjectId || projectId, payload, user.id)); return r ? ok(r) : DENY; } catch(error) { if(error.status)return {status:error.status,body:{error:error.message}};throw error; } }
-  if (action === 'director-project-delete') { const r = guard(await repo.deleteDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok({ ok: true }) : DENY; }
-  if (action === 'director-project-lock') { const r = guard(await repo.setProjectLocked(payload.directorProjectId || projectId, payload.locked !== false, user.id)); return r ? ok({ ok: true }) : DENY; }
+  if (action === 'director-project-delete') { try {const r = guard(await repo.deleteDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok({ ok: true }) : DENY;} catch(error) {if(error.status)return {status:error.status,body:{error:error.message}};throw error;} }
+  if (action === 'director-project-lock') { const r = guard(await repo.setDirectorProjectLocked(payload.directorProjectId || projectId, payload.locked !== false, user.id)); return r ? ok({ ok: true }) : DENY; }
 
   // ---- 成员（导演项目与协作项目共用成员表）----
+  if (['members-list','member-add','member-remove','member-role'].includes(action)) {
+    const row=projectId&&await repo.getProject(projectId,user.id);
+    if(!row||String(row.genre||'').includes(DIRECTOR_SENTINEL))return DENY;
+  }
   if (action === 'director-members-list' || action === 'members-list') {
     const pid = payload.directorProjectId || projectId;
-    const r = guard(await repo.listDirectorMembers(pid, user.id));
+    const r = guard(await repo.listDirectorMembers(pid, user.id, action === 'director-members-list' ? 'director' : 'collab'));
     return r ? ok(r) : NOT_FOUND;
   }
   if (action === 'director-member-add' || action === 'member-add') {
     const pid = payload.directorProjectId || projectId;
-    const r = guard(await repo.addDirectorMember(pid, payload, user.id));
+    const r = guard(await repo.addDirectorMember(pid, payload, user.id, action === 'director-member-add' ? 'director' : 'collab'));
     if (!r) return DENY;
     if (r.error === 'user_not_found') return { status: 404, body: { error: '账号不存在，请确认对方已注册' } };
     return ok(r);
   }
   if (action === 'director-member-remove' || action === 'member-remove') {
     const pid = payload.directorProjectId || projectId;
-    const r = guard(await repo.removeDirectorMember(pid, payload.userId, user.id));
+    const r = guard(await repo.removeDirectorMember(pid, payload.userId, user.id, action === 'director-member-remove' ? 'director' : 'collab'));
     return r ? ok({ ok: true }) : DENY;
   }
   if (action === 'member-role') { const r = guard(await repo.updateMemberRole(projectId, payload, user.id)); return r ? ok(r) : DENY; }
@@ -223,7 +284,7 @@ async function handleAction(action, payload, user, repo, signer = null) {
 
   // ---- 消息 ----
   if (action === 'messages-list') return ok(await repo.listMessages(projectId, user.id));
-  if (action === 'message-send') return ok(await repo.sendMessage(projectId, { ...payload, username: user.display_name || user.username }, user.id));
+  if (action === 'message-send') {const r=guard(await repo.sendMessage(projectId,{...payload,username:user.display_name||user.username},user.id));return r?ok(r):DENY;}
 
   return { status: 501, body: { error: '腾讯云版暂不支持该操作：' + action } };
 }

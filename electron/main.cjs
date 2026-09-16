@@ -109,6 +109,7 @@ ipcMain.handle('collab-list-projects',()=>collabService.listProjects());
 ipcMain.handle('collab-get-project',(_,payload)=>collabService.getProject(payload));
 ipcMain.handle('collab-patch-storyboard',(_,p)=>collabService.patchStoryboard(p));
 ipcMain.handle('collab-update-project',(_,payload)=>collabService.updateProject(payload));
+ipcMain.handle('collab-append-episode',(_,payload)=>collabService.appendEpisode(payload));
 ipcMain.handle('collab-link-director',(_,payload)=>collabService.linkDirector(payload));
 ipcMain.handle('collab-set-project-locked',(_,payload)=>collabService.setProjectLocked(payload));
 ipcMain.handle('director-collab-create-project',(_,payload)=>collabService.createDirectorProject(payload));

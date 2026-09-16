@@ -21,18 +21,24 @@ test('导演云项目列表把受邀项目加入工作台，并按云项目ID去
 test('找不到或无法唯一确定导演项目时不覆盖现有内容', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
+  const source = read('cloud-backend/src/director-source.cjs');
   assert.doesNotMatch(ui,/setLinkChoices|collabLinkDirector|openLink/);
-  assert.match(server,/if\(directors.length!==1\)/);
-  assert.match(server,/analysis_output=\$1/);
+  assert.match(server,/require\('\.\/director-source\.cjs'\)/);
+  assert.match(source,/return directors\.length\s*===\s*1\s*\?\s*directors\[0\]\s*:\s*null/);
+  assert.match(server,/if\s*\(!director\)[\s\S]*return row/);
+  assert.match(source,/analysis_output=\$1/);
   assert.doesNotMatch(ui,/directorCollabUpdateProject/);
 });
 
 test('分镜沿用既有来源且保持对导演文档只读', () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
+  const source = read('cloud-backend/src/director-source.cjs');
   assert.doesNotMatch(ui,/setLinkChoices|collabLinkDirector|openLink/);
-  assert.match(server,/if\(directors.length!==1\)/);
-  assert.match(server,/analysis_output=\$1/);
+  assert.match(server,/require\('\.\/director-source\.cjs'\)/);
+  assert.match(source,/return directors\.length\s*===\s*1\s*\?\s*directors\[0\]\s*:\s*null/);
+  assert.match(source,/readableDirector[\s\S]*p\.owner_id=\$2 or exists/);
+  assert.match(source,/analysis_output=\$1/);
   assert.doesNotMatch(ui,/directorCollabUpdateProject/);
 });
 

@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import bundle from './artAssetSkillV4.json' with {type:'json'};
 import {COLLAB_ART_SKILL,buildEpisodeAnalysisMessages} from './collabArtSkill.js';
 import {parseArtAnalysis,buildAssetRows} from './collabStore.js';
-test('v4 includes every reference verbatim and existing episode message contract',()=>{
+test('archived v4 references remain verbatim and the episode message contract remains compatible',()=>{
  assert.equal(Object.keys(bundle.files).length,11);
- for(const [name,content] of Object.entries(bundle.files)){assert.equal(fs.readFileSync(new URL('./builtin-skills/art-asset-list-v4/'+name,import.meta.url),'utf8').replace(/\r\n/g,'\n'),content.replace(/\r\n/g,'\n'));assert.ok(COLLAB_ART_SKILL.includes(content));}
+ for(const [name,content] of Object.entries(bundle.files)){assert.equal(fs.readFileSync(new URL('./builtin-skills/art-asset-list-v4/'+name,import.meta.url),'utf8').replace(/\r\n/g,'\n'),content.replace(/\r\n/g,'\n'));assert.ok(content.trim());}
  const messages=buildEpisodeAnalysisMessages({genre:'民国',episodeNumber:15,content:'15-1 本集原文'});assert.match(messages[0].content,/脸型骨相/);assert.match(messages.at(-1).content,/第15集/);assert.match(messages.at(-1).content,/15-1 本集原文/);
 });
 test('v4 layered clothing remains one asset; mentioned people stay in audit, not generation',()=>{

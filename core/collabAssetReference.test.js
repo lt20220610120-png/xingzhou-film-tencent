@@ -40,3 +40,31 @@ test('scene and prop variants retain opt-in references', () => {
   assert.equal(resolveAssetReference(sceneAssets[1], sceneAssets), null);
   assert.equal(resolveAssetReference(sceneAssets[1], sceneAssets, 'base').id, 'base');
 });
+
+test('same scene place and interior default to the earliest imaged time variant with manual override', () => {
+  const sceneAssets = [
+    { id: 'night', category: 'scene', name: '【韩川出租屋-深夜-内】', first_episode: 2, images: [{ id: 'night-image', url: 'night.png' }] },
+    { id: 'living-room', category: 'scene', name: '【韩川出租屋客厅-清晨-内】', first_episode: 1, images: [{ id: 'room-image', url: 'room.png' }] },
+    { id: 'outside', category: 'scene', name: '【韩川出租屋-清晨-外】', first_episode: 1, images: [{ id: 'outside-image', url: 'outside.png' }] },
+    { id: 'dawn', category: 'scene', name: '【韩川出租屋-凌晨-内】', first_episode: 1, images: [{ id: 'dawn-image', url: 'dawn.png' }] },
+    { id: 'morning', category: 'scene', name: '【韩川出租屋-清晨-内】', first_episode: 3, images: [] },
+  ];
+
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets).id, 'dawn');
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'night').id, 'night');
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, ''), null);
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'living-room'), null);
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'outside'), null);
+  assert.equal(resolveAssetReference(sceneAssets[3], sceneAssets), null);
+});
+
+test('new scene baseline ids without time anchor later lighting cards', () => {
+  const assets = [
+    { id: 'base', category: 'scene', name: '【韩川出租屋-内】', first_episode: 1, images: [{ id: 'base-image', url: 'base.png' }] },
+    { id: 'morning', category: 'scene', name: '【韩川出租屋-清晨-内】', first_episode: 2, images: [] },
+    { id: 'room', category: 'scene', name: '【韩川出租屋-客厅-内】', first_episode: 1, images: [{ id: 'room-image', url: 'room.png' }] },
+  ];
+
+  assert.equal(resolveAssetReference(assets[1], assets).id, 'base');
+  assert.equal(resolveAssetReference(assets[1], assets, 'room'), null);
+});

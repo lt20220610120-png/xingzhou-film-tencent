@@ -244,3 +244,52 @@
   .asset-locator-number { display:none; }
   .asset-locator-heading { flex-wrap:wrap; padding:10px 8px; }
 }
+
+/* Collab-only episode append and incremental analysis stay above image tools. */
+.collab-art-isolation-hint { margin:0; padding:10px 12px; border:1px solid #cbd9ef; border-radius:9px; background:#f0f6fd; color:#526783; font-size:13px; line-height:1.6; }
+.collab-episode-card>span { color:#4f607b; font-size:13px; line-height:1.45; }
+.collab-pending-sync { align-self:flex-start; }
+.collab-episode-analysisbar { display:grid; grid-template-columns:minmax(220px,1fr) minmax(210px,300px) auto auto auto; align-items:end; gap:8px; margin:0 0 14px; padding:12px; border:1px solid #d6e1f0; border-radius:11px; background:#eef4fb; }
+.collab-episode-analysisbar>div:first-child { display:flex; flex-direction:column; align-self:center; gap:4px; min-width:0; color:#344b69; }
+.collab-episode-analysisbar>div:first-child>b { display:flex; align-items:center; gap:6px; font-size:14px; }
+.collab-episode-analysisbar>div:first-child>small { color:#647793; font-size:12px; line-height:1.45; }
+.collab-episode-analysisbar .window-model-select { min-width:0; margin:0; }
+.collab-episode-analysisbar .window-model-select select { width:100%; min-width:0; }
+.collab-episode-analysisbar>button { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-height:39px; margin:0; padding:7px 11px; white-space:nowrap; }
+.collab-episode-analysisbar .collab-force-analysis { color:#8b512d; border-color:#dec5b2; background:#fffaf6; }
+
+.veil.collab-append-episode-veil { z-index:360; padding:20px; overflow:hidden; }
+.collab-append-episode-modal { display:flex; flex-direction:column; gap:15px; width:min(720px,calc(100vw - 40px)); max-height:calc(100dvh - 40px); padding:22px; overflow-y:auto; border:1px solid #cad6e8; border-radius:14px; background:#f8fafd; }
+.collab-append-episode-modal>header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.collab-append-episode-modal>header h2 { margin:4px 0 0; font-size:22px; }
+.collab-append-episode-modal>header>button { display:grid; place-items:center; min-width:34px; height:34px; padding:0; }
+.collab-append-episode-modal .collab-isolation-note { margin:0; padding:10px 12px; border:1px solid #c9d9ef; border-radius:9px; background:#edf5ff; color:#435d7e; font-size:13px; line-height:1.65; }
+.collab-append-episode-fields { display:grid; grid-template-columns:130px minmax(0,1fr); gap:12px; }
+.collab-append-episode-fields label,.collab-append-script-field { display:flex; flex-direction:column; gap:7px; color:#455875; font-size:13px; font-weight:600; }
+.collab-append-episode-fields input,.collab-append-script-field textarea { width:100%; min-width:0; margin:0; padding:9px 10px; border:1px solid #cbd5e6; border-radius:7px; background:#fff; color:#2c3b52; font-size:14px; font-weight:400; }
+.collab-append-script-field textarea { min-height:280px; max-height:52vh; resize:vertical; line-height:1.75; }
+.collab-append-import { display:flex; align-items:center; gap:10px; min-width:0; }
+.collab-append-import>button { display:inline-flex; align-items:center; gap:6px; }
+.collab-append-import>small { min-width:0; overflow:hidden; color:#61738d; text-overflow:ellipsis; white-space:nowrap; }
+.collab-append-import>span { margin-left:auto; flex-shrink:0; color:#71829a; font-size:12px; }
+.collab-append-episode-modal>footer { display:flex; justify-content:flex-end; gap:9px; padding-top:4px; }
+.collab-force-analysis-veil { z-index:370; }
+.collab-force-analysis-modal { width:min(470px,calc(100vw - 40px)); text-align:center; }
+.collab-force-analysis-modal>svg { color:#b26938; }
+.collab-force-analysis-modal>h2 { margin:8px 0; }
+.collab-force-analysis-modal>p { color:#5d6474; line-height:1.7; }
+.collab-force-analysis-modal .modal-actions { justify-content:center; }
+
+@media (max-width: 1100px) {
+  .collab-episode-analysisbar { grid-template-columns:minmax(220px,1fr) minmax(210px,300px) auto auto; }
+  .collab-episode-analysisbar>div:first-child { grid-column:1 / -1; }
+}
+@media (max-width: 700px) {
+  .collab-episode-analysisbar { grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:stretch; }
+  .collab-episode-analysisbar .window-model-select { grid-column:1 / -1; }
+  .collab-episode-analysisbar>button { white-space:normal; }
+  .collab-append-episode-fields { grid-template-columns:1fr; }
+  .collab-append-script-field textarea { min-height:220px; }
+  .collab-append-import { flex-wrap:wrap; }
+  .collab-append-import>span { margin-left:0; }
+}

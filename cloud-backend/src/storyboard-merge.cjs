@@ -1,7 +1,9 @@
 const {normalizeStoryboardEpisodes}=require('./storyboard-identity.cjs');
+const {episodeNumber,unitHeaders}=require('./collab-episodes.cjs');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function mergeDirectorEpisodes(current=[],incoming=[]) {
- current=normalizeStoryboardEpisodes(current);
+ const originals=(Array.isArray(current)?current:[]).filter(ep=>ep&&typeof ep==='object');
+ current=normalizeStoryboardEpisodes(originals).map((ep,index)=>ep.collabOnly?structuredClone(originals[index]):ep);
  incoming=normalizeStoryboardEpisodes(incoming);
  const usedEpisodes=new Set();
  // Older collaboration copies omitted IDs that still exist in the director
@@ -10,9 +12,11 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
  const legacyKey=ep=>{if(!identityCache.has(ep))identityCache.set(ep,normalizeStoryboardEpisodes([{...ep,id:undefined,prompts:[]}])[0].id);return identityCache.get(ep);};
  const merged=incoming.map(ep=>{
   let old=current.find(e=>e.id===ep.id&&!usedEpisodes.has(e));
+  if(!old){const number=episodeNumber(ep);if(number)old=current.find(e=>e.collabOnly&&episodeNumber(e)===number&&!usedEpisodes.has(e));}
   if(!old){const key=legacyKey(ep),matches=current.filter(e=>!usedEpisodes.has(e)&&legacyKey(e)===key);
    if(matches.length===1&&incoming.filter(e=>legacyKey(e)===key).length===1)old=matches[0];
   }
+  if(old?.collabOnly){usedEpisodes.add(old);return old;}
   old=old||{};usedEpisodes.add(old);
   const deleted=new Set([...(old.deletedPromptIds||[]),...(ep.deletedPromptIds||[])]);
   const prompts=(ep.prompts||[]).filter(source=>!deleted.has(source.id)&&!deleted.has('source-label:'+source.label)).map(source=>{
@@ -35,9 +39,12 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
     }
     prompts.push(kept);
   }
-  return {...old,...ep,id:old.id||ep.id,prompts,deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
+  return {...old,...ep,...(old.collabOnly?{title:old.title,content:old.content,episodeNumber:old.episodeNumber,number:old.number,collabOnly:true,origin:old.origin}:{}),id:old.id||ep.id,prompts,deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
  });
- for(const ep of current)if(!usedEpisodes.has(ep))merged.push(ep);
+ for(const ep of current)if(!usedEpisodes.has(ep)){
+  const before=ep.collabOnly?merged.findIndex(item=>episodeNumber(item)>episodeNumber(ep)):-1;
+  if(before<0)merged.push(ep);else merged.splice(before,0,ep);
+ }
  return merged;
 }
 function patchShot(episodes,payload) {
@@ -45,9 +52,15 @@ function patchShot(episodes,payload) {
  if(!ep)throw Object.assign(new Error('分集已变更，请刷新后重试'),{status:409});
  ep.prompts=ep.prompts||[];
  if(payload.operation==='create'){
-  if(ep.prompts.some(p=>p.id===payload.shotId))return next;
   if(!String(payload.shotId||'').trim())throw Object.assign(new Error('分镜编号缺失，请重新创建'),{status:400});
   if(!/^\d+-\d+$/.test(payload.scene||''))throw Object.assign(new Error('场景编号不合法'),{status:400});
+  const number=episodeNumber(ep);
+  const scriptScenes=[...String(ep.content||'').matchAll(/^[ \t]*(?:#{1,6}[ \t]*)?(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*(\d+)/gm)].map(m=>`${Number(m[1])}-${Number(m[2])}`);
+  const scenes=new Set(scriptScenes.length?scriptScenes:ep.prompts.map(p=>String(p.label||'').match(/^(\d+-\d+)-\d+$/)?.[1]).filter(Boolean));
+  const hasNumberEvidence=scriptScenes.length||unitHeaders(ep.title).length||unitHeaders(ep.content).length||['episodeNumber','number','episode','episode_number'].some(key=>ep[key]!==undefined&&ep[key]!==null&&ep[key]!=='');
+  if((hasNumberEvidence&&!number)||(number&&Number(payload.scene.split('-')[0])!==number)||(scenes.size&&!scenes.has(payload.scene)))
+    throw Object.assign(new Error('场景不属于当前分集，请刷新核对'),{status:400});
+  if(ep.prompts.some(p=>p.id===payload.shotId))return next;
   const max=Math.max(0,ep.shotCounters?.[payload.scene]||0,...ep.prompts.filter(p=>p.label?.startsWith(payload.scene+'-')).map(p=>Number(p.label.split('-')[2])||0));
   ep.shotCounters={...ep.shotCounters,[payload.scene]:max+1};
   ep.prompts.push({id:payload.shotId,label:`${payload.scene}-${max+1}`,content:'',manual:true});

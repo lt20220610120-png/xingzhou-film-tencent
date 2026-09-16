@@ -3,16 +3,16 @@
 // 项目协作·信息读取 专用。不可在界面中更换，仅可通过更新软件版本升级。
 // ============================================================
 
-export const COLLAB_ART_SKILL_NAME = '剧本美术清单 v4（内置）';
+export const COLLAB_ART_SKILL_NAME = '剧本美术清单 v5（内置）';
 
-import skillV4 from './artAssetSkillV4.json' with { type: 'json' };
-export const COLLAB_ART_SKILL_VERSION = skillV4.version;
-export const COLLAB_ART_SKILL = Object.entries(skillV4.files).map(([name,content])=>`【内置文件：${name}】\n${content}`).join('\n\n') + `
+import skillV5 from './artAssetSkillV5.json' with { type: 'json' };
+export const COLLAB_ART_SKILL_VERSION = skillV5.version;
+export const COLLAB_ART_SKILL = Object.entries(skillV5.files).map(([name,content])=>`【内置文件：${name}】\n${content}`).join('\n\n') + `
 【行舟影视输出适配】
 第一级：集（### 第N集）；第二级：人物：/ 场景：/ 道具：；第三级：- 【资产名】。
 复用免描：只列同一资产名与复用集数。人物服装的【内层】【中层】【外层】【下装】【足饰】属于描述字段，不另立资产条目。
 群演默认6人静态群像（剧本有明确数量时沿用），同图多人个体有差异，纯白背景、全身完整、无表情无动作。
-仅提及/不生成形象资产条目保留在分析记录，软件不建立生成资产。不要用代码围栏包裹清单。
+仅声音/仅提及/不生成形象资产记录不放进可生成的人物清单；手机等物件归道具，可见系统面板不属于人物。审计留内部，完整模式可置于三大总览之后。不要用代码围栏包裹清单。
 本次是文本分析调用，没有联网或外部文件读取工具；上述引用文件已完整内置，不声称已检索外网。需考据且无法核实时标注【待确认】。
 `;
 
@@ -25,34 +25,13 @@ export const buildCollabAnalysisMessages = ({ genre, script }) => [
   { role: 'user', content: `以下是完整剧本，请严格按 Skill 输出按集美术清单与三大总览：\n\n${script}` },
 ];
 
-// Runtime edition: keep the v4 design rules; omit examples, repeated templates,
-// research URLs and offline instructions from each paid episode request.
-export const ART_RUNTIME_SKILL = `剧本美术清单 v4.1 · 分段定妆资产版
-仅分析本次原文片段，不复述剧情、不扩写其他集。系统分段保存结果，人物输出不能为了节省长度删减必需细节。
-从人物表、小传、场次头、说话人、动作提及、别名、群体逐项盘点。实际出镜、仅声音、仅提及分清；仅提及标注“不生成形象资产”，仍留记录。别名有依据才合并。群体默认6人，明确数量沿用；有不同个体特征。
-稳定命名：人物【角色名-服装或状态】，场景【地点-时间-内外】，道具【名称-必要状态】。同地点不按人物拆分。仅明确可见换装或稳定状态才新建。相同资产名称复用免描；新换装资产必须完整重复固定脸部、发型、身形，再写新衣，不能只写“同上”或差异。已有锚点优先，未知部分合理设计并标“设计推断”。
-人物是演员完成服化道后的静态定妆资产，不是剧情插图。每个新人物条目按以下普通文字字段逐行写，禁止字段另用方括号：
-身份与依据：视觉年龄、时代地域、职业阶层、本套衣服场合，区分原文事实与设计推断。
-脸型骨相：具体主脸型、面部长宽、额头、颧骨高度宽度、下颌转折、下巴长宽；不能只写棱角分明。
-眉眼：眉形眉峰浓度、眼裂长度与眼距、单双眼睑、眼角结构、自然虹膜颜色；不能写情绪眼神。
-鼻唇耳部：鼻根鼻梁高度宽度、鼻尖鼻翼、唇峰、上下唇厚度与嘴宽、可见耳形；不同人物不能共用同一套五官。
-肤质与识别点：自然肤色冷暖、皮肤纹理、符合年龄的细纹、原文稳定痣疤等；不凭空给所有人造缺陷。
-发型发饰：发际线、发量长度、分缝、刘海鬓角、发色纹理、束发或冠帽结构，有胡须写形制。
-身形比例：肩宽、头身比、四肢比例、身高观感、肌肉量，符合年龄身份，不写动作。
-妆造：底妆质感、眉部修饰、眼部与唇部配色、自然皮肤保留，匹配日常职业礼仪场合。
-服装总体：剪影松量、主辅色及面积关系、衣长腰线、领袖形状、裤裙结构。
-分层服装：实际存在的内层→中层→外层→下装→足饰，每层写颜色、剪裁、面料厚薄纹理、收边接缝、扣合、垂坠挺括、合理磨损和穿戴关系，无中层写无，不凑层数。不得平铺衣服。
-配饰随身物：数量、位置、尺度、材质与固定方式，符合身份原文，不写持物动作。
-一致性与展示：固定脸型眉眼鼻唇、肤色、识别点跨换装相同；完整穿戴全身、中性面部、干净背景均匀柔光；排除剧情表演、发光眼睛、粒子光环和散件拼贴。
-人物严格删除眼中闪过神光/寒光/杀意/笑意、泪光、气势爆发等修辞与瞬时表演。不写表情、姿势、动作、对白、视线。人类基础定妆图不带发光虹膜、气焰法阵；明确非人角色的永久生理特征保留。不凭空改变原文年龄肤色身体缺陷，不引用明星脸。故事允许时主角及男二男三女二女三具有影视选角的协调上镜外貌，但必须用不同脸型骨相、眉眼鼻唇比例和妆发形成辨识度；反派不默认丑化，儿童不能成人化。不能只说俊美。
-服化道依据时代地域、职业阶层、场合与连续性。缺少五官服装细节允许合理设计推断，不能只写“不详”；每项设计必须定稿，禁止“圆领或立领”“直筒或收脚”等多选含糊表述。设计推断集中在身份依据字段标注一次，其余写明确细节。禁止输出剔除剧情的说明或引用神光原句，直接交付干净定妆描述。不要增加不存在的换装事件。无联网工具，不声称外网考据，不确定的历史设定标待确认。
-场景写空间尺度布局、建筑结构、材质、陈设、主辅色、自然或人造光源与时间内外。场景合理补全的普通陈设不自动拆为独立道具资产；道具仅列原文出现或剧情明确需要的物件。道具写现实功能、结构尺度、材质纹理做旧、使用状态，功能不冲突；魔气环绕、光效等仅当剧本有依据可以保留在道具，不能套到人物。
-主要人物及重要配角首次通常700–1100字，其他配角450–700字；场景道具150–300字，以完整可用为准不重复凑字。输出人物/场景/道具三类；无内容写“无（本段未出现）”。不输出推理过程、研究报告、总览账本。交付前检查每个人物都有详细脸型骨相、眉眼鼻唇、肤质、妆发和真实穿衣层次，新资产可独立生图，无剧情光效。`;
+// One authoritative contract for full, episode and incremental analysis.
+export const ART_RUNTIME_SKILL = COLLAB_ART_SKILL;
 
 export const buildEpisodeAnalysisMessages = ({ genre, episodeNumber, title, content, previousSummaries = [] }) => [
   {
     role: 'system',
-    content: `你是行舟影视的美术统筹 AI。本次处理指定一集的一个片段，直接输出最终清单，不输出推理过程。只写客观美术特征，不加入AI真人、3D动漫或2D动漫画风前置。\n\n题材与时代：${genre || '未指定'}\n\n【Skill】\n${ART_RUNTIME_SKILL}`,
+    content: `你是行舟影视的美术统筹 AI。直接输出最终清单，不输出推理过程。只写客观美术特征，不加入画风或生图前置。既有资产摘要、锚点与账本只用于检索、复用和差异，不作为本次待分析剧本。当前输出只包含第${episodeNumber}集，不输出其他集或全剧总览。第二套及以后只写服装妆造差异，以已有人物基准作为参考；场景只来自场次头，同地点时间变化只改光线。\n\n题材与时代：${genre || '未指定'}\n\n【完整 Skill · v5】\n${ART_RUNTIME_SKILL}`,
   },
   ...previousSummaries.map((summary) => ({ role: 'assistant', content: summary })),
   {
@@ -61,8 +40,8 @@ export const buildEpisodeAnalysisMessages = ({ genre, episodeNumber, title, cont
   },
 ];
 
-export const buildEpisodeBatchAnalysisMessages = ({ style, genre, episodes, previousSummaries = [] }) => [
-  { role: 'system', content: `你是行舟影视的美术统筹 AI。请严格遵循下方 Skill，一次分析下面最多三集；每集独立输出，不能串集，不要输出总览。\n\n画风：${style || '未指定'}\n题材与时代：${genre || '未指定'}\n\n【Skill】\n${COLLAB_ART_SKILL}` },
+export const buildEpisodeBatchAnalysisMessages = ({ genre, episodes, previousSummaries = [] }) => [
+  { role: 'system', content: `你是行舟影视的美术统筹 AI。请严格遵循下方完整 Skill，一次分析下面最多三集；每集独立输出，不能串集，不要输出总览。既有摘要与锚点只用于检索复用，不是当前剧本。不加入画风或生图前置。\n\n题材与时代：${genre || '未指定'}\n\n【完整 Skill · v5】\n${COLLAB_ART_SKILL}` },
   ...previousSummaries.map((summary) => ({ role: 'assistant', content: summary })),
   { role: 'user', content: episodes.map(({ episodeNumber, title, content }) => `现在分析第${episodeNumber}集《${title || `第${episodeNumber}集`}》。必须输出且只输出以下结构：\n### 第${episodeNumber}集\n人物：\n- 【资产名】描述\n场景：\n- 【资产名】描述\n道具：\n- 【资产名】描述\n即使某类没有内容，也保留类别标题。\n\n【当前剧本片段】\n${content || '（本集内容为空）'}`).join('\n\n') },
 ];

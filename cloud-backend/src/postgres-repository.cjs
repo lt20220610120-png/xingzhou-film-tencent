@@ -1,6 +1,8 @@
 const { Pool } = require('pg');
 const crypto = require('node:crypto');
 const { extendRepository } = require('./repository-extras.cjs');
+const {collabGenre} = require('./collab-episodes.cjs');
+const {lockReadableDirector} = require('./director-source.cjs');
 
 function createRepository(databaseUrl, deps = {}) {
   const pool = deps.pool || new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000 });
@@ -30,14 +32,20 @@ function createRepository(databaseUrl, deps = {}) {
     async createProject(p) {
       // 与 Supabase 一致：协作项目必须带 [COLLAB_PROJECT] 标记，
       // 关联的导演项目本地ID写成 [COLLAB_SOURCE:xxx]，云端管理据此判断“项目协作使用中”。
-      const base = String(p.genre || '').replace(/\n?\[(?:COLLAB_PROJECT|COLLAB_SOURCE:[^\]]+)\]/g, '').trim();
-      const source = p.directorProjectId ? '\n[COLLAB_SOURCE:' + p.directorProjectId + ']' : '';
-      const genre = (base + '\n[COLLAB_PROJECT]' + source).trim();
-      const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,director_project_id) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';
-      const r = await pool.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',genre,p.script||'',JSON.stringify(p.episodes||[]),p.directorProjectId||'']);
-      const row = r.rows[0];
-      await pool.query("insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,'producer') on conflict(project_id,user_id) do nothing", [row.id, p.ownerId, p.ownerUsername||p.ownerName||'', p.ownerName||'']);
-      return row;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (p.directorProjectId && !await lockReadableDirector(client, p.directorProjectId, p.ownerId))
+          throw Object.assign(new Error('无权关联这个导演项目，或关联不唯一'), {status: 403});
+        const source = p.directorProjectId ? '\n[COLLAB_SOURCE:' + p.directorProjectId + ']' : '';
+        const genre = collabGenre(p.genre) + source;
+        const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,director_project_id) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';
+        const r = await client.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',genre,p.script||'',JSON.stringify(p.episodes||[]),p.directorProjectId||'']);
+        const row = r.rows[0];
+        await client.query("insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,'producer') on conflict(project_id,user_id) do nothing", [row.id, p.ownerId, p.ownerUsername||p.ownerName||'', p.ownerName||'']);
+        await client.query('COMMIT');
+        return row;
+      } catch (error) {await client.query('ROLLBACK'); throw error;} finally {client.release();}
     },
     // 回收站需要看到已删除项目：这里不能过滤 deleted_at，
     // 只排除已过 3 天恢复期的项目（由清理任务物理删除）。
@@ -65,7 +73,10 @@ function createRepository(databaseUrl, deps = {}) {
     async listTasks(pid,uid) { const r=await pool.query('select t.* from collab_tasks t join collab_projects p on p.id=t.project_id where t.project_id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) order by t.episode,t.assigned_at',[pid,uid]); return r.rows; },
     async upsertTask(pid,p,uid) { const r=await pool.query('insert into collab_tasks(project_id,episode,title,assignee_id,assignee_name,status) select $1,$2,$3,$4,$5,$6 where exists(select 1 from collab_projects where id=$1 and owner_id=$7) returning *',[pid,p.episode||1,p.title||'',p.assigneeId||null,p.assigneeName||'',p.status||'进行中',uid]); return r.rows[0]||null; },
     async listMessages(pid,uid) { const r=await pool.query('select msg.* from collab_messages msg join collab_projects p on p.id=msg.project_id where msg.project_id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) order by msg.created_at',[pid,uid]); return r.rows; },
-    async sendMessage(pid,p,uid) { const r=await pool.query('insert into collab_messages(project_id,user_id,username,content,image_url) values($1,$2,$3,$4,$5) returning *',[pid,uid,p.username||'',p.content||'',p.imageUrl||'']); return r.rows[0]; },
+    async sendMessage(pid,p,uid) { const r=await pool.query(`insert into collab_messages(project_id,user_id,username,content,image_url)
+      select $1,$2,$3,$4,$5 where exists(select 1 from collab_projects project where project.id=$1
+        and project.deleted_at is null and project.genre not like '%[RECYCLE_UNTIL:%' and project.genre not like '%[PROJECT_LOCKED]%'
+        and (project.owner_id=$2 or exists(select 1 from collab_members member where member.project_id=project.id and member.user_id=$2))) returning *`,[pid,uid,p.username||'',p.content||'',p.imageUrl||'']); return r.rows[0]||null; },
     async listMedia(pid,uid) { const r=await pool.query('select media.* from collab_media media join collab_projects p on p.id=media.project_id where media.project_id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) order by media.created_at desc',[pid,uid]); return r.rows; },
     async createMedia(pid,row,uid) { const r=await pool.query('insert into collab_media(project_id,asset_id,episode,scene,kind,url,object_path,filename,mime,note,user_id,username) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *',[pid,row.asset_id,row.episode,row.scene,row.kind,row.url||'',row.object_path,row.filename,row.mime,row.note,uid,row.username]); return r.rows[0]; },
     async findMedia(id,uid) { const r=await pool.query('select media.* from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.id=$1 and (p.owner_id=$2 or m.user_id=$2) limit 1',[id,uid]); return r.rows[0]||null; },
