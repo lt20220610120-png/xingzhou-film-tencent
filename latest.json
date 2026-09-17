@@ -1,7 +1,7 @@
 {
-  "version": "2.2.8",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.8/Xingzhou-Film-Tencent-Setup-2.2.8.exe",
-  "notes": "新增协作美术添加集数与单集增量分析，复用已有清单并同步资产，不回写导演项目；内置剧本美术清单V5，修正手机和纯声音误分类、无依据换装及重复场景，人物后续造型只描述衣妆差异，同地点参考只改光线；统一参考图检查及四格三视图前置，保留旧图片、手工描述与已完成分析。",
-  "sha256": "894b0dbefc43b5f8547829428d756357b312ddf24c41b9573d0d3f32ca02b5aa",
-  "size": 102226780
+  "version": "2.2.9",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.9/Xingzhou-Film-Tencent-Setup-2.2.9.exe",
+  "notes": "修复信息读取完成后美术与资产只同步到部分集数的问题：单集失败不再阻断后续同步，重启后可恢复同步已保存结果，无需重新调用模型；恢复同集自引用及重复开头输出，修正人物状态资产误拒绝；显示具体失败集号与待核对条目，保留原始分析、历史、图片和手工编辑。包含本地导演项目开启协作修复。",
+  "sha256": "5b16d9243786a59622ec71fc95783df349bea37d5bda215cc25d85e66bd05922",
+  "size": 102229956
 }
