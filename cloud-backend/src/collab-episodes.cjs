@@ -3,7 +3,7 @@ const {lockDirectorReferences} = require('./director-source.cjs');
 const isSetting = episode => episode.kind === 'setting' || episode.title === '设定和小传';
 const conflict = message => Object.assign(new Error(message), {status: 409});
 const invalid = message => Object.assign(new Error(message), {status: 400});
-const INTERNAL_GENRE = /\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_SOURCE|RECYCLE_UNTIL)(?::[^\]]*)?\]/g;
+const INTERNAL_GENRE = /\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_SOURCE|COLLAB_LOCAL_SOURCE|RECYCLE_UNTIL)(?::[^\]]*)?\]/g;
 const publicGenre = value => String(value || '').replace(INTERNAL_GENRE, '').trim();
 function collabGenre(value, original = '') {
   const markers = String(original || '').match(INTERNAL_GENRE) || [];

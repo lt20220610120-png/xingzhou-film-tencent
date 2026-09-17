@@ -1,6 +1,7 @@
 import {parseArtAnalysis,buildAssetRows,parseAssetName} from './collabStore.js';
 import {buildEpisodeAnalysisMessages} from './collabArtSkill.js';
 import {episodeNumbersInText,listCollabEpisodes} from './collabEpisodes.js';
+import {syncSavedArtAnalysis,summarizeArtSync} from './artAnalysisSync.js';
 
 export function splitAnalysisText(text, limit=12000) {
   const source=String(text||'');
@@ -21,7 +22,7 @@ export async function analysisFingerprint(genre,episode){
   const bytes=new TextEncoder().encode(JSON.stringify(['art-v5-runtime-1',genre,episode.title,episode.content]));
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
-async function legacyAnalysisFingerprint(genre,episode){
+export async function legacyAnalysisFingerprint(genre,episode){
   const bytes=new TextEncoder().encode(JSON.stringify(['art-v4-bounded-1',genre,episode.title,episode.content]));
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
@@ -132,7 +133,7 @@ const mergeAssetRow=(assets,row,preferDescription=false)=>{
 const rowsFromOutput=output=>buildAssetRows(parseArtAnalysis(String(output||'')));
 export function buildExistingAssetContext(assetRows,episode){
   const number=episode.episodeNumber;
-  const ordered=[...assetRows].filter(row=>firstEpisode(row)<=number).sort((a,b)=>firstEpisode(a)-firstEpisode(b)||latestEpisode(a)-latestEpisode(b)||String(a.name).localeCompare(String(b.name),'zh-CN'));
+  const ordered=[...assetRows].filter(row=>firstEpisode(row)<number).sort((a,b)=>firstEpisode(a)-firstEpisode(b)||latestEpisode(a)-latestEpisode(b)||String(a.name).localeCompare(String(b.name),'zh-CN'));
   if(!ordered.length)return '';
   const script=String(episode.content||'');
   const relevant=ordered.filter(row=>{
@@ -174,33 +175,9 @@ export async function runArtAnalysis({project,genre,profile,api,job,load,save,on
   const episodeByNumber=new Map(allEpisodes.map(episode=>[episode.episodeNumber,episode]));
   if(!episodes.length)throw new Error('没有可分析的分集，请先同步导演项目');
   const ledger=await load()||{episodes:{}};ledger.episodes ||= {};
-  // A failed cloud upload never invalidates paid local output. Only one cloud
-  // writer runs at a time; retries reuse the same fingerprint and base snapshot.
-  let cloudUnavailable=false;
-  job.sync=async()=>{
-    if(job.syncing)return;
-    job.syncing=true;
-    try {
-      for (const [key,record] of Object.entries(ledger.episodes)) {
-        if(record.published || record.outputs.length!==record.chunks.length || record.outputs.some(x=>!x))continue;
-        const episode=episodeByNumber.get(Number(key));
-        if(!episode)continue;
-        const fingerprints=[await analysisFingerprint(genre,episode),await legacyAnalysisFingerprint(genre,episode)];
-        if(!fingerprints.includes(record.fingerprint))continue;
-        try {
-          const output=record.outputs.join('\n\n');
-          const priorAssets=[...existingAssets,...[...knownAssets.values()].filter(row=>firstEpisode(row)<Number(key))];
-          const assets=validateArtOutput(output,Number(key),episode.content||'',priorAssets);
-          if(assets.validationWarnings?.length){record.validationWarnings=assets.validationWarnings;validationWarnings.push(...assets.validationWarnings);}
-          await api.collabPublishAnalysis({projectId:project.id,episodeNumber:Number(key),sourceContent:episode.content||'',fingerprint:record.fingerprint,output,assets,baseOutput:record.baseOutput??project.analysis_progress?.[key]?.output??''});
-          record.published=true;delete record.syncError;await save(ledger);
-        } catch(error) {
-          record.syncError=error.message;await save(ledger);cloudUnavailable=true;break;
-        }
-      }
-      job.pending=Object.values(ledger.episodes).filter(r=>!r.published&&r.outputs.length===r.chunks.length&&r.outputs.every(Boolean)).length;
-    } finally {job.syncing=false;onProgress?.();}
-  };
+  // Shared restart-safe sync never pays for generation, and a failed episode
+  // does not prevent independent later episodes from reaching the cloud.
+  job.sync=()=>syncSavedArtAnalysis({project,genre,api,job,load,save,existingAssets,onProgress,ledger});
   const knownAssets=new Map();let completed=0;const validationWarnings=[];
   const remember=(rows,preferDescription=false)=>rows.forEach(row=>mergeAssetRow(knownAssets,row,preferDescription));
   const priorAssetsFor=number=>[...existingAssets,...[...knownAssets.values()].filter(row=>firstEpisode(row)<number)];
@@ -268,12 +245,12 @@ export async function runArtAnalysis({project,genre,profile,api,job,load,save,on
     if(combinedRows.validationWarnings?.length){record.validationWarnings=combinedRows.validationWarnings;validationWarnings.push(...combinedRows.validationWarnings);}
     remember(combinedRows);
     // Publish is separate from paid generation: reconnect only retries saving.
-    if(!record.published && !cloudUnavailable){
+    if(!record.published){
       job.notice=`第 ${number} 集已保存到本机，正在同步云端…`;onProgress?.();
       await job.sync();
     }
     completed++;job.completed=completed;job.taskId='';
   }
-  job.pending=Object.values(ledger.episodes).filter(r=>!r.published&&r.outputs.length===r.chunks.length&&r.outputs.every(Boolean)).length;
-  return {completed,total:episodes.length,pending:job.pending,warnings:[...new Set(validationWarnings)]};
+  const summary=summarizeArtSync(ledger);Object.assign(job,summary);
+  return {...summary,completed,total:episodes.length,warnings:[...new Set([...validationWarnings,...summary.warnings])]};
 }

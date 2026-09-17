@@ -30,7 +30,10 @@ function classifyEntry(entry) {
   if(NON_VISUAL.test(evidence)&&!anthropomorphic&&!(visible&&human))return {...entry,generatable:false};
   if(!anthropomorphic&&!human&&new Set(text.match(OBJECT_VISUAL)||[]).size>=2)return {...entry,category:'prop'};
   if(NON_VISUAL.test(entry.name+' '+text)&&!anthropomorphic&&!(visible&&human))return {...entry,generatable:false};
-  return {...entry,generatable:visible||human||Boolean(entry.reuseOf)};
+  const reference=text.match(/参考【([^】]+)】/)?.[1]||'';
+  const characterBase=name=>String(name||'').replace(/^【|】$/g,'').trim().split('-')[0].trim();
+  const sameCharacterReference=reference&&characterBase(reference)===characterBase(entry.name);
+  return {...entry,generatable:Boolean(visible||human||entry.reuseOf||sameCharacterReference)};
 }
 function parsePublicationOutput(output, number) {
   if(typeof output!=='string'||!output.trim()||output.length>500000)throw invalid();

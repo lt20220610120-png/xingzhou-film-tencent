@@ -344,8 +344,10 @@ function extendRepository(pool) {
         await client.query('BEGIN');
         const row=(await client.query('select * from collab_projects where id=$1 and owner_id=$2 for update',[pid,uid])).rows[0];
         if(!uid||!editableCollab(row)){await client.query('ROLLBACK');return null;}
-        if(!await lockReadableDirector(client,directorProjectId,uid)){await client.query('ROLLBACK');return null;}
-        const cleaned=String(row.genre||'').replace(/\[COLLAB_SOURCE:[^\]]+\]/g,'').trim();
+        const director=await lockReadableDirector(client,directorProjectId,uid);
+        if(!director){await client.query('ROLLBACK');return null;}
+        if(directorProjectId===`cloud-${director.id}`)directorProjectId=director.id;
+        const cleaned=String(row.genre||'').replace(/\[COLLAB_SOURCE:[^\]]+\]|\[COLLAB_LOCAL_SOURCE\]/g,'').trim();
         const genre=collabGenre(cleaned,cleaned)+'\n[COLLAB_SOURCE:'+directorProjectId+']';
         const saved=(await client.query('update collab_projects set genre=$2,director_project_id=$3,updated_at=now() where id=$1 returning id,genre',[pid,genre,directorProjectId])).rows[0];
         await client.query('COMMIT');return saved;

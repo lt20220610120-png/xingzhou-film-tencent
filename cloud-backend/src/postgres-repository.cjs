@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const crypto = require('node:crypto');
 const { extendRepository } = require('./repository-extras.cjs');
 const {collabGenre} = require('./collab-episodes.cjs');
-const {lockReadableDirector} = require('./director-source.cjs');
+const {resolveCreationSource} = require('./director-source.cjs');
 
 function createRepository(databaseUrl, deps = {}) {
   const pool = deps.pool || new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000 });
@@ -30,17 +30,16 @@ function createRepository(databaseUrl, deps = {}) {
     async findEmailCode(email) { const r = await pool.query('select email, code_hash, expires_at from email_codes where email=$1 limit 1', [email]); return r.rows[0] || null; },
     async deleteEmailCode(email) { await pool.query('delete from email_codes where email=$1', [email]); return true; },
     async createProject(p) {
-      // 与 Supabase 一致：协作项目必须带 [COLLAB_PROJECT] 标记，
-      // 关联的导演项目本地ID写成 [COLLAB_SOURCE:xxx]，云端管理据此判断“项目协作使用中”。
+      // Local projects upload a one-way snapshot; only authorized cloud sources
+      // receive a live reference marker. Keep the local ID for client-side sync.
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        if (p.directorProjectId && !await lockReadableDirector(client, p.directorProjectId, p.ownerId))
-          throw Object.assign(new Error('无权关联这个导演项目，或关联不唯一'), {status: 403});
-        const source = p.directorProjectId ? '\n[COLLAB_SOURCE:' + p.directorProjectId + ']' : '';
+        const resolved = await resolveCreationSource(client, p.directorProjectId, p.ownerId);
+        const source = resolved.local ? '\n[COLLAB_LOCAL_SOURCE]' : resolved.id ? '\n[COLLAB_SOURCE:' + resolved.id + ']' : '';
         const genre = collabGenre(p.genre) + source;
         const sql = 'insert into collab_projects(name,owner_id,owner_name,style,genre,script,episodes,director_project_id) values($1,$2,$3,$4,$5,$6,$7,$8) returning *';
-        const r = await client.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',genre,p.script||'',JSON.stringify(p.episodes||[]),p.directorProjectId||'']);
+        const r = await client.query(sql, [p.name||'未命名项目',p.ownerId,p.ownerName||'',p.style||'',genre,p.script||'',JSON.stringify(p.episodes||[]),resolved.id]);
         const row = r.rows[0];
         await client.query("insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,'producer') on conflict(project_id,user_id) do nothing", [row.id, p.ownerId, p.ownerUsername||p.ownerName||'', p.ownerName||'']);
         await client.query('COMMIT');

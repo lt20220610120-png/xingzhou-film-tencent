@@ -82,7 +82,7 @@ test('scene assets are limited to real current-episode scene headings and lighti
 test('runner preserves raw output but publishes only source-backed scene assets',async()=>{
  let disk=null;const published=[];const raw=`### 第20集\n人物：\n- 无（本集未识别到该类资产）\n场景：\n- 【出租屋客厅-内】（首次）空间布局：客厅\n- 【卧室-夜-内】（首次）床铺\n道具：\n- 无（本集未识别到该类资产）`;
  const result=await runArtAnalysis({project:{id:'scene-filter',episodes:[{episodeNumber:20,title:'第20集',content:'20-1 出租屋客厅 日 内\n姜蓝走进卧室。'}]},targetEpisodeNumbers:[20],genre:'都市',profile:{id:'p',name:'模型',model:'m'},job:{},load:async()=>structuredClone(disk),save:async value=>{disk=structuredClone(value);},api:{aiChat:async()=>({ok:true,output:raw}),collabPublishAnalysis:async payload=>published.push(payload)}});
- assert.match(published[0].output,/卧室-夜-内/);assert.deepEqual(published[0].assets.filter(row=>row.category==='scene').map(row=>row.name),['【出租屋客厅-内】']);
+ assert.doesNotMatch(published[0].output,/卧室-夜-内/);assert.deepEqual(published[0].assets.filter(row=>row.category==='scene').map(row=>row.name),['【出租屋客厅-内】']);
  assert.match(disk.episodes[20].outputs[0],/卧室-夜-内/);assert.ok(result.warnings.some(message=>/卧室/.test(message)));
 });
 

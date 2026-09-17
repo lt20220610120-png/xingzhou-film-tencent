@@ -15,7 +15,7 @@ const LOCK_SENTINEL = '[PROJECT_LOCKED]';
 const recycleUntil = (genre) => (String(genre || '').match(/\[RECYCLE_UNTIL:([^\]]+)\]/) || [])[1] || '';
 const collabSource = (genre) => (String(genre || '').match(/\[COLLAB_SOURCE:([^\]]+)\]/) || [])[1] || '';
 const stripInternalGenre = (genre) => String(genre || '')
-  .replace(/\n?\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_SOURCE:[^\]]+|RECYCLE_UNTIL:[^\]]+)\]/g, '')
+  .replace(/\n?\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_LOCAL_SOURCE|COLLAB_SOURCE:[^\]]+|RECYCLE_UNTIL:[^\]]+)\]/g, '')
   .trim();
 
 // 客户端按 myRole 决定可见功能区：

@@ -1,9 +1,15 @@
 const directorRow = row => Boolean(row && String(row.genre||'').includes('[DIRECTOR_PROJECT]')
   && !String(row.genre||'').includes('[COLLAB_PROJECT]') && !row.deleted_at
   && !String(row.genre||'').includes('[RECYCLE_UNTIL:'));
+const localDirectorId = source => typeof source === 'string' && source === source.trim()
+  && /^(?:\d{13}-[a-z0-9]{1,12}|[a-z0-9]{8,12}_[a-z0-9]{1,12}_\d+)$/.test(source);
+const directorLookupId = source => typeof source === 'string'
+  && /^cloud-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(source)
+  ? source.slice(6) : source;
 
 async function readableDirector(query, source, uid) {
   if (typeof source !== 'string' || !source || source.length > 500 || /[\[\]\r\n]/.test(source) || !uid) return null;
+  source = directorLookupId(source);
   const rows = (await query(`select p.* from collab_projects p where (p.id::text=$1 or p.analysis_output=$1)
     and p.genre like '%[DIRECTOR_PROJECT]%' and p.deleted_at is null
     and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2))`, [source, uid])).rows;
@@ -26,6 +32,9 @@ async function lockReadableDirector(client, source, uid) {
 }
 
 async function lockDirectorReferences(client, row, uid) {
+  // A client-uploaded local snapshot is not a live cloud reference.
+  if (String(row.genre||'').includes('[COLLAB_LOCAL_SOURCE]')
+    && !String(row.genre||'').includes('[COLLAB_SOURCE:') && localDirectorId(row.director_project_id)) return true;
   const sources = [...new Set([row.director_project_id, ...[...String(row.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1])].filter(Boolean))];
   if (!sources.length) return true;
   const director = await lockReadableDirector(client, sources[0], uid);
@@ -39,4 +48,17 @@ async function lockDirectorReferences(client, row, uid) {
   return true;
 }
 
-module.exports = {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences};
+async function resolveCreationSource(client, source, uid) {
+  if (!source) return {id:'',local:false};
+  const director = await lockReadableDirector(client, source, uid);
+  if (director) return {id:directorLookupId(source),local:false};
+  if (uid && localDirectorId(source)) {
+    // Do not reinterpret a deleted, inaccessible or ambiguous cloud alias as local.
+    // The client supplies all snapshot data; no matching cloud content is returned.
+    const existing = await client.query('select 1 as found from collab_projects where id::text=$1 or analysis_output=$1 limit 1', [source]);
+    if (!existing.rows.length) return {id:source,local:true};
+  }
+  throw Object.assign(new Error('无权关联这个导演项目，或关联不唯一'), {status:403});
+}
+
+module.exports = {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences, resolveCreationSource};
