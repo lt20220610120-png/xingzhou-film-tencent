@@ -1,3 +1,4 @@
+import {normalizeCapabilities} from './modelCapabilities.js';
 // ============================================================
 // canvasStore.js — 画布领域逻辑（纯函数）
 // 画布节点 + 媒体生成 API 配置
@@ -23,7 +24,7 @@ export const VIDEO_MODEL_CAPABILITIES = {
   'seedance-2.0': { label: 'Seedance 2.0', durations: Array.from({ length: 15 }, (_, i) => i + 1), resolutions: ['480p', '720p', '1080p', '4K'], ratios: VIDEO_RATIOS, audio: true },
   'seedance-2.5': { label: 'Seedance 2.5', durations: [5, 10, 15, 20, 30], resolutions: ['480p', '720p', '1080p', '2K', '4K'], ratios: VIDEO_RATIOS, audio: true },
 };
-export const videoModelCapabilities = (model = '') => {
+const builtinVideoCapabilities = (model = '') => {
   const id = String(model).toLowerCase();
   const feituo = FEITUO_VIDEO_MODELS.find((item) => item.id.toLowerCase() === id);
   if (feituo) return { label: feituo.name, durations: feituo.durations, ...feituo, resolutions: feituo.resolutions.length ? feituo.resolutions : ['固定'] };
@@ -31,6 +32,14 @@ export const videoModelCapabilities = (model = '') => {
   if (id.includes('seedance') && id.includes('2.0')) return VIDEO_MODEL_CAPABILITIES['seedance-2.0'];
   return { label: model || '通用视频模型', durations: VIDEO_DURATIONS, resolutions: ['480p', '720p', '1080p'], ratios: VIDEO_RATIOS, audio: false };
 };
+
+export const videoModelCapabilities = (model = '', profile = {}) => ({...builtinVideoCapabilities(model), ...normalizeCapabilities(profile?.capabilities)});
+export function imageModelFormats(profile) {
+  const caps = normalizeCapabilities(profile?.capabilities);
+  if (caps.imageSizes?.length) return caps.imageSizes.map(size => ({value:size,label:size,size}));
+  if (caps.ratios?.length) return caps.ratios.map(value => IMAGE_FORMATS.find(f=>f.value===value) || {value,label:value,size:value});
+  return IMAGE_FORMATS;
+}
 
 export const createCanvas = (state, name = '未命名画布') => {
   const canvas = { id: uid(), name, nodes: [], createdAt: now(), updatedAt: now() };
@@ -134,14 +143,15 @@ export const addMediaProfile = (state, profile) => {
   const item = {
     id: uid(),
     name: profile.name || '未命名接口',
-    kind: profile.kind === 'video' ? 'video' : 'image',
+    kind: ['video','audio'].includes(profile.kind) ? profile.kind : 'image',
+    capabilities: normalizeCapabilities(profile.capabilities),
     endpoint: profile.endpoint || '',
     apiKey: profile.apiKey || '',
     model: profile.model || '',
     createdAt: now(),
   };
   const next = { ...state, mediaProfiles: [...(state.mediaProfiles || []), item] };
-  const activeKey = item.kind === 'video' ? 'activeVideoApiId' : 'activeImageApiId';
+  const activeKey = item.kind === 'audio' ? 'activeAudioApiId' : item.kind === 'video' ? 'activeVideoApiId' : 'activeImageApiId';
   if (!next[activeKey]) next[activeKey] = item.id;
   return next;
 };
@@ -154,12 +164,12 @@ export const updateMediaProfile = (state, profileId, updates) => ({
 export const removeMediaProfile = (state, profileId) => {
   const mediaProfiles = (state.mediaProfiles || []).filter((p) => p.id !== profileId);
   const fix = (activeId) => activeId === profileId ? null : activeId;
-  return { ...state, mediaProfiles, activeImageApiId: fix(state.activeImageApiId), activeVideoApiId: fix(state.activeVideoApiId) };
+  return { ...state, mediaProfiles, activeImageApiId: fix(state.activeImageApiId), activeVideoApiId: fix(state.activeVideoApiId), activeAudioApiId: fix(state.activeAudioApiId) };
 };
 
 export const setActiveMediaApi = (state, kind, profileId) => ({
   ...state,
-  [kind === 'video' ? 'activeVideoApiId' : 'activeImageApiId']: profileId,
+  [kind === 'audio' ? 'activeAudioApiId' : kind === 'video' ? 'activeVideoApiId' : 'activeImageApiId']: profileId,
 });
 
 export const activeMediaProfile = (state, kind) => {

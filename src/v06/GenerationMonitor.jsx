@@ -11,7 +11,7 @@ export function GenerationMonitor({state,api,account}) {
     for(let job of rows){
      if(stopped)break;
      const profile=generationMediaProfiles(current.current.state,job.kind).find(p=>p.id===job.profileId);
-     if(job.jobId&&!['success','failed','uncertain'].includes(job.status)&&profile?.apiKey)job=await api.generationRefresh({id:job.id,apiKey:profile.apiKey});
+     if((job.downloadReceiptId || (job.jobId&&profile?.apiKey))&&!['success','failed','uncertain'].includes(job.status))job=await api.generationRefresh({id:job.id,apiKey:profile?.apiKey});
      if(job.status==='success'&&job.projectId&&!job.mediaId){
       try{const existing=await api.collabListMedia({projectId:job.projectId});
        const found=existing.find(m=>m.filename===job.filePath?.split(/[\\/]/).pop());

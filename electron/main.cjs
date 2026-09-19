@@ -11,7 +11,9 @@ const mammoth = require('mammoth');
 const { downloadInstaller } = require('./update-service.cjs');
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
 const { requestChat, testAiConnection } = require('./ai-service.cjs');
-const { generateImage, generateVideo } = require('./media-service.cjs');
+const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
+const { readMediaBytes } = require('./media-network.cjs');
+const { discoverModels } = require('./model-discovery.cjs');
 const { importMediaFiles } = require('./media-import.cjs');
 const { createCloudAccessService } = require('./cloud-access-service.cjs');
 const { createCollabService } = require('./collab-service.cjs');
@@ -133,10 +135,16 @@ ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dial
 ipcMain.handle('collab-attach-generated-asset-image',(_,payload)=>collabService.attachGeneratedAssetImage(payload));
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
+ipcMain.handle('discover-models', (_, config) => discoverModels(config));
+ipcMain.handle('collab-resolve-asset-image', (_, payload) => collabService.resolveAssetImage(payload));
+async function renewImageReferences(payload) {
+ const references = await Promise.all((payload.references || []).map(async ref => ref.assetId ? {...ref, ...(await collabService.resolveAssetImage({projectId:ref.projectId||payload.projectId,assetId:ref.assetId,imageId:ref.imageId||(ref.id===ref.assetId?'legacy':ref.id)||'legacy'})),id:ref.id} : ref));
+ return {...payload,references};
+}
 ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=[],archive=true,filename='图片'})=>{
  const safe=s=>String(s||'图片').replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
  const imageExt=image=>{const ext=path.extname(String(image?.filename||'')).toLowerCase();return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png'};
- const fetchImage=async image=>{if(!image?.url)throw new Error('图片地址为空');const response=await fetch(String(image.url));if(!response.ok)throw new Error(`HTTP ${response.status}`);return Buffer.from(await response.arrayBuffer())};
+ const fetchImage=async image=>{const resolved=((image.id&&image.id!=='legacy')||image.assetId) ? await collabService.resolveAssetImage({projectId:image.projectId,assetId:image.assetId,imageId:image.id}) : image;if(!resolved?.url)throw new Error('图片地址为空');return (await readMediaBytes(resolved.url,{label:'图片下载'})).bytes};
  const uniqueFile=target=>{if(!fs.existsSync(target))return target;const ext=path.extname(target);const base=target.slice(0,-ext.length);let index=2;while(fs.existsSync(`${base} (${index})${ext}`))index+=1;return `${base} (${index})${ext}`};
  if(!Array.isArray(images)||!images.length)throw new Error('没有可导出的图片');
  const first=images[0];
@@ -170,10 +178,11 @@ let generationManager;
 const jobs=()=>generationManager||(generationManager=generationJobs());
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-list',()=>jobs().list());
-ipcMain.handle('generation-submit',(_,p)=>jobs().submit(p));
+ipcMain.handle('generation-submit',async(_,p)=>jobs().submit(await renewImageReferences(p)));
 ipcMain.handle('generation-refresh',(_,p)=>jobs().refresh(p));
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
-ipcMain.handle('media-generate-image',async(_,payload)=>({filePath:await generateImage({...payload,destDir:mediaDir()})}));
+ipcMain.handle('media-generate-image',async(_,payload)=>{try{return {filePath:await generateImage({...await renewImageReferences(payload),destDir:mediaDir()})}}catch(error){if(error.downloadReceiptId)return {pendingDownload:{id:error.downloadReceiptId},error:error.message};throw error}});
+ipcMain.handle('media-retry-image-download',async(_,payload)=>{try{return {filePath:await retryImageDownload(payload.receiptId,mediaDir())}}catch(error){if(error.downloadReceiptId)return {pendingDownload:{id:error.downloadReceiptId},error:error.message};throw error}});
 ipcMain.handle('media-generate-video',async(event,payload)=>({filePath:await generateVideo({...payload,destDir:mediaDir(),onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}})}));
 ipcMain.handle('media-import-file',async(_,kind)=>(await importMediaFiles({dialog,destDir:mediaDir(),kind}))[0] || null);
 ipcMain.handle('media-import-files',async(_,kind)=>importMediaFiles({dialog,destDir:mediaDir(),kind,multiple:true}));

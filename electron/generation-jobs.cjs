@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const client = require('./feituo-client.cjs');
-const { generateImage, generateVideo, downloadToFile } = require('./media-service.cjs');
+const { generateImage, generateVideo, downloadToFile, retryImageDownload } = require('./media-service.cjs');
 function createGenerationJobs(dir) {
   const file = path.join(dir, 'generation-jobs.json');
   const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
@@ -34,13 +34,14 @@ function createGenerationJobs(dir) {
       try {
         const filePath = await (input.kind === 'image' ? generateImage : generateVideo)({...input,destDir:dir});
         return save({...job,status:'success',filePath});
-      } catch(error) { save({...job,status:'failed',error:error.message}); throw error; }
+      } catch(error) { if(error.downloadReceiptId)return save({...job,status:'downloading',downloadReceiptId:error.downloadReceiptId,error:error.message}); save({...job,status:'failed',error:error.message}); throw error; }
     },
     async refresh({id,apiKey}) {
       if (inFlight.has(id)) return inFlight.get(id);
       const work = (async () => {
         let job=read().find(r=>r.id===id);
         if (!job) throw new Error('任务不存在');
+        if(job.downloadReceiptId){try{const filePath=await retryImageDownload(job.downloadReceiptId,dir);return save({...job,status:'success',filePath,downloadReceiptId:null,error:'',warning:''});}catch(error){return save({...job,warning:error.message});}}
         if (!job.jobId || (job.status === 'success' && job.filePath) || job.status === 'failed') return job;
         try {
           if(job.kind==='image' && job.urls?.length) {const files=[];for(const url of job.urls)files.push(await downloadToFile(url,dir,'png'));return save({...job,status:'success',filePath:files[0],files,warning:''});}

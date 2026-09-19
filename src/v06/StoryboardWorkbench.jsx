@@ -3,14 +3,14 @@ import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard} from 'lucide-react';
 import {DeleteConfirm} from './DeleteConfirm.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
-import {autoReferences,referenceName} from '../../core/generationReferences.js';
+import {autoReferences,referenceName,refreshAssetReferences} from '../../core/generationReferences.js';
 import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
 
-function ResourcePicker({assets,media,selected,onClose,onSelect,onUpload,onRefresh,initialTab}) {
+function ResourcePicker({projectId,assets,media,selected,onClose,onSelect,onUpload,onRefresh,initialTab}) {
  const [tab,setTab]=useState(initialTab==='audio'||initialTab==='video'?initialTab:'character'),[query,setQuery]=useState(''),[picked,setPicked]=useState(selected),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const categories=[['character','角色'],['prop','物品'],['scene','场景'],['image','参考图'],['audio','音频'],['video','视频']];
- const assetRows=assets.flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,assetId:a.id,url:i.url,kind:'image',name:a.name,filename:i.filename,category:a.category})));
+ const assetRows=assets.flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,filename:i.filename,category:a.category})));
  const rows=['character','prop','scene'].includes(tab)?assetRows.filter(a=>a.category===tab):media.filter(m=>m.kind===tab).map(m=>({...m,name:m.filename||m.note||'参考素材'}));
  const shown=rows.filter(r=>r.name.toLowerCase().includes(query.toLowerCase()));
  const upload=async()=>{setBusy(true);setError('');try{const item=await onUpload(tab);if(item)setPicked(current=>[...current,item]);}catch(e){setError(e.message);}finally{setBusy(false);}};
@@ -26,7 +26,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
  useEffect(()=>{if(!current.current.dirty)setDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||autoReferences(shot.content||'',assets)},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});},[shot,assets]);
  const change=value=>{const next={...current.current,value,dirty:true};current.current=next;setDraft(next);localStorage.setItem(storageKey,JSON.stringify(next));};
  const cloudChanged=draft.dirty&&(shot.content!==draft.base.content||JSON.stringify(shot.generationConfig)!==JSON.stringify(draft.base.generationConfig));
- const resolveRefs=refs=>refs.map(ref=>{
+ const resolveRefs=refs=>refreshAssetReferences(refs,assets,project.id).map(ref=>{
   const asset=assets.find(a=>a.id===ref.assetId),image=asset?.images?.find(i=>i.id===ref.id),file=media.find(m=>m.id===ref.id);
   return image?{...ref,url:image.url}:file?{...ref,url:file.url}:ref;
  });
@@ -55,7 +55,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return (input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
   if(unresolved.length)throw new Error(`以下引用尚未选择图片：${unresolved.map(a=>a.name).join('、')}`);
   await api.generationSubmit({...input,projectId:project.id,episode:epNumber,scene,shotId:shot.id,shotLabel:shot.label});window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();
- }}>{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/></article>{picker&&<ResourcePicker initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
+ }}>{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/></article>{picker&&<ResourcePicker projectId={project.id} initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
 }
 
 export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange}) {

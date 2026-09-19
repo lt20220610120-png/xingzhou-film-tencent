@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { isMediaNetworkError } = require('./media-network.cjs');
 const { EDGE_FUNCTION_URL, SUPABASE_URL } = require('./cloud-config.public.cjs');
 // 复用带端点回退的 gateway：域名被拦截时自动切到服务器 IP。
 const { gateway: sharedGateway } = require('./cloud-access-service.cjs');
@@ -16,18 +17,42 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
   const signed = await gateway('media-upload-url', { projectId, filename, kind, mime }, token);
   const body = fs.readFileSync(filePath);
-  const put = await fetch(signed.url, {
-    method: 'PUT',
-    headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
-    body,
-  });
-  if (!put.ok) throw new Error(`素材上传失败（${put.status}）`);
+  // PUT to this exact signed object is idempotent. A retry cannot create another photo.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const put = await fetch(signed.url, {
+        method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
+        body, signal: AbortSignal.timeout(120000),
+      });
+      await put.body?.cancel?.();
+      if (!put.ok) throw Object.assign(new Error(`素材上传失败（${put.status}）`), {retryable:[408,429,500,502,503,504].includes(put.status)});
+      break;
+    } catch (error) {
+      if (attempt === 2 || !(error.retryable || isMediaNetworkError(error))) throw new Error(`图片或素材保存到云端失败，本地文件已保留，请重试保存：${isMediaNetworkError(error)?'网络连接中断或超时':error.message}`);
+      await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)));
+    }
+  }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
-function createCollabService(getSession) {
+function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket} = {}) {
   const session = () => getSession() || {};
   const account = () => { const a = session().account || session(); if (!a?.id) throw new Error('请先登录账号'); return a; };
-  const call = (action, payload = {}) => gateway(action, payload, session().token || '');
+  const call = (action, payload = {}) => callGateway(action, payload, session().token || '');
+  const attaching = new Map();
+  const attachGenerated = p => {
+    const key = `${account().id}:${p.projectId}:${p.assetId}:${p.filePath}`;
+    if (attaching.has(key)) return attaching.get(key);
+    const work = (async () => {
+      // Generated filenames are unique and retained during recovery. Reconcile a
+      // previous successful record whose response was lost before uploading again.
+      const rows = await call('assets-list', {projectId:p.projectId});
+      const existing = rows.find(a=>a.id===p.assetId)?.images?.find(i=>i.filename===path.basename(p.filePath));
+      if (existing) return existing;
+      const uploaded = await upload(p.projectId,p.filePath,'asset',session().token || '');
+      return call('asset-image-record',{projectId:p.projectId,assetId:p.assetId,episode:p.episode||0,...uploaded});
+    })().finally(()=>attaching.delete(key));
+    attaching.set(key,work); return work;
+  };
   return {
     isProducer: () => call('producer-status').then(r => r.isProducer === true),
     adminSetProducer: (p) => call('admin-set-producer', p),
@@ -38,8 +63,9 @@ function createCollabService(getSession) {
     createDirectorProject: (p) => call('director-project-create', p), listDirectorProjects: () => call('director-project-list'), getDirectorProject: (p) => call('director-project-get', p), updateDirectorProject: (p) => call('director-project-update', p), deleteDirectorProject: (p) => call('director-project-delete', p), setDirectorProjectLocked: (p) => call('director-project-lock', p),
     directorListMembers: (p) => call('director-members-list', p), directorAddMember: (p) => call('director-member-add', p), directorRemoveMember: (p) => call('director-member-remove', p),
     replaceAssets: (p) => call('assets-replace', p), createAsset: (p) => call('asset-create', p), listAssets: (p) => call('assets-list', p), updateAsset: (p) => call('asset-update', p),
+    resolveAssetImage: (p) => call('asset-image-url', p),
     attachAssetImage: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, 'asset', session().token || ''); return call('asset-image-record', { ...p, ...uploaded }); },
-    attachGeneratedAssetImage: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, 'asset', session().token || ''); return call('asset-image-record', { projectId: p.projectId, assetId: p.assetId, episode:p.episode||0, ...uploaded }); },
+    attachGeneratedAssetImage: attachGenerated,
     deleteAssetImage: (p) => call('asset-image-delete', p), clearAssetImages: (p) => call('asset-images-clear', p),
     listMembers: (p) => call('members-list', p), addMember: (p) => call('member-add', p), updateMemberRole: (p) => call('member-role', p), removeMember: (p) => call('member-remove', p),
     listTasks: (p) => call('tasks-list', p), assignTask: (p) => call('task-assign', p), updateTask: (p) => call('task-update', p), deleteTask: (p) => call('task-delete', p),

@@ -22,7 +22,7 @@ import {
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble
 } from '../../core/projectStore.js';
 import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterSetting } from '../../core/scriptImport.js';
-import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
+import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { acknowledgeDirectorCloudSave, reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
@@ -275,6 +275,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         label: `${episodeNumber}-${part.label}`,
         content: part.content,
         skill: currentSkill?.name || '',
+        generationMode: 'quick',
         createdAt: new Date().toISOString(),
       }));
       // 在 setState 回调中基于最新状态追加，避免并发生成/云端轮询相互覆盖
@@ -305,6 +306,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
         parts: outputParts,
+        generationMode: 'creative',
         existing: episode.prompts || [],
         skill: currentSkill?.name || '',
         sourceText,
@@ -359,6 +361,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
         parts: generatedParts,
+        generationMode: 'quick',
         existing: episode.prompts || [],
         skill: currentSkill?.name || '',
         sourceText,
@@ -390,6 +393,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
   // 获取当前选中场景的已生成提示词
   const scenePrompts = currentScene ? promptsForScene(savedPrompts, currentScene) : [];
+  const creativeScenePrompts = currentScene ? creativePromptsForScene(savedPrompts, currentScene) : [];
   const togglePromptSelection = (promptId) => setSelectedPromptIds((current) => {
     const next = new Set(current);
     if (next.has(promptId)) next.delete(promptId); else next.add(promptId);
@@ -539,8 +543,8 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
               </button>
             </div>
             <section className="creative-prompt-results">
-              <div className="prompt-list-title"><Save size={16}/> 场景 {currentScene} 提示词（{scenePrompts.length} 条）</div>
-              {scenePrompts.length ? scenePrompts.map((prompt, i) => <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={handleSavePrompt} onEdit={handleEditPrompt}/>) : (
+              <div className="prompt-list-title"><Save size={16}/> 场景 {currentScene} · 创造模式提示词（{creativeScenePrompts.length} 条）</div>
+              {creativeScenePrompts.length ? <div className="director-prompt-grid">{creativeScenePrompts.map((prompt, i) => <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={handleSavePrompt} onEdit={handleEditPrompt}/>)}</div> : (
                 <div className="no-prompts"><Bot size={30}/><p>填写导演构想并运行 Skill，生成结果会按 {currentScene}-1、{currentScene}-2… 命名。</p></div>
               )}
             </section>
@@ -744,7 +748,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
             <button className="ghost" onClick={() => setOpenGroup(null)}><ArrowLeft size={15}/> 返回全部集数</button>
             <span>{activeGroup.key === '未编号' ? '未编号提示词' : `第 ${activeGroup.key} 集提示词`}（{activeGroup.prompts.length} 条）</span>
           </div>
-          <div className="prompt-list">
+          <div className="prompt-list director-prompt-grid">
             {activeGroup.prompts.map((prompt, i) => (
               <PromptCard key={prompt.id} prompt={prompt} index={i} onDelete={onDeletePrompt} onEdit={onEditPrompt}/>
             ))}

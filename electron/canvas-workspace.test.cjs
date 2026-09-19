@@ -83,7 +83,7 @@ test('导演侧边栏包含画布入口，Electron 内嵌 iframe、浏览器回�
 
 test('画布工作区具备节点生成、上传、缩放与接口设置能力', () => {
   const src = read('src/v06/CanvasWorkspace.jsx');
-  for (const feature of ['mediaGenerateImage', 'mediaGenerateVideo', 'mediaImportFile', 'MediaApiSettings', 'onWheel', 'firstFrameNodeId', 'xzmedia://']) {
+  for (const feature of ['requestAssetImage', 'mediaGenerateVideo', 'mediaImportFile', 'MediaApiSettings', 'onWheel', 'firstFrameNodeId', 'xzmedia://']) {
     assert.match(src, new RegExp(feature.replace(/[/:]/g, (m) => `\\${m}`)), `画布缺少 ${feature}`);
   }
 });

@@ -24,8 +24,8 @@ export function autoReferences(prompt, assets) {
     const name=referenceName(a.name);
     return name && (prompt.includes(`@${name}`)||prompt.includes(`@【${name}】`));
   }).flatMap(a => {
-    const image=(a.images || []).find(i=>i.url) || (/^https?:/.test(a.image_url || '') ? {url:a.image_url,id:a.id} : null);
-    return image ? [{id:image.id || a.id,assetId:a.id,name:a.name,kind:'image',url:image.url}] : [];
+    const image=(a.images || []).find(i=>i.url) || (/^https?:/.test(a.image_url || '') ? {url:a.image_url} : null);
+    return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,kind:'image',url:image.url}] : [];
   });
 }
 export const mediaSource = item => item.filePath ? `xzmedia://${encodeURIComponent(item.filePath).replace(/%5C/g,'/').replace(/%3A/g,':')}` : item.url || '';
@@ -40,4 +40,14 @@ export function appendImportedReferences(existing, files, kind, caps = {}) {
     throw new Error(`当前模型最多支持 ${limit} 个参考${name}，本次导入后共 ${count} 个。请减少选择数量或切换模型。`);
   }
   return [...existing, ...files.map(file => ({...file,id:crypto.randomUUID(),kind,name:file.name || file.filePath.split(/[\\/]/).pop()}))];
+}
+// Upgrade old stored picker references while preserving the exact selected image.
+export function refreshAssetReferences(references, assets, projectId) {
+  return references.map(ref => {
+    if (!ref.assetId) return ref;
+    const asset = assets.find(a=>a.id===ref.assetId);
+    const imageId = ref.imageId || (ref.id===ref.assetId?'legacy':ref.id) || 'legacy';
+    const image = asset?.images?.find(i=>i.id===imageId);
+    return {...ref, projectId, imageId, url:image?.url || (imageId==='legacy' ? asset?.image_url : '') || ref.url};
+  });
 }

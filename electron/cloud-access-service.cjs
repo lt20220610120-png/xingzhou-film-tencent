@@ -18,7 +18,7 @@ const isNetworkFailure = (error) => {
 };
 // Retry reads and idempotent storyboard writes only; ambiguous general writes
 // must be checked by the caller rather than silently repeated.
-const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer'].includes(action);
+const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url'].includes(action);
 const retryableAction = (action, payload) => readAction(action) || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();

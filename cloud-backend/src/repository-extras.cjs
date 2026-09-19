@@ -354,7 +354,7 @@ function extendRepository(pool) {
       } catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     },
     async listAssetImages(pid, uid) {
-      const sql = 'select media.id, media.asset_id, media.object_path, media.filename, media.mime from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.project_id=$1 and media.kind=$2 and (p.owner_id=$3 or m.user_id=$3) order by media.created_at';
+      const sql = 'select media.id, media.asset_id, media.object_path, media.filename, media.mime from collab_media media join collab_projects p on p.id=media.project_id where media.project_id=$1 and media.kind=$2 and (p.owner_id=$3 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$3)) order by media.created_at';
       return many(sql, [pid, 'asset-image', uid]);
     },
     async setProducer(userId, isProducer) {

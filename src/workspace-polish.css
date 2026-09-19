@@ -72,6 +72,11 @@ body { background:var(--paper); }
 .prompt-card-head { gap:8px; flex-wrap:wrap; }
 .prompt-content { font-size:13px; line-height:1.75; }
 .prompt-actions button { padding:5px 8px; font-size:12px; }
+.creative-prompt-results,.prompt-history-detail { container-type:inline-size; }
+.director-prompt-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:14px; margin-top:14px; }
+.director-prompt-grid>.prompt-card { width:100%; max-width:none; min-width:0; margin:0; }
+.director-prompt-grid .prompt-content { overflow-wrap:anywhere; }
+@container (max-width:720px) { .director-prompt-grid { grid-template-columns:minmax(0,1fr); } }
 .collab-shell { grid-template-columns:176px minmax(0,1fr); }
 .collab-rail { padding:14px 10px; }
 .collab-rail h2 { font:600 14px/1.55 'Microsoft YaHei',sans-serif; overflow-wrap:anywhere; }

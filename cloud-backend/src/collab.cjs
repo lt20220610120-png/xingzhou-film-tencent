@@ -62,7 +62,7 @@ async function handleAction(action, payload, user, repo, signer = null) {
   if (action === 'producer-status') return ok({ isProducer: producer });
 
   const COLLAB_ACTIONS = ['project-get','project-update','project-delete','project-restore','project-lock','project-link-director','stats-get',
-    'art-episode-append','analysis-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear',
+    'art-episode-append','analysis-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
   if(projectId&&COLLAB_ACTIONS.includes(action)) {
@@ -244,11 +244,25 @@ async function handleAction(action, payload, user, repo, signer = null) {
     let images = [];
     try { images = (await repo.listAssetImages(projectId, user.id)) || []; } catch { images = []; }
     // 资产附带图片列表：signer 在 media 层负责签名，这里只给出对象路径。
+    const { assetImageLink } = require('./asset-image-links.cjs');
+    images = [...new Map(images.map(image => [image.id, image])).values()];
     return ok(rows.map((row) => ({
       ...row,
-      image_url: row.image_url && signer && !/^https?:/.test(row.image_url) ? signer.signDownload({objectKey:row.image_url}).url : row.image_url,
-      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, objectKey: img.object_path, url: img.object_path && signer ? signer.signDownload({ objectKey: img.object_path }).url : '', filename: img.filename, mime: img.mime })),
+      image_url: assetImageLink(row.image_url, signer).url,
+      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, projectId, assetId: row.id, ...assetImageLink(img.object_path, signer), filename: img.filename, mime: img.mime })),
     })));
+  }
+  if (action === 'asset-image-url') {
+    const { assetImageLink } = require('./asset-image-links.cjs');
+    if (payload.imageId && payload.imageId !== 'legacy') {
+      const image = await repo.findMedia(payload.imageId, user.id);
+      if (!image || (projectId && image.project_id !== projectId) || (payload.assetId && image.asset_id !== payload.assetId)) return NOT_FOUND;
+      return ok({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer), filename: image.filename, mime: image.mime });
+    }
+    const assets = await repo.listAssets(projectId, user.id);
+    const asset = assets?.find(item => item.id === payload.assetId);
+    if (!asset?.image_url) return NOT_FOUND;
+    return ok({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer) });
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-update') {

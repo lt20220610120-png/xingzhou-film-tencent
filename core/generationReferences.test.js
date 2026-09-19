@@ -9,3 +9,12 @@ test('batch references append in picker order and keep numbering of existing mix
  assert.throws(()=>appendImportedReferences(old,[{filePath:'C:/one.png'},{filePath:'C:/two.png'}],'image',{maxImages:2}),/本次导入后共 3/);
  assert.equal(old.length,2);
 });
+
+
+test('stored legacy and current picker references acquire renewable identities without switching images',async()=>{
+ const {refreshAssetReferences}=await import('./generationReferences.js');
+ const assets=[{id:'a',image_url:'new-legacy'},{id:'b',images:[{id:'i',url:'new-image'}]}];
+ const refs=refreshAssetReferences([{id:'a',assetId:'a',url:'expired'},{id:'i',assetId:'b',url:'expired'}],assets,'p');
+ assert.equal(refs[0].imageId,'legacy');assert.equal(refs[0].url,'new-legacy');
+ assert.equal(refs[1].imageId,'i');assert.equal(refs[1].url,'new-image');assert.ok(refs.every(r=>r.projectId==='p'));
+});

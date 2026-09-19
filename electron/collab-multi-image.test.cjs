@@ -34,11 +34,12 @@ test('美术单项生成使用按资产隔离的并发状态', () => {
   assert.match(ui, /setGeneratingAssetIds/);
 });
 
-test('取消全选后单独勾选不会被资产刷新重新覆盖', () => {
-  const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.match(ui, /useEffect\(\(\) => \{[\s\S]*setBatchSelectedIds\([\s\S]*\}, \[episode\]\)/);
-  assert.match(ui, /collab-art-head-left/);
-  assert.match(ui, /collab-art-head-right/);
+test('取消全选后单独勾选不会被资产刷新重新覆盖', async () => {
+  const {reconcileAssetSelection}=await import('../core/assetImages.js');
+  const assets=[{id:'a',images:[]},{id:'b',images:[]}];
+  assert.deepEqual(reconcileAssetSelection([],assets,assets),[]);
+  assert.deepEqual(reconcileAssetSelection(['b'],assets,assets),['b']);
+  assert.deepEqual(reconcileAssetSelection(['b'],assets,[assets[0],{...assets[1],images:[{id:'photo'}]}]),[]);
 });
 
 test('单图下载使用文件保存对话框，整集下载才创建文件夹', () => {

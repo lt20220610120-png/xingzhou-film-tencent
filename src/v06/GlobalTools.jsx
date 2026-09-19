@@ -1,3 +1,5 @@
+import {ModelImport} from './ModelImport.jsx';
+import {normalizeCapabilities} from '../../core/modelCapabilities.js';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import companyLogo from '../assets/company-logo.png';
@@ -294,6 +296,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     name: initial.name || '', provider: initial.provider || 'custom', endpoint: initial.endpoint || '',
     model: initial.model || '', apiKey: initial.apiKey || '', protocol: initial.protocol || 'auto',
     requiresApiKey: initial.requiresApiKey ?? true,
+    capabilities: initial.capabilities || {},
   }));
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -328,10 +331,10 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     event.preventDefault();
     const error = validate();
     if (error) { setTestResult({ ok: false, message: error }); return; }
-    onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: form.endpoint.trim(), model: form.model.trim(), apiKey: form.apiKey.trim() });
+    onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: form.endpoint.trim(), model: form.model.trim(), apiKey: form.apiKey.trim(), capabilities: normalizeCapabilities(form.capabilities) });
   };
   return <form className="api-config-form" onSubmit={handleSubmit}>
-    <p className="api-form-intro">{kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : '用于画布与分镜视频。接口需支持火山方舟 /contents/generations/tasks 格式。'}</p>
+    <p className="api-form-intro">{kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '用于画布与分镜视频。接口需支持火山方舟 /contents/generations/tasks 格式。'}</p>
     <div className="api-form-fields">
       <label>配置名称<input value={form.name} onChange={e => update('name', e.target.value)} placeholder="例如：剧本分析主力、备用接口" autoFocus /></label>
       {kind === 'chat' && <label>服务商<select value={form.provider} onChange={e => handleProviderChange(e.target.value)}>{providerOptions.map(p => <option value={p.type} key={p.type}>{p.name}</option>)}</select></label>}
@@ -341,6 +344,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
       <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>
       {kind === 'chat' && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
     </div>
+    {['video','image'].includes(kind) && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
     {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <pre>{testResult.reply}</pre>}</div>}
     <div className="modal-actions"><button type="button" className="ghost" onClick={onCancel}>取消</button>{kind === 'chat' && <button type="button" className="secondary" onClick={handleTest} disabled={testing}><RefreshCw size={14} className={testing ? 'spin' : ''}/>{testing ? '等待正文…' : '测试正文'}</button>}<button type="submit" className="primary"><Save size={14}/>保存配置</button></div>
   </form>;
@@ -348,6 +352,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
 
 export function ApiLibrary({ state, setState }) {
   const [activeApiKind, setActiveApiKind] = useState('chat');
+  const [importOpen, setImportOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [editingApi, setEditingApi] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -355,9 +360,9 @@ export function ApiLibrary({ state, setState }) {
   const apiProfiles = state.apiProfiles || [];
   const mediaProfiles = state.mediaProfiles || [];
   const all = activeApiKind === 'chat' ? apiProfiles : mediaProfiles.filter(p => p.kind === activeApiKind);
-  const activeId = activeApiKind === 'chat' ? state.activeApiId : activeApiKind === 'image' ? state.activeImageApiId : state.activeVideoApiId;
+  const activeId = activeApiKind === 'chat' ? state.activeApiId : activeApiKind === 'image' ? state.activeImageApiId : activeApiKind === 'audio' ? state.activeAudioApiId : state.activeVideoApiId;
   const filtered = all.filter(p => `${p.name} ${p.model} ${p.endpoint}`.toLowerCase().includes(query.toLowerCase()));
-  const kinds = [['chat', '对话式 API'], ['image', '图片生成 API'], ['video', '视频 API']];
+  const kinds = [['chat', '对话式 API'], ['image', '图片生成 API'], ['video', '视频 API'], ['audio', '语音模型配置']];
   const openForm = (profile = null) => { setEditingApi(profile); setDialogOpen(true); };
   const closeForm = () => { setDialogOpen(false); setEditingApi(null); };
   const handleSave = (data) => {
@@ -371,20 +376,30 @@ export function ApiLibrary({ state, setState }) {
     });
     closeForm();
   };
+  const importModels = rows => {
+    setState(state => rows.reduce((s, data) => {
+      const existing = (data.kind === 'chat' ? s.apiProfiles : s.mediaProfiles || []).find(p=>p.endpoint===data.endpoint && p.model===data.model && (data.kind==='chat'||p.kind===data.kind));
+      if (data.kind !== 'chat') return existing ? updateMediaProfile(s,existing.id,data) : addMediaProfile(s,data);
+      if (existing) return updateApiProfile(s,existing.id,data);
+      const next = addApiProfile(s,data.name,data.provider,data.endpoint,data.model,data.apiKey);
+      return updateApiProfile(next,next.apiProfiles.at(-1).id,data);
+    },state)); setImportOpen(false);
+  };
   const handleActivate = id => setState(s => activeApiKind === 'chat' ? setActiveApi(s, id) : setActiveMediaApi(s, activeApiKind, id));
   const handleDelete = () => {
     setState(s => activeApiKind === 'chat' ? removeApiProfile(s, deleteTarget.id) : removeMediaProfile(s, deleteTarget.id));
     setDeleteTarget(null);
   };
   return <div className="resource-page api-library">
-    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1><p>为文本、图片和视频分别选择默认接口，所有创作工作区共用。</p></div><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></header>
+    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1><p>为文本、图片和视频分别选择默认接口，所有创作工作区共用。</p></div><div className="modal-actions"><button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
     <p className="api-parallel-note">所有已保存接口均可独立调用；默认仅用于新窗口。各会话、分镜和资产的选择互不影响。</p><nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
     <div className="api-list-toolbar"><span>{all.length} 个配置 · {all.find(p => p.id === activeId)?.name ? `默认：${all.find(p => p.id === activeId).name}` : '尚未设置默认接口'}</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>
       <div className="api-connection-icon">{activeApiKind === 'chat' ? <Bot size={22}/> : activeApiKind === 'image' ? <ImageIcon size={22}/> : <Video size={22}/>}</div>
-      <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : '视频任务'}</small></p><p className="api-endpoint">{profile.endpoint}</p></div>
+      <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : activeApiKind === 'audio' ? '语音模型' : '视频任务'}</small></p><p className="api-endpoint">{profile.endpoint}</p></div>
       <div className="api-connection-actions">{profile.id !== activeId && <button className="secondary" onClick={() => handleActivate(profile.id)}>设为默认</button>}<button className="secondary" onClick={() => openForm(profile)}><PenLine size={14}/>编辑{activeApiKind === 'chat' ? ' / 测试' : ''}</button><button className="ghost danger" aria-label={`删除 ${profile.name}`} onClick={() => setDeleteTarget(profile)}><Trash2 size={14}/></button></div>
     </article>)}{!filtered.length && <div className="api-empty"><KeyRound size={28}/><h3>{query ? '没有匹配的接口' : '添加你的第一个接口'}</h3><p>{query ? '尝试搜索模型名称或服务商地址。' : '准备好服务商地址、模型名称和 API Key 即可开始。'}</p>{!query && <button className="primary" onClick={() => openForm()}><Plus size={14}/>添加接口</button>}</div>}</div>
+    <Dialog open={importOpen} title="从接口导入模型" onClose={()=>setImportOpen(false)}><ModelImport onSave={importModels} onCancel={()=>setImportOpen(false)}/></Dialog>
     <Dialog open={dialogOpen} title={`${editingApi ? '编辑' : '添加'}${kinds.find(k => k[0] === activeApiKind)[1]}`} onClose={closeForm}><ApiForm key={`${activeApiKind}-${editingApi?.id || 'new'}`} kind={activeApiKind} initial={editingApi || {}} onSave={handleSave} onCancel={closeForm}/></Dialog>
     <DeleteConfirm open={!!deleteTarget} title="删除 API 配置" name={deleteTarget?.name} detail="只删除此接口配置，已生成的内容仍会保留。" onCancel={() => setDeleteTarget(null)} onConfirm={handleDelete}/>
   </div>;

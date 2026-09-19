@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { readMediaBytes, isMediaNetworkError } = require('./media-network.cjs');
 
 function normalizeBase(endpoint = '') {
   return String(endpoint).trim().replace(/\/+$/, '')
@@ -66,10 +67,47 @@ async function downloadToFile(url, destDir, ext) {
     fs.writeFileSync(file, Buffer.from(base64, 'base64'));
     return file;
   }
-  const response = await fetch(url, { signal: AbortSignal.timeout(300000) });
-  if (!response.ok) throw new Error(`媒体文件下载失败（${response.status}）`);
-  fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+  const { bytes } = await readMediaBytes(url, { timeoutMs: ext === 'mp4' ? 120000 : 60000 });
+  fs.writeFileSync(file, bytes);
   return file;
+}
+
+function imageReceiptPath(receiptId, destDir) {
+  if (!/^[a-f0-9-]{36}$/.test(String(receiptId))) throw new Error('图片恢复记录无效');
+  return path.join(destDir, '.pending-image-downloads', `${receiptId}.json`);
+}
+
+const pendingImageDownloads = new Map();
+function retryImageDownload(receiptId, destDir) {
+  const receiptPath = imageReceiptPath(receiptId, destDir);
+  if (pendingImageDownloads.has(receiptPath)) return pendingImageDownloads.get(receiptPath);
+  const work = (async () => {
+    let receipt;
+    try { receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')); }
+    catch { throw new Error('已保存的图片结果记录不存在，请先检查本地资料目录'); }
+    try {
+      const filePath = await downloadToFile(receipt.source, destDir, 'png');
+      fs.unlinkSync(receiptPath);
+      return filePath;
+    } catch (cause) {
+      throw Object.assign(new Error(`图片已生成，但下载或保存未完成：${cause.message}。结果已保留，请点击“重试下载”恢复，不会再次调用生图接口。`), {
+        cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId,
+      });
+    }
+  })().finally(() => pendingImageDownloads.delete(receiptPath));
+  pendingImageDownloads.set(receiptPath, work);
+  return work;
+}
+
+async function saveGeneratedImage(source, destDir) {
+  const receiptId = crypto.randomUUID();
+  const receiptPath = imageReceiptPath(receiptId, destDir);
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  // Save the provider result before downloading it. No API key is recorded.
+  const temporary = `${receiptPath}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify({ source, createdAt: new Date().toISOString() }), { mode: 0o600 });
+  fs.renameSync(temporary, receiptPath);
+  return retryImageDownload(receiptId, destDir);
 }
 
 async function imageReferenceFile(reference, index) {
@@ -83,10 +121,9 @@ async function imageReferenceFile(reference, index) {
     bytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64');
   } else if (/^https?:\/\//i.test(source)) {
     // Reference hosts must never receive the generation provider's API key.
-    const response = await fetch(source, { signal: AbortSignal.timeout(120000) });
-    if (!response.ok) throw new Error(`参考图片读取失败（${response.status}），请刷新图片后重试`);
-    mime = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
-    bytes = Buffer.from(await response.arrayBuffer());
+    const downloaded = await readMediaBytes(source, { label: '参考图片读取' });
+    mime = downloaded.mime;
+    bytes = downloaded.bytes;
   } else throw new Error('参考图片缺少有效地址，请重新选择图片');
   if (!bytes.length) throw new Error('参考图片为空，请重新选择图片');
   // Object storage may return application/octet-stream; identify actual image bytes.
@@ -107,7 +144,7 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
     const sizes={'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4','1152x768':'3:2','768x1152':'2:3'};
     const result=await require('./feituo-client.cjs').submit({kind:'image',apiKey,model,prompt,ratio:ratio||sizes[size]||'auto',references});
     if(!result.resultUrls?.length)throw new Error('飞拓没有返回图片结果');
-    return downloadToFile(result.resultUrls[0],destDir,'png');
+    return saveGeneratedImage(result.resultUrls[0],destDir);
   }
   const base = normalizeBase(endpoint);
   const headers = authHeaders(apiKey);
@@ -122,13 +159,16 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
     // fetch adds the multipart boundary; GPT Image edits return base64 by default.
     delete headers['Content-Type'];
   } else body = JSON.stringify({ model: model.trim(), prompt: prompt.trim(), size, n: 1, response_format: 'url' });
-  const response = await fetch(`${base}/images/${references.length ? 'edits' : 'generations'}`, {
-    method: 'POST',
-    headers,
-    body,
-    signal: AbortSignal.timeout(300000),
-  });
-  const data = await readJson(response);
+  let response, data;
+  try {
+    response = await fetch(`${base}/images/${references.length ? 'edits' : 'generations'}`, {
+      method: 'POST', headers, body, signal: AbortSignal.timeout(300000),
+    });
+    data = await readJson(response);
+  } catch (cause) {
+    if (isMediaNetworkError(cause)) throw Object.assign(new Error('生图接口连接中断或超时，未收到完整生成结果。服务商可能已计费，请先核对任务记录后再生成。'), { cause });
+    throw cause;
+  }
   if (!response.ok) {
     const reason = data?.error?.message || data?.message || `图片接口请求失败（${response.status}）`;
     throw new Error(references.length ? `参考图生成失败：${reason}。请确认该接口与模型支持 /images/edits 图片编辑协议` : reason);
@@ -136,7 +176,7 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
   const item = data?.data?.[0] || {};
   const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
   if (!url) throw new Error('接口已响应，但没有返回图片');
-  return await downloadToFile(url, destDir, 'png');
+  return await saveGeneratedImage(url, destDir);
 }
 
 // ---------- 视频生成（火山方舟 Seedance 任务式 API，同时兼容一次性返回） ----------
@@ -198,4 +238,4 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   throw new Error('视频生成超时（10 分钟），请稍后在服务商控制台查看任务');
 }
 
-module.exports = { downloadToFile, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };
+module.exports = { downloadToFile, retryImageDownload, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };

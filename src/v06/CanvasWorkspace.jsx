@@ -1,3 +1,4 @@
+import {requestAssetImage,clearAssetImageRecovery} from '../../core/assetImageRecovery.js';
 import feituoModels from '../../core/feituo-models.json';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -5,7 +6,7 @@ import {
   Plus, RefreshCw, Save, Send, Settings2, Trash2, Upload, Video, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import {
-  addCanvasNode, addMediaProfile, createCanvas, deleteCanvas, IMAGE_FORMATS,
+  addCanvasNode, addMediaProfile, createCanvas, deleteCanvas, IMAGE_FORMATS, imageModelFormats,
   activeMediaProfile, removeCanvasNode, removeMediaProfile, renameCanvas,
   setActiveMediaApi, updateCanvasNode, updateMediaProfile, VIDEO_DURATIONS, VIDEO_RATIOS, videoModelCapabilities,
   FEITUO_ENDPOINT, isFeituoEndpoint, feituoCredentialProfile, saveFeituoApiKey,
@@ -94,7 +95,7 @@ export function MediaApiSettings({ state, setState, onClose }) {
 }
 
 /* ---------------- 画布节点 ---------------- */
-function CanvasNode({ node, scale, selected, imageNodes, videoCapabilities, onSelect, onMove, onUpdate, onRemove, onGenerate, onImport, onExport }) {
+function CanvasNode({ node, scale, selected, imageNodes, videoCapabilities, imageFormats, onSelect, onMove, onUpdate, onRemove, onGenerate, onImport, onExport }) {
   const dragRef = useRef(null);
   const startDrag = (event) => {
     if (event.button !== 0) return;
@@ -147,18 +148,18 @@ function CanvasNode({ node, scale, selected, imageNodes, videoCapabilities, onSe
         />
         <div className="node-params">
           {node.type === 'image' ? (
-            <select value={node.params.size} onChange={(event) => onUpdate(node.id, { params: { ...node.params, size: event.target.value } })}>
-              {IMAGE_FORMATS.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}
+            <select value={imageFormats.some(f=>f.size===node.params.size)?node.params.size:imageFormats[0].size} onChange={(event) => onUpdate(node.id, { params: { ...node.params, size: event.target.value } })}>
+              {imageFormats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}
             </select>
           ) : (
             <>
-              <select value={node.params.ratio} onChange={(event) => onUpdate(node.id, { params: { ...node.params, ratio: event.target.value } })}>
+              <select value={videoCapabilities.ratios.includes(node.params.ratio)?node.params.ratio:videoCapabilities.ratios[0]} onChange={(event) => onUpdate(node.id, { params: { ...node.params, ratio: event.target.value } })}>
                 {videoCapabilities.ratios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
               </select>
-              <select value={node.params.duration} onChange={(event) => onUpdate(node.id, { params: { ...node.params, duration: Number(event.target.value) } })}>
+              <select value={videoCapabilities.durations.includes(node.params.duration)?node.params.duration:videoCapabilities.durations[0]} onChange={(event) => onUpdate(node.id, { params: { ...node.params, duration: Number(event.target.value) } })}>
                 {videoCapabilities.durations.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
               </select>
-              <select value={node.params.resolution || videoCapabilities.resolutions[0]} onChange={(event) => onUpdate(node.id, { params: { ...node.params, resolution: event.target.value } })}>
+              <select value={videoCapabilities.resolutions.includes(node.params.resolution)?node.params.resolution:videoCapabilities.resolutions[0]} onChange={(event) => onUpdate(node.id, { params: { ...node.params, resolution: event.target.value } })}>
                 {videoCapabilities.resolutions.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
               </select>
               <select value={node.params.firstFrameNodeId || ''} onChange={(event) => onUpdate(node.id, { params: { ...node.params, firstFrameNodeId: event.target.value } })} title="选择一个图片节点作为首帧">
@@ -189,7 +190,7 @@ export function CanvasWorkspace({ state, setState, api }) {
   const canvases = state.canvases || [];
   const canvas = canvases.find((c) => c.id === state.activeCanvasId) || canvases[0] || null;
   const activeVideoProfile = activeMediaProfile(state, 'video');
-  const videoCapabilities = videoModelCapabilities(activeVideoProfile?.model);
+  const videoCapabilities = videoModelCapabilities(activeVideoProfile?.model,activeVideoProfile);
 
   useEffect(() => {
     if (!canvases.length) setState((s) => (s.canvases || []).length ? s : createCanvas(s, '画布 1'));
@@ -249,12 +250,13 @@ export function CanvasWorkspace({ state, setState, api }) {
     try {
       let result;
       if (node.type === 'image') {
-        result = await api.mediaGenerateImage({ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: node.prompt, size: node.params.size });
+        result = await requestAssetImage(api,canvas.id,node.id,{ endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: node.prompt, size: imageModelFormats(profile).some(f=>f.size===node.params.size)?node.params.size:imageModelFormats(profile)[0].size });
+        clearAssetImageRecovery(canvas.id,node.id);
       } else {
         const firstFrameNode = node.params.firstFrameNodeId ? canvas.nodes.find((n) => n.id === node.params.firstFrameNodeId) : null;
         result = await api.mediaGenerateVideo({
           nodeId: node.id, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model,
-          prompt: node.prompt, ratio: node.params.ratio, duration: node.params.duration, resolution: node.params.resolution,
+          prompt: node.prompt, ratio: videoCapabilities.ratios.includes(node.params.ratio)?node.params.ratio:videoCapabilities.ratios[0], duration: videoCapabilities.durations.includes(node.params.duration)?node.params.duration:videoCapabilities.durations[0], resolution: videoCapabilities.resolutions.includes(node.params.resolution)?node.params.resolution:videoCapabilities.resolutions[0],
           firstFramePath: firstFrameNode?.mediaFile || '',
         });
       }
@@ -315,6 +317,7 @@ export function CanvasWorkspace({ state, setState, api }) {
               selected={node.id === selectedId}
               imageNodes={imageNodes}
               videoCapabilities={videoCapabilities}
+              imageFormats={imageModelFormats(activeMediaProfile(state,'image'))}
               onSelect={setSelectedId}
               onMove={(nodeId, position) => setState((s) => updateCanvasNode(s, canvas.id, nodeId, position))}
               onUpdate={(nodeId, updates) => setState((s) => updateCanvasNode(s, canvas.id, nodeId, updates))}
