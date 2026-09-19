@@ -1,7 +1,7 @@
 {
-  "version": "2.2.9",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.2.9/Xingzhou-Film-Tencent-Setup-2.2.9.exe",
-  "notes": "修复信息读取完成后美术与资产只同步到部分集数的问题：单集失败不再阻断后续同步，重启后可恢复同步已保存结果，无需重新调用模型；恢复同集自引用及重复开头输出，修正人物状态资产误拒绝；显示具体失败集号与待核对条目，保留原始分析、历史、图片和手工编辑。包含本地导演项目开启协作修复。",
-  "sha256": "5b16d9243786a59622ec71fc95783df349bea37d5bda215cc25d85e66bd05922",
-  "size": 102229956
+  "version": "2.3.0",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.3.0/Xingzhou-Film-Tencent-Setup-2.3.0.exe",
+  "notes": "修复协作成员导致图片重复显示；批量生成默认跳过已有及复用图片；创造模式与快速模式提示词分开显示，创造及历史提示词采用双列布局；新增拉取模型列表、分类导入及按模型配置生成参数；图片下载失败可恢复，云端保存重试核对已有结果，避免重新生图和重复记录；旧项目图片链接自动续签，改善预览、下载及参考图使用。更新保留项目、图片、提示词、Skill 和 API 配置。",
+  "sha256": "2f15ab52671413ab7cdd594d195f7d07390a2524377083b4712cd6795747619d",
+  "size": 102238070
 }
