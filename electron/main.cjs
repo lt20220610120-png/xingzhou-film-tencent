@@ -17,6 +17,7 @@ const { createCosImageCache } = require('./cos-image-cache.cjs');
 const { createAssetImagePreview } = require('./asset-image-preview.cjs');
 const { discoverModels } = require('./model-discovery.cjs');
 const { importMediaFiles } = require('./media-import.cjs');
+const { importEpisodeMedia } = require('./episode-media-import.cjs');
 const { createCloudAccessService } = require('./cloud-access-service.cjs');
 const { createCollabService } = require('./collab-service.cjs');
 const isDev = !app.isPackaged;
@@ -197,6 +198,7 @@ ipcMain.handle('media-retry-image-download',async(_,payload)=>{try{return {fileP
 ipcMain.handle('media-generate-video',async(event,payload)=>({filePath:await generateVideo({...payload,destDir:mediaDir(),onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}})}));
 ipcMain.handle('media-import-file',async(_,kind)=>(await importMediaFiles({dialog,destDir:mediaDir(),kind}))[0] || null);
 ipcMain.handle('media-import-files',async(_,kind)=>importMediaFiles({dialog,destDir:mediaDir(),kind,multiple:true}));
+ipcMain.handle('generation-import-episode-media',async(_,payload={})=>importEpisodeMedia({dialog,destDir:mediaDir(),mode:payload.mode,episode:payload.episode}));
 ipcMain.handle('media-export-file',async(_,{filePath,url,kind})=>{if(!filePath&&url){if(!/^https?:\/\//.test(url))throw new Error('下载地址无效');filePath=await require('./media-service.cjs').downloadToFile(url,mediaDir(),kind==='image'?'png':'mp4');}if(!filePath||!fs.existsSync(filePath))throw new Error('素材文件不存在');const r=await dialog.showSaveDialog({defaultPath:path.basename(filePath)});if(r.canceled)return null;fs.copyFileSync(filePath,r.filePath);return r.filePath});
 let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false}});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL('xzapp://canvas/index.html');canvasWindow.on('closed',()=>{canvasWindow=null});return true});

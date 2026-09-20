@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  adminListUsers:()=>ipcRenderer.invoke('admin-list-users'),adminDeleteUser:payload=>ipcRenderer.invoke('admin-delete-user',payload),adminSetBanned:payload=>ipcRenderer.invoke('admin-set-banned',payload),
  adminCreateInvite:payload=>ipcRenderer.invoke('admin-create-invite',payload),adminListInvites:()=>ipcRenderer.invoke('admin-list-invites'),adminDisableInvite:payload=>ipcRenderer.invoke('admin-disable-invite',payload),
  generationArchive:p=>ipcRenderer.invoke('generation-archive',p),
+ generationImportEpisodeMedia:p=>ipcRenderer.invoke('generation-import-episode-media',p),
  generationList:()=>ipcRenderer.invoke('generation-list'),generationSubmit:p=>ipcRenderer.invoke('generation-submit',p),generationRefresh:p=>ipcRenderer.invoke('generation-refresh',p),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
  mediaGenerateImage:payload=>ipcRenderer.invoke('media-generate-image',payload),mediaGenerateVideo:payload=>ipcRenderer.invoke('media-generate-video',payload),
  mediaImportFile:kind=>ipcRenderer.invoke('media-import-file',kind),mediaImportFiles:kind=>ipcRenderer.invoke('media-import-files',kind),mediaExportFile:payload=>ipcRenderer.invoke('media-export-file',payload),
