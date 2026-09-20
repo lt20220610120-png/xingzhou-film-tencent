@@ -12,7 +12,9 @@ const { downloadInstaller } = require('./update-service.cjs');
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
 const { requestChat, testAiConnection } = require('./ai-service.cjs');
 const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
-const { readMediaBytes } = require('./media-network.cjs');
+const { readMediaBytes, configureMediaCache } = require('./media-network.cjs');
+const { createCosImageCache } = require('./cos-image-cache.cjs');
+const { createAssetImagePreview } = require('./asset-image-preview.cjs');
 const { discoverModels } = require('./model-discovery.cjs');
 const { importMediaFiles } = require('./media-import.cjs');
 const { createCloudAccessService } = require('./cloud-access-service.cjs');
@@ -137,6 +139,15 @@ ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAsse
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
 ipcMain.handle('discover-models', (_, config) => discoverModels(config));
 ipcMain.handle('collab-resolve-asset-image', (_, payload) => collabService.resolveAssetImage(payload));
+const imageCacheAccount = () => readCloudSession()?.account?.id || '';
+let activeImageCache, activeImageCacheDir;
+configureMediaCache({read:(url,scope,load)=>{
+ const directory=path.join(getDataDir(),'.cloud-image-cache');
+ if(directory!==activeImageCacheDir){activeImageCache=createCosImageCache({directory});activeImageCacheDir=directory;}
+ return activeImageCache.read(url,scope,load);
+}},imageCacheAccount);
+const loadAssetImage = createAssetImagePreview({resolveImage:p=>collabService.resolveAssetImage(p),readBytes:readMediaBytes,readAccount:imageCacheAccount});
+ipcMain.handle('collab-load-asset-image', (_, payload) => loadAssetImage(payload));
 async function renewImageReferences(payload) {
  const references = await Promise.all((payload.references || []).map(async ref => ref.assetId ? {...ref, ...(await collabService.resolveAssetImage({projectId:ref.projectId||payload.projectId,assetId:ref.assetId,imageId:ref.imageId||(ref.id===ref.assetId?'legacy':ref.id)||'legacy'})),id:ref.id} : ref));
  return {...payload,references};

@@ -26,6 +26,12 @@ npm test
 npm run build
 ```
 
+## 发布更新
+
+每次对外发布统一执行 `npm run release`。命令会先运行全量测试、构建前端、打 Windows 安装包，然后创建或复用 GitHub Release、上传当前版本安装包，并更新仓库根目录的 `latest.json`。软件设置页读取这个清单，所以不能只运行 `npm run dist` 后把安装包单独发给用户。
+
+发布说明可提前写入 `release-notes/<版本号>.md`；没有该文件时，脚本会使用默认说明。发布前要确认 GitHub 凭据可用，且不要在同一版本重复使用错误的安装包。
+
 ## 腾讯云部署
 
 服务器端真实密钥只放在 `/opt/xingzhou-cloud-backend/.env` 或云端密钥管理中，不能提交到 GitHub。客户端只包含公开 API 地址，不包含 PostgreSQL、COS 或管理员密钥。

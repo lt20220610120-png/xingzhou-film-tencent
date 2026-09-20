@@ -8,7 +8,16 @@ function isMediaNetworkError(error) {
     || ['TimeoutError', 'AbortError'].includes(error?.name);
 }
 
-async function readMediaBytes(url, { fetchFn = globalThis.fetch, timeoutMs = 60000, attempts = 3, delayMs = 400, signal, label = '媒体下载' } = {}) {
+let imageCache;
+let cacheScope = () => '';
+function configureMediaCache(cache, scope) { imageCache = cache; cacheScope = scope || (()=>''); }
+async function readMediaBytes(url, options = {}) {
+  // Explicitly cancellable requests keep their own lifecycle; ordinary preview,
+  // export and reference reads coalesce through the same persistent cache.
+  if (imageCache && !options.signal) return imageCache.read(url, cacheScope(), () => downloadMediaBytes(url, options));
+  return downloadMediaBytes(url, options);
+}
+async function downloadMediaBytes(url, { fetchFn = globalThis.fetch, timeoutMs = 60000, attempts = 3, delayMs = 400, signal, label = '媒体下载' } = {}) {
   if (!/^https?:\/\//i.test(String(url))) throw new Error(`${label}地址无效`);
   const maxAttempts = Math.max(1, Math.min(3, attempts));
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -45,4 +54,4 @@ async function readMediaBytes(url, { fetchFn = globalThis.fetch, timeoutMs = 600
   }
 }
 
-module.exports = { readMediaBytes, isMediaNetworkError };
+module.exports = { readMediaBytes, isMediaNetworkError, configureMediaCache };

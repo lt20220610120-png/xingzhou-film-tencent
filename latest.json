@@ -1,7 +1,7 @@
 {
-  "version": "2.3.0",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-tencent/releases/download/v2.3.0/Xingzhou-Film-Tencent-Setup-2.3.0.exe",
-  "notes": "修复协作成员导致图片重复显示；批量生成默认跳过已有及复用图片；创造模式与快速模式提示词分开显示，创造及历史提示词采用双列布局；新增拉取模型列表、分类导入及按模型配置生成参数；图片下载失败可恢复，云端保存重试核对已有结果，避免重新生图和重复记录；旧项目图片链接自动续签，改善预览、下载及参考图使用。更新保留项目、图片、提示词、Skill 和 API 配置。",
-  "sha256": "2f15ab52671413ab7cdd594d195f7d07390a2524377083b4712cd6795747619d",
-  "size": 102238070
+  "version": "2.3.1",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.3.1/Xingzhou-Film-Tencent-Setup-2.3.1.exe",
+  "notes": "优化 COS 图片流量：图片预览、导出和参考图读取共享本地缓存；图片按可见区域加载，视频和音频按需读取；修复 Windows 本地图片预览路径，并保留项目和账号权限校验。软件设置页可直接检查、下载并安装此版本。",
+  "sha256": "DAE745021FA2AEB27219BFE12D63B7E658422FC6F002CC65B6BDB05A6D2090BB",
+  "size": 102238824
 }

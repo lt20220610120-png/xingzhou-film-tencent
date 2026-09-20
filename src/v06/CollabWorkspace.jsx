@@ -1118,7 +1118,7 @@ function GroupSection({ project, api, account }) {
             <div key={msg.id} className={`collab-chat-item ${msg.user_id === account?.id ? 'mine' : ''}`}>
               <div className="collab-chat-meta"><b>{msg.username}</b><small>{fmtTime(msg.created_at)}</small></div>
               {msg.content && <div className="collab-chat-bubble">{msg.content}</div>}
-              {msg.image_url && <img className="collab-chat-image" src={msg.image_url} alt="图片消息" />}
+              {msg.image_url && <img loading="lazy" decoding="async" className="collab-chat-image" src={msg.image_url} alt="图片消息" />}
             </div>
           ))}
           {!messages.length && <div className="collab-empty small"><p>群里还没有消息，说点什么吧。</p></div>}

@@ -1,18 +1,32 @@
 """Publish xingzhou-film release to GitHub: create release, upload installer, update latest.json."""
-import base64, json, subprocess, urllib.request, urllib.error, os, sys, time
+import base64, json, subprocess, urllib.request, urllib.error, os, sys, time, glob
 
-VERSION = sys.argv[1] if len(sys.argv) > 1 else None
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+PACKAGE = json.load(open(os.path.join(ROOT, 'package.json'), encoding='utf-8'))
+VERSION = sys.argv[1] if len(sys.argv) > 1 else PACKAGE['version']
 NOTES = sys.argv[2] if len(sys.argv) > 2 else ''
-if not VERSION:
-    print('usage: python publish_release.py <version> <notes>')
-    sys.exit(1)
+if not NOTES:
+    notes_file = os.path.join(ROOT, 'release-notes', f'{VERSION}.md')
+    if os.path.exists(notes_file):
+        NOTES = open(notes_file, encoding='utf-8').read().strip()
+if not NOTES:
+    NOTES = f'行舟影视 {VERSION} 更新。请在软件设置页检查更新。'
 
 REPO = 'lt20220610120-png/xingzhou-film-updates'
+MANIFEST_REPOS = [REPO, 'lt20220610120-png/xingzhou-film-tencent']
 TAG = f'v{VERSION}'
-ASSET = f'Xingzhou-Film-Setup-{VERSION}.exe'
-SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'release', ASSET))
-if not os.path.exists(SRC):
-    SRC = f'C:/Users/11599/AppData/Local/Temp/xingzhou-release-v{VERSION.replace(".", "")}/行舟影视-安装程序-{VERSION}.exe'
+RELEASE_DIR = os.path.join(ROOT, 'release', VERSION)
+expected = [
+    os.path.join(RELEASE_DIR, f'Xingzhou-Film-Tencent-Setup-{VERSION}.exe'),
+    os.path.join(RELEASE_DIR, f'Xingzhou-Film-Setup-{VERSION}.exe'),
+    os.path.join(ROOT, 'release', f'Xingzhou-Film-Tencent-Setup-{VERSION}.exe'),
+    os.path.join(ROOT, 'release', f'Xingzhou-Film-Setup-{VERSION}.exe'),
+]
+expected += glob.glob(os.path.join(RELEASE_DIR, '*.exe'))
+SRC = next((path for path in expected if os.path.isfile(path)), None)
+if not SRC:
+    raise SystemExit(f'找不到 {VERSION} 安装包，请先运行 npm run dist；已检查 {RELEASE_DIR}')
+ASSET = os.path.basename(SRC)
 
 
 def token():
@@ -85,17 +99,27 @@ assert st == 201, f'Upload failed: {st} {b[:300]}'
 dl = json.loads(b)['browser_download_url']
 print('uploaded:', dl)
 
-# 3) Update latest.json on main
+# 3) Update latest.json on both the dedicated update repo and the source repo.
+# Older clients read the source repo; the dedicated repo is the canonical release
+# location. Keeping both in sync makes every published release discoverable.
 manifest = {'version': VERSION,
             'installerUrl': f'https://github.com/{REPO}/releases/download/{TAG}/{ASSET}',
-            'notes': NOTES}
-st, b = req(f'https://api.github.com/repos/{REPO}/contents/latest.json')
-assert st == 200, f'get latest.json failed: {st}'
-sha = json.loads(b)['sha']
-body = json.dumps({'message': f'release {TAG}',
-                   'content': base64.b64encode(json.dumps(manifest, ensure_ascii=False, indent=2).encode()).decode(),
-                   'sha': sha}).encode()
-st, b = req(f'https://api.github.com/repos/{REPO}/contents/latest.json', 'PUT', body, 'application/json')
-assert st in (200, 201), f'latest.json update failed: {st} {b[:300]}'
-print('latest.json updated')
+            'notes': NOTES,
+            'sha256': __import__('hashlib').sha256(open(SRC, 'rb').read()).hexdigest(),
+            'size': size}
+manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
+for manifest_repo in MANIFEST_REPOS:
+    st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json')
+    assert st == 200, f'get latest.json failed for {manifest_repo}: {st}'
+    current = json.loads(base64.b64decode(json.loads(b)['content']).decode('utf-8'))
+    if current == manifest:
+        print(f'latest.json already current in {manifest_repo}')
+        continue
+    sha = json.loads(b)['sha']
+    body = json.dumps({'message': f'release {TAG}',
+                       'content': base64.b64encode(manifest_text.encode()).decode(),
+                       'sha': sha}).encode()
+    st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json', 'PUT', body, 'application/json')
+    assert st in (200, 201), f'latest.json update failed for {manifest_repo}: {st} {b[:300]}'
+    print(f'latest.json updated in {manifest_repo}')
 print(json.dumps({'release': f'https://github.com/{REPO}/releases/tag/{TAG}', 'asset': dl, 'size': size}, ensure_ascii=False))

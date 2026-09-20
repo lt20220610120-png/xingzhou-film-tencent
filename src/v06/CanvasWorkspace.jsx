@@ -129,7 +129,7 @@ function CanvasNode({ node, scale, selected, imageNodes, videoCapabilities, imag
       <div className="node-media" style={{ height: node.h - 130 }}>
         {node.mediaFile
           ? node.type === 'video'
-            ? <video src={mediaUrl(node.mediaFile)} controls onPointerDown={(e) => e.stopPropagation()} />
+            ? <video src={mediaUrl(node.mediaFile)} preload="none" controls onPointerDown={(e) => e.stopPropagation()} />
             : <img src={mediaUrl(node.mediaFile)} alt={node.prompt || '画布图片'} draggable={false} />
           : (
             <div className="node-empty">
