@@ -38,7 +38,17 @@ async function lockDirectorReferences(client, row, uid) {
   const sources = [...new Set([row.director_project_id, ...[...String(row.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1])].filter(Boolean))];
   if (!sources.length) return true;
   const director = await lockReadableDirector(client, sources[0], uid);
-  if (!director) return false;
+  if (!director) {
+    // Older collaboration projects saved the local director-workspace ID in
+    // director_project_id but did not yet write COLLAB_LOCAL_SOURCE.  Promote
+    // only an ID that cannot refer to any cloud document, including a deleted
+    // or newly inaccessible one; those must remain fail-closed.
+    const legacyLocal = sources.length === 1
+      && !String(row.genre||'').includes('[COLLAB_SOURCE:')
+      && localDirectorId(sources[0])
+      && !(await client.query('select 1 as found from collab_projects where id::text=$1 or analysis_output=$1 limit 1', [sources[0]])).rows.length;
+    return legacyLocal;
+  }
   // Historical column and marker can use different aliases, but must resolve to
   // the SAME locked row. Never acquire multiple source locks in alias order.
   for (const source of sources.slice(1)) {
