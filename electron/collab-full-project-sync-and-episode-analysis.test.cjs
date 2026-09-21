@@ -4,11 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
-test('同步导演提示词同时更新协作云端总剧本和完整分集，但不替换美术资产', () => {
+test('同步导演提示词同时更新协作云端总剧本和完整分集，但不替换美术资产', async () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
-  assert.match(read('src/v06/CollabWorkspace.jsx'),/scope:'director-sync'/);
+  const {createDirectorSync}=await import('../core/cloudTraffic.js');
+  let saved;
+  await createDirectorSync()({id:'p',myRole:'producer'},{id:'d',masterScript:'完整剧本',episodes:[{id:'e',content:'第一集'}]},async payload=>(saved=payload));
+  assert.deepEqual(saved,{projectId:'p',scope:'director-sync',updates:{script:'完整剧本',episodes:[{id:'e',content:'第一集'}]}});
   assert.match(server,/refreshDirectorPrompts/);
   assert.match(server,/mergeDirectorEpisodes/);
   assert.match(server,/script/);

@@ -44,11 +44,15 @@ test('项目协作分镜提示词可编辑并只写入协作项目副本', () =>
   assert.match(server,/for update/);
 });
 
-test('同步导演提示词只有制片可见且只替换剧本和分集提示词', () => {
+test('同步导演提示词只有制片可见且只替换剧本和分集提示词', async () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.doesNotMatch(ui,/openLink|collabLinkDirector/);
-  assert.match(read('src/v06/CollabWorkspace.jsx'),/p.myRole==='producer'/);
+  const {createDirectorSync}=await import('../core/cloudTraffic.js');
+  for(const myRole of ['artist','collaborator','artist_collaborator']) {
+    const project={id:'p',myRole};
+    assert.equal(await createDirectorSync()(project,{id:'d',masterScript:'text'},async()=>{throw Error('must not write');}),project);
+  }
   assert.match(read('cloud-backend/src/collab.cjs'),/scope === 'director-sync' && myRole !== 'producer'/);
   assert.match(server,/syncDirectorSnapshot/);
 });

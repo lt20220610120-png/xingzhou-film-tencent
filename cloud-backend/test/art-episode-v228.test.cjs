@@ -1,6 +1,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {handleAction} = require('../src/collab.cjs');
+test('append accepts 第五十回合 narration while preserving real chapter headings',()=>{
+ const {appendArtEpisodeSnapshot,unitHeaders}=require('../src/collab-episodes.cjs');
+ const content='第二十一集\n21-1 废土荒界·枯寂裂谷上空 日 外\n第五十回合，寂手大能一袖卷起千丈龙卷。\n第一百回合，两人在云层之上连续对撞。\n第一百八十回合，寂手大能引动地脉。\n第二百四十回合，两人的身影同时消失。\n第三百回合，姜蓝与寂手大能在高空擦身而过。\n21-10 废土荒界·黑岩乱石滩 日 外';
+ assert.equal(unitHeaders(content).length,1);
+ const row={script:'原剧本',episodes:[{title:'第20集',content:'20-1 外景 山林 日'}]};
+ const result=appendArtEpisodeSnapshot(row,{episodeNumber:21,title:'第21集',content});
+ assert.equal(result.episodes.at(-1).content,content);
+ assert.equal(unitHeaders('第五十回 风雪夜')[0].number,50);
+});
+
+test('append keeps time ranges intact without mistaking them for episode numbers',()=>{
+ const {appendArtEpisodeSnapshot}=require('../src/collab-episodes.cjs');
+ const content='21-1 外景 神木 日\n50-100秒：花海\n100-180 秒 镜头向上\n180-240s 树冠\n240-300 秒：人物\n300-360秒 结束\n50-100人走过\n100-180米之外';
+ const row={script:'原剧本',episodes:[{title:'第20集',content:'20-1 外景 山林 日'}]};
+ const result=appendArtEpisodeSnapshot(row,{episodeNumber:21,title:'第21集',content});
+ assert.equal(result.episodes.at(-1).content,content);assert.ok(result.script.endsWith(content));
+ assert.throws(()=>appendArtEpisodeSnapshot(row,{episodeNumber:21,title:'第21集',content:content+'\n22-1 外景 山林 夜'}),/不一致/);
+});
 
 function repository(role = 'producer', genre = '都市\n[COLLAB_PROJECT]', locked = false) {
   const row = {id: 'collab', owner_id: 'owner', genre, episodes: [{title: '第19集', content: '19-1 家 日 内'}]};

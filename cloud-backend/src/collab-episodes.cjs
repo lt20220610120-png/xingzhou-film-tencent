@@ -52,8 +52,8 @@ function unitHeaders(text) {
   for (const raw of String(text||'').split(/\r?\n/)) {
     const line=raw.trim().replace(/^(?:(?:#{1,6}|[-*•>]|\d+[.)])\s*)+/, '').replace(/^\*\*|\*\*$/g,'');
     // Only structural headings (not a character's dialogue mentioning a chapter).
-    if(!/^(?:第\s*\S+?\s*[集章幕部回节]|(?:Episode|EP|Chapter|Act|Part|Section)(?=\s|[\d零〇一二两三四五六七八九十百千IVXLCDM]))/i.test(line))continue;
-    const pattern=/(?:第|[兼及和与/／、])\s*([\d零〇一二两三四五六七八九十百千IVXLCDM]+)\s*(集|章|幕|部|回|节)|\b(Episode|EP|Chapter|Act|Part|Section)\s*([\d零〇一二两三四五六七八九十百千IVXLCDM]+)(?![A-Za-z0-9])/gi;
+    if(!/^(?:第\s*[\d零〇一二两三四五六七八九十百千IVXLCDM]+\s*(?:[集章幕部节]|回(?!合))|(?:Episode|EP|Chapter|Act|Part|Section)(?=\s|[\d零〇一二两三四五六七八九十百千IVXLCDM]))/i.test(line))continue;
+    const pattern=/(?:第|[兼及和与/／、])\s*([\d零〇一二两三四五六七八九十百千IVXLCDM]+)\s*(集|章|幕|部|回(?!合)|节)|\b(Episode|EP|Chapter|Act|Part|Section)\s*([\d零〇一二两三四五六七八九十百千IVXLCDM]+)(?![A-Za-z0-9])/gi;
     let matches=0;
     for(const match of line.matchAll(pattern)) {
       matches++;
@@ -75,7 +75,7 @@ function episodeNumber(episode) {
   }
   numbers.push(...explicitNumbers(episode.title),...unitHeaders(episode.title).map(unit=>unit.number));
   for(const unit of unitHeaders(episode.content))numbers.push(unit.number,...explicitNumbers(unit.raw));
-  numbers.push(...[...String(episode.content||'').matchAll(/^[ \t]*(?:#{1,6}[ \t]*)?(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*\d+/gm)].map(m=>Number(m[1])));
+  numbers.push(...[...String(episode.content||'').matchAll(/^[ \t]*(?:#{1,6}[ \t]*)?(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*\d+(?!\d)(?![ \t]*(?:秒|分钟|毫秒|小时|人|米|厘米|毫米|公里|元|帧|%|s\b|ms\b|sec\b|min\b))/gim)].map(m=>Number(m[1])));
   return numbers.length && numbers.every(n=>Number.isInteger(n)&&n>0&&n<=10000&&n===numbers[0]) ? numbers[0] : 0;
 }
 function numberedEpisodes(episodes = []) {

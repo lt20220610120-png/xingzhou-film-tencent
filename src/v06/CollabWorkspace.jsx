@@ -1,5 +1,6 @@
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
+import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
 import {runArtAnalysis} from '../../core/artAnalysisRunner.js';
 import {syncSavedArtAnalysis,summarizeArtSync} from '../../core/artAnalysisSync.js';
@@ -378,12 +379,23 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   };
   const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
   const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: asset.name, images: [{ ...selectedImage, assetName: asset.name }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
+  const previewRequest = useRef(0);
+  useEffect(() => { previewRequest.current++; }, [asset.id, selectedImage?.id]);
+  const openOriginal = async () => {
+    const request=++previewRequest.current;
+    setError('');
+    try {
+      const resolve=api.collabLoadAssetImage || api.collabResolveAssetImage;
+      const image=resolve ? await resolve({projectId:project.id,assetId:asset.id,imageId:selectedImage.id,original:true}) : selectedImage;
+      if(request===previewRequest.current) setPreviewImage(image.url);
+    } catch(e) { if(request===previewRequest.current) setError(`大图加载失败：${e.message}`); }
+  };
 
   return (
     <div className="collab-image-box">
       <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
       <div className="collab-image-preview">
-        {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={() => setPreviewImage(renewedImages[selectedImage.id]?.url || selectedImage.url)} title="点击放大查看"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
+        {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={openOriginal} title="点击放大查看原图"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={image} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
       </div>
       {selectedImage && <div className="collab-image-item-actions"><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
@@ -1266,6 +1278,7 @@ export function CollabWorkspace({ state, api, account }) {
 
   useEffect(() => { try { if (section) localStorage.setItem('xz-collab-last-section', section); } catch { /* noop */ } }, [section]);
 
+  const syncDirector = useRef(createDirectorSync());
   const refreshProject = useCallback(async (options = {}) => {
     if(refreshInFlight.current)return refreshInFlight.current;
     const work=(async()=>{
@@ -1278,7 +1291,7 @@ export function CollabWorkspace({ state, api, account }) {
         api.collabListAssets({ projectId }),
       ]);
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
-      if(localSource&&p.myRole==='producer'&&!p.locked) p=await api.collabUpdateProject({projectId,scope:'director-sync',updates:{script:localSource.masterScript||'',episodes:localSource.episodes||[]}});
+      p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));
       if (requestId !== refreshRequestRef.current) return;
       const normalizedAssets=normalizeArtAssets(a || []);
       setProject(p); setAssets(normalizedAssets);

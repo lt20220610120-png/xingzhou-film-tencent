@@ -37,7 +37,7 @@ export const isCollabSettingEpisode = (episode) =>
 const identityError = (message) => Object.assign(new Error(message), { code: 'collab_episode_identity_invalid' });
 const episodeLabelsAnywhere = (text) => {
   const numbers = [];
-  const pattern = /第\s*([零〇一二两三四五六七八九十百千万\d]+)\s*[集章节幕部回]|\b(?:Episode|EP)\s*([0-9]+)\b/gi;
+  const pattern = /第\s*([零〇一二两三四五六七八九十百千万\d]+)\s*(?:[集章节幕部]|回(?!合))|\b(?:Episode|EP)\s*([0-9]+)\b/gi;
   for (const match of String(text || '').matchAll(pattern)) {
     const number = chineseEpisodeNumber(match[1] || match[2]);
     if (number) numbers.push(number);
@@ -48,14 +48,14 @@ const episodeLabelsAnywhere = (text) => {
 export function episodeNumbersInText(text) {
   const source = String(text || '').replaceAll(String.fromCharCode(13, 10), '\n').replaceAll(String.fromCharCode(13), '\n');
   const numbers = [];
-  const title = /^[ \t]*(?:#{1,6}[ \t]*)?(?:第\s*([零〇一二两三四五六七八九十百千万\d]+)\s*[集章节幕部回]|(?:Episode|EP)\s*([0-9]+)\b)/gim;
-  const scene = /^[ \t]*(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*\d+\b/gm;
+  const title = /^[ \t]*(?:#{1,6}[ \t]*)?(?:第\s*([零〇一二两三四五六七八九十百千万\d]+)\s*(?:[集章节幕部]|回(?!合))|(?:Episode|EP)\s*([0-9]+)\b)/gim;
+  const scene = /^[ \t]*(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*\d+(?!\d)(?![ \t]*(?:秒|分钟|毫秒|小时|人|米|厘米|毫米|公里|元|帧|%|s\b|ms\b|sec\b|min\b))\b/gim;
   for (const match of source.matchAll(title)) {
     const number = chineseEpisodeNumber(match[1] || match[2]);
     if (number) numbers.push(number);
   }
   for (const line of source.split('\n')) {
-    if (/^[ \t]*(?:#{1,6}[ \t]*)?(?:第\s*[零〇一二两三四五六七八九十百千万\d]+\s*[集章节幕部回]|(?:Episode|EP)\s*[0-9]+)/i.test(line)) numbers.push(...episodeLabelsAnywhere(line));
+    if (/^[ \t]*(?:#{1,6}[ \t]*)?(?:第\s*[零〇一二两三四五六七八九十百千万\d]+\s*(?:[集章节幕部]|回(?!合))|(?:Episode|EP)\s*[0-9]+)/i.test(line)) numbers.push(...episodeLabelsAnywhere(line));
   }
   for (const match of source.matchAll(scene)) {
     const number = positiveInteger(match[1]);

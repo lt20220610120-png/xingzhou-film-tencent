@@ -147,7 +147,8 @@ configureMediaCache({read:(url,scope,load)=>{
  if(directory!==activeImageCacheDir){activeImageCache=createCosImageCache({directory});activeImageCacheDir=directory;}
  return activeImageCache.read(url,scope,load);
 }},imageCacheAccount);
-const loadAssetImage = createAssetImagePreview({resolveImage:p=>collabService.resolveAssetImage(p),readBytes:readMediaBytes,readAccount:imageCacheAccount});
+const localPreviewCache = require('./local-preview-cache.cjs').createLocalPreviewCache({directory:()=>path.join(getDataDir(),'.cloud-preview-cache')});
+const loadAssetImage = createAssetImagePreview({resolveImage:p=>collabService.resolveAssetImage(p),readBytes:readMediaBytes,readAccount:imageCacheAccount,previewCache:localPreviewCache});
 ipcMain.handle('collab-load-asset-image', (_, payload) => loadAssetImage(payload));
 async function renewImageReferences(payload) {
  const references = await Promise.all((payload.references || []).map(async ref => ref.assetId ? {...ref, ...(await collabService.resolveAssetImage({projectId:ref.projectId||payload.projectId,assetId:ref.assetId,imageId:ref.imageId||(ref.id===ref.assetId?'legacy':ref.id)||'legacy'})),id:ref.id} : ref));

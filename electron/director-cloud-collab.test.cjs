@@ -32,11 +32,13 @@ test('Electron 和 preload 暴露项目锁定与导演云端协作接口', () =>
   }
 });
 
-test('项目协作分镜提供只刷新导演提示词的同步操作', () => {
+test('项目协作分镜提供只刷新导演提示词的同步操作', async () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
-  assert.match(read('src/v06/CollabWorkspace.jsx'),/scope:'director-sync'/);
+  const {createDirectorSync}=await import('../core/cloudTraffic.js');let saved;
+  await createDirectorSync()({id:'p',myRole:'producer'},{id:'d',masterScript:'text',assets:[{id:'do-not-replace'}]},async payload=>(saved=payload));
+  assert.deepEqual(Object.keys(saved.updates).sort(),['episodes','script']);
   assert.match(server,/refreshDirectorPrompts/);
   assert.match(server,/mergeDirectorEpisodes/);
   assert.match(server,/script/);

@@ -16,6 +16,10 @@ function createServer(env = process.env, deps = {}) {
   const repository = deps.repository || createRepository(config.databaseUrl);
   const mailer = deps.mailer !== undefined ? deps.mailer : createMailer(env);
   const cosSigner = deps.cosSigner !== undefined ? deps.cosSigner : createCosSigner(env);
+  const imagePreview = deps.imagePreview || (env.COS_PREVIEW_ENABLED === '1' && cosSigner
+    ? require('./image-preview.cjs').createImagePreview({host:cosSigner.host,
+      directory:env.COS_PREVIEW_CACHE_DIR || require('node:path').join(process.cwd(),'var','image-previews')}) : null);
+  const traffic = new Map(); let trafficSince=Date.now();
   return http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -27,7 +31,17 @@ function createServer(env = process.env, deps = {}) {
       request.on('data', (chunk) => { raw += chunk; });
       request.on('end', async () => {
         const send = (result) => {
-          const data = Buffer.from(JSON.stringify(result.body));
+          let data = Buffer.from(JSON.stringify(result.body));
+          const rawBytes=data.length;
+          // An opt-in POST protocol, not HTTP 304: authenticate and read current
+          // data first, then omit an unchanged body. Older clients keep full JSON.
+          if(result.status===200 && request.headers['x-xingzhou-snapshot']==='1'
+            && ['project-get','project-list','director-project-get','director-project-list'].includes(payload?.action)) {
+            const revision=require('node:crypto').createHash('sha256').update(data).digest('hex');
+            const snapshot=request.headers['x-xingzhou-known-revision']===revision
+              ? {revision,unchanged:true} : {revision,value:result.body};
+            data=Buffer.from(JSON.stringify({_xzSnapshot:snapshot}));
+          }
           const finish = (body, compressed = false) => {
             if (response.destroyed) return;
             response.writeHead(result.status, {
@@ -38,6 +52,14 @@ function createServer(env = process.env, deps = {}) {
               ...(compressed ? { 'content-encoding': 'gzip' } : {}),
             });
             response.end(body);
+            if(env.TRAFFIC_METRICS_ENABLED==='1') {
+              const name=String(payload?.action||'login').replace(/[^a-z-]/g,'').slice(0,50);
+              const metric=traffic.get(name)||{requests:0,rawBytes:0,sentBytes:0};
+              metric.requests++;metric.rawBytes+=rawBytes;metric.sentBytes+=body.length;traffic.set(name,metric);
+              if(Date.now()-trafficSince>=60000) {
+                (deps.logger||console).log('gateway_traffic',Object.fromEntries(traffic));traffic.clear();trafficSince=Date.now();
+              }
+            }
           };
           if (data.length > 1024 && /\bgzip\b/.test(request.headers['accept-encoding'] || '')) {
             gzip(data, (error, compressed) => finish(error ? data : compressed, !error));
@@ -62,7 +84,7 @@ function createServer(env = process.env, deps = {}) {
           if (action === 'unlock') return send(await unlock(payload, user, repository));
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
-          return send(await handleAction(action, payload, user, repository, cosSigner));
+          return send(await handleAction(action, payload, user, repository, cosSigner, imagePreview));
         } catch (error) {
           // Log only operation and database code, never prompts, tokens or SQL values.
           (deps.logger || console).error('gateway_failed', { action, code: error?.code || 'unknown' });

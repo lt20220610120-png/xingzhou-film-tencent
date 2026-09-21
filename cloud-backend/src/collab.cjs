@@ -54,7 +54,7 @@ async function attachRole(row, user, repo) {
   return present(row, mine && mine.role ? mine.role : 'collaborator');
 }
 
-async function handleAction(action, payload, user, repo, signer = null) {
+async function handleAction(action, payload, user, repo, signer = null, imagePreview = null) {
   if (!user) return { status: 401, body: { error: '请先登录账号' } };
   const projectId = payload.projectId || payload.id;
   const producer = user.is_producer === true || user.is_admin === true;
@@ -254,15 +254,22 @@ async function handleAction(action, payload, user, repo, signer = null) {
   }
   if (action === 'asset-image-url') {
     const { assetImageLink } = require('./asset-image-links.cjs');
+    const withPreview = async image => {
+      if (payload.preview === true && imagePreview) {
+        const previewDataUrl = await imagePreview(image).catch(() => null);
+        if (previewDataUrl) return ok({...image, previewDataUrl});
+      }
+      return ok(image);
+    };
     if (payload.imageId && payload.imageId !== 'legacy') {
       const image = await repo.findMedia(payload.imageId, user.id);
       if (!image || (projectId && image.project_id !== projectId) || (payload.assetId && image.asset_id !== payload.assetId)) return NOT_FOUND;
-      return ok({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer), filename: image.filename, mime: image.mime });
+      return withPreview({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer), filename: image.filename, mime: image.mime });
     }
     const assets = await repo.listAssets(projectId, user.id);
     const asset = assets?.find(item => item.id === payload.assetId);
     if (!asset?.image_url) return NOT_FOUND;
-    return ok({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer) });
+    return withPreview({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer) });
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-update') {

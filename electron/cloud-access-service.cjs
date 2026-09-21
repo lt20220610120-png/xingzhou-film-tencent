@@ -96,6 +96,7 @@ async function requestGateway(url, init) {
   }
 }
 const pendingReads = new Map();
+const snapshots = require('./cloud-snapshots.cjs').createSnapshotCache();
 function gateway(action, payload = {}, token = '', options = {}) {
   if (!readAction(action)) return performGateway(action,payload,token,options);
   const key = JSON.stringify([action,payload,token,options.timeoutMs]);
@@ -105,6 +106,7 @@ function gateway(action, payload = {}, token = '', options = {}) {
   return pending;
 }
 async function performGateway(action, payload = {}, token = '', options = {}) {
+  const snapshot = snapshots.prepare(action,payload,token);
   const retryable=retryableAction(action,payload),timeoutMs=options.timeoutMs || 30000;
   const urls=orderedUrls(),attempts=retryable?[...urls,urls.at(-1)]:urls;
   for(let index=0;index<attempts.length;index++){
@@ -112,12 +114,12 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     let response,timer;
     try {
       const pending=(async()=>{
-        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
+        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if (![502,503,504].includes(response.status)) activeUrl=url;
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,transient:[502,503,504].includes(response.status)});
-        activeUrl=url;return data;
+        activeUrl=url;return snapshots.resolve(snapshot,data);
       })();
       const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},timeoutMs);});
       return await Promise.race([pending,deadline]);

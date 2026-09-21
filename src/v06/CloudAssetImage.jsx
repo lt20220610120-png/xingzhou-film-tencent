@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import {imagePreviewIdentity} from '../../core/cloudTraffic.js';
 
-// Desktop previews reuse authorized originals on disk, only once visible.
+// Load authorized previews only once visible; a renewed signature is not a new image.
 export default function CloudAssetImage({ api, projectId, assetId, image, onResolved, ...props }) {
   const cachedPreview = Boolean(api?.collabLoadAssetImage && /^https?:/i.test(image.url || '') && (assetId || image.projectId || image.objectKey));
-  const scope = `${projectId}:${assetId}:${image.id}:${image.url}`;
+  const scope = `${projectId}:${assetId}:${image.id}:${imagePreviewIdentity(image)}`;
   const [loaded, setLoaded] = useState(null);
   const [retry, setRetry] = useState(0);
   const element = useRef(null);
@@ -19,7 +20,9 @@ export default function CloudAssetImage({ api, projectId, assetId, image, onReso
         const updated = await resolve({projectId, assetId, imageId:image.id});
         if (cancelled || latest.current !== scope) return;
         if (!updated?.url) throw new Error('图片地址不可用');
-        setLoaded({scope,url:updated.url}); callback.current?.(updated);
+        setLoaded({scope,url:updated.url});
+        const {previewDataUrl,originalUrl,...metadata}=updated;
+        callback.current?.({...metadata,url:originalUrl || updated.url});
       } catch { if (!cancelled && latest.current === scope) setLoaded({scope,failed:true}); }
     };
     if (!cachedPreview && retry === 0) return;

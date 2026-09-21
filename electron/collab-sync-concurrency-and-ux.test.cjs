@@ -100,11 +100,13 @@ test('生图读取逐资产前置设置，编辑框保留保存的原文', () =>
 });
 
 // 10. 分镜同步提示词读取云端完整文档
-test('分镜同步提示词优先云端导演文档并拉取完整详情', () => {
+test('分镜同步提示词优先云端导演文档并拉取完整详情', async () => {
   const ui = read('src/v06/StoryboardWorkbench.jsx');
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
-  assert.match(read('src/v06/CollabWorkspace.jsx'),/scope:'director-sync'/);
+  const {createDirectorSync}=await import('../core/cloudTraffic.js');
+  const project={id:'p',myRole:'producer',script:'云端完整详情'};
+  assert.equal(await createDirectorSync()(project,undefined,async()=>{throw Error('must not overwrite cloud');}),project);
   assert.match(server,/refreshDirectorPrompts/);
   assert.match(server,/mergeDirectorEpisodes/);
   assert.match(server,/script/);
