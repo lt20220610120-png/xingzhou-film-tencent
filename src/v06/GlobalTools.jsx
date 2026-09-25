@@ -296,8 +296,10 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     name: initial.name || '', provider: initial.provider || 'custom', endpoint: initial.endpoint || '',
     model: initial.model || '', apiKey: initial.apiKey || '', protocol: initial.protocol || 'auto',
     requiresApiKey: initial.requiresApiKey ?? true,
+    reasoningEffort: initial.reasoningEffort || 'medium',
     capabilities: initial.capabilities || {},
   }));
+  const isLocalCodex = kind === 'chat' && form.provider === 'codexLocal';
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [showKey, setShowKey] = useState(false);
@@ -306,10 +308,11 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
   const handleProviderChange = (value) => {
     const p = API_PROVIDERS[value];
     formRevision.current++;
-    setForm(f => ({ ...f, provider: value, endpoint: p.defaultEndpoint || '', model: p.defaultModel || '', requiresApiKey: p.requiresApiKey, protocol: value === 'claudeCodePool' ? 'anthropic' : 'auto' }));
+    setForm(f => ({ ...f, provider: value, endpoint: p.defaultEndpoint || '', model: p.defaultModel || '', apiKey: value === 'codexLocal' ? '' : f.apiKey, requiresApiKey: p.requiresApiKey, protocol: value === 'claudeCodePool' ? 'anthropic' : 'auto', reasoningEffort: 'medium' }));
     setTestResult(null);
   };
   const validate = () => {
+    if (isLocalCodex) return form.model.trim() ? '' : '请选择 Codex 模型';
     if (!form.endpoint.trim() || !form.model.trim()) return '请填写接口地址和模型名称';
     try { const url = new URL(form.endpoint.trim()); if (!['http:', 'https:'].includes(url.protocol)) return '接口地址必须以 https:// 或 http:// 开头'; } catch { return '请输入完整的接口地址'; }
     if (form.requiresApiKey && !form.apiKey.trim()) return '请填写 API Key';
@@ -331,18 +334,19 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     event.preventDefault();
     const error = validate();
     if (error) { setTestResult({ ok: false, message: error }); return; }
-    onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: form.endpoint.trim(), model: form.model.trim(), apiKey: form.apiKey.trim(), capabilities: normalizeCapabilities(form.capabilities) });
+    onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: isLocalCodex ? '' : form.endpoint.trim(), model: form.model.trim(), apiKey: isLocalCodex ? '' : form.apiKey.trim(), capabilities: normalizeCapabilities(form.capabilities) });
   };
   return <form className="api-config-form" onSubmit={handleSubmit}>
-    <p className="api-form-intro">{kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '用于画布与分镜视频。接口需支持火山方舟 /contents/generations/tasks 格式。'}</p>
+    <p className="api-form-intro">{isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '用于画布与分镜视频。接口需支持火山方舟 /contents/generations/tasks 格式。'}</p>
     <div className="api-form-fields">
       <label>配置名称<input value={form.name} onChange={e => update('name', e.target.value)} placeholder="例如：剧本分析主力、备用接口" autoFocus /></label>
       {kind === 'chat' && <label>服务商<select value={form.provider} onChange={e => handleProviderChange(e.target.value)}>{providerOptions.map(p => <option value={p.type} key={p.type}>{p.name}</option>)}</select></label>}
-      <label className="full">接口地址<input value={form.endpoint} onChange={e => update('endpoint', e.target.value)} placeholder="https://服务商域名/v1" spellCheck={false} /><small>可填写基础地址或完整接口路径，请以服务商文档为准。</small></label>
-      <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>
-      {kind === 'chat' && <label>接口协议<select value={form.protocol} onChange={e => update('protocol', e.target.value)}><option value="auto">自动（默认 OpenAI 兼容）</option><option value="chat">Chat Completions</option><option value="responses">Responses</option><option value="anthropic">Anthropic Messages</option></select></label>}
-      <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>
-      {kind === 'chat' && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
+      {!isLocalCodex && <label className="full">接口地址<input value={form.endpoint} onChange={e => update('endpoint', e.target.value)} placeholder="https://服务商域名/v1" spellCheck={false} /><small>可填写基础地址或完整接口路径，请以服务商文档为准。</small></label>}
+      {isLocalCodex ? <label>Codex 模型<select value={form.model} onChange={e => update('model', e.target.value)}><option value="gpt-6-luna">GPT-6 Luna · 快速</option><option value="gpt-6-sol">GPT-6 Sol · 均衡</option><option value="gpt-6-astra">GPT-6 Astra · 深度</option>{form.model && !['gpt-6-luna','gpt-6-sol','gpt-6-astra'].includes(form.model) && <option value={form.model}>{form.model}</option>}</select></label> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>}
+      {isLocalCodex && <label>推理档位<select value={form.reasoningEffort} onChange={e => update('reasoningEffort', e.target.value)}><option value="low">低 · 更快</option><option value="medium">中 · 均衡</option><option value="high">高 · 更仔细</option><option value="xhigh">超高 · 复杂任务</option></select><small>档位越高，通常等待更久、消耗更多额度；可按任务创建多个配置。</small></label>}
+      {kind === 'chat' && !isLocalCodex && <label>接口协议<select value={form.protocol} onChange={e => update('protocol', e.target.value)}><option value="auto">自动（默认 OpenAI 兼容）</option><option value="chat">Chat Completions</option><option value="responses">Responses</option><option value="anthropic">Anthropic Messages</option></select></label>}
+      {!isLocalCodex && <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>}
+      {kind === 'chat' && !isLocalCodex && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
     </div>
     {['video','image'].includes(kind) && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
     {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <pre>{testResult.reply}</pre>}</div>}
@@ -362,7 +366,7 @@ export function ApiLibrary({ state, setState }) {
   const all = activeApiKind === 'chat' ? apiProfiles : mediaProfiles.filter(p => p.kind === activeApiKind);
   const activeId = activeApiKind === 'chat' ? state.activeApiId : activeApiKind === 'image' ? state.activeImageApiId : activeApiKind === 'audio' ? state.activeAudioApiId : state.activeVideoApiId;
   const filtered = all.filter(p => `${p.name} ${p.model} ${p.endpoint}`.toLowerCase().includes(query.toLowerCase()));
-  const kinds = [['chat', '对话式 API'], ['image', '图片生成 API'], ['video', '视频 API'], ['audio', '语音模型配置']];
+  const kinds = [['chat', '文本模型'], ['image', '图片生成 API'], ['video', '视频 API'], ['audio', '语音模型配置']];
   const openForm = (profile = null) => { setEditingApi(profile); setDialogOpen(true); };
   const closeForm = () => { setDialogOpen(false); setEditingApi(null); };
   const handleSave = (data) => {
@@ -396,9 +400,9 @@ export function ApiLibrary({ state, setState }) {
     <div className="api-list-toolbar"><span>{all.length} 个配置 · {all.find(p => p.id === activeId)?.name ? `默认：${all.find(p => p.id === activeId).name}` : '尚未设置默认接口'}</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>
       <div className="api-connection-icon">{activeApiKind === 'chat' ? <Bot size={22}/> : activeApiKind === 'image' ? <ImageIcon size={22}/> : <Video size={22}/>}</div>
-      <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : activeApiKind === 'audio' ? '语音模型' : '视频任务'}</small></p><p className="api-endpoint">{profile.endpoint}</p></div>
+      <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.provider === 'codexLocal' ? `本机 Codex · ${profile.reasoningEffort || 'medium'}` : profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : activeApiKind === 'audio' ? '语音模型' : '视频任务'}</small></p><p className="api-endpoint">{profile.provider === 'codexLocal' ? '本机 ChatGPT 登录额度，无需 API Key' : profile.endpoint}</p></div>
       <div className="api-connection-actions">{profile.id !== activeId && <button className="secondary" onClick={() => handleActivate(profile.id)}>设为默认</button>}<button className="secondary" onClick={() => openForm(profile)}><PenLine size={14}/>编辑{activeApiKind === 'chat' ? ' / 测试' : ''}</button><button className="ghost danger" aria-label={`删除 ${profile.name}`} onClick={() => setDeleteTarget(profile)}><Trash2 size={14}/></button></div>
-    </article>)}{!filtered.length && <div className="api-empty"><KeyRound size={28}/><h3>{query ? '没有匹配的接口' : '添加你的第一个接口'}</h3><p>{query ? '尝试搜索模型名称或服务商地址。' : '准备好服务商地址、模型名称和 API Key 即可开始。'}</p>{!query && <button className="primary" onClick={() => openForm()}><Plus size={14}/>添加接口</button>}</div>}</div>
+    </article>)}{!filtered.length && <div className="api-empty"><KeyRound size={28}/><h3>{query ? '没有匹配的接口' : '添加你的第一个接口'}</h3><p>{query ? '尝试搜索模型名称或服务商地址。' : activeApiKind === 'chat' ? '可以选择本机 Codex，也可以添加其他文本 API。' : '准备好服务商地址、模型名称和 API Key 即可开始。'}</p>{!query && <button className="primary" onClick={() => openForm()}><Plus size={14}/>添加接口</button>}</div>}</div>
     <Dialog open={importOpen} title="从接口导入模型" onClose={()=>setImportOpen(false)}><ModelImport onSave={importModels} onCancel={()=>setImportOpen(false)}/></Dialog>
     <Dialog open={dialogOpen} title={`${editingApi ? '编辑' : '添加'}${kinds.find(k => k[0] === activeApiKind)[1]}`} onClose={closeForm}><ApiForm key={`${activeApiKind}-${editingApi?.id || 'new'}`} kind={activeApiKind} initial={editingApi || {}} onSave={handleSave} onCancel={closeForm}/></Dialog>
     <DeleteConfirm open={!!deleteTarget} title="删除 API 配置" name={deleteTarget?.name} detail="只删除此接口配置，已生成的内容仍会保留。" onCancel={() => setDeleteTarget(null)} onConfirm={handleDelete}/>

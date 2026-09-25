@@ -11,6 +11,6 @@ export function useWindowModel(scope,profiles,defaultId){
 export function ModelSelect({profiles,value,onChange,label='调用模型',disabled=false}){
  return <label className="window-model-select">{label}<select aria-label={label} value={value||''} disabled={disabled} onChange={e=>onChange(e.target.value)}>
  {!profiles.some(p=>p.id===value)&&<option value={value||''}>{value?'接口已移除，请重新选择':'请选择已配置的接口'}</option>}
- {profiles.map(p=><option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}
+ {profiles.map(p=><option key={p.id} value={p.id}>{p.name} · {p.model}{p.provider==='codexLocal'?` · ${p.reasoningEffort||'medium'}`:''}</option>)}
  </select></label>;
 }

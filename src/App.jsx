@@ -374,7 +374,7 @@ function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, ski
 
   const handleSend = async () => {
     if (!prompt.trim()) return;
-    if (!config.apiKey) { setResult('请先填写 API Key。'); return; }
+    if (config.provider !== 'codexLocal' && config.requiresApiKey !== false && !config.apiKey) { setResult('请先填写 API Key。'); return; }
     setLoading(true);
     try {
       const context = buildContext();

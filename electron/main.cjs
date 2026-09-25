@@ -10,7 +10,7 @@ const { pathToFileURL } = require('url');
 const mammoth = require('mammoth');
 const { downloadInstaller } = require('./update-service.cjs');
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
-const { requestChat, testAiConnection } = require('./ai-service.cjs');
+const { requestText, testTextConnection } = require('./text-provider.cjs');
 const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
 const { readMediaBytes, configureMediaCache } = require('./media-network.cjs');
 const { createCosImageCache } = require('./cos-image-cache.cjs');
@@ -68,7 +68,7 @@ ipcMain.handle('ai-task-status',(_,p)=>aiTaskProgress.get(String(p?.taskId||''))
 ipcMain.handle('ai-chat',async(_,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
- try{const output=await requestChat({...payload,signal:controller.signal},{onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
+ try{const output=await requestText({...payload,signal:controller.signal},{onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
  catch(error){if(payload.resultEnvelope)return {ok:false,error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
  finally{if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
@@ -77,7 +77,7 @@ ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
 ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
-ipcMain.handle('test-ai-connection',async(_,_config)=>testAiConnection(_config));
+ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config));
 ipcMain.handle('app-version',()=>app.getVersion());
 ipcMain.handle('check-update',async(_,manifestUrl)=>{if(!manifestUrl)return {configured:false,currentVersion:app.getVersion()};const {manifest,source}=await fetchUpdateManifest(manifestUrl);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
 let downloadedInstaller=null,activeDownload=null;

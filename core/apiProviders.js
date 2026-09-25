@@ -3,6 +3,15 @@
 // ============================================================
 
 export const API_PROVIDERS = {
+  codexLocal: {
+    name: '本机 Codex（ChatGPT 额度）',
+    type: 'codexLocal',
+    defaultEndpoint: '',
+    defaultModel: 'gpt-6-sol',
+    description: '通过本机已登录的 Codex 处理文本，仅供这台电脑使用',
+    requiresApiKey: false,
+    keyName: 'apiKey',
+  },
   hermesCompatible: {
     name: 'Hermes兼容',
     type: 'hermesCompatible',

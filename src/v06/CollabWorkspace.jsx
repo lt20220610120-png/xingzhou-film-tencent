@@ -485,7 +485,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     setModifying(true); setModifyError('');
     try {
       const messages = buildAssetRevisionMessages({ instruction, originalContent: promptSettings.content, category: asset.category });
-      const output = await api.aiChat({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, messages, timeout: 10 * 60 * 1000 });
+      const output = await api.aiChat({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, reasoningEffort: profile.reasoningEffort, messages, timeout: 10 * 60 * 1000 });
       const nextDescription = String(output || '').trim();
       if (!nextDescription) throw new Error('模型没有返回新的提示词');
       editContent(nextDescription); setModifyOpen(false); setInstruction('');

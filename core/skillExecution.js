@@ -26,6 +26,7 @@ export const createSkillExecution = async ({
   const output = await api.aiChat({
     profileId:profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint,
     model: profile.model,
+    reasoningEffort: profile.reasoningEffort,
     apiKey: profile.apiKey,
     requiresApiKey: profile.requiresApiKey,
     messages,

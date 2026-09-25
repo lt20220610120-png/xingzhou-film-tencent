@@ -29,5 +29,6 @@ scripts/repro_legacy_white_screen.py
 qa/
 *.log
 .cache/
+.playwright-cli/
 !src/assets/company-logo.png
 !build/icon-master.png
