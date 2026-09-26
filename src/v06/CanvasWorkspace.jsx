@@ -13,8 +13,9 @@ import {
 } from '../../core/canvasStore.js';
 import { Dialog } from './GlobalTools.jsx';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
+import {mediaSource} from '../../core/generationReferences.js';
 
-const mediaUrl = (filePath) => filePath ? `xzmedia://${encodeURIComponent(filePath).replace(/%5C/g, '/').replace(/%3A/g, ':')}` : '';
+const mediaUrl = filePath => mediaSource({filePath});
 
 /* ---------------- 媒体 API 设置弹窗 ---------------- */
 export function MediaApiSettings({ state, setState, onClose }) {

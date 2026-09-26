@@ -81,7 +81,9 @@ export const mergePersistedState = (current, saved) => {
     const diskTime = Date.parse(existing?.updatedAt || existing?.createdAt || 0) || 0;
     if (!existing || localTime > diskTime) byId.set(project.id, project);
   }
-  return normalizeState({ ...disk, directorProjects: [...byId.values()] });
+  const localWorkflow=local.generationWorkflow,diskWorkflow=disk.generationWorkflow;
+  const generationWorkflow=(Date.parse(localWorkflow?.updatedAt||0)||0)>(Date.parse(diskWorkflow?.updatedAt||0)||0)?localWorkflow:diskWorkflow;
+  return normalizeState({ ...disk, generationWorkflow, directorProjects: [...byId.values()] });
 };
 
 // ---------- 通用不可变更新辅助 ----------

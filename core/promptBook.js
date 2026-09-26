@@ -53,6 +53,11 @@ export function mergeEpisodeMedia(book,incoming){
  return {...book,episodeMedia};
 }
 
+export function clearPromptBook(workflow,bookId){
+ const books=(workflow.books||[]).filter(book=>book.id!==bookId);
+ return {...workflow,books,selectedBookId:books.some(book=>book.id===workflow.selectedBookId)?workflow.selectedBookId:books[0]?.id||null};
+}
+
 export function referencePolicy(feituo,caps){
  return feituo?{maxImages:caps.maxImages??0,maxVideos:caps.maxVideos??0,maxAudios:caps.maxAudios??0}:{maxImages:1,maxVideos:0,maxAudios:0};
 }

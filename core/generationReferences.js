@@ -1,4 +1,4 @@
-export const referenceName = name => String(name || '').replace(/^[【\[]|[】\]]$/g, '');
+export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|aac|ogg)$/i,'').replace(/^[【\[]|[】\]]$/g, '');
 export function numberedReferences(references) {
   const counts = {};
   return references.map(r => ({ ...r, alias: `@${r.kind}${counts[r.kind] = (counts[r.kind] || 0) + 1}` }));
@@ -28,7 +28,7 @@ export function autoReferences(prompt, assets) {
     return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,kind:'image',url:image.url}] : [];
   });
 }
-export const mediaSource = item => item.filePath ? `xzmedia://${encodeURIComponent(item.filePath).replace(/%5C/g,'/').replace(/%3A/g,':')}` : item.url || '';
+export const mediaSource = item => item.filePath ? `xzmedia:///${encodeURIComponent(item.filePath)}` : item.url || '';
 
 export function appendImportedReferences(existing, files, kind, caps = {}) {
   const capKey = {image:'maxImages',audio:'maxAudios',video:'maxVideos'}[kind];

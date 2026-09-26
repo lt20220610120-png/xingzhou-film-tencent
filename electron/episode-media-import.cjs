@@ -2,6 +2,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const EXTENSIONS={image:['.png','.jpg','.jpeg','.webp'],video:['.mp4','.mov','.webm'],audio:['.mp3','.wav','.m4a','.aac','.ogg']};
+const mediaDir=destDir=>path.resolve(destDir,'整本提示词素材');
 
 function episodeNumber(name){
  const normalized=name.normalize('NFKC').trim();
@@ -43,7 +44,7 @@ async function importEpisodeMedia({dialog,destDir,mode='episode',episode}){
  if(mode==='episode'&&(!Number.isSafeInteger(episode)||episode<1))throw new Error('请先选择要导入素材的集数');
  const result=await dialog.showOpenDialog({title:mode==='series'?'选择整部素材文件夹（内含各集子文件夹）':`选择第 ${episode} 集素材文件夹`,properties:['openDirectory']});
  if(result.canceled||!result.filePaths?.[0])return null;
- const root=path.resolve(result.filePaths[0]),destination=path.resolve(destDir,'整本提示词素材');
+ const root=path.resolve(result.filePaths[0]),destination=mediaDir(destDir);
  const relative=path.relative(destination,root);
  if(!relative||(!relative.startsWith('..')&&!path.isAbsolute(relative)))throw new Error('请选择原始素材文件夹，不要选择软件的素材保存目录。');
  const warnings=new Set(),groups=new Map();
@@ -59,6 +60,10 @@ async function importEpisodeMedia({dialog,destDir,mode='episode',episode}){
  // Discover everything before copying so malformed/deep folders never partially attach.
  const planned=new Map();
  for(const [number,folders] of groups){const files=[];for(const folder of folders)await collectFolder(folder,destination,files,warnings);planned.set(number,files);}
+ return saveGroups(planned,destination,warnings);
+}
+
+async function saveGroups(planned,destination,warnings=new Set()){
  await fs.promises.mkdir(destination,{recursive:true});
  const episodes={};let count=0;
  for(const [number,files] of planned){
@@ -75,4 +80,28 @@ async function importEpisodeMedia({dialog,destDir,mode='episode',episode}){
  }
  return {episodes,count,warnings:[...warnings]};
 }
-module.exports={episodeNumber,importEpisodeMedia};
+
+async function importEpisodeFiles({dialog,destDir,episode,kind}){
+ if(!Number.isSafeInteger(episode)||episode<1)throw new Error('请先选择要导入素材的集数');
+ if(!EXTENSIONS[kind])throw new Error('不支持的素材类型');
+ const result=await dialog.showOpenDialog({title:`选择第 ${episode} 集${{image:'图片',audio:'音频',video:'视频'}[kind]}（可多选）`,properties:['openFile','multiSelections'],filters:[{name:'素材文件',extensions:EXTENSIONS[kind].map(ext=>ext.slice(1))}]});
+ if(result.canceled||!result.filePaths?.length)return null;
+ const files=[];
+ for(const selected of result.filePaths){
+  const filePath=path.resolve(selected),ext=path.extname(filePath).toLowerCase();
+  if(!EXTENSIONS[kind].includes(ext)||(await fs.promises.stat(filePath)).isFile()!==true)throw new Error(`无法导入素材：${path.basename(filePath)}`);
+  files.push({filePath,name:path.basename(filePath),ext,kind});
+ }
+ return saveGroups(new Map([[episode,files]]),mediaDir(destDir));
+}
+
+async function deleteEpisodeMedia({destDir,paths=[],retainedPaths=[]}){
+ const root=mediaDir(destDir),retained=new Set(retainedPaths.map(value=>path.resolve(value).toLowerCase()));let count=0;
+ for(const value of new Set(paths)){
+  const file=path.resolve(value),relative=path.relative(root,file);
+  if(!relative||relative.startsWith('..')||path.isAbsolute(relative)||retained.has(file.toLowerCase()))continue;
+  try{await fs.promises.unlink(file);count++;}catch(error){if(error.code!=='ENOENT')throw error;}
+ }
+ return count;
+}
+module.exports={episodeNumber,importEpisodeMedia,importEpisodeFiles,deleteEpisodeMedia};
