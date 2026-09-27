@@ -1384,7 +1384,7 @@ function App() {
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
-          ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />
+          ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html?v=${packageInfo.version}${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />
           : <CanvasWorkspace state={state} setState={setState} api={api} />}</div>}
         {(visitedWorkspaces.director || nav === 'director') && <div className="workspace-preserved" hidden={nav !== 'director'}>
           <DirectorWorkspace

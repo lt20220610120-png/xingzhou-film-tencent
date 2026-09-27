@@ -22,10 +22,11 @@
                 const original = history[method];
                 history[method] = function(...args) { const result = original.apply(this, args); reportCanvasRoute(); return result; };
             });
+            if (!window.location.hash) history.replaceState(null, '', '#/canvas');
             window.addEventListener('load', reportCanvasRoute);
         </script>
-      <script type="module" crossorigin src="./assets/index-D8wpn5PA.js"></script>
-      <link rel="stylesheet" crossorigin href="./assets/index-ClNnDSuP.css">
+      <script type="module" crossorigin src="./assets/index-CNElSIo3.js"></script>
+      <link rel="stylesheet" crossorigin href="./assets/index-BsEuu3Qu.css">
     </head>
     <body class="bg-background text-foreground antialiased">
         <div id="root"></div>

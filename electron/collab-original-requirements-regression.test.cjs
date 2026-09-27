@@ -56,7 +56,7 @@ test('三种人物画风前置保持启用，分析恢复为稳定的逐集请�
   const ui = read('src/v06/CollabWorkspace.jsx');
   for (const style of ['AI真人', '3D动漫', '2D动漫']) assert.match(store, new RegExp(`'${style}'`));
   assert.match(store, /真人拍摄，但不能跟现实当中任何的明星撞脸/);
-  assert.match(store, /新中式3D国漫角色/);
+  assert.match(store, /高质量 3D CG 漫剧画面/);
   assert.match(store, /日本二次元动画风格/);
   assert.match(skill, /buildEpisodeAnalysisMessages/);
   assert.match(ui, /runArtAnalysis/);

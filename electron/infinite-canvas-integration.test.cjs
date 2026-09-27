@@ -18,17 +18,17 @@ test('canvas-app 使用相对资源路径与 hash 路由（file:// 下可运行�
   assert.doesNotMatch(html, /src="\/assets\//, '出现了绝对路径资源，file:// 协议下会白屏');
 });
 
-test('内嵌无限画布已同步上游 v0.15.1', () => {
+test('内嵌无限画布已同步上游 v0.19.0', () => {
   const assetsDir = path.join(root, 'canvas-app/assets');
   const source = fs.readdirSync(assetsDir).filter((name) => name.endsWith('.js')).map((name) => fs.readFileSync(path.join(assetsDir, name), 'utf8')).join('\n');
-  assert.match(source, /v0\.15\.1/);
-  assert.doesNotMatch(source, /const [A-Za-z_$][\w$]*="v0\.14\.0"/);
+  assert.match(source, /="v0\.19\.0"/);
 });
 
 test('主进程提供 open-canvas-window，独立窗口通过 xzapp 协议加载 canvas-app', () => {
   const src = read('electron/main.cjs');
   assert.match(src, /ipcMain\.handle\('open-canvas-window'/);
   assert.match(src, /xzapp:\/\/canvas\/index\.html/);
+  assert.match(src, /v=\$\{encodeURIComponent\(app\.getVersion\(\)\)\}#\/canvas/);
   assert.match(src, /registerCanvasAppProtocol/);
   assert.match(src, /scheme:'xzapp'/);
   assert.match(src, /无限画布/);
@@ -37,7 +37,7 @@ test('主进程提供 open-canvas-window，独立窗口通过 xzapp 协议加载
 test('preload 暴露 openCanvasWindow，画布内嵌在主界面右侧内容区', () => {
   assert.match(read('electron/preload.cjs'), /openCanvasWindow/);
   const app = read('src/App.jsx');
-  assert.match(app, /className="canvas-embed" src=\{`xzapp:\/\/canvas\/index\.html\$\{initialCanvasRoute\.current\}`\}/, '画布必须以内嵌 iframe 恢复最近编辑路由');
+  assert.match(app, /className="canvas-embed" src=\{`xzapp:\/\/canvas\/index\.html\?v=\$\{packageInfo\.version\}\$\{initialCanvasRoute\.current\}`\}/, '画布必须以内嵌 iframe 恢复最近编辑路由并在升级后载入新构建');
   assert.match(app, /\['canvas', Palette, '画布'\]/);
   assert.match(read('src/canvas.css'), /\.canvas-embed\{display:block;width:100%;height:100vh/);
 });

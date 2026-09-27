@@ -30,15 +30,17 @@ export const COLLAB_STYLES = ['AI真人', '3D动漫', '2D动漫'];
 export const ASSET_CATEGORIES = { character: '人物', scene: '场景', prop: '道具' };
 
 // ---------- 默认生图前置。用户的逐资产设置与描述一同保存、同步。 ----------
+export const PREVIOUS_3D_CHARACTER_PROMPT_PREFIX = '新中式3D国漫角色，融合英式动画的柔和质感与东方古典审美，极具东方温婉气韵，虚拟引擎5超高清渲染，8K极致精度。线条流畅灵动，五官精致舒展，自带古典故事感，光影柔和通透，色彩雅致高级。精准还原国风织锦、刺绣、纱质面料的细腻质感，发丝根根分明，皮肤纹理自然真实，材质表现整体画面唯美大气。白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照三视图，所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。';
 export const CHARACTER_PROMPT_PREFIXES = {
   'AI真人': '真人拍摄，但不能跟现实当中任何的明星撞脸。真人写实人像摄影，8K超高清原生画质，电影级柔和自然光影，无畸变广角，还原真实人像质感。皮肤通透细腻，精准呈现皮肤的次表面散射，自带自然原生的珠光光泽，超逼真还原皮肤纹理、原生毛孔、面部细碎绒毛等细节，五官立体精致，画面干净通透，光影过渡自然，整体真实与呼吸感，细节拉满。白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照三视图，所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
-  '3D动漫': '新中式3D国漫角色，融合英式动画的柔和质感与东方古典审美，极具东方温婉气韵，虚拟引擎5超高清渲染，8K极致精度。线条流畅灵动，五官精致舒展，自带古典故事感，光影柔和通透，色彩雅致高级。精准还原国风织锦、刺绣、纱质面料的细腻质感，发丝根根分明，皮肤纹理自然真实，材质表现整体画面唯美大气。白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照三视图，所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
+  '3D动漫': '高质量 3D CG 漫剧画面，现代游戏引擎的电影级渲染，达到虚幻引擎与皮克斯级动画电影的精细度。人物为半写实的风格化造型：五官精致且可辨，身体结构干净、可信，人物比例在各镜头中一致。皮肤着色保留细腻纹理与自然的次表面透光；服装、道具和环境采用清晰的 PBR 材质，表面细节丰富而不过度油亮。使用带有柔和轮廓光的电影化体积照明、自然景深和统一的电影调色；环境设计具体、层次分明，主体清晰对焦。跨镜头保持同一角色的面部结构、发型、体型、服装轮廓与材质响应。避免平板照明、塑料或蜡像般的皮肤、低模且模糊的画质、纯二维平涂赛璐璐效果，以及日漫式墨线造型。白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照三视图，所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
   '2D动漫': '风格:日本二次元动画风格，整体经典日漫2D手绘动画风格，4K超高清，细腻光影，强情绪张力，全程画风统一不跳变，无厚涂质感，细腻的人物情绪刻画，流畅无崩坏动画。白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照三视图，所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。',
 };
 const CURRENT_CHARACTER_LAYOUT = '白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照三视图，所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。';
 const LEGACY_CHARACTER_LAYOUT = '纯白色背景，4格统一排版，左侧1格为胸像大头特写，右侧3格为全身照，严格按顺序排列：正面全身照、正面（展示穿搭 + 脚 / 腿细节）、侧面（展示身形 + 脚 / 腿侧姿）、背面（展示背影 + 脚 / 腿后侧），所有画面中的主体完全一致，面部特征完全统一、发型完全同一、服装、完全统一，身材比例完全统一。';
 const LEGACY_CHARACTER_PROMPT_PREFIXES = Object.fromEntries(Object.entries(CHARACTER_PROMPT_PREFIXES)
   .map(([style, prefix]) => [style, prefix.replace(CURRENT_CHARACTER_LAYOUT, LEGACY_CHARACTER_LAYOUT)]));
+const PREVIOUS_3D_LEGACY_LAYOUT_PREFIX = PREVIOUS_3D_CHARACTER_PROMPT_PREFIX.replace(CURRENT_CHARACTER_LAYOUT, LEGACY_CHARACTER_LAYOUT);
 export const CHARACTER_PROMPT_PREFIX = CHARACTER_PROMPT_PREFIXES['AI真人'];
 export const SCENE_PROMPT_PREFIX = '只要场景不要出现任何人物。';
 export const PROP_PROMPT_PREFIX = '纯白色背景。';
@@ -46,7 +48,7 @@ export const PROP_PROMPT_PREFIX = '纯白色背景。';
 // 给资产描述加上类别固定前缀（人物/场景/道具），已有前缀时不重复添加。
 const stripCharacterPromptPrefix = (description = '') => {
   let text = String(description || '').trim();
-  for (const prefix of [...Object.values(CHARACTER_PROMPT_PREFIXES), ...Object.values(LEGACY_CHARACTER_PROMPT_PREFIXES)]) {
+  for (const prefix of [...Object.values(CHARACTER_PROMPT_PREFIXES), ...Object.values(LEGACY_CHARACTER_PROMPT_PREFIXES), PREVIOUS_3D_CHARACTER_PROMPT_PREFIX, PREVIOUS_3D_LEGACY_LAYOUT_PREFIX]) {
     if (text.startsWith(prefix)) text = text.slice(prefix.length).trim();
   }
   return text;
@@ -111,6 +113,15 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
     if (legacyStyle && mode === 'group') prefix = defaultAssetPromptPrefix({ ...asset, description: saved[3] }, legacyStyle, mode);
     else if (mode === 'single' && prefix.includes(LEGACY_CHARACTER_LAYOUT)) prefix = prefix.replaceAll(LEGACY_CHARACTER_LAYOUT, CURRENT_CHARACTER_LAYOUT);
     else if (mode === 'group') prefix = prefix.replaceAll(LEGACY_CHARACTER_LAYOUT, '').replaceAll(CURRENT_CHARACTER_LAYOUT, '').trim();
+    if (asset.category === 'character' && style === '3D动漫') {
+      if (mode === 'single' && prefix === PREVIOUS_3D_CHARACTER_PROMPT_PREFIX) prefix = CHARACTER_PROMPT_PREFIXES['3D动漫'];
+      if (mode === 'group') {
+        const currentDefault = defaultAssetPromptPrefix({ ...asset, description: saved[3] }, style, mode);
+        const currentVisual = CHARACTER_PROMPT_PREFIXES['3D动漫'].split(CURRENT_CHARACTER_LAYOUT)[0];
+        const previousVisual = PREVIOUS_3D_CHARACTER_PROMPT_PREFIX.split(CURRENT_CHARACTER_LAYOUT)[0];
+        if (prefix === currentDefault.replace(currentVisual, previousVisual)) prefix = currentDefault;
+      }
+    }
     return { mode, prefix, content: saved[3], customized: true };
   }
   const mode = inferAssetPromptMode(asset);

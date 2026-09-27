@@ -1,8 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CHARACTER_PROMPT_PREFIXES, buildImagePrompt, inferAssetPromptMode, readAssetPrompt, serializeAssetPrompt, defaultAssetPromptPrefix } from './collabStore.js';
+import { CHARACTER_PROMPT_PREFIXES, PREVIOUS_3D_CHARACTER_PROMPT_PREFIX, buildImagePrompt, inferAssetPromptMode, readAssetPrompt, serializeAssetPrompt, defaultAssetPromptPrefix } from './collabStore.js';
 
 const crowd = { category: 'character', name: '【城中百姓】', description: '纯白背景。六个人，男女老幼群像；粗布衣物，面貌各异。' };
+
+test('the 3D character preset uses the requested CG style and upgrades only saved defaults', () => {
+  const current=CHARACTER_PROMPT_PREFIXES['3D动漫'];
+  assert.ok(current.startsWith('高质量 3D CG 漫剧画面'));
+  assert.match(current,/皮肤着色保留细腻纹理与自然的次表面透光/);
+  assert.match(current,/白色背景，4格统一排版/);
+  const plain={category:'character',name:'主角',description:`${PREVIOUS_3D_CHARACTER_PROMPT_PREFIX}\n蓝色长袍。`};
+  assert.equal(readAssetPrompt(plain,'3D动漫').content,'蓝色长袍。');
+  assert.equal(readAssetPrompt(plain,'3D动漫').prefix,current);
+  const saved={...plain,description:serializeAssetPrompt({mode:'single',prefix:PREVIOUS_3D_CHARACTER_PROMPT_PREFIX,content:'蓝色长袍。'})};
+  assert.equal(readAssetPrompt(saved,'3D动漫').prefix,current);
+  const customized={...plain,description:serializeAssetPrompt({mode:'single',prefix:`${PREVIOUS_3D_CHARACTER_PROMPT_PREFIX}\n自定义光线。`,content:'蓝色长袍。'})};
+  assert.equal(readAssetPrompt(customized,'3D动漫').prefix,`${PREVIOUS_3D_CHARACTER_PROMPT_PREFIX}\n自定义光线。`);
+  const oldGroup=defaultAssetPromptPrefix(crowd,'3D动漫','group').replace(current.split('白色背景，4格统一排版')[0],PREVIOUS_3D_CHARACTER_PROMPT_PREFIX.split('白色背景，4格统一排版')[0]);
+  const savedGroup={...crowd,description:serializeAssetPrompt({mode:'group',prefix:oldGroup,content:crowd.description})};
+  assert.equal(readAssetPrompt(savedGroup,'3D动漫').prefix,defaultAssetPromptPrefix(crowd,'3D动漫','group'));
+});
 
 test('image prompts retain style and authored content without injecting the analysis genre', () => {
   for (const category of ['character', 'scene', 'prop']) {
