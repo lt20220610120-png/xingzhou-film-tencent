@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  generationImportEpisodeMedia:p=>ipcRenderer.invoke('generation-import-episode-media',p),
  generationImportEpisodeFiles:p=>ipcRenderer.invoke('generation-import-episode-files',p),
  generationDeleteBookMedia:p=>ipcRenderer.invoke('generation-delete-book-media',p),
+ generationClear:p=>ipcRenderer.invoke('generation-clear',p),
  generationList:()=>ipcRenderer.invoke('generation-list'),generationSubmit:p=>ipcRenderer.invoke('generation-submit',p),generationRefresh:p=>ipcRenderer.invoke('generation-refresh',p),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
  mediaGenerateImage:payload=>ipcRenderer.invoke('media-generate-image',payload),mediaGenerateVideo:payload=>ipcRenderer.invoke('media-generate-video',payload),
  mediaImportFile:kind=>ipcRenderer.invoke('media-import-file',kind),mediaImportFiles:kind=>ipcRenderer.invoke('media-import-files',kind),mediaExportFile:payload=>ipcRenderer.invoke('media-export-file',payload),

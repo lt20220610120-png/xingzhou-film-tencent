@@ -14,6 +14,7 @@ import './canvas.css';
 import './collab.css';
 import './generation.css';
 import './ocean-theme.css';
+import './ui-refinement.css';
 
 const root = document.getElementById('root');
 if (root) {

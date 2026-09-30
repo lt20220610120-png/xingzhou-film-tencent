@@ -63,7 +63,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
  const references=entry?(book.episodeMedia?.[entry.episode]||[]):[];
  const currentValue=entry?entryValue(book,entry):null;
  return <section className="prompt-book-workspace" aria-label="整本提示词与素材">
-  <div className="prompt-book-toolbar"><div><h2>整本提示词与素材</h2><p>上传含【1-1-1】编号的 TXT 或 Word（.docx），按集、场景逐条生成。提示词与素材会保存在本机，直到清除当前项目。</p></div><button disabled={busy} onClick={importDocument}><Upload size={16}/>{busy?'正在导入…':'上传整本提示词'}</button>{book&&<button className="danger" disabled={busy} onClick={clearCurrent}><Trash2 size={15}/>清除当前项目</button>}</div>
+  <div className="prompt-book-toolbar"><div><h2>整本提示词与素材</h2><p>上传含【1-1-1】编号的 TXT 或 Word（.docx），按集、场景逐条生成。提示词与素材会保存在本机，直到清除当前项目。</p></div><div className="prompt-book-actions"><button className="secondary" disabled={busy} onClick={importDocument}><Upload size={16}/>{busy?'正在导入…':'上传整本提示词'}</button><button className="danger" disabled={busy||!book} onClick={clearCurrent}><Trash2 size={16}/>清除当前项目</button></div></div>
   {books.length>0&&<label className="prompt-book-select">提示词文档<select aria-label="提示词文档" disabled={busy} value={book.id} onChange={e=>{const id=e.target.value;changeWorkflow(workflow=>({...workflow,selectedBookId:id}));setNotice('');setError('');}}>{books.map(b=><option key={b.id} value={b.id}>{b.name}（{b.entries.length} 条）</option>)}</select></label>}
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p className="prompt-book-notice" role="status">{notice}</p>}
   {entry&&<>

@@ -185,11 +185,11 @@ ipcMain.handle('collab-send-message',(_,payload)=>collabService.sendMessage(payl
 ipcMain.handle('collab-send-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'发送图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp','gif']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.sendMessage({projectId:payload.projectId,content:payload.content||'',imagePath:r.filePaths[0]})});
 ipcMain.handle('collab-get-stats',(_,payload)=>collabService.getStats(payload));
 function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
-const {createGenerationJobs}=require('./generation-jobs.cjs');
-const generationJobs=()=>createGenerationJobs(mediaDir());
-let generationManager;
-const jobs=()=>generationManager||(generationManager=generationJobs());
+const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
+const generationManagers=createGenerationManagers();
+const jobs=()=>generationManagers(mediaDir());
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
+ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
 ipcMain.handle('generation-list',()=>jobs().list());
 ipcMain.handle('generation-submit',async(_,p)=>jobs().submit(await renewImageReferences(p)));
 ipcMain.handle('generation-refresh',(_,p)=>jobs().refresh(p));

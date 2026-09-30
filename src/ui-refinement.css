@@ -1,0 +1,133 @@
+/* 2.4.7: compact cards and consistent controls for the production workspace. */
+.visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.project-hub-refined .project-grid,
+.collab-hub-refined .collab-project-grid,
+.skill-library-refined .skill-library-grid { grid-template-columns:repeat(auto-fill,minmax(min(285px,100%),1fr)); gap:18px; align-items:stretch; }
+.project-hub-refined .project-card,
+.collab-hub-refined .resource-card,
+.skill-library-refined .skill-card-enhanced { min-height:0; padding:20px; border-radius:16px; backdrop-filter:none; }
+.project-card-symbol { display:grid; place-items:center; width:38px; height:38px; flex:none; color:#7564c4; background:linear-gradient(135deg,#f0ecff,#edf3fe); border:1px solid #e5e1f4; border-radius:11px; }
+.project-hub-refined .project-card { display:flex; flex-direction:column; gap:12px; position:relative; }
+.project-hub-refined .project-card>.project-card-symbol { position:absolute; top:20px; left:20px; }
+.project-hub-refined .project-kind-row { margin:0 0 0 50px; min-height:38px; align-items:center; gap:8px; }
+.project-hub-refined .project-kind-row>small { font-size:12px; white-space:nowrap; }
+.project-hub-refined .project-badges { min-width:0; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+.project-hub-refined .group-badge { font-size:10px; line-height:1.5; padding:3px 8px; background:#f0edfc; color:#7968be; }
+.project-hub-refined .project-card h3 { margin:0; min-height:48px; font-size:17px; line-height:24px; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.project-hub-refined .project-card>p { margin:0; font-size:13px; line-height:22px; }
+.project-hub-refined .project-organize-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:0; }
+.project-hub-refined .project-organize-row button,
+.project-hub-refined .project-organize-row select { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; min-width:0; height:36px; margin:0; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:#fafbfe; color:var(--muted); font-size:12px; white-space:nowrap; }
+.project-hub-refined .project-name-input { min-height:48px; margin:0; width:100%; }
+.project-hub-refined .project-card-actions { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; margin-top:auto; padding-top:14px; border-top:1px solid #eef0f7; }
+.project-hub-refined .project-card-actions:has(.director-collab-button) { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.project-hub-refined .project-card-actions:has(.card-delete) { grid-template-columns:minmax(0,1fr) 38px; }
+.project-hub-refined .project-card-actions:has(.director-collab-button):has(.card-delete) { grid-template-columns:repeat(2,minmax(0,1fr)) 38px; }
+.project-hub-refined .project-card-actions button { height:38px; min-height:38px; min-width:0; margin:0; padding:0 8px; display:flex; align-items:center; justify-content:center; gap:5px; font-size:12px; white-space:nowrap; border-radius:8px; }
+.project-hub-refined .project-card-actions .primary:hover { background:#5d4fb2; border-color:#5d4fb2; }
+.project-hub-refined .project-card.add,
+.collab-hub-refined .resource-add { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:12px; min-height:245px; border-style:dashed!important; background:#fafaff!important; }
+.project-hub-refined .project-card.add>div,
+.collab-hub-refined .resource-add .resource-icon { display:grid; place-items:center; width:48px; height:48px; min-height:0; margin:0; border-radius:12px; background:#f0ecff; color:#7965c7; }
+.project-hub-refined .project-card.add h3,
+.collab-hub-refined .resource-add h3 { min-height:0; margin:0; }
+.project-hub-refined .project-card.library-source .card-cover { height:42px; width:42px; margin:0; }
+.project-hub-refined .project-card.library-source>.primary { position:static; margin-top:auto; }
+.project-hub-refined .director-group-toolbar { padding:8px; border:1px solid var(--line); border-radius:12px; background:#eef0f9; gap:12px; }
+.project-hub-refined .group-tabs { gap:6px; }
+.project-hub-refined .group-tabs button,
+.project-hub-refined .group-actions button { min-height:36px; padding:8px 12px; font-size:12px; border-radius:8px; }
+.project-hub-refined .director-search-input { height:40px; font-size:13px; }
+
+.collab-hub-refined { width:100%; max-width:none; margin:0; padding:32px clamp(20px,3vw,44px); }
+.collab-hub-refined>header h1 { color:var(--ink); font:650 26px/1.4 var(--studio-font); }
+.collab-hub-refined>header>p { font-size:13px; margin:6px 0 0; }
+.collab-hub-refined .collab-project-card { display:flex; flex-direction:column; gap:10px; }
+.collab-hub-refined .collab-card-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.collab-card-role { font-size:11px; color:#7968b8; padding:4px 9px; background:#f0edfc; border-radius:6px; }
+.collab-hub-refined .collab-project-card h3 { min-height:48px; margin:0; font-size:17px; line-height:24px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.collab-hub-refined .collab-project-card p { margin:0; font-size:12px; line-height:20px; }
+.collab-hub-refined .collab-card-owner { display:flex; align-items:center; gap:6px; }
+.collab-card-owner strong { font-weight:500; color:var(--ink); overflow-wrap:anywhere; }
+.collab-hub-refined .collab-project-card .api-endpoint { font-size:11px; color:#8993a8; }
+.collab-card-actions { display:flex; align-items:center; gap:8px; margin-top:auto; border-top:1px solid #eef0f7; padding-top:14px; }
+.collab-card-actions .primary { flex:1; display:flex; align-items:center; justify-content:space-between; height:38px; padding:0 12px; font-size:12px; }
+.enter-project-arrow { transform:rotate(180deg); }
+.collab-card-actions .card-delete { width:38px; height:38px; display:grid; place-items:center; padding:0; }
+
+.prompt-book-workspace .prompt-book-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:20px; padding:20px; border:1px solid var(--line); border-radius:14px; background:#ffffffdc; margin:0 0 16px; }
+.prompt-book-toolbar h2 { font-size:19px; line-height:1.5; margin:0 0 6px; }
+.prompt-book-toolbar p { max-width:760px; font-size:12px; }
+.prompt-book-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.prompt-book-actions button { height:40px; min-height:40px; width:100%; display:flex; align-items:center; justify-content:center; gap:7px; padding:0 14px; font-size:12px; white-space:nowrap; border-radius:9px; }
+.prompt-book-actions button:disabled { opacity:.5; cursor:not-allowed; }
+.prompt-book-media>button { display:flex; align-items:center; justify-content:center; min-height:40px; padding:0 14px; font-size:12px; border-radius:9px; }
+.generation-workspace .generation-tabs { border-radius:12px; padding:5px; }
+.generation-workspace .generation-tabs button { min-height:40px; padding:9px 14px; border-radius:8px; font-size:13px; }
+.generation-workspace .generation-tabs button svg { width:18px; height:18px; }
+.generation-workspace .generation-editor { border-radius:16px; }
+
+.skill-list-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:24px 0 14px; }
+.skill-list-toolbar strong { font-size:14px; font-weight:600; display:flex; align-items:center; gap:8px; }
+.skill-list-toolbar strong>span { font-size:11px; color:#8072bd; background:#ece8fa; border-radius:6px; padding:3px 7px; }
+.skill-list-toolbar input { width:280px; max-width:55%; min-width:0; height:38px; font-size:13px; padding:0 12px; }
+.skill-library-refined .skill-library-grid { margin-top:0; }
+.skill-library-refined .skill-card-enhanced { display:flex; flex-direction:column; gap:10px; }
+.skill-library-refined .skill-card-enhanced::before { display:none; }
+.skill-card-badges { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:24px; }
+.skill-library-refined .skill-card-badges>span { margin:0!important; font-size:10px!important; padding:4px 8px; border-radius:6px; }
+.skill-library-refined .skill-card-enhanced>h3 { min-height:44px; margin:0; font:600 15px/22px var(--studio-font); overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.skill-library-refined .skill-card-enhanced>p { margin:0; min-height:60px; max-height:60px; font-size:12px; line-height:20px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.skill-library-refined .skill-meta { margin:0; font-size:10px; color:#8c96a8; }
+.skill-library-refined .skill-card-enhanced .card-tools { position:static; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)) 34px; gap:8px; margin-top:auto; padding-top:12px; border-top:1px solid #eef0f7; }
+.skill-library-refined .card-tools button { min-width:0; height:34px; display:flex; align-items:center; justify-content:center; gap:6px; padding:0 8px; font-size:12px; white-space:nowrap; border:1px solid var(--line); background:#fafbfe; color:var(--muted); border-radius:8px; }
+.skill-full-description { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.9; font-size:14px; }
+.skill-search-empty { text-align:center; padding:30px; color:var(--muted); }
+.skill-library-refined .skill-create-panel { padding:20px; border-radius:14px; }
+.skill-library-refined .skill-create-option { padding:16px; min-height:0; }
+
+.generation-results-refined>header { gap:16px; margin-bottom:12px; flex-wrap:wrap; }
+.generation-results-refined>header h3 { margin:0; font-size:20px; }
+.generation-results-refined>header h3 small { display:inline-block; margin-left:6px; padding:3px 7px; border-radius:6px; background:#ece8fa; color:#8072bd; font-size:11px; vertical-align:middle; }
+.generation-results-refined>header p { margin:4px 0 0; font-size:12px; color:#8a94a9; }
+.generation-result-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.generation-result-actions:not(:has(.danger)) { grid-template-columns:1fr; }
+.generation-result-actions button { height:38px; min-width:0; justify-content:center; padding:0 14px; font-size:12px; border-radius:8px; white-space:nowrap; }
+.generation-storage-note { margin:0 0 16px; font-size:12px; line-height:1.7; color:#7d879b; }
+.generation-cleanup-notice { margin:0 0 14px; background:#edf7f3; border:1px solid #d3e9df; color:#367563; padding:10px 14px; font-size:13px; border-radius:10px; }
+.generation-results-refined .generation-result-grid { grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr)); gap:16px; align-items:stretch; }
+.generation-results-refined .generation-result-grid article { gap:10px; padding:14px; border-radius:14px; }
+.generation-results-refined .generation-result-grid article>header { margin:0; min-height:25px; }
+.generation-results-refined .generation-result-grid article>header>small { font-size:11px; }
+.generation-results-refined .generation-result-prompt { min-height:54px; max-height:54px; line-height:18px; }
+.generation-results-refined .generation-result-grid article>footer { margin-top:auto; padding-top:10px; border-top:1px solid #edf0f6; flex-wrap:wrap; }
+.generation-card-actions { display:flex; align-items:center; gap:6px; }
+.generation-card-actions button { height:32px; padding:0 9px!important; font-size:11px!important; white-space:nowrap; justify-content:center; }
+.generation-result-grid footer>small { color:#8690a6; font-size:11px; }
+.generation-result-error { color:var(--danger); font-size:12px; border:1px solid #f0d9d5; border-radius:8px; padding:8px 10px; background:#fff7f5; }
+.generation-result-error summary { cursor:pointer; }
+.generation-result-error p { color:var(--danger); margin:8px 0 0; max-height:120px; overflow:auto; overflow-wrap:anywhere; }
+.project-hub-refined .project-card .card-delete,
+.collab-hub-refined .card-delete,
+.skill-library-refined .card-tools .card-delete,
+.generation-results-refined .card-delete { position:static; color:#ab7574; border:1px solid #eee1e0; background:#fff; border-radius:8px; }
+.project-hub-refined .project-card .card-delete:hover,
+.collab-hub-refined .card-delete:hover,
+.skill-library-refined .card-tools .card-delete:hover,
+.generation-results-refined .card-delete:hover { color:#b34e4b; background:#fff2f0; border-color:#ebc9c4; text-decoration:none; }
+.generation-results-refined button:disabled { opacity:.5; cursor:not-allowed; }
+.delete-confirm .modal-actions button { min-height:40px; min-width:116px; display:flex; align-items:center; justify-content:center; }
+.delete-confirm>p { font-size:13px; line-height:1.8; }
+
+@media (max-width:1200px) {
+  .prompt-book-workspace .prompt-book-toolbar { grid-template-columns:1fr; gap:14px; }
+  .prompt-book-actions { justify-self:start; min-width:320px; }
+}
+@media (max-width:760px) {
+  .collab-hub-refined { padding:24px 18px; }
+  .prompt-book-actions { width:100%; min-width:0; justify-self:stretch; }
+  .prompt-book-actions button { padding:0 8px; font-size:11px; }
+  .generation-result-actions { width:100%; }
+  .skill-list-toolbar { align-items:flex-start; flex-direction:column; }
+  .skill-list-toolbar input { width:100%; max-width:none; }
+}

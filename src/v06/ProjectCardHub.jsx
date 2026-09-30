@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, BookOpen, Upload, Trash2, PenLine, FolderPlus, FolderCog, Users } from 'lucide-react';
+import { Plus, BookOpen, Upload, Trash2, PenLine, FolderPlus, FolderCog, Users, Film, ArrowUpRight } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { defaultProjectGroupName } from '../../core/projectGroups.js';
 
@@ -79,7 +79,7 @@ export function ProjectCardHub({
   };
 
   return (
-    <main className="card-page">
+    <main className="card-page project-hub-refined">
       <header>
         <span>{isFruit ? '市场果子' : isScript ? '内容创作' : isDirector ? '导演工作台' : '项目'}</span>
         <h1>{title}</h1>{headerExtra}
@@ -119,12 +119,12 @@ export function ProjectCardHub({
         {visibleProjects.map(project =>{
           const group = groups.find(item => item.id === project.groupId);
           return <article key={project.id} className="project-card">
-            <div className="card-cover"><span>{project.name.slice(0, 1)}</span></div>
+            <div className="project-card-symbol" aria-hidden="true">{isDirector ? <Film size={21}/> : <BookOpen size={21}/>}</div>
             <div className="project-kind-row"><small>{isFruit ? '市场验证剧本' : isScript ? (project.mode === 'rewrite' ? '洗稿创作' : '原创创作') : '导演项目'}</small><span className="project-badges">{isDirector && project.cloudRole === 'collaborator' && <span className="cloud-collab-badge">协作</span>}{canOrganize && <span className="group-badge">{group?.name || '未分组'}</span>}</span></div>
-            {renamingId === project.id ? <input className="project-name-input" autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => saveRename(project)} onKeyDown={e => { if (e.key === 'Enter') saveRename(project); if (e.key === 'Escape') setRenamingId(null); }}/> : <h3>{project.name}</h3>}
+            {renamingId === project.id ? <input className="project-name-input" autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => saveRename(project)} onKeyDown={e => { if (e.key === 'Enter') saveRename(project); if (e.key === 'Escape') setRenamingId(null); }}/> : <h3 title={project.name}>{project.name}</h3>}
             <p>{project.episodes.length} 集{isFruit && <> · {'★'.repeat(project.rating) || '未评级'}</>}{isDirector && <> · {project.episodes.reduce((sum, ep) => sum + (ep.prompts?.length || 0), 0)} 条提示词</>}</p>
-            {canOrganize && <div className="project-organize-row"><button onClick={() => { setRenamingId(project.id); setRenameValue(project.name); }}><PenLine size={14}/>修改名称</button><select value={project.groupId || 'director-workbench'} disabled={isDirector && project.groupId === 'director-cloud'} onChange={e => onMoveToGroup?.(project.id, e.target.value)}>{(isDirector ? [groups.find(group => group.id === 'director-workbench'), ...customGroups].filter(Boolean) : groups).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></div>}
-            <div className="project-card-actions"><button className="primary" onClick={() => onOpen(project.id)}>{isDirector ? '继续导演' : '继续创作'}</button>{isDirector && onManageCollab && canManageCollab(project) && <button className="secondary director-collab-button" onClick={() => onManageCollab(project)}><Users size={14}/>{project.cloudProjectId ? '管理协作' : '开启协作'}</button>}{onDelete && canDeleteProject(project) && <button className="card-delete" title="删除项目" onClick={e => { e.stopPropagation(); setDeleteTarget(project); }}><Trash2 />删除</button>}</div>
+            {canOrganize && <div className="project-organize-row"><button onClick={() => { setRenamingId(project.id); setRenameValue(project.name); }}><PenLine size={14}/>修改名称</button><select aria-label={`${project.name}的分组`} value={project.groupId || 'director-workbench'} disabled={isDirector && project.groupId === 'director-cloud'} onChange={e => onMoveToGroup?.(project.id, e.target.value)}>{(isDirector ? [groups.find(group => group.id === 'director-workbench'), ...customGroups].filter(Boolean) : groups).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></div>}
+            <div className="project-card-actions"><button className="primary" onClick={() => onOpen(project.id)}>{isDirector ? '继续导演' : '继续创作'}<ArrowUpRight size={14}/></button>{isDirector && onManageCollab && canManageCollab(project) && <button className="secondary director-collab-button" onClick={() => onManageCollab(project)}><Users size={14}/>{project.cloudProjectId ? '管理协作' : '开启协作'}</button>}{onDelete && canDeleteProject(project) && <button className="card-delete" title="删除项目" aria-label={`删除项目 ${project.name}`} onClick={e => { e.stopPropagation(); setDeleteTarget(project); }}><Trash2 size={15}/><span className="visually-hidden">删除</span></button>}</div>
           </article>;
         })}
       </div>

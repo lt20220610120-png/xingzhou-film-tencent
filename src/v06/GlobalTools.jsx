@@ -171,8 +171,11 @@ export function SkillLibrary({ state, setState }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [descriptionTarget, setDescriptionTarget] = useState(null);
 
   const skills = state.skills || [];
+  const visibleSkills = skills.filter(skill => `${skill.name} ${skill.description || ''}`.toLowerCase().includes(search.trim().toLowerCase()));
 
   const handleSave = (data) => {
     if (editingSkill) {
@@ -218,7 +221,7 @@ export function SkillLibrary({ state, setState }) {
   const typeLabels = { custom: '自定义', transform: '转换', format: '格式', director: '导演' };
 
   return (
-    <div className="resource-page">
+    <div className="resource-page skill-library-refined">
       <header>
         <span className="eyebrow">工具配置 · Skill 库</span>
         <h1>Skill 库</h1>
@@ -244,26 +247,28 @@ export function SkillLibrary({ state, setState }) {
         {importError && <div className="skill-import-error">{importError}</div>}
       </section>
 
+      <div className="skill-list-toolbar"><strong>全部 Skill <span>{skills.length}</span></strong><input type="search" aria-label="搜索 Skill" placeholder="搜索名称或简介" value={search} onChange={event => setSearch(event.target.value)}/></div>
       <div className="resource-grid skill-library-grid">
 
-        {skills.map((skill) => (
+        {visibleSkills.map((skill) => (
           <article key={skill.id} className="resource-card skill-card-enhanced" data-type={skill.type}>
-            <span className="skill-type-badge">{typeLabels[skill.type] || '自定义'}</span>
-            <span className="skill-source-badge">{skill.importMethod === 'skill-folder' ? `完整 Skill · ${buildSkillManifest(skill).totalFiles} 个文件` : skill.importMethod === 'document' ? '文档导入' : '手动编写'}</span>
-            <h3>{skill.name}</h3>
+            <div className="skill-card-badges"><span className="skill-type-badge">{typeLabels[skill.type] || '自定义'}</span>
+            <span className="skill-source-badge">{skill.importMethod === 'skill-folder' ? `完整 Skill · ${buildSkillManifest(skill).totalFiles} 个文件` : skill.importMethod === 'document' ? '文档导入' : '手动编写'}</span></div>
+            <h3 title={skill.name}>{skill.name}</h3>
             <p>{skill.description || `${skill.content?.slice(0, 80) || ''}${skill.content?.length > 80 ? '……' : ''}`}</p>
             {skill.updatedAt && <div className="skill-meta"><small>更新于 {new Date(skill.updatedAt).toLocaleDateString('zh-CN')}</small></div>}
             <div className="card-tools">
               <button className="secondary" onClick={() => { setEditingSkill(skill); setDialogOpen(true); }}>
                 <PenLine size={14} /> 编辑
               </button>
-              <button className="card-delete" onClick={() => setDeleteTarget(skill)}>
-                <Trash2 size={14} /> 删除
-              </button>
+              <button className="secondary" onClick={() => setDescriptionTarget(skill)}>查看简介</button>
+              <button className="card-delete" title="删除 Skill" aria-label={`删除 Skill ${skill.name}`} onClick={() => setDeleteTarget(skill)}><Trash2 size={14}/></button>
             </div>
           </article>
         ))}
       </div>
+      {!visibleSkills.length && <p className="skill-search-empty">{skills.length ? '没有匹配的 Skill，请试试其他关键词。' : '还没有 Skill，可从上方导入或编写。'}</p>}
+      <Dialog open={!!descriptionTarget} title={descriptionTarget?.name || 'Skill 简介'} onClose={() => setDescriptionTarget(null)}><p className="skill-full-description">{descriptionTarget?.description || descriptionTarget?.content || '暂无简介'}</p></Dialog>
 
       {/* Skill 编辑/创建对话框 */}
       <Dialog open={dialogOpen} title={editingSkill ? '编辑 Skill' : '新建 Skill'} onClose={() => { setDialogOpen(false); setEditingSkill(null); }}>

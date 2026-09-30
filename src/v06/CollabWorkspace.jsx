@@ -1365,10 +1365,11 @@ export function CollabWorkspace({ state, api, account }) {
   // ---------- 项目列表页 ----------
   if (!project) {
     return (
-      <div className="collab-hub">
+      <div className="collab-hub collab-hub-refined">
         <header>
           <span className="eyebrow">项目协作 · 云端实时同步</span>
           <h1>项目协作</h1>
+          <p>集中管理制作项目，与团队继续协作。</p>
         </header>
         {listError && <div className="collab-error" role="alert">{listError} <button onClick={loadProjects}>重新连接</button></div>}
         <div className="resource-grid collab-project-grid">
@@ -1381,10 +1382,14 @@ export function CollabWorkspace({ state, api, account }) {
           )}
           {projects.filter((p) => !p.deleted_at).map((p) => (
             <article key={p.id} className="resource-card collab-project-card" onClick={() => openProject(p.id)}>
-              <h3>{p.name}</h3>
-              <p>负责人：{p.owner_name} · 我的身份：{COLLAB_ROLES[p.myRole]}</p>
+              <div className="collab-card-heading"><span className="project-card-symbol" aria-hidden="true"><Clapperboard size={21}/></span><span className="collab-card-role">{COLLAB_ROLES[p.myRole]}</span></div>
+              <h3 title={p.name}>{p.name}</h3>
+              <p className="collab-card-owner"><Users size={14}/>负责人 <strong>{p.owner_name}</strong></p>
               <p className="api-endpoint">最近更新 {fmtTime(p.updated_at)}</p>
-              {p.deleted_at ? <button className="secondary" onClick={async (e) => { e.stopPropagation(); try { await api.collabRestoreProject({ projectId: p.id }); await loadProjects(); } catch (err) { setListError(`恢复失败：${err.message}`); } }}>恢复项目</button> : isProducer && <button className="danger-link" onClick={(e) => { e.stopPropagation(); setDeleteError(''); setDeleteTarget(p); }}>删除</button>}
+              <div className="collab-card-actions">
+                <button className="primary" onClick={e => { e.stopPropagation(); openProject(p.id); }}>进入项目 <ArrowLeft size={14} className="enter-project-arrow"/></button>
+                {isProducer && <button className="card-delete" title="删除协作项目" aria-label={`删除协作项目 ${p.name}`} onClick={(e) => { e.stopPropagation(); setDeleteError(''); setDeleteTarget(p); }}><Trash2 size={15}/></button>}
+              </div>
             </article>
           ))}
           {!projects.length && !loading && !isProducer && (
