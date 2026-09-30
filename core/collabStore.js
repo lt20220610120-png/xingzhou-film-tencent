@@ -43,7 +43,8 @@ const LEGACY_CHARACTER_PROMPT_PREFIXES = Object.fromEntries(Object.entries(CHARA
 const PREVIOUS_3D_LEGACY_LAYOUT_PREFIX = PREVIOUS_3D_CHARACTER_PROMPT_PREFIX.replace(CURRENT_CHARACTER_LAYOUT, LEGACY_CHARACTER_LAYOUT);
 export const CHARACTER_PROMPT_PREFIX = CHARACTER_PROMPT_PREFIXES['AI真人'];
 export const SCENE_PROMPT_PREFIX = '只要场景不要出现任何人物。';
-export const PROP_PROMPT_PREFIX = '纯白色背景。';
+export const PROP_PROMPT_PREFIX = '纯白背景，不要出现人物。';
+const PREVIOUS_PROP_PROMPT_PREFIXES = ['纯白色背景。','纯白背景。'];
 
 // 给资产描述加上类别固定前缀（人物/场景/道具），已有前缀时不重复添加。
 const stripCharacterPromptPrefix = (description = '') => {
@@ -110,6 +111,7 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
       return { mode: 'prop', prefix: [PROP_PROMPT_PREFIX, addition].filter(Boolean).join('\n'), content: saved[3], customized: Boolean(addition) };
     }
     let prefix = saved[2];
+    if(asset.category==='prop'&&mode==='prop'&&PREVIOUS_PROP_PROMPT_PREFIXES.includes(prefix))prefix=PROP_PROMPT_PREFIX;
     if (legacyStyle && mode === 'group') prefix = defaultAssetPromptPrefix({ ...asset, description: saved[3] }, legacyStyle, mode);
     else if (mode === 'single' && prefix.includes(LEGACY_CHARACTER_LAYOUT)) prefix = prefix.replaceAll(LEGACY_CHARACTER_LAYOUT, CURRENT_CHARACTER_LAYOUT);
     else if (mode === 'group') prefix = prefix.replaceAll(LEGACY_CHARACTER_LAYOUT, '').replaceAll(CURRENT_CHARACTER_LAYOUT, '').trim();
@@ -128,7 +130,9 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
   const prefix = defaultAssetPromptPrefix(asset, style, mode);
   let content = stripCharacterPromptPrefix(raw);
   if (asset.category === 'scene' && content.startsWith(SCENE_PROMPT_PREFIX)) content = content.slice(SCENE_PROMPT_PREFIX.length).trim();
-  if (asset.category === 'prop' && content.startsWith(PROP_PROMPT_PREFIX)) content = content.slice(PROP_PROMPT_PREFIX.length).trim();
+  if (asset.category === 'prop') for(const existing of [PROP_PROMPT_PREFIX,...PREVIOUS_PROP_PROMPT_PREFIXES]) {
+    if(content.startsWith(existing)){content=content.slice(existing.length).trim();break;}
+  }
   return { mode, prefix, content, customized: false };
 };
 

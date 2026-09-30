@@ -9,13 +9,10 @@ export function bindReferencePrompt(prompt, references) {
   const names = [...new Set(numbered.map(r => referenceName(r.name)).filter(Boolean))].sort((a,b) => b.length-a.length);
   for (const name of names) {
     const matches=numbered.filter(r=>referenceName(r.name)===name);
-    if (matches.length !== 1) {
-      if (result.includes(`@${name}`) || result.includes(`@【${name}】`)) throw new Error(`“${name}”有多张参考图，请选择一张或改用素材编号`);
-      continue;
-    }
-    result=result.split(`@【${name}】`).join(matches[0].alias).split(`@[${name}]`).join(matches[0].alias);
+    const aliases=matches.map(r=>r.alias).join(' ');
+    result=result.split(`@【${name}】`).join(aliases).split(`@[${name}]`).join(aliases);
     const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    result=result.replace(new RegExp(`@${escaped}(?![\\w\\u4e00-\\u9fff])`,'g'),matches[0].alias);
+    result=result.replace(new RegExp(`@${escaped}(?![\\w\\u4e00-\\u9fff])`,'g'),aliases);
   }
   return result;
 }

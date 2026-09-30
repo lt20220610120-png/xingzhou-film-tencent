@@ -27,7 +27,8 @@ export function entryValue(book,entry){
  const draft=book.drafts?.[entry.id]||{};
  const {excludedIds=[],overrides={},extraReferences=[],...settings}=draft;
  const shared=(book.episodeMedia?.[entry.episode]||[]).filter(r=>!excludedIds.includes(r.id)).map(r=>({...r,...overrides[r.id]}));
- return {prompt:entry.prompt,...book.settings,...settings,references:[...shared,...extraReferences]};
+ const excludedShared=(book.episodeMedia?.[entry.episode]||[]).filter(r=>excludedIds.includes(r.id)).map(generationReferenceKey);
+ return {prompt:entry.prompt,...book.settings,...settings,autoReferenceExclusions:[...new Set([...(settings.autoReferenceExclusions||[]),...excludedShared])],references:[...shared,...extraReferences]};
 }
 
 export function saveEntryValue(book,entryId,value,previousValue){
@@ -61,3 +62,4 @@ export function clearPromptBook(workflow,bookId){
 export function referencePolicy(feituo,caps){
  return feituo?{maxImages:caps.maxImages??0,maxVideos:caps.maxVideos??0,maxAudios:caps.maxAudios??0}:{maxImages:1,maxVideos:0,maxAudios:0};
 }
+import {generationReferenceKey} from './automaticReferences.js';

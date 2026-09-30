@@ -7,6 +7,7 @@ import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
 import {autoReferences,referenceName,refreshAssetReferences} from '../../core/generationReferences.js';
 import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
+import {projectReferenceCandidates, removeGenerationReference, generationReferenceKey} from '../../core/automaticReferences.js';
 
 function ResourcePicker({api,projectId,assets,media,selected,onClose,onSelect,onUpload,onRefresh,initialTab}) {
  const [tab,setTab]=useState(initialTab==='audio'||initialTab==='video'?initialTab:'character'),[query,setQuery]=useState(''),[picked,setPicked]=useState(selected),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -25,7 +26,15 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false);
  const current=useRef(draft);current.current=draft;
  useEffect(()=>{if(!current.current.dirty)setDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||autoReferences(shot.content||'',assets)},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});},[shot,assets]);
- const change=value=>{const next={...current.current,value,dirty:true};current.current=next;setDraft(next);localStorage.setItem(storageKey,JSON.stringify(next));};
+ const change=value=>{
+  const previous=current.current.value;
+  for(const ref of previous.references||[])if(!(value.references||[]).some(r=>generationReferenceKey(r)===generationReferenceKey(ref))) {
+   const removed=removeGenerationReference(previous,generationReferenceKey(ref));
+   value={...value,autoReferenceExclusions:[...new Set([...(value.autoReferenceExclusions||[]),...removed.autoReferenceExclusions])]};
+  }
+  const next={...current.current,value,dirty:true};current.current=next;setDraft(next);localStorage.setItem(storageKey,JSON.stringify(next));
+ };
+ const referenceCandidates=useMemo(()=>projectReferenceCandidates(assets,media,project.id,epNumber),[assets,media,project.id,epNumber]);
  const cloudChanged=draft.dirty&&(shot.content!==draft.base.content||JSON.stringify(shot.generationConfig)!==JSON.stringify(draft.base.generationConfig));
  const resolveRefs=refs=>refreshAssetReferences(refs,assets,project.id).map(ref=>{
   const asset=assets.find(a=>a.id===ref.assetId),image=asset?.images?.find(i=>i.id===ref.id),file=media.find(m=>m.id===ref.id);
@@ -49,9 +58,9 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
  const cloudVideos=media.filter(m=>m.kind==='video'&&(m.note?.includes(`[shot:${shot.id}]`)||m.note===shot.label)&&m.scene===scene).map(m=>({...m,status:'success',prompt:shot.content}));
  const localTasks=tasks.filter(t=>t.projectId===project.id&&t.shotId===shot.id);
  const results=[...localTasks,...cloudVideos.filter(m=>!localTasks.some(t=>t.mediaId===m.id))];
- return <><article className="collab-shot-card"><header><b className="collab-shot-badge">{shot.label}</b><span>{shot.manual?'手工分镜':'导演工作台提示词'}</span><button disabled={!canEdit||!draft.dirty||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}>删除分镜</button></header>{cloudChanged&&<div className="generation-conflict">云端已有新修改，本地草稿已保留。<pre>{shot.content}</pre><button onClick={()=>{localStorage.removeItem(storageKey);setDraft({value:{...shot.generationConfig,prompt:shot.content,references:shot.generationConfig?.references||autoReferences(shot.content,assets)},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});}}>采用云端版本</button><button onClick={()=>{const next={...draft,base:{content:shot.content,generationConfig:shot.generationConfig}};setDraft(next);localStorage.setItem(storageKey,JSON.stringify(next));}}>已核对，保留我的草稿继续编辑</button></div>}{shot.sourceConflict&&<div className="generation-conflict">导演工作台也修改了此提示词，请核对：<pre>{shot.sourceConflict}</pre><button disabled={!canEdit} onClick={()=>change({...draft.value,prompt:shot.sourceConflict})}>采用导演新提示词</button></div>}{shot.sourceRemoved&&<p className="generation-draft-note">导演已移除该提示词；此分镜及作品仍保留。</p>}<GenerationComposer api={api} state={state} value={{...draft.value,references:resolveRefs(draft.value.references||[])}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
+ return <><article className="collab-shot-card"><header><b className="collab-shot-badge">{shot.label}</b><span>{shot.manual?'手工分镜':'导演工作台提示词'}</span><button disabled={!canEdit||!draft.dirty||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}>删除分镜</button></header>{cloudChanged&&<div className="generation-conflict">云端已有新修改，本地草稿已保留。<pre>{shot.content}</pre><button onClick={()=>{localStorage.removeItem(storageKey);setDraft({value:{...shot.generationConfig,prompt:shot.content,references:shot.generationConfig?.references||autoReferences(shot.content,assets)},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});}}>采用云端版本</button><button onClick={()=>{const next={...draft,base:{content:shot.content,generationConfig:shot.generationConfig}};setDraft(next);localStorage.setItem(storageKey,JSON.stringify(next));}}>已核对，保留我的草稿继续编辑</button></div>}{shot.sourceConflict&&<div className="generation-conflict">导演工作台也修改了此提示词，请核对：<pre>{shot.sourceConflict}</pre><button disabled={!canEdit} onClick={()=>change({...draft.value,prompt:shot.sourceConflict})}>采用导演新提示词</button></div>}{shot.sourceRemoved&&<p className="generation-draft-note">导演已移除该提示词；此分镜及作品仍保留。</p>}<GenerationComposer api={api} state={state} referenceCandidates={referenceCandidates} value={{...draft.value,references:resolveRefs(draft.value.references||[])}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
   if(cloudChanged)throw new Error('请先核对云端修改');
-  change({...current.current.value,model:input.model,profileId:input.profileId,ratio:input.ratio,duration:input.duration,resolution:input.resolution,references:input.references});
+  change({...current.current.value,prompt:input.originalPrompt,references:[...(current.current.value.references||[]),...input.references.filter(r=>!(current.current.value.references||[]).some(old=>generationReferenceKey(old)===generationReferenceKey(r)))],model:input.model,profileId:input.profileId,ratio:input.ratio,duration:input.duration,resolution:input.resolution,autoReferenceOrder:input.autoReferenceOrder,autoReferenceSignature:input.autoReferenceSignature,autoReferenceExclusions:input.autoReferenceExclusions});
   if(!await save())throw new Error('分镜尚未保存，请先处理保存提示');
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return (input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
   if(unresolved.length)throw new Error(`以下引用尚未选择图片：${unresolved.map(a=>a.name).join('、')}`);

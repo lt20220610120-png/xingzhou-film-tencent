@@ -378,12 +378,12 @@ test('normalizeArtAssets 分类前剥离旧人物默认前置，误道具改用 
   const normalized = normalizeArtAssets([raw, savedDefault, savedCustom, savedAppended]);
   assert.deepEqual(normalized.map(({ category }) => category), ['prop', 'prop', 'prop', 'prop']);
   assert.equal(normalized[0].description, raw.description);
-  assert.match(buildImagePrompt(normalized[0]), /^纯白色背景。/);
+  assert.match(buildImagePrompt(normalized[0]), /^纯白背景，不要出现人物。/);
   assert.doesNotMatch(buildImagePrompt(normalized[0]), /真人拍摄|4格统一排版/);
-  assert.match(buildImagePrompt(normalized[1]), /^纯白色背景。/);
+  assert.match(buildImagePrompt(normalized[1]), /^纯白背景，不要出现人物。/);
   assert.doesNotMatch(buildImagePrompt(normalized[1]), /真人拍摄|4格统一排版/);
   assert.match(buildImagePrompt(normalized[2]), /^自定义科技界面构图，不使用白底。/);
-  assert.match(buildImagePrompt(normalized[3]), /^纯白色背景。/);
+  assert.match(buildImagePrompt(normalized[3]), /^纯白背景，不要出现人物。/);
   assert.match(buildImagePrompt(normalized[3]), /自定义：保留俯拍构图/);
   assert.doesNotMatch(buildImagePrompt(normalized[3]), /真人拍摄|4格统一排版/);
 });

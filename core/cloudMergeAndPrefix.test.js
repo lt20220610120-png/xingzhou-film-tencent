@@ -72,7 +72,7 @@ describe('资产描述固定前缀', () => {
   });
   it('道具描述自动加纯白色背景前缀，已有前缀不重复', () => {
     const out = withAssetPrefix('prop', '一把剑');
-    assert.equal(out, '纯白色背景。\n一把剑');
+    assert.equal(out, '纯白背景，不要出现人物。\n一把剑');
     const once = withAssetPrefix('prop', out);
     assert.equal(once, out);
   });

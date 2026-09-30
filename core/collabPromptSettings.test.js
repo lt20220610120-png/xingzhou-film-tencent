@@ -4,6 +4,20 @@ import { CHARACTER_PROMPT_PREFIXES, PREVIOUS_3D_CHARACTER_PROMPT_PREFIX, buildIm
 
 const crowd = { category: 'character', name: '【城中百姓】', description: '纯白背景。六个人，男女老幼群像；粗布衣物，面貌各异。' };
 
+test('prop defaults forbid people, upgrade previous defaults, and preserve edited or empty prefixes',()=>{
+ const expected='纯白背景，不要出现人物。';
+ for(const description of ['一把剑','纯白色背景。\n一把剑','纯白背景。\n一把剑',`${expected}\n一把剑`,serializeAssetPrompt({mode:'prop',prefix:'纯白色背景。',content:'一把剑'})]){
+  const asset={category:'prop',name:'剑',description};
+  assert.equal(readAssetPrompt(asset).prefix,expected);
+  assert.equal(readAssetPrompt(asset).content,'一把剑');
+  assert.equal(buildImagePrompt(asset),`${expected}\n\n一把剑`);
+ }
+ for(const prefix of ['纯白色背景。\n保留自定义俯拍。','']){
+  const asset={category:'prop',description:serializeAssetPrompt({mode:'prop',prefix,content:'一把剑'})};
+  assert.equal(readAssetPrompt(asset).prefix,prefix);
+ }
+});
+
 test('the 3D character preset uses the requested CG style and upgrades only saved defaults', () => {
   const current=CHARACTER_PROMPT_PREFIXES['3D动漫'];
   assert.ok(current.startsWith('高质量 3D CG 漫剧画面'));
