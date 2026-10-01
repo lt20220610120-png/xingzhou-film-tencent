@@ -2,7 +2,7 @@ import {UserProfile} from './v06/UserProfile.jsx';
 import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Film, BookOpen, Library, Settings, Sparkles, KeyRound,
   FileText, Bot, Plus, X, Star, Trash2, Save, Upload, Download,
@@ -35,6 +35,8 @@ import { buildSkillManifest } from '../core/skillContext.js';
 import { executeSkillWithAi, createSkillExecution } from '../core/skillExecution.js';
 import { FloatingAIButton } from './v06/FloatingAIButton.jsx';
 import { StudioRoleScreen } from './v06/StudioRoleScreen.jsx';
+import { createDirectorPersistence } from '../core/directorPersistence.js';
+import { useDirectorQuickGeneration } from './v06/useDirectorQuickGeneration.js';
 
 // ========== 常量 ==========
 const STORAGE = 'xingzhou-film-v1';
@@ -1044,8 +1046,10 @@ function ScriptLibrary({ state, setState }) {
 /* ================================================================
  * SettingsPage - 设置页
  * ================================================================ */
-function SettingsPage({ state, setState }) {
+function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir }) {
   const [storageInfo, setStorageInfo] = useState(null);
+  const [selectingDirectory, setSelectingDirectory] = useState(false);
+  const [directoryError, setDirectoryError] = useState('');
   const [appVersion, setAppVersion] = useState('0.9.7');
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
@@ -1085,11 +1089,19 @@ function SettingsPage({ state, setState }) {
   }, []);
 
   const handleSelectDir = async () => {
-    const result = await api.selectDataDir(state);
-    if (result) {
-      setStorageInfo(result.info);
-      if (result.state) setState((current) => mergePersistedState(current, result.directorProjects ? { ...result.state, directorProjects: result.directorProjects } : result.state));
-    }
+    if(selectingDirectory)return;
+    setSelectingDirectory(true);setDirectoryError('');
+    let holding=false;
+    try {
+      if(api.chooseDataDir && !await api.chooseDataDir())return;
+      const savedSnapshot = await beforeSelectDataDir?.();holding=true;
+      const result = await (api.applyDataDir?api.applyDataDir(savedSnapshot || state):api.selectDataDir(savedSnapshot || state));
+      if (result) {
+        setStorageInfo(result.info);
+        if (result.state) setState((current) => mergePersistedState(current, result.directorProjects ? { ...result.state, directorProjects: result.directorProjects } : result.state));
+      }
+    }catch(e){setDirectoryError(e.message||'切换资料位置失败');}
+    finally{if(holding)afterSelectDataDir?.();setSelectingDirectory(false);}
   };
 
   const handleDownload = async () => {
@@ -1139,7 +1151,8 @@ function SettingsPage({ state, setState }) {
         <label>项目资料目录 <input readOnly value={storageInfo?.dataDir || '正在读取…'} /></label>
         <label>资料文件 <input readOnly value={storageInfo?.dataFile || '正在读取…'} /></label>
         <div className="settings-actions">
-          <button className="primary" onClick={handleSelectDir}>选择资料位置</button>
+          <button className="primary" disabled={selectingDirectory} onClick={handleSelectDir}>{selectingDirectory?'正在切换…':'选择资料位置'}</button>
+          {directoryError&&<p role="alert">{directoryError}</p>}
           <button className="secondary" onClick={() => api.openDataDir()}>打开资料文件夹</button>
         </div>
       </section>
@@ -1219,13 +1232,28 @@ function App() {
   const [initialized, setInitialized] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
-  const [state, setState] = useState(() => {
+  const [state, setRenderedState] = useState(() => {
     try {
       return normalizeState(JSON.parse(localStorage.getItem(STORAGE)) || createInitialState());
     } catch {
       return createInitialState();
     }
   });
+
+  // All state mutations share the latest synchronous snapshot, including background commits.
+  const stateRef = useRef(state);
+  const setState = useCallback(updates => {
+    const next = typeof updates === 'function' ? updates(stateRef.current) : updates;
+    stateRef.current = next;
+    setRenderedState(next);
+  }, []);
+  const persistenceRef = useRef(null);
+  if (!persistenceRef.current) persistenceRef.current = createDirectorPersistence({
+    saveState: value => api.saveState(value),
+    saveDirectorProjects: projects => api.saveDirectorProjects?.(projects),
+  });
+  const persistence = persistenceRef.current;
+  const quickGeneration = useDirectorQuickGeneration({ state, stateRef, setState, api, accountId:account?.id, persistence, initialized });
 
   useEffect(() => {
     const receiveCanvasRoute = (event) => {
@@ -1266,9 +1294,8 @@ function App() {
     if (!initialized) return;
     // Browser cache quotas must never prevent saving paid output to disk.
     try { localStorage.setItem(STORAGE, JSON.stringify(state)); } catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
-    const timer = setTimeout(() => api.saveState(state), 250);
-    const directorTimer = setTimeout(() => api.saveDirectorProjects?.(state.directorProjects || []), 250);
-    return () => { clearTimeout(timer); clearTimeout(directorTimer); };
+    const timer = setTimeout(() => persistence.enqueue(stateRef.current), 250);
+    return () => { clearTimeout(timer); };
   }, [state, initialized]);
 
   // 清理过期会话
@@ -1300,6 +1327,7 @@ function App() {
   };
 
   const handleLogout = async () => {
+    await quickGeneration.pauseAndFlush();
     await api.authLogout();
     setAccount(null);
     setRole(null);
@@ -1379,7 +1407,7 @@ function App() {
         {nav === 'scripts' && <ScriptLibrary state={state} setState={setState} />}
         {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
-        {nav === 'settings' && <SettingsPage state={state} setState={setState} />}
+        {nav === 'settings' && <SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} />}
         {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
@@ -1393,6 +1421,7 @@ function App() {
             state={state}
             setState={setState}
             api={api}
+            quickGeneration={quickGeneration}
             onAttach={(attachment) => { setAiAttachment(attachment); setAiOpen(true); }}
           />
         </div>}

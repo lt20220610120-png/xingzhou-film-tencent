@@ -1,4 +1,5 @@
 // Original block text stays untouched; only the bracketed numeric marker is structural.
+import {extractPromptTimingMetadata,markPromptTimingStale} from './promptTiming.js';
 export function parsePromptBook(text,name='整本提示词',id=crypto.randomUUID()) {
  const markers=[...String(text).matchAll(/【\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)\s*】|\[\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)\s*\]/g)];
  if(!markers.length)throw new Error('未找到【集数-场景-条目】编号，例如【1-1-1】。请检查文档格式。');
@@ -7,7 +8,8 @@ export function parsePromptBook(text,name='整本提示词',id=crypto.randomUUID
   const numbers=(m[1]===undefined?m.slice(4,7):m.slice(1,4)).map(Number);
   if(numbers.some(n=>!Number.isSafeInteger(n)||n<1))throw new Error('集数、场景和条目编号必须是正整数。');
   const base=numbers.join('-'),count=occurrences.get(base)||0;occurrences.set(base,count+1);
-  return {id:`${base}:${count}`,episode:numbers[0],scene:numbers[1],number:numbers[2],label:base+(count?`（${count}）`:''),prompt:text.slice(m.index+m[0].length,markers[i+1]?.index??text.length)};
+  const parsed=extractPromptTimingMetadata(text.slice(m.index+m[0].length,markers[i+1]?.index??text.length));
+  return {id:`${base}:${count}`,episode:numbers[0],scene:numbers[1],number:numbers[2],label:base+(count?`（${count}）`:''),prompt:parsed.text,...parsed.timing};
  });
  return {id,name,entries,preamble:text.slice(0,markers[0].index),drafts:{},episodeMedia:{},selectedEntryId:entries[0].id};
 }
@@ -42,7 +44,9 @@ export function saveEntryValue(book,entryId,value,previousValue){
  const draft={...settings,excludedIds:shared.filter(r=>!ids.has(r.id)&&(previousIds.has(r.id)||alreadyExcluded.has(r.id))).map(r=>r.id),overrides,extraReferences:references.filter(r=>!sharedIds.has(r.id))};
  // Carry model/parameter preferences forward to untouched entries, never their text or media.
  const preferences=Object.fromEntries(['profileId','model','ratio','duration','resolution'].filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]]));
- return {...book,settings:{...book.settings,...preferences},drafts:{...book.drafts,[entryId]:draft}};
+ const entries=settings.prompt!==undefined && settings.prompt!==entryValue(book,entry).prompt
+  ? book.entries.map(item=>item.id===entryId?markPromptTimingStale(item):item) : book.entries;
+ return {...book,entries,settings:{...book.settings,...preferences},drafts:{...book.drafts,[entryId]:draft}};
 }
 
 export function mergeEpisodeMedia(book,incoming){

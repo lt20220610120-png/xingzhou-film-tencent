@@ -39,3 +39,27 @@ test('没有可用 API 或 Skill 时给出可读错误，不能返回伪生成�
   await assert.rejects(() => executeSkillWithAi({ api: {}, state: { skills: [], apiProfiles: [] }, skillId: 'missing', input: 'x' }), /Skill 不存在/);
   await assert.rejects(() => executeSkillWithAi({ api: {}, state: { skills: [{ id: 's' }], apiProfiles: [] }, skillId: 's', input: 'x' }), /API 接口/);
 });
+
+test('optional requests pass task controls without overriding frozen profile or full messages', async () => {
+  const state = { skills: [{ id: 's', name: 's', content: '完整正文' }], apiProfiles: [{ id: 'p', model: 'original-model' }] };
+  let payload;
+  const result = await executeSkillWithAi({ api: { aiChat: async request => { payload = request; return { ok: true, output: '完整输出' }; } }, state, skillId: 's', input: '当前段', requestOptions: { taskId: 'fixed-task', maxOutputTokens: 8192, resultEnvelope: true, timeout: 1000, model: 'evil', profileId: 'wrong', messages: [] } });
+  assert.equal(result.output, '完整输出');
+  assert.equal(payload.taskId, 'fixed-task');
+  assert.equal(payload.model, 'original-model');
+  assert.equal(payload.profileId, 'p');
+  assert.equal(payload.maxOutputTokens, 8192);
+  assert.equal(payload.messages.at(-1).content, '当前段');
+});
+
+test('envelope failure retains partialText and cannot turn a truncated object into a successful string', async () => {
+  const state = { skills: [{ id: 's', name: 's', content: '规则' }], apiProfiles: [{ id: 'p', model: 'm' }] };
+  await assert.rejects(executeSkillWithAi({ api: { aiChat: async () => ({ ok: false, error: '模型输出被截断', partialText: '已输出半段' }) }, state, skillId: 's', input: '输入', requestOptions: { resultEnvelope: true } }), error => error.message.includes('截断') && error.partialText === '已输出半段');
+});
+
+test('declared context budget rejects oversized complete Skill rather than trimming it', async () => {
+  const state = { skills: [{ id: 's', name: 'v8-any-name', content: '保留全部规则'.repeat(50) }], apiProfiles: [{ id: 'p', model: 'small', contextWindowTokens: 40 }] };
+  let calls = 0;
+  await assert.rejects(executeSkillWithAi({ api: { aiChat: async () => { calls += 1; return '不应调用'; } }, state, skillId: 's', input: '原台词', requestOptions: { maxOutputTokens: 10 } }), /容量|上下文/);
+  assert.equal(calls, 0);
+});

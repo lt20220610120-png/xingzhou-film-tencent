@@ -78,7 +78,29 @@ ipcMain.handle('load-state',()=>readJson(dataFile(),null));
 ipcMain.handle('save-state',(_,state)=>{ensureDir(getDataDir());fs.writeFileSync(dataFile(),JSON.stringify(state,null,2),'utf8');return storageInfo()});
 ipcMain.handle('load-director-projects',()=>{const file=directorProjectsFile();const data=readJson(file,null);if(Array.isArray(data))return data;const backup=readJson(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
 ipcMain.handle('save-director-projects',(_,projects)=>{ensureDir(directorProjectsDir());const file=directorProjectsFile();const next=projects||[];const prev=readJson(file,null);if(Array.isArray(prev)&&prev.length&&next.length<prev.length){try{fs.writeFileSync(file.replace(/\.json$/,'.backup.json'),JSON.stringify(prev,null,2),'utf8')}catch{}}fs.writeFileSync(file,JSON.stringify(next,null,2),'utf8');return file});
-ipcMain.handle('select-data-dir',async(_,currentState)=>{const r=await dialog.showOpenDialog({title:'选择行舟影视资料保存位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;const next=ensureDir(r.filePaths[0]);const oldFile=dataFile();const nextFile=dataFile(next);const oldDirectorFile=directorProjectsFile();const nextDirectorFile=directorProjectsFile(next);if(path.resolve(oldFile)!==path.resolve(nextFile)){if(fs.existsSync(oldFile)&&!fs.existsSync(nextFile))fs.copyFileSync(oldFile,nextFile);else if(!fs.existsSync(nextFile)&&currentState)fs.writeFileSync(nextFile,JSON.stringify(currentState,null,2),'utf8')}if(path.resolve(oldDirectorFile)!==path.resolve(nextDirectorFile)&&fs.existsSync(oldDirectorFile)&&!fs.existsSync(nextDirectorFile)){ensureDir(path.dirname(nextDirectorFile));fs.copyFileSync(oldDirectorFile,nextDirectorFile)}ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE(),JSON.stringify({dataDir:next},null,2),'utf8');return {info:storageInfo(),state:readJson(nextFile,currentState),directorProjects:readJson(nextDirectorFile,null)}});
+function assertDirectorQuickSender(event) {
+ if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error('只允许主工作区访问导演生成进度');
+ if(!readCloudSession()?.account?.id)throw new Error('请先登录行舟影视');
+}
+const directorQuickStore=()=>require('./director-quick-checkpoints.cjs').createDirectorQuickCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id);
+for(const [channel,method] of Object.entries({'director-quick-list-runs':'list','director-quick-load-run':'load','director-quick-save-run':'save','director-quick-remove-run':'remove'})){
+ ipcMain.handle(channel,(event,payload)=>{assertDirectorQuickSender(event);return directorQuickStore()[method](payload);});
+}
+let selectedDataDirectory=null;
+async function chooseDataDirectory(){selectedDataDirectory=null;const r=await dialog.showOpenDialog({title:'选择行舟影视资料保存位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;selectedDataDirectory=r.filePaths[0];return selectedDataDirectory;}
+function applyDataDirectory(currentState){
+ if(!selectedDataDirectory)throw new Error('请先选择资料保存位置');
+ const next=ensureDir(selectedDataDirectory);selectedDataDirectory=null;
+ const oldFile=dataFile(),nextFile=dataFile(next),oldDirectorFile=directorProjectsFile(),nextDirectorFile=directorProjectsFile(next);
+ if(path.resolve(oldFile)!==path.resolve(nextFile)){if(fs.existsSync(oldFile)&&!fs.existsSync(nextFile))fs.copyFileSync(oldFile,nextFile);else if(!fs.existsSync(nextFile)&&currentState)fs.writeFileSync(nextFile,JSON.stringify(currentState,null,2),'utf8')}
+ if(path.resolve(oldDirectorFile)!==path.resolve(nextDirectorFile)&&fs.existsSync(oldDirectorFile)&&!fs.existsSync(nextDirectorFile)){ensureDir(path.dirname(nextDirectorFile));fs.copyFileSync(oldDirectorFile,nextDirectorFile)}
+ require('./director-quick-checkpoints.cjs').migrateDirectorQuickCheckpoints(getDataDir(),next);
+ ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE(),JSON.stringify({dataDir:next},null,2),'utf8');
+ return {info:storageInfo(),state:readJson(nextFile,currentState),directorProjects:readJson(nextDirectorFile,null)};
+}
+ipcMain.handle('choose-data-dir',()=>chooseDataDirectory());
+ipcMain.handle('apply-data-dir',(_,currentState)=>applyDataDirectory(currentState));
+ipcMain.handle('select-data-dir',async(_,currentState)=>await chooseDataDirectory()?applyDataDirectory(currentState):null);
 ipcMain.handle('open-data-dir',()=>shell.openPath(getDataDir()));
 function walkImportFiles(rootDir){
  const files=[];const MAX_FILES=200;const MAX_TOTAL_BYTES=8*1024*1024;let total=0;

@@ -10,6 +10,8 @@
 
 **Spec:** `../specs/2026-10-02-director-auto-segmentation-design.md`，必须先完整阅读。
 
+**执行状态（2026-10-02）：** 用户已要求执行，任务 1～7 已实现并完成自动测试及模拟页面验证。工程、发布与逐项证据见 [第一阶段验收记录](../validation/2026-10-02-director-auto-segmentation-phase1.md)。下列清单保留原实施步骤，真实单场景质量反馈和第二阶段门禁仍待用户试用。
+
 ## Global Constraints
 
 - 当前为规划交接；只有用户换模型并要求执行后才开始本计划。第二阶段暂不执行。

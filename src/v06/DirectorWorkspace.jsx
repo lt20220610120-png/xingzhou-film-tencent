@@ -26,6 +26,11 @@ import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promp
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { acknowledgeDirectorCloudSave, reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
+import { DirectorQuickControls, DirectorQuickProgress } from './DirectorQuickControls.jsx';
+import { renderNumberedScene } from '../../core/directorSegmentation.js';
+import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
+import { reconcileDirectorEpisodes } from '../../core/directorEpisodeReconcile.js';
+import { directorSettingsHash } from '../../core/directorQuickStore.js';
 
 /* ================================================================
  * ProjectCards - 导演工作台项目选择页
@@ -158,7 +163,10 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
   return (
     <div className="prompt-card">
       <div className="prompt-card-head">
-        <div className="prompt-label">{prompt.label || `提示词 ${index + 1}`}</div>
+        <div className="prompt-identity"><div className="prompt-label">{prompt.label || `提示词 ${index + 1}`}</div>
+          {prompt.recommendedDurationSeconds&&<span className={`prompt-duration${prompt.durationStatus==='needs-review'?' needs-review':''}`} title="按当前内容估算；实际生成请结合所选视频模型的可选时长。">建议生成时长 {prompt.recommendedDurationSeconds} 秒{prompt.durationStatus==='needs-review'?' · 时长待复核':''}</span>}
+          {prompt.generationRunId&&<small className="prompt-generation-batch">{new Date(prompt.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 批次</small>}
+        </div>
         <div className="prompt-actions top">
           {editing ? (
             <div className="prompt-edit-actions">
@@ -207,7 +215,7 @@ function parseSegments(text) {
 /* ================================================================
  * EpisodeDirector - 逐集导演编辑（支持 creative/quick 模式）
  * ================================================================ */
-function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId }) {
+function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId, quickGeneration }) {
   const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
   const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
   const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
@@ -251,6 +259,27 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       : (episode.quickSceneEdits?.[currentScene] ?? segments.find((s) => s.label === currentScene)?.content ?? ''))
     : '';
   const currentVision = currentScene ? getSceneVision(episode, currentScene) : '';
+  const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-quick-settings:${accountId}:${project.id}`,JSON.stringify({segmentationMode:'manual',maxDurationSeconds:30}));
+  let quickSettings;try{quickSettings=JSON.parse(settingsJson);}catch{quickSettings={};}
+  quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=1&&quickSettings.maxDurationSeconds<=30?quickSettings.maxDurationSeconds:30};
+  const [sourceView,setSourceView]=useState('source');
+  const [autoError,setAutoError]=useState('');
+  const localRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
+  const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
+  const autoRun=localRun||(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
+  const autoBusy=isQuickRunActive(localRun);
+  const autoStale=Boolean(autoRun?.plan&&(autoRun.plan.sourceSnapshot!==currentSceneContent||autoRun.plan.settingsHash!==directorSettingsHash({project,episode,maxDurationSeconds:autoRun.plan.maxDurationSeconds})));
+  const autoSceneText=autoRun?.plan?renderNumberedScene(autoRun.plan,{sceneHeader:autoRun.plan.sceneHeader,sourceText:autoRun.plan.sourceText}):'';
+  const runAutoScene=async()=>{
+    setAutoError('');
+    try{
+      if(!quickGeneration||!directorProfile||!currentSkill)throw new Error('请先选择有效的模型和 Skill');
+      if(isSceneRunning(currentScene))throw new Error('当前场景正在生成，请等待完成');
+      await quickGeneration.startScene({project,episode,sceneLabel:currentScene,inputText:currentSceneContent,maxDurationSeconds:quickSettings.maxDurationSeconds,skill:currentSkill,profile:directorProfile});
+    }catch(e){setAutoError(e.message);}
+  };
+  const resumeAutoScene=async()=>{setAutoError('');try{await quickGeneration.resume(localRun.id);}catch(e){setAutoError(e.message);}};
+  useEffect(()=>{setSourceView('source');setAutoError('');},[currentScene]);
 
   const saveSceneVision = (sceneLabel, content) => {
     setState((s) => updateDirectorEpisode(s, project.id, episode.id, {
@@ -291,7 +320,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   };
 
   const runCreativeScene = async (sceneLabel) => {
-    if (isSceneRunning(sceneLabel) || !currentSkill) return;
+    if (isSceneRunning(sceneLabel) || isQuickRunActive(quickGeneration?.getSceneRun(project.id,episode.id,sceneLabel)) || !currentSkill) return;
     const scene = segments.find((item) => item.label === sceneLabel);
     const vision = getSceneVision(episode, sceneLabel);
     // 创造模式只依据可编辑的“导演构想”生成，不读取左侧只读剧本展示框。
@@ -579,6 +608,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
               <div className="quick-scene-card">
                 <div className="quick-scene-card-head">
                   <span className="scene-card-badge">场景 {currentScene}</span>
+                  <DirectorQuickControls settings={quickSettings} onSettingsChange={value=>{setSettingsJson(JSON.stringify(value));setSourceView('source');}} />
                   <div className="quick-generation-controls">
                     <label className="mode-skill-picker compact">
                       <span>Skill</span>
@@ -592,21 +622,23 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                     </label>
                     <button
                       className="primary compact"
-                      onClick={() => runQuickScene(currentScene)}
-                      disabled={isSceneRunning(currentScene) || !currentSceneContent?.trim() || !currentSkill}
+                      onClick={() => quickSettings.segmentationMode==='auto'?runAutoScene():runQuickScene(currentScene)}
+                      disabled={isSceneRunning(currentScene) || autoBusy || !currentSceneContent?.trim() || !currentSkill || Boolean(project.cloudLocked)}
                     >
-                      <Sparkles size={14} /> {isSceneRunning(currentScene) ? '生成中…' : '生成'}
+                      <Sparkles size={14} /> {isSceneRunning(currentScene)||autoBusy ? '生成中…' : '生成'}
                     </button>
                   </div>
                 </div>
+                {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
                 <textarea
                   className="quick-scene-textarea"
-                  value={currentSceneContent}
+                  value={quickSettings.segmentationMode==='auto'&&sourceView==='plan'?autoSceneText:currentSceneContent}
+                  readOnly={Boolean(project.cloudLocked)||(quickSettings.segmentationMode==='auto'&&sourceView==='plan')}
                   onChange={(e) => saveQuickScene(currentScene, e.target.value)}
                   placeholder={`编辑场景 ${currentScene} 的剧本内容……`}
                 />
                 <div className="quick-scene-info">
-                  <small>修改自动保存 · 切换场景或功能区后继续编辑。可用（1）（2）（3）划分提示词。</small>
+                  <small>{quickSettings.segmentationMode==='auto'?'原文修改自动保存 · 自动分段稿另存，建议时长按内容估算。':'修改自动保存 · 切换场景或功能区后继续编辑。可用（1）（2）（3）划分提示词。'}</small>
                 </div>
               </div>
             ) : (
@@ -772,7 +804,7 @@ function SettingEditor({ project, episode, setState }) {
 /* ================================================================
  * DirectorWorkspace - 主组件
  * ================================================================ */
-export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local' }) {
+export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration }) {
   const cloudSavingRef = useRef(false);
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
@@ -888,7 +920,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       const sourceDraft = masterDraft.trim() ? masterDraft : selectedProject.masterScript || '';
       if (!sourceDraft.trim()) throw new Error('总剧本内容为空，未执行保存，原内容已保留。');
       const parsed = parseMasterScript(sourceDraft);
-      const episodes = (parsed.episodes.length ? parsed.episodes : splitFullScript(sourceDraft).episodes).map((ep, i) => ({ id: selectedProject.episodes?.[i]?.id || `master-${Date.now()}-${i}`, title: ep.title, content: ep.content, kind: ep.kind || 'episode', prompts: selectedProject.episodes?.[i]?.prompts || [], status: selectedProject.episodes?.[i]?.status || (ep.kind === 'setting' ? '设定资料' : '待导演处理') }));
+      const {episodes} = reconcileDirectorEpisodes(selectedProject.episodes||[],parsed.episodes.length?parsed.episodes:splitFullScript(sourceDraft).episodes);
       setState((s) => updateDirectorProject(s, selectedProject.id, { masterScript: sourceDraft, episodes }));
       // The shared autosave acknowledges this snapshot and preserves subsequent edits.
       setMasterNotice(`已保存并重新识别 ${episodes.length} 集`);
@@ -902,7 +934,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     const nextScript = `${baseScript.trim()}\n\n第 ${number} 集\n${newEpisodeContent.trim()}`.trim();
     setMasterDraft(nextScript); setAddEpisodeOpen(false); setNewEpisodeContent('');
     const parsed = parseMasterScript(nextScript);
-    const episodes = (parsed.episodes.length ? parsed.episodes : splitFullScript(nextScript).episodes).map((ep, i) => ({ id: selectedProject.episodes?.[i]?.id || `master-${Date.now()}-${i}`, title: ep.title, content: ep.content, kind: ep.kind || 'episode', prompts: selectedProject.episodes?.[i]?.prompts || [], status: selectedProject.episodes?.[i]?.status || (ep.kind === 'setting' ? '设定资料' : '待导演处理') }));
+    const {episodes} = reconcileDirectorEpisodes(selectedProject.episodes||[],parsed.episodes.length?parsed.episodes:splitFullScript(nextScript).episodes);
     setState((s) => updateDirectorProject(s, selectedProject.id, { masterScript: nextScript, episodes }));
     // Cloud synchronization uses the same serialized autosave as prompt editing.
     setMasterNotice(`已添加并识别第 ${number} 集，共 ${episodes.length} 集`);
@@ -1102,6 +1134,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         <EpisodeDirector
           key={`${selectedProject.id}:${activeEpisode.id}`}
           accountId={accountId}
+          quickGeneration={quickGeneration}
           project={selectedProject}
           episode={activeEpisode}
           episodeNumber={Math.max(1, (selectedProject.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').findIndex((episode) => episode.id === activeEpisode.id) + 1)}

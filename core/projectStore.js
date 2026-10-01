@@ -3,6 +3,8 @@
 // 所有函数均为纯函数：接收 state，返回新的 state（浅拷贝）
 // ============================================================
 
+import {markPromptTimingStale,formatPromptTimingMetadata} from './promptTiming.js';
+
 // ---------- 工具函数 ----------
 let _uidCounter = 0;
 export const uid = () => `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${_uidCounter++}`;
@@ -472,7 +474,15 @@ export const deleteDirectorProject = (state, projectId) => ({
 export const updateDirectorProject = (state, projectId, updates) => ({
   ...state,
   directorProjects: state.directorProjects.map(project =>
-    project.id === projectId ? { ...project, ...updates, updatedAt: now() } : project
+    project.id === projectId ? {
+      ...project,
+      ...(Array.isArray(updates.episodes) ? {
+        promptHistory: collectDirectorPromptHistory(project),
+        deletedPromptIds: [...new Set([...(project.deletedPromptIds || []), ...(project.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])])],
+        quickScenePlanHistory: [...new Map([...(project.quickScenePlanHistory || []), ...(project.episodes || []).flatMap(ep=>ep.quickScenePlans || [])].filter(plan=>plan?.id).map(plan=>[plan.id,plan])).values()],
+      } : {}),
+      ...updates, updatedAt: now(),
+    } : project
   ),
 });
 
@@ -519,7 +529,10 @@ export const updateDirectorEpisode = (state, projectId, episodeId, updates) => {
 export const deleteDirectorEpisode = (state, projectId, episodeId) => ({
   ...state,
   directorProjects: state.directorProjects.map((project) => project.id === projectId
-    ? { ...project, episodes: project.episodes.filter((episode) => episode.id !== episodeId), updatedAt: now() }
+    ? { ...project, promptHistory: collectDirectorPromptHistory(project),
+        deletedPromptIds: [...new Set([...(project.deletedPromptIds || []), ...(project.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])])],
+        quickScenePlanHistory: [...new Map([...(project.quickScenePlanHistory || []), ...(project.episodes || []).flatMap(ep=>ep.quickScenePlans || [])].filter(plan=>plan?.id).map(plan=>[plan.id,plan])).values()],
+        episodes: project.episodes.filter((episode) => episode.id !== episodeId), updatedAt: now() }
     : project),
 });
 
@@ -552,12 +565,12 @@ export const updateDirectorPrompt = (state, projectId, episodeId, promptId, upda
     const episodes = p.episodes.map(e => {
       if (e.id !== episodeId) return e;
       const prompts = e.prompts.map(pr =>
-        pr.id === promptId ? { ...pr, ...updates } : pr
+        pr.id === promptId ? applyPromptUpdates(pr, updates) : pr
       );
       return { ...e, prompts };
     });
     const promptHistory = (p.promptHistory || []).map((pr) =>
-      pr.id === promptId ? { ...pr, ...updates } : pr
+      pr.id === promptId ? applyPromptUpdates(pr, updates) : pr
     );
     return { ...p, episodes, promptHistory, updatedAt: now() };
   });
@@ -585,10 +598,11 @@ export const appendDirectorEpisodePrompts = (state, projectId, episodeId, newPro
 // 汇总项目的历史提示词：promptHistory 为主，同时并入当前各分集尚未入册的提示词（老项目回填）。
 export const collectDirectorPromptHistory = (project) => {
   const map = new Map();
-  for (const item of project?.promptHistory || []) if (item && item.id) map.set(item.id, item);
+  const tombstones = new Set([...(project?.deletedPromptIds || []), ...(project?.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])]);
+  for (const item of project?.promptHistory || []) if (item && item.id && !tombstones.has(item.id)) map.set(item.id, item);
   for (const episode of project?.episodes || []) {
     for (const prompt of episode?.prompts || []) {
-      if (prompt && prompt.id && !map.has(prompt.id)) map.set(prompt.id, prompt);
+      if (prompt && prompt.id && !tombstones.has(prompt.id) && !map.has(prompt.id)) map.set(prompt.id, prompt);
     }
   }
   return [...map.values()];
@@ -601,7 +615,8 @@ export const appendDirectorPromptHistory = (state, projectId, prompts) => ({
     if (project.id !== projectId) return project;
     const existing = collectDirectorPromptHistory(project);
     const seen = new Set(existing.map((item) => item.id));
-    const added = (prompts || []).filter((item) => item && item.id && !seen.has(item.id));
+    const tombstones = new Set([...(project.deletedPromptIds || []), ...(project.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])]);
+    const added = (prompts || []).filter((item) => item && item.id && !seen.has(item.id) && !tombstones.has(item.id));
     return { ...project, promptHistory: [...existing, ...added], updatedAt: now() };
   }),
 });
@@ -615,6 +630,7 @@ export const deleteDirectorPromptsEverywhere = (state, projectId, promptIds) => 
     directorProjects: state.directorProjects.map((project) => project.id === projectId
       ? {
           ...project,
+          deletedPromptIds: [...new Set([...(project.deletedPromptIds || []), ...ids])],
           promptHistory: collectDirectorPromptHistory(project).filter((item) => !ids.has(item.id)),
           episodes: (project.episodes || []).map((episode) => {
             const removed = (episode.prompts || []).filter((item) => ids.has(item.id)).map((item) => item.id);
@@ -631,15 +647,19 @@ export const deleteDirectorPromptsEverywhere = (state, projectId, promptIds) => 
 };
 
 // 在历史提示词中编辑：同步更新历史与仍挂在分集上的同一条提示词。
+const applyPromptUpdates = (prompt, updates) => {
+  const next = { ...prompt, ...updates };
+  return Object.hasOwn(updates, 'content') && updates.content !== prompt.content ? markPromptTimingStale({ ...next, editedAt: updates.editedAt || now() }) : next;
+};
 export const updateDirectorPromptEverywhere = (state, projectId, promptId, updates) => ({
   ...state,
   directorProjects: state.directorProjects.map((project) => project.id === projectId
     ? {
         ...project,
-        promptHistory: collectDirectorPromptHistory(project).map((item) => item.id === promptId ? { ...item, ...updates } : item),
+        promptHistory: collectDirectorPromptHistory(project).map((item) => item.id === promptId ? applyPromptUpdates(item, updates) : item),
         episodes: (project.episodes || []).map((episode) => ({
           ...episode,
-          prompts: (episode.prompts || []).map((item) => item.id === promptId ? { ...item, ...updates } : item),
+          prompts: (episode.prompts || []).map((item) => item.id === promptId ? applyPromptUpdates(item, updates) : item),
         })),
         updatedAt: now(),
       }
@@ -674,6 +694,8 @@ export const buildPromptHistoryExport = (project) => {
   for (const group of groups) {
     for (const prompt of group.prompts) {
       lines.push(`【${prompt.label || '未编号'}】`);
+      const timing = formatPromptTimingMetadata(prompt);
+      if (timing) lines.push(timing);
       lines.push(String(prompt.content || '').trim());
       lines.push('');
     }
@@ -687,6 +709,8 @@ export const buildPromptGroupExport = (project, group) => {
   const lines = [`《${project?.name || '未命名项目'}》${title} 提示词导出`, ''];
   for (const prompt of group.prompts) {
     lines.push(`【${prompt.label || '未编号'}】`);
+    const timing = formatPromptTimingMetadata(prompt);
+    if (timing) lines.push(timing);
     lines.push(String(prompt.content || '').trim());
     lines.push('');
   }
