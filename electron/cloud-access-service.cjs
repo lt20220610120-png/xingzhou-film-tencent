@@ -144,29 +144,32 @@ const publicAccount = (row) => row ? ({
 }) : null;
 function createCloudAccessService(userDataDir) {
   const sessionFile = path.join(userDataDir, 'cloud-session.json');
+  let sessionEpoch = 0;
   const readSession = () => { try { return JSON.parse(fs.readFileSync(sessionFile, 'utf8')); } catch { return null; } };
   const writeSession = (value) => { fs.mkdirSync(path.dirname(sessionFile), { recursive: true }); fs.writeFileSync(sessionFile, JSON.stringify(value, null, 2), 'utf8'); };
   const clearSession = () => { try { fs.unlinkSync(sessionFile); } catch { /* noop */ } };
   const token = () => readSession()?.token || '';
   return {
     async session() {
+      const expectedEpoch = sessionEpoch;
       const saved = readSession();
       if (!saved?.token) return null;
       try {
         const r = await gateway('session', {}, saved.token);
+        if (sessionEpoch !== expectedEpoch || token() !== saved.token) return null;
         const a = publicAccount(r.account);
         writeSession({ token: saved.token, account: a });
         return a;
       } catch (error) {
         // Only an explicit 401 proves that the token is invalid. Temporary
         // network/TLS/5xx failures must not destroy the user's session.
-        if (error?.status === 401) clearSession();
+        if (error?.status === 401 && sessionEpoch === expectedEpoch && token() === saved.token) clearSession();
         return null;
       }
     },
     async updateProfile(payload){const r=await gateway('profile-update',payload,token());const account=publicAccount(r.account);writeSession({...readSession(),account});return account;},
-    async login(payload) { const r = await gateway('login', payload); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
-    async logout() { const s = readSession(); if (s?.token) await gateway('logout', {}, s.token).catch(() => {}); clearSession(); return true; },
+    async login(payload) { const expectedEpoch = ++sessionEpoch; const r = await gateway('login', payload); if (expectedEpoch !== sessionEpoch) throw new Error('登录已取消'); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
+    async logout() { const s = readSession(); sessionEpoch++; clearSession(); if (s?.token) await gateway('logout', {}, s.token).catch(() => {}); return true; },
     async sendEmailCode(payload) { return gateway('send-email-code', payload); },
     async register(payload) { const r = await gateway('register', payload); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
     async unlock(payload) { const r = await gateway('unlock', payload, token()); const a = publicAccount(r.account); writeSession({ token: r.token || token(), account: a }); return a; },

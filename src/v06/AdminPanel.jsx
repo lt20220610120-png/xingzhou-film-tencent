@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Ban, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Undo2, Clapperboard } from 'lucide-react';
+import { Ban, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Undo2, Clapperboard, PanelsTopLeft } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
+import { WorkBuddyPanel } from './WorkBuddyPanel.jsx';
 
 const KIND_LABELS = { role: '单身份邀请码', full: '全权限邀请码', unlock: '身份解锁码', admin: '管理员注册码' };
 const ROLE_LABELS = { creator: '内容创作者', director: '导演' };
+const readableError = (reason, fallback) => String(reason?.message || fallback)
+  .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').replace(/^Error:\s*/i, '');
 
 function fmtTime(value) {
   if (!value) return '—';
@@ -12,6 +15,7 @@ function fmtTime(value) {
 
 export function AdminPanel({ account }) {
   const api = window.xingzhou;
+  const [tab, setTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +34,7 @@ export function AdminPanel({ account }) {
       setUsers(userRows || []);
       setInvites(inviteRows || []);
     } catch (reason) {
-      setError(reason.message || '加载失败，请检查网络');
+      setError(readableError(reason, '加载失败，请检查网络'));
     } finally {
       setLoading(false);
     }
@@ -48,7 +52,7 @@ export function AdminPanel({ account }) {
       await refresh();
       await copy(invite.code);
     } catch (reason) {
-      setError(reason.message || '生成失败');
+      setError(readableError(reason, '生成失败'));
     } finally {
       setCreating(false);
     }
@@ -57,26 +61,26 @@ export function AdminPanel({ account }) {
   const toggleBan = async (user) => {
     setError('');
     try { await api.adminSetBanned({ userId: user.id, banned: !user.banned }); await refresh(); flash(user.banned ? `已恢复 ${user.username} 的使用权限` : `已停用 ${user.username}`); }
-    catch (reason) { setError(reason.message || '操作失败'); }
+    catch (reason) { setError(readableError(reason, '操作失败')); }
   };
 
   const toggleProducer = async (user) => {
     setError('');
     try { await api.collabAdminSetProducer({ userId: user.id, isProducer: !user.isProducer }); await refresh(); flash(user.isProducer ? `已取消 ${user.username} 的制片身份` : `已授予 ${user.username} 制片身份，对方可在「项目协作」中开启项目`); }
-    catch (reason) { setError(reason.message || '操作失败'); }
+    catch (reason) { setError(readableError(reason, '操作失败')); }
   };
 
   const deleteUser = async () => {
     const user = confirmUser;
     setConfirmUser(null); setError('');
     try { await api.adminDeleteUser({ userId: user.id }); await refresh(); flash(`已删除用户 ${user.username}`); }
-    catch (reason) { setError(reason.message || '删除失败'); }
+    catch (reason) { setError(readableError(reason, '删除失败')); }
   };
 
   const toggleInvite = async (invite) => {
     setError('');
     try { await api.adminDisableInvite({ inviteId: invite.id, disabled: !invite.disabled }); await refresh(); }
-    catch (reason) { setError(reason.message || '操作失败'); }
+    catch (reason) { setError(readableError(reason, '操作失败')); }
   };
 
   const activeInvites = useMemo(() => invites.filter((invite) => invite.kind !== 'admin'), [invites]);
@@ -86,12 +90,18 @@ export function AdminPanel({ account }) {
       <header className="admin-head">
         <div>
           <span className="auth-kicker"><ShieldCheck size={15} /> 管理后台 · 仅管理员可见</span>
-          <h1>用户与邀请码管理</h1>
-          <p>这里的数据保存在云端，删除或停用用户后，对方的软件会立即失去使用权限。</p>
+          <h1>管理后台</h1>
+          <p>管理行舟账号、邀请码与本机 WorkBuddy 号池。</p>
         </div>
-        <button className="admin-refresh" onClick={refresh} disabled={loading}><RefreshCw size={16} /> {loading ? '刷新中…' : '刷新'}</button>
+        {tab === 'users' && <button className="admin-refresh" onClick={refresh} disabled={loading}><RefreshCw size={16} /> {loading ? '刷新中…' : '刷新'}</button>}
       </header>
-      {error && <div className="auth-error">{error}</div>}
+      <div className="admin-workspace-tabs" role="tablist" aria-label="管理功能">
+        <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请码</button>
+        <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
+      </div>
+      {tab === 'workbuddy' ? <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab"><WorkBuddyPanel account={account} /></div> : <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab">
+      <p className="admin-data-note">用户与邀请码保存在云端。删除或停用账号后，对方将失去软件使用权限。</p>
+      {error && <div className="auth-error admin-load-error" role="alert"><span>{error}</span><button onClick={refresh} disabled={loading}>重试</button></div>}
       {notice && <div className="auth-notice">{notice}</div>}
 
       <section className="admin-section">
@@ -163,6 +173,7 @@ export function AdminPanel({ account }) {
           onConfirm={deleteUser}
         />
       )}
+      </div>}
     </div>
   );
 }

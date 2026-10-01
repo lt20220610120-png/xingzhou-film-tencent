@@ -1,5 +1,9 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
+ workBuddyStatus:()=>ipcRenderer.invoke('workbuddy-status'),workBuddySelectRoot:()=>ipcRenderer.invoke('workbuddy-select-root'),
+ workBuddyOpen:p=>ipcRenderer.invoke('workbuddy-open',p),workBuddySetBounds:p=>ipcRenderer.invoke('workbuddy-bounds',p),workBuddyClose:()=>ipcRenderer.invoke('workbuddy-close'),
+ workBuddyCheckUpdate:()=>ipcRenderer.invoke('workbuddy-check-update'),workBuddyUpdate:()=>ipcRenderer.invoke('workbuddy-update'),workBuddyUpdateState:()=>ipcRenderer.invoke('workbuddy-update-state'),
+ onWorkBuddyState:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('workbuddy-state',handler);return()=>ipcRenderer.removeListener('workbuddy-state',handler)},
  collabLoadAssetImage:payload=>ipcRenderer.invoke('collab-load-asset-image',payload),
  discoverModels:payload=>ipcRenderer.invoke('discover-models',payload),collabResolveAssetImage:payload=>ipcRenderer.invoke('collab-resolve-asset-image',payload),mediaRetryImageDownload:payload=>ipcRenderer.invoke('media-retry-image-download',payload),
  saveTxt:payload=>ipcRenderer.invoke('save-txt',payload),saveTxtBatch:payload=>ipcRenderer.invoke('save-txt-batch',payload),analysisLoad:p=>ipcRenderer.invoke('analysis-load',p),analysisSave:p=>ipcRenderer.invoke('analysis-save',p),collabPublishAnalysis:p=>ipcRenderer.invoke('collab-publish-analysis',p),aiTaskStatus:payload=>ipcRenderer.invoke('ai-task-status',payload),aiChat:payload=>ipcRenderer.invoke('ai-chat',payload),cancelAiTask:payload=>ipcRenderer.invoke('cancel-ai-task',payload),testAiConnection:payload=>ipcRenderer.invoke('test-ai-connection',payload),importFullScript:()=>ipcRenderer.invoke('import-full-script'),

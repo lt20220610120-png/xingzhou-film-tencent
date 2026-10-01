@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, dialog, ipcMain, protocol, net, shell } = require('electron');
 const path = require('path');
 app.setName('行舟影视（腾讯云版）');
 app.setAppUserModelId('com.xingzhou.film.tencent');
@@ -21,12 +21,44 @@ const { importEpisodeMedia, importEpisodeFiles, deleteEpisodeMedia } = require('
 const { exportImagesToFolder } = require('./image-export.cjs');
 const { createCloudAccessService } = require('./cloud-access-service.cjs');
 const { createCollabService } = require('./collab-service.cjs');
+const { createWorkBuddyService } = require('./workbuddy-service.cjs');
+const { createWorkBuddyUpdater } = require('./workbuddy-update.cjs');
+const { createWorkBuddyPanel, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 const isDev = !app.isPackaged;
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
 const defaultDataDir = () => path.join(app.getPath('documents'), '行舟影视资料');
 let accessService;
+let mainWindow, workBuddyService, workBuddyPanel;
+function setupWorkBuddy() {
+  workBuddyService = createWorkBuddyService({ userDataDir: app.getPath('userData') });
+  const updater = createWorkBuddyUpdater({ getRoot: () => workBuddyService.getRoot(), stop: (root) => workBuddyService.stop(root), start: (root) => workBuddyService.start(root), onProgress: (value) => workBuddyPanel?.onProgress(value) });
+  workBuddyPanel = createWorkBuddyPanel({ getWindow: () => mainWindow, accessService, service: workBuddyService, updater, WebContentsView, session, shell, onState: (value) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workbuddy-state', value); } });
+}
+function assertWorkBuddySender(event) {
+  assertTrustedFrame(event, mainWindow);
+  if (!workBuddyPanel) throw new Error('WorkBuddy 集成尚未初始化');
+}
+for (const [channel, action] of Object.entries({
+  'workbuddy-status': () => workBuddyPanel.status(),
+  'workbuddy-open': (payload) => workBuddyPanel.open(payload),
+  'workbuddy-bounds': (bounds) => workBuddyPanel.setBounds(bounds),
+  'workbuddy-close': () => workBuddyPanel.close(),
+  'workbuddy-check-update': () => workBuddyPanel.checkUpdate(),
+  'workbuddy-update': () => workBuddyPanel.update(),
+  'workbuddy-update-state': () => workBuddyPanel.updateState(),
+  'workbuddy-select-root': async () => {
+    await workBuddyPanel.authorize();
+    if ((await workBuddyPanel.updateState()).busy) throw new Error('更新期间不能切换部署目录');
+    await workBuddyPanel.close();
+    const chosen = await dialog.showOpenDialog(mainWindow, { title: '选择 WorkBuddy Manager 部署目录', properties: ['openDirectory'] });
+    if (chosen.canceled || !chosen.filePaths[0]) return null;
+    await workBuddyPanel.authorize();
+    if (workBuddyPanel.isUpdating()) throw new Error('更新期间不能切换部署目录');
+    return workBuddyService.selectRoot(chosen.filePaths[0]);
+  },
+})) ipcMain.handle(channel, (event, payload) => { assertWorkBuddySender(event); return action(payload); });
 function readJson(file, fallback=null){ try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return fallback} }
 function ensureDir(dir){ fs.mkdirSync(dir,{recursive:true}); return dir; }
 function getDataDir(){ const config=readJson(CONFIG_FILE(),{}); return ensureDir(config.dataDir||defaultDataDir()); }
@@ -38,7 +70,7 @@ function storageInfo(){ const dir=getDataDir(); return {dataDir:dir,dataFile:dat
 function appendStartupLog(message){try{fs.appendFileSync(path.join(app.getPath('userData'),'startup.log'),`${new Date().toISOString()} ${message}\n`,'utf8')}catch{}}
 process.on('uncaughtException',(error)=>appendStartupLog(`uncaughtException ${error?.stack||error}`));
 process.on('unhandledRejection',(error)=>appendStartupLog(`unhandledRejection ${error?.stack||error}`));
-function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false}});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
+function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false}});mainWindow=win;win.on('close',event=>{if(workBuddyPanel?.isUpdating())event.preventDefault();});win.on('closed',()=>{if(mainWindow===win){mainWindow=null;workBuddyPanel?.revoke();}});win.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)workBuddyPanel?.revoke();});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
 ipcMain.handle('save-txt',async(_,{name,content})=>{const r=await dialog.showSaveDialog({defaultPath:`${name}.txt`,filters:[{name:'TXT 剧本文档',extensions:['txt']}]});if(r.canceled)return null;fs.writeFileSync(r.filePath,'\ufeff'+content,'utf8');return r.filePath});
 ipcMain.handle('save-txt-batch',async(_,{folderName,files})=>{const r=await dialog.showOpenDialog({title:'选择导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;const safe=(s)=>String(s||'导出').replace(/[\\/:*?"<>|]/g,'_').slice(0,120);const dir=ensureDir(path.join(r.filePaths[0],safe(folderName)));for(const f of files||[]){fs.writeFileSync(path.join(dir,`${safe(f.name)}.txt`),'\ufeff'+(f.content||''),'utf8')}return dir});
 ipcMain.handle('storage-info',()=>storageInfo());
@@ -95,8 +127,8 @@ ipcMain.handle('select-profile-avatar',async()=>{
 });
 ipcMain.handle('auth-session',()=>accessService.session());
 ipcMain.handle('auth-register',(_,payload)=>accessService.register(payload));
-ipcMain.handle('auth-login',(_,payload)=>accessService.login(payload));
-ipcMain.handle('auth-logout',()=>accessService.logout());
+ipcMain.handle('auth-login',async(_,payload)=>{await workBuddyPanel?.revoke();return accessService.login(payload)});
+ipcMain.handle('auth-logout',async()=>{const closing=workBuddyPanel?.revoke();const logout=accessService.logout();await closing;return logout});
 ipcMain.handle('auth-unlock-role',(_,payload)=>accessService.unlock(payload));
 ipcMain.handle('auth-send-email-code',(_,payload)=>accessService.sendEmailCode(payload));
 ipcMain.handle('auth-recover',(_,payload)=>accessService.recover(payload));
@@ -207,4 +239,6 @@ let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false}});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:{secure:true,supportFetchAPI:true,stream:true}},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 function registerCanvasAppProtocol(){const appDir=path.normalize(path.join(__dirname,'../canvas-app'));protocol.handle('xzapp',(request)=>{const url=new URL(request.url);let rel=decodeURIComponent(url.pathname).replace(/^\/+/,'');if(!rel||rel==='')rel='index.html';const resolved=path.normalize(path.join(appDir,rel));if(!resolved.startsWith(appDir))return new Response('forbidden',{status:403});if(!fs.existsSync(resolved))return net.fetch(pathToFileURL(path.join(appDir,'index.html')).toString());return net.fetch(pathToFileURL(resolved).toString())})}
-app.whenReady().then(()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',(request)=>{const filePath=decodeURIComponent(request.url.replace(/^xzmedia:\/\//,'').replace(/^\//,''));const resolved=path.normalize(filePath);const relative=path.relative(path.normalize(getDataDir()),resolved);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))return new Response('forbidden',{status:403});return net.fetch(pathToFileURL(resolved).toString())})}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'));collabService=createCollabService(readCloudSession);createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
+app.whenReady().then(()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',(request)=>{const filePath=decodeURIComponent(request.url.replace(/^xzmedia:\/\//,'').replace(/^\//,''));const resolved=path.normalize(filePath);const relative=path.relative(path.normalize(getDataDir()),resolved);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))return new Response('forbidden',{status:403});return net.fetch(pathToFileURL(resolved).toString())})}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'));collabService=createCollabService(readCloudSession);setupWorkBuddy();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
+
+app.on('before-quit',event=>{if(workBuddyPanel?.isUpdating())event.preventDefault();});

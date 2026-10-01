@@ -30,6 +30,8 @@ module.exports = function configurePackagedSmoke(app) {
         const buffer = await zip.generateAsync({type:'nodebuffer'});
         const result = await require('mammoth').extractRawText({buffer});
         report.docxImport = result.value.trim() === '行舟安装包验证';
+        const helper = fs.readFileSync(path.join(__dirname, 'workbuddy-archive.py'), 'utf8');
+        report.workBuddy = { helperBundled: helper.includes('def extract(') && helper.includes('sqlite3') && helper.includes('--inspect-data'), modulesLoad: typeof require('./workbuddy-panel.cjs').createWorkBuddyPanel === 'function' && typeof require('./workbuddy-service.cjs').createWorkBuddyService === 'function' && typeof require('./workbuddy-update.cjs').createWorkBuddyUpdater === 'function' };
         for (let attempt=0;attempt<30;attempt++) {
           await new Promise(resolve => setTimeout(resolve,250));
           report.page = await win.webContents.executeJavaScript('({ title: document.title, text: document.body.innerText.slice(0,1500), bridge: typeof window.xingzhou?.appVersion === "function", roles: document.querySelectorAll(".studio-role").length })');
@@ -46,7 +48,8 @@ module.exports = function configurePackagedSmoke(app) {
         const results=await Promise.all(files.map(async url=>{try{const response=await net.fetch(url);return {status:response.status,length:(await response.arrayBuffer()).byteLength};}catch(error){return {error:String(error)};}}));
         const image=await win.webContents.executeJavaScript(`new Promise(resolve=>{const img=new Image();img.onload=()=>resolve({loaded:true,width:img.naturalWidth});img.onerror=()=>resolve({loaded:false});img.src=${JSON.stringify(files[0])};})`);
         report.localMedia={results,image};
-        finish(report.docxImport && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        report.workBuddy.bridge = await win.webContents.executeJavaScript('typeof window.xingzhou?.workBuddyOpen === "function" && typeof window.xingzhou?.onWorkBuddyState === "function"');
+        finish(report.docxImport && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });
