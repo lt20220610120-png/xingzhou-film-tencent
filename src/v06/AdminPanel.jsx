@@ -13,9 +13,16 @@ function fmtTime(value) {
   try { return new Date(value).toLocaleString('zh-CN', { hour12: false }); } catch { return value; }
 }
 
-export function AdminPanel({ account }) {
+const adminTabKey = (accountId) => `xz-admin-tab:${encodeURIComponent(String(accountId || ''))}`;
+const readAdminTab = (accountId) => {
+  try { return localStorage.getItem(adminTabKey(accountId)) === 'workbuddy' ? 'workbuddy' : 'users'; }
+  catch { return 'users'; }
+};
+
+export function AdminPanel({ account, active = true }) {
   const api = window.xingzhou;
-  const [tab, setTab] = useState('users');
+  const [tab, setTab] = useState(() => readAdminTab(account?.id));
+  const [workBuddyVisited, setWorkBuddyVisited] = useState(() => readAdminTab(account?.id) === 'workbuddy');
   const [users, setUsers] = useState([]);
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +33,11 @@ export function AdminPanel({ account }) {
   const [note, setNote] = useState('');
   const [creating, setCreating] = useState(false);
   const [confirmUser, setConfirmUser] = useState(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(adminTabKey(account?.id), tab); } catch {}
+    if (tab === 'workbuddy') setWorkBuddyVisited(true);
+  }, [account?.id, tab]);
 
   const refresh = async () => {
     setLoading(true); setError('');
@@ -99,7 +111,8 @@ export function AdminPanel({ account }) {
         <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请码</button>
         <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
       </div>
-      {tab === 'workbuddy' ? <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab"><WorkBuddyPanel account={account} /></div> : <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab">
+      {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}
+      <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab" hidden={tab !== 'users'}>
       <p className="admin-data-note">用户与邀请码保存在云端。删除或停用账号后，对方将失去软件使用权限。</p>
       {error && <div className="auth-error admin-load-error" role="alert"><span>{error}</span><button onClick={refresh} disabled={loading}>重试</button></div>}
       {notice && <div className="auth-notice">{notice}</div>}
@@ -173,7 +186,7 @@ export function AdminPanel({ account }) {
           onConfirm={deleteUser}
         />
       )}
-      </div>}
+      </div>
     </div>
   );
 }

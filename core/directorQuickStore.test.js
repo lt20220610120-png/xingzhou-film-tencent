@@ -34,6 +34,25 @@ test('atomic commit writes fixed IDs, timing, full plan and active pointer to ep
  const again=commitQuickSceneRun(first.state,run);assert.equal(again.applied,true);assert.equal(again.state,first.state);
  const edited={...first.state,directorProjects:first.state.directorProjects.map(p=>({...p,style:'2D动漫'}))};assert.equal(commitQuickSceneRun(edited,run).applied,true);
 });
+test('partial commit saves only accepted prompts then final audit promotes the same fixed IDs',async()=>{
+ const {state,run}=await fixture();const partialRun={...run,checks:{audited:false},segmentDrafts:{seg1:run.segmentDrafts.seg1}};
+ const first=commitQuickSceneRun(state,partialRun,{partial:true});assert.equal(first.applied,true);
+ assert.equal(first.state.directorProjects[0].episodes[1].prompts.length,1);
+ assert.equal(first.state.directorProjects[0].episodes[1].prompts[0].sceneAuditStatus,'pending');
+ assert.equal(commitQuickSceneRun(first.state,partialRun).applied,false);
+ const done=commitQuickSceneRun(first.state,run);assert.equal(done.applied,true);
+ assert.deepEqual(done.state.directorProjects[0].episodes[1].prompts.map(p=>[p.id,p.sceneAuditStatus]),[['prompt1','passed'],['prompt2','passed']]);
+ assert.equal(done.state.directorProjects[0].promptHistory.length,2);
+ const deleted=deleteDirectorPromptsEverywhere(first.state,'p',['prompt1']);assert.equal(commitQuickSceneRun(deleted,run).applied,false);
+});
+test('audit warning still commits locally valid prompts with a visible status',async()=>{
+ const {state,run}=await fixture();
+ const warningRun={...run,checks:{audited:true},auditWarnings:[{code:'STATE_RESET',segmentIndex:1,message:'灯状态需要复核'}]};
+ const result=commitQuickSceneRun(state,warningRun);
+ assert.equal(result.applied,true);
+ assert.equal(result.state.directorProjects[0].episodes[1].prompts[0].sceneAuditStatus,'warning');
+ assert.equal(result.state.directorProjects[0].episodes[1].prompts[0].sceneAuditWarnings[0].code,'STATE_RESET');
+});
 test('commit rejects missing/stale/locked targets, invalid drafts and tombstones without orphan history',async()=>{
  const {state,run}=await fixture();
  const variants=[{...state,accountId:'other'},{...state,directorProjects:[]},{...state,directorProjects:[{...state.directorProjects[0],episodes:[]}]},{...state,skills:[]},{...state,apiProfiles:[]},{...state,directorProjects:[{...state.directorProjects[0],cloudLocked:true}]},{...state,directorProjects:[{...state.directorProjects[0],episodes:state.directorProjects[0].episodes.map(e=>e.id==='e'?{...e,quickSceneEdits:{'1-1':'new text'}}:e)}]}];

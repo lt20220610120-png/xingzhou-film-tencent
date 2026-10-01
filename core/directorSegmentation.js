@@ -1,3 +1,5 @@
+import { validateDirectorSegmentTiming } from './directorTiming.js';
+
 /** Source offsets are UTF-16 half-open offsets in sourceText, never in the user's original draft. */
 export const NONFINAL_DURATION_RATIO = 0.85;
 const MARKER = /^[\t ]*[（(]\d+[）)][\t ]*$/;
@@ -109,7 +111,7 @@ export const estimateSegmentSeconds = timing => {
   return total;
 };
 
-export const validateScenePlan = (candidate, { tape, maxDurationSeconds } = {}) => {
+export const validateScenePlan = (candidate, { tape, maxDurationSeconds, groundedTiming = false } = {}) => {
   const issues = [];
   try { assertDurationLimit(maxDurationSeconds); } catch (error) { return { ok: false, issues: [issue('INVALID_DURATION_LIMIT', error.message)] }; }
   let parsed;
@@ -137,6 +139,8 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds } = {}) 
     if (sourceEnd > sourceStart && !tape.sourceText.slice(sourceStart, sourceEnd).trim()) issues.push(issue('EMPTY_SEGMENT', '片段不能只有空白字符', segmentIndex));
     let estimatedSeconds;
     try { estimatedSeconds = estimateSegmentSeconds(segment.timing); } catch (error) { issues.push(issue('INVALID_TIMING', error.message, segmentIndex, segment.timing)); }
+    const grounded = groundedTiming && sourceEnd > sourceStart ? validateDirectorSegmentTiming({ sourceText: tape.sourceText, sourceStart, sourceEnd, timing: segment.timing, maxDurationSeconds, segmentIndex }) : null;
+    if (grounded) issues.push(...grounded.issues);
     const recommendedDurationSeconds = Math.ceil(estimatedSeconds);
     if (estimatedSeconds > maxDurationSeconds || recommendedDurationSeconds > maxDurationSeconds) issues.push(issue('DURATION_EXCEEDED', '片段超出最高时长，必须重分段而非截短建议秒数', segmentIndex, { estimatedSeconds, maxDurationSeconds }));
     if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds)) issues.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds) }));
@@ -146,6 +150,7 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds } = {}) 
       id: typeof segment.id === 'string' && segment.id ? segment.id : `segment-${segmentIndex}`, index: segmentIndex,
       sourceStart, sourceEnd, estimatedSeconds, recommendedDurationSeconds,
       timing: segment.timing, startState: segment.startState, endState: segment.endState, boundary: segment.boundary, visualNotes: segment.visualNotes,
+      ...(grounded ? { timingFacts: grounded.facts } : {}),
     });
     sourceStart = sourceEnd;
   });

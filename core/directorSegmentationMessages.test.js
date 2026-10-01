@@ -13,6 +13,7 @@ test('planning reads project settings, duration, full source and complete indexe
   assert.match(messages[0].content, /分段/);
   const full = messages.map(message => message.content).join('\n');
   for (const text of ['真人电影集', '9:16', '30', '甲乙都在书房', '灯已经关了', '我听见了', 'u1', 'u2', '0.85', 'overlapSeconds']) assert.ok(full.includes(text), text);
+  for (const text of ['speechCharacterCount', '4字/秒', '3字/秒', '2～3秒', '8～13', '短', '10秒', '30+10', '动作描述长不代表表演久']) assert.ok(full.includes(text), text);
   const repair = buildSegmentationMessages({ snapshot, tape, validationIssues: [{ code: 'DURATION_EXCEEDED', segmentIndex: 1, message: '超时' }] });
   assert.match(repair.at(-1).content, /DURATION_EXCEEDED/);
 });

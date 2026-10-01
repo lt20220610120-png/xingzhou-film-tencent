@@ -41,7 +41,8 @@ test('刷新云端按钮双向合并提示词并回推云端', () => {
   const director=read('src/v06/DirectorWorkspace.jsx');
   assert.match(director,/directorCollabGetProject/);
   assert.match(director,/reconcileDirectorCloudProjects/);
-  assert.match(director,/base:selectedProject.cloudBase/);
+  // Background saves now belong to the App coordinator, whose base/update
+  // behavior is exercised in core/directorCloudSync.test.js.
   assert.doesNotMatch(director,/updates: \{ episodes: mergedEpisodes \}/);
 });
 

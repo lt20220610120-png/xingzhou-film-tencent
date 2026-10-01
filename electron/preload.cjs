@@ -1,7 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
  workBuddyStatus:()=>ipcRenderer.invoke('workbuddy-status'),workBuddySelectRoot:()=>ipcRenderer.invoke('workbuddy-select-root'),
- workBuddyOpen:p=>ipcRenderer.invoke('workbuddy-open',p),workBuddySetBounds:p=>ipcRenderer.invoke('workbuddy-bounds',p),workBuddyClose:()=>ipcRenderer.invoke('workbuddy-close'),
+ workBuddyOpen:p=>ipcRenderer.invoke('workbuddy-open',p),workBuddyResume:p=>ipcRenderer.invoke('workbuddy-resume',p),workBuddySetBounds:p=>ipcRenderer.invoke('workbuddy-bounds',p),workBuddyClose:()=>ipcRenderer.invoke('workbuddy-close'),
  workBuddyCheckUpdate:()=>ipcRenderer.invoke('workbuddy-check-update'),workBuddyUpdate:()=>ipcRenderer.invoke('workbuddy-update'),workBuddyUpdateState:()=>ipcRenderer.invoke('workbuddy-update-state'),
  onWorkBuddyState:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('workbuddy-state',handler);return()=>ipcRenderer.removeListener('workbuddy-state',handler)},
  collabLoadAssetImage:payload=>ipcRenderer.invoke('collab-load-asset-image',payload),

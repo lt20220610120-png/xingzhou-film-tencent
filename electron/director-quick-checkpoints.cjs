@@ -116,10 +116,11 @@ function createDirectorQuickCheckpoints(dataDir, getAccountId) {
         return readRun(path.join(directory, name), accountId, runId);
       }).sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
     },
-    load({ runId } = {}) {
+    load({ runId, allowMissing = false } = {}) {
       assertRunId(runId);
       const { accountId, directory } = scope();
-      return readRun(path.join(directory, `${runId}.json`), accountId, runId);
+      try{return readRun(path.join(directory, `${runId}.json`), accountId, runId);}
+      catch(error){if(allowMissing===true&&error.code==='DIRECTOR_QUICK_NOT_FOUND')return null;throw error;}
     },
     save({ run } = {}) {
       const { accountId, directory } = scope();

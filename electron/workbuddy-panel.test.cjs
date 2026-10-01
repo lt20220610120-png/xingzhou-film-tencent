@@ -4,25 +4,72 @@ const { EventEmitter } = require('node:events');
 const { createWorkBuddyPanel, normalizeBounds, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 
 function fixture(account = { isAdmin: true }) {
-  let current = account, token = 'session-a', cookieCount = 0, started = 0;
+  let current = account, token = 'session-a', cookieCount = 0, started = 0, authorized = 0, loaded = 0, cleared = 0;
   const views = [];
   class View {
     constructor(options) {
       this.options = options; this.webContents = new EventEmitter();
-      Object.assign(this.webContents, { loadURL: async (url) => { this.url = url; }, close: () => { this.closed = true; }, setWindowOpenHandler: (fn) => { this.popup = fn; } });
+      Object.assign(this.webContents, { loadURL: async (url) => { loaded++; this.url = url; }, close: () => { this.closed = true; }, setWindowOpenHandler: (fn) => { this.popup = fn; } });
       views.push(this);
     }
     setBounds(value) { this.bounds = value; }
     setVisible(value) { this.visible = value; }
   }
-  const partition = { cookies: { set: async () => { cookieCount++; } }, clearStorageData: async () => {}, closeAllConnections: async () => {}, setPermissionCheckHandler: (fn) => { partition.permissionCheck = fn; }, setPermissionRequestHandler: (fn) => { partition.permission = fn; }, webRequest: { onBeforeRequest: (...args) => { partition.request = args.at(-1); } } };
+  const partition = { cookies: { set: async () => { cookieCount++; } }, clearStorageData: async () => { cleared++; }, closeAllConnections: async () => {}, setPermissionCheckHandler: (fn) => { partition.permissionCheck = fn; }, setPermissionRequestHandler: (fn) => { partition.permission = fn; }, webRequest: { onBeforeRequest: (...args) => { partition.request = args.at(-1); } } };
   const win = { isDestroyed: () => false, getContentBounds: () => ({ width: 1200, height: 800 }), contentView: { addChildView: () => {}, removeChildView: () => {} } };
   const updater = { update: async () => {} };
-  const access = { session: async () => current, token: () => token };
+  const access = { session: async () => { authorized++; return current; }, token: () => token };
   const events = [];
   const panel = createWorkBuddyPanel({ getWindow: () => win, accessService: access, updater, onState: (value) => events.push(value), service: { status: async () => ({ installed: true, running: true, root: '/local', port: 7864 }), start: async () => { started++; return { installed: true, running: true, root: '/local', port: 7864 }; }, sessionCookie: () => ({ url: 'http://127.0.0.1:7864', name: 'wb_session', value: 'private', httpOnly: true }) }, WebContentsView: View, session: { fromPartition: () => partition }, shell: { openExternal: async () => {} }, setInterval: () => 1, clearInterval: () => {} });
-  return { panel, access, updater, events, views, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, counts: () => ({ cookieCount, started }) };
+  return { panel, access, updater, events, views, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, counts: () => ({ cookieCount, started }), lifecycle: () => ({ authorized, loaded, cleared }) };
 }
+
+test('leaving and returning preserves the page, route and draft while verifying the administrator again', async () => {
+  const f = fixture(), bounds = { x: 240, y: 180, width: 850, height: 580 };
+  await f.panel.open({ bounds });
+  const page = f.views[0]; page.route = '/settings/upstreams'; page.draft = 'unsaved input';
+  const before = f.lifecycle();
+  f.panel.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  assert.equal(page.visible, false); assert.equal(page.closed, undefined);
+  assert.equal(await f.panel.resume({ bounds }), true);
+  assert.equal(page.visible, true); assert.equal(f.views.length, 1);
+  assert.equal(page.route, '/settings/upstreams'); assert.equal(page.draft, 'unsaved input');
+  assert.equal(f.lifecycle().loaded, before.loaded); assert.equal(f.lifecycle().cleared, before.cleared);
+  assert.equal(f.counts().started, 1); assert.ok(f.lifecycle().authorized > before.authorized);
+  await f.panel.close();
+});
+
+test('a late return authorization cannot show the page after the administrator leaves again', async () => {
+  const f = fixture(), bounds = { x: 0, y: 0, width: 500, height: 500 };
+  await f.panel.open({ bounds }); let finish;
+  f.access.session = () => new Promise(resolve => { finish = resolve; });
+  const returning = f.panel.resume({ bounds });
+  await new Promise(setImmediate); f.panel.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  finish({ isAdmin: true }); assert.equal(await returning, true);
+  assert.equal(f.views[0].visible, false); assert.equal(f.views[0].closed, undefined);
+  await f.panel.close();
+});
+
+test('retained pages are destroyed when permission is revoked or the login changes', async () => {
+  for (const changed of ['permission', 'login']) {
+    const f = fixture(), bounds = { x: 0, y: 0, width: 500, height: 500 };
+    await f.panel.open({ bounds }); f.panel.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    if (changed === 'permission') f.setAccount({ isAdmin: false }); else f.setToken('session-b');
+    await assert.rejects(f.panel.resume({ bounds }), /管理员|登录/);
+    assert.equal(f.views[0].closed, true); assert.equal(await f.panel.resume({ bounds }), false);
+    assert.ok(f.lifecycle().cleared > 0);
+  }
+});
+
+test('leaving during the first authorization also hides a late first page', async () => {
+  const f = fixture(); let finish;
+  const original = f.access.session;
+  f.access.session = () => new Promise(resolve => { finish = resolve; });
+  const opening = f.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } });
+  await new Promise(setImmediate); f.panel.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  f.access.session = original; finish({ isAdmin: true }); await opening;
+  assert.equal(f.views[0].visible, false); await f.panel.close();
+});
 
 test('only an active, cloud-verified administrator may open the panel', async () => {
   for (const account of [null, { isAdmin: false }, { isAdmin: true, banned: true }]) {

@@ -14,11 +14,12 @@ export const assertMessageCapacity = (messages, profile = {}, requestOptions = {
 
 const allowedRequestOptions = requestOptions => {
   const result = {};
-  for (const key of ['taskId', 'maxOutputTokens', 'resultEnvelope', 'timeout']) {
+  for (const key of ['taskId', 'maxOutputTokens', 'resultEnvelope', 'timeout', 'analysisMode']) {
     const value = requestOptions?.[key];
     if (value === undefined) continue;
     if (key === 'taskId' && (typeof value !== 'string' || !value.trim())) throw new Error('模型任务 taskId 必须是非空文本');
     if (key === 'resultEnvelope' && typeof value !== 'boolean') throw new Error('resultEnvelope 必须是布尔值');
+    if (key === 'analysisMode' && typeof value !== 'boolean') throw new Error('analysisMode 必须是布尔值');
     if (['maxOutputTokens', 'timeout'].includes(key) && (!Number.isInteger(value) || value <= 0)) throw new Error(`${key} 必须是正整数`);
     result[key] = value;
   }

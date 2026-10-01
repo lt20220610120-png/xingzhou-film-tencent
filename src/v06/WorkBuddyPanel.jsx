@@ -7,7 +7,7 @@ const readableError = (reason) => String(reason?.message || reason || '连接失
 const accountCount = (accounts) => typeof accounts === 'number' ? accounts : Array.isArray(accounts) ? accounts.length
   : typeof accounts?.total === 'number' ? accounts.total : typeof accounts?.count === 'number' ? accounts.count : null;
 
-export function WorkBuddyPanel({ account }) {
+export function WorkBuddyPanel({ account, active: panelActive = true }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('load');
   const [visible, setVisible] = useState(false);
@@ -24,6 +24,10 @@ export function WorkBuddyPanel({ account }) {
   const statusRef = useRef(null);
   const viewWanted = useRef(false);
   const viewPresent = useRef(false);
+  const activeRef = useRef(panelActive);
+  const presentationReady = useRef(false);
+  const presentationEpoch = useRef(0);
+  activeRef.current = panelActive;
   const viewEpoch = useRef(0);
   const lastBounds = useRef('');
   const modalBlocked = useRef(false);
@@ -44,6 +48,7 @@ export function WorkBuddyPanel({ account }) {
     return next;
   }, []);
   const bounds = useCallback(() => {
+    if (!activeRef.current) return { x: 0, y: 0, width: 0, height: 0 };
     const host = hostRef.current;
     if (!host) return null;
     const rect = host.getBoundingClientRect();
@@ -56,6 +61,7 @@ export function WorkBuddyPanel({ account }) {
     viewWanted.current = false;
     viewPresent.current = false;
     viewEpoch.current += 1;
+    presentationReady.current = false;
     lastBounds.current = '';
     if (mounted.current) setVisible(false);
     await invoke('workBuddyClose');
@@ -70,6 +76,7 @@ export function WorkBuddyPanel({ account }) {
     viewPresent.current = false;
     viewWanted.current = false;
     viewEpoch.current += 1;
+    presentationReady.current = false;
     lastBounds.current = '';
     setVisible(false);
     setNotice('');
@@ -77,7 +84,7 @@ export function WorkBuddyPanel({ account }) {
   }, [active]);
   const syncBounds = useCallback(() => {
     if (!mounted.current || !viewPresent.current) return;
-    const next = modalBlocked.current ? { x: 0, y: 0, width: 0, height: 0 } : bounds();
+    const next = !activeRef.current || !presentationReady.current || modalBlocked.current ? { x: 0, y: 0, width: 0, height: 0 } : bounds();
     if (!next) return;
     const key = JSON.stringify(next);
     if (key === lastBounds.current) return;
@@ -102,6 +109,7 @@ export function WorkBuddyPanel({ account }) {
     if (!active(generation) || epoch !== viewEpoch.current || !viewWanted.current) return;
     applyStatus(next);
     viewPresent.current = true;
+    presentationReady.current = activeRef.current;
     lastBounds.current = '';
     setVisible(true);
     syncBounds();
@@ -186,7 +194,30 @@ export function WorkBuddyPanel({ account }) {
       await openView(generation).catch(reason => showError(reason, generation));
     }
   };
-  actions.current = { refresh, syncBounds };
+  actions.current = { refresh, syncBounds, resumeView: async () => {
+    if (!viewPresent.current) return;
+    const generation = lifetime.current, epoch = ++presentationEpoch.current;
+    presentationReady.current = false;
+    syncBounds();
+    try {
+      const restored = await invoke('workBuddyResume', { bounds: modalBlocked.current ? { x: 0, y: 0, width: 0, height: 0 } : bounds() });
+      if (!active(generation) || epoch !== presentationEpoch.current || !activeRef.current) return;
+      if (!restored) { markDisconnected('控制面板连接已断开，请重新连接', generation); return; }
+      presentationReady.current = true; lastBounds.current = ''; syncBounds();
+    } catch (reason) { await showError(reason, generation); }
+  } };
+
+  useEffect(() => {
+    presentationEpoch.current += 1;
+    if (panelActive) actions.current.resumeView();
+    else {
+      presentationReady.current = false;
+      lastBounds.current = '';
+      actions.current.syncBounds();
+      // Hide even when the first open is still waiting for service startup.
+      invoke('workBuddySetBounds', { x: 0, y: 0, width: 0, height: 0 }).catch(() => {});
+    }
+  }, [panelActive, invoke]);
 
   useEffect(() => {
     mounted.current = true;

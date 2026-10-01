@@ -25,8 +25,9 @@ import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterS
 import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
-import { acknowledgeDirectorCloudSave, reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
+import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
 import { DirectorQuickControls, DirectorQuickProgress } from './DirectorQuickControls.jsx';
+import { DirectorBatchPanel } from './DirectorBatchPanel.jsx';
 import { renderNumberedScene } from '../../core/directorSegmentation.js';
 import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
 import { reconcileDirectorEpisodes } from '../../core/directorEpisodeReconcile.js';
@@ -166,6 +167,8 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
         <div className="prompt-identity"><div className="prompt-label">{prompt.label || `提示词 ${index + 1}`}</div>
           {prompt.recommendedDurationSeconds&&<span className={`prompt-duration${prompt.durationStatus==='needs-review'?' needs-review':''}`} title="按当前内容估算；实际生成请结合所选视频模型的可选时长。">建议生成时长 {prompt.recommendedDurationSeconds} 秒{prompt.durationStatus==='needs-review'?' · 时长待复核':''}</span>}
           {prompt.generationRunId&&<small className="prompt-generation-batch">{new Date(prompt.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 批次</small>}
+          {prompt.sceneAuditStatus==='pending'&&<small className="prompt-generation-batch">已保存 · 整场核对中</small>}
+          {prompt.sceneAuditStatus==='warning'&&<small className="prompt-generation-batch prompt-audit-warning">已保存 · 整场核对有提醒</small>}
         </div>
         <div className="prompt-actions top">
           {editing ? (
@@ -189,6 +192,7 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
           )}
         </div>
       </div>
+      {prompt.sceneAuditStatus==='warning'&&<details className="quick-run-warning"><summary>查看整场核对提醒</summary>{(prompt.sceneAuditWarnings||[]).map((item,i)=><p key={i}>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>)}</details>}
       {editing ? (
         <textarea className="prompt-edit-textarea" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`编辑提示词 ${prompt.label}`} />
       ) : (
@@ -215,7 +219,7 @@ function parseSegments(text) {
 /* ================================================================
  * EpisodeDirector - 逐集导演编辑（支持 creative/quick 模式）
  * ================================================================ */
-function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId, quickGeneration }) {
+function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId, quickGeneration,onJumpToScene }) {
   const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
   const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
   const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
@@ -268,6 +272,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
   const autoRun=localRun||(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
   const autoBusy=isQuickRunActive(localRun);
+  const batchBusy=quickGeneration?.isProjectBatchActive(project.id);
   const autoStale=Boolean(autoRun?.plan&&(autoRun.plan.sourceSnapshot!==currentSceneContent||autoRun.plan.settingsHash!==directorSettingsHash({project,episode,maxDurationSeconds:autoRun.plan.maxDurationSeconds})));
   const autoSceneText=autoRun?.plan?renderNumberedScene(autoRun.plan,{sceneHeader:autoRun.plan.sceneHeader,sourceText:autoRun.plan.sourceText}):'';
   const runAutoScene=async()=>{
@@ -584,6 +589,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       {/* 快速模式：三栏布局 — 场景列表 | 场景编辑 | 提示词结果 */}
       {mode === 'quick' && (
         <div className="quick-mode-container">
+          {quickSettings.segmentationMode==='auto'&&<DirectorBatchPanel project={project} skill={currentSkill} profile={directorProfile} maxDurationSeconds={quickSettings.maxDurationSeconds} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked)||project.canWrite===false} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/>}
           {/* 左栏：场景列表 */}
           <nav className="quick-scene-rail">
             <div className="quick-scene-rail-title">场景列表</div>
@@ -623,7 +629,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                     <button
                       className="primary compact"
                       onClick={() => quickSettings.segmentationMode==='auto'?runAutoScene():runQuickScene(currentScene)}
-                      disabled={isSceneRunning(currentScene) || autoBusy || !currentSceneContent?.trim() || !currentSkill || Boolean(project.cloudLocked)}
+                      disabled={isSceneRunning(currentScene) || autoBusy || batchBusy || !currentSceneContent?.trim() || !currentSkill || Boolean(project.cloudLocked)}
                     >
                       <Sparkles size={14} /> {isSceneRunning(currentScene)||autoBusy ? '生成中…' : '生成'}
                     </button>
@@ -805,7 +811,6 @@ function SettingEditor({ project, episode, setState }) {
  * DirectorWorkspace - 主组件
  * ================================================================ */
 export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration }) {
-  const cloudSavingRef = useRef(false);
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
   const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
@@ -858,7 +863,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     } catch { /* 网络短暂失败时保留现有云项目与本地投影 */ }
   }, [api]);
   React.useEffect(() => { loadCloudProjects(); }, [loadCloudProjects]);
-  React.useEffect(() => { if(cloudSavingRef.current)return; setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
+  React.useEffect(() => { if(quickGeneration?.isCloudSaving())return; setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
   React.useEffect(() => {
     if (!collaborationProjects.length) return;
     const linked = new Map(collaborationProjects
@@ -873,21 +878,6 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   }, [collaborationProjects]);
   const cloudForProject = (project) => cloudProjects.find((p) => p.id === project.cloudProjectId || p.analysis_output === project.id);
   const changeCollab = async (mode) => { if (!collabTarget) return; if (mode === 'create') { const dp = collabTarget.project; const episodes = dp.episodes || []; const cloud = await api.directorCollabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes }); setState((s) => updateDirectorProject(s, dp.id, { cloudProjectId: cloud.id, cloudRole: 'producer' })); setCollabTarget({ project: { ...dp, cloudProjectId: cloud.id }, cloud: { ...cloud, locked: false } }); } await loadCloudProjects(); };
-  React.useEffect(() => {
-    if (!selectedProject?.cloudProjectId || selectedProject.cloudLocked || selectedProject.cloudConflict || !selectedProject.cloudBase || cloudSavingRef.current) return;
-    const submitted={name:selectedProject.name,script:selectedProject.masterScript||'',episodes:selectedProject.episodes||[]};
-    if(JSON.stringify(submitted)===JSON.stringify(selectedProject.cloudBase))return;
-    const timer=setTimeout(async()=>{
-      if(cloudSavingRef.current)return;
-      cloudSavingRef.current=true;
-      try {
-        const cloud=await api.directorCollabUpdateProject({projectId:selectedProject.cloudProjectId,base:selectedProject.cloudBase,updates:submitted});
-        cloudSavingRef.current=false;
-        setState(current=>({...current,directorProjects:acknowledgeDirectorCloudSave(current.directorProjects||[],cloud,submitted)}));
-      } catch(error){setCloudRefreshNotice(error.message);} finally{cloudSavingRef.current=false;}
-    },900);
-    return ()=>clearTimeout(timer);
-  },[selectedProject]);
   React.useEffect(() => { const timer = setInterval(loadCloudProjects, 12000); return () => clearInterval(timer); }, [loadCloudProjects]);
   const refreshDirectorCloud = async () => {
     if (!selectedProject?.cloudProjectId || refreshingCloud) return;
@@ -1135,6 +1125,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           key={`${selectedProject.id}:${activeEpisode.id}`}
           accountId={accountId}
           quickGeneration={quickGeneration}
+          onJumpToScene={(episodeId,sceneLabel)=>{localStorage.setItem(`xz-director-scene:${accountId}:${selectedProject.id}:${episodeId}`,sceneLabel);setActivePane(episodeId);}}
           project={selectedProject}
           episode={activeEpisode}
           episodeNumber={Math.max(1, (selectedProject.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').findIndex((episode) => episode.id === activeEpisode.id) + 1)}
@@ -1144,7 +1135,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           onAttach={onAttach}
           onRefreshCloud={refreshDirectorCloud}
           refreshingCloud={refreshingCloud}
-          cloudRefreshNotice={cloudRefreshNotice}
+          cloudRefreshNotice={cloudRefreshNotice||selectedProject.cloudSyncError}
         />
       ) : null}
 

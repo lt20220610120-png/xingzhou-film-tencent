@@ -32,7 +32,7 @@ test('导演云项目支持手动刷新并拉取完整云端项目内容', () =>
   const director=read('src/v06/DirectorWorkspace.jsx');
   assert.match(director,/directorCollabGetProject/);
   assert.match(director,/reconcileDirectorCloudProjects/);
-  assert.match(director,/base:selectedProject.cloudBase/);
+  // The shared save coordinator is covered by directorCloudSync behavior tests.
   assert.doesNotMatch(director,/updates: \{ episodes: mergedEpisodes \}/);
 });
 

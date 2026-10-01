@@ -43,6 +43,7 @@ function assertWorkBuddySender(event) {
 for (const [channel, action] of Object.entries({
   'workbuddy-status': () => workBuddyPanel.status(),
   'workbuddy-open': (payload) => workBuddyPanel.open(payload),
+  'workbuddy-resume': (payload) => workBuddyPanel.resume(payload),
   'workbuddy-bounds': (bounds) => workBuddyPanel.setBounds(bounds),
   'workbuddy-close': () => workBuddyPanel.close(),
   'workbuddy-check-update': () => workBuddyPanel.checkUpdate(),

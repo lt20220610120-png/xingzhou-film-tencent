@@ -1221,7 +1221,7 @@ function App() {
   const [canvasVisited, setCanvasVisited] = useState(false);
   const [visitedWorkspaces, setVisitedWorkspaces] = useState({});
   useEffect(() => {
-    if (nav === 'director' || nav === 'collab') setVisitedWorkspaces((current) => current[nav] ? current : { ...current, [nav]: true });
+    if (nav === 'director' || nav === 'collab' || nav === 'admin') setVisitedWorkspaces((current) => current[nav] ? current : { ...current, [nav]: true });
   }, [nav]);
   const initialCanvasRoute = useRef(canvasRoute);
   useEffect(() => { if (nav === 'canvas') setCanvasVisited(true); }, [nav]);
@@ -1408,7 +1408,7 @@ function App() {
         {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} />}
-        {nav === 'admin' && account?.isAdmin && <AdminPanel account={account} />}
+        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <div className="workspace-preserved" hidden={nav !== 'admin'}><AdminPanel key={account.id} account={account} active={nav === 'admin'} /></div>}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou

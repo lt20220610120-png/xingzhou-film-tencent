@@ -12,11 +12,11 @@ function normalizeBounds(value, size) {
 }
 
 function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebContentsView, session, shell, onState = () => {}, setInterval: interval = setInterval, clearInterval: clear = clearInterval }) {
-  let epoch = 0, view = null, partition = null, timer = null, authorizedAt = 0, authorizedToken = '', verifying = null;
+  let epoch = 0, boundsEpoch = 0, view = null, partition = null, timer = null, authorizedAt = 0, authorizedToken = '', pageToken = '', verifying = null;
   let progress = { busy: false, stage: 'idle', message: '' };
   let startup = null;
   function destroyPage() {
-    clear(timer); timer = null; authorizedAt = 0; authorizedToken = '';
+    clear(timer); timer = null; authorizedAt = 0; authorizedToken = ''; pageToken = '';
     const oldView = view, oldSession = partition; view = null; partition = null;
     try { getWindow()?.contentView.removeChildView(oldView); } catch {}
     try { oldView?.webContents.close({ waitForBeforeUnload: false }); } catch {}
@@ -42,13 +42,29 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     authorizedToken = token; authorizedAt = Date.now();
   }
   function setBounds(bounds) {
+    boundsEpoch++;
     if (!view) return false;
     const win = getWindow(); if (!win || win.isDestroyed()) return false;
     const rect = normalizeBounds(bounds, win.getContentBounds()); view.setBounds(rect); view.setVisible(rect.width > 0 && rect.height > 0); return true;
   }
+  async function resume({ bounds } = {}) {
+    if (!view) return false;
+    // Preserve the route and DOM only within the same administrator login.
+    const ticket = epoch, presentation = ++boundsEpoch, ownView = view, token = pageToken;
+    ownView.setVisible(false);
+    await authorize(ticket);
+    if (ticket !== epoch || ownView !== view) return false;
+    if (!token || token !== accessService.token()) {
+      await denied('登录已变更，请重新连接 WorkBuddy 控制面板');
+      throw new Error('登录已变更，请重新连接 WorkBuddy 控制面板');
+    }
+    // A later hide wins over a slow authorization response.
+    if (presentation !== boundsEpoch) return true;
+    return setBounds(bounds);
+  }
   async function open({ bounds } = {}) {
     if (progress.busy) throw new Error('WorkBuddy 控制面板正在更新');
-    const ticket = ++epoch; await destroyPage(); await authorize(ticket);
+    const ticket = ++epoch, presentation = ++boundsEpoch; await destroyPage(); await authorize(ticket);
     if (progress.busy || ticket !== epoch) throw new Error('控制面板打开已取消');
     const pendingStartup = service.start(); startup = pendingStartup;
     let status;
@@ -74,11 +90,11 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     });
     await ownSession.cookies.set(service.sessionCookie(status.root));
     if (ticket !== epoch) { await ownSession.clearStorageData(); throw new Error('控制面板打开已取消'); }
-    const ownView = new WebContentsView({ webPreferences: { session: ownSession, contextIsolation: true, nodeIntegration: false, sandbox: true } }); view = ownView;
+    const ownView = new WebContentsView({ webPreferences: { session: ownSession, contextIsolation: true, nodeIntegration: false, sandbox: true } }); view = ownView; pageToken = accessService.token();
     ownView.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//i.test(url)) shell.openExternal(url).catch(() => {}); return { action: 'deny' }; });
     ownView.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== origin) event.preventDefault(); });
     ownView.webContents.on('will-redirect', (event, url) => { if (new URL(url).origin !== origin) event.preventDefault(); });
-    win.contentView.addChildView(ownView); setBounds(bounds);
+    win.contentView.addChildView(ownView); setBounds(presentation === boundsEpoch ? bounds : { x: 0, y: 0, width: 0, height: 0 });
     try { await ownView.webContents.loadURL(origin); } catch (error) { if (ticket === epoch) await close(); throw new Error('WorkBuddy 页面加载失败，请重新连接'); }
     if (ticket !== epoch) throw new Error('控制面板打开已取消');
     timer = interval(() => { authorize(ticket).then(() => { if (ticket === epoch) return ownSession.cookies.set(service.sessionCookie(status.root)); }).catch(() => { if (ticket === epoch) return close(); }); }, 60000);
@@ -93,6 +109,6 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     try { await close(); await pendingStartup?.catch(() => {}); await updater.update(); const result = await service.status(); progress = { busy: false, stage: 'complete', message: '控制面板更新完成' }; return result; }
     catch (error) { progress = { busy: false, stage: 'error', message: error.message, error: error.message }; throw error; }
   }
-  return { open, close, revoke: close, setBounds, status, authorize, checkUpdate, update, isUpdating: () => progress.busy, updateState: async () => { await authorize(); return { ...progress }; }, onProgress: (next) => { progress = { ...progress, ...next, busy: true }; } };
+  return { open, resume, close, revoke: close, setBounds, status, authorize, checkUpdate, update, isUpdating: () => progress.busy, updateState: async () => { await authorize(); return { ...progress }; }, onProgress: (next) => { progress = { ...progress, ...next, busy: true }; } };
 }
 module.exports = { createWorkBuddyPanel, normalizeBounds, assertTrustedFrame };

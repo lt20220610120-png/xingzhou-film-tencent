@@ -33,6 +33,15 @@ test('检查点按主进程当前账号隔离，不能由 renderer 指定其他�
   assert.throws(() => store.list(), { code: 'DIRECTOR_QUICK_ACCOUNT_REQUIRED' });
 });
 
+test('批队列可探测未创建子任务，但不能把损坏记录当成不存在',t=>{
+ const {root,store}=fixture(t);
+ assert.equal(store.load({runId:'not-created',allowMissing:true}),null);
+ store.save({run:run()});
+ const directory=fs.readdirSync(path.join(root,'导演工作台的项目','quick-generation'))[0];
+ fs.writeFileSync(path.join(root,'导演工作台的项目','quick-generation',directory,'run-1.json'),'{bad');
+ assert.throws(()=>store.load({runId:'run-1',allowMissing:true}),{code:'DIRECTOR_QUICK_CORRUPT'});
+});
+
 test('任意路径、遍历和不安全 run ID 均在文件 IO 之前拒绝', (t) => {
   const { store } = fixture(t);
   for (const runId of ['../outside', 'C:\\outside', '/tmp/outside', 'a/b', 'a\\b', '.', '..', 'run:1', '', 'x'.repeat(129)]) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { identifyPromptContract, validateGeneratedSegment, parseSceneAudit } from './directorPromptValidation.js';
+import { identifyPromptContract, validateGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, parseSceneAudit } from './directorPromptValidation.js';
 
 const baseline = '影像基准=数字电影；镜组=35mm T2.8；采样=24fps 180° EI800；WB=5600K；主光=窗光5600K 方位角90° 仰角45°；补光=墙反射5600K；K:F=2:1；影调=Rec.709 白位90IRE';
 const prompt = ({ label = '1-1-1', speech = '我来关灯。', speaker = '甲', light = baseline, sound = '甲的D01开始并结束。', camera = '侧方拍摄。' } = {}) => `${label}
@@ -93,6 +93,77 @@ test('colon inside original speech is kept as dialogue rather than misread as an
     const result = validateGeneratedSegment({ expectedLabel: '1-1-1', source: `甲：${speech}`, contract: 'fast-v8', output: prompt({ speech }) });
     assert.equal(result.ok, true, JSON.stringify(result.issues));
   }
+});
+
+test('scene metadata is not counted as dialogue and attached OS keeps the actor identity', () => {
+  const args = { expectedLabel: '1-1-1', contract: 'fast-v8' };
+  assert.equal(validateGeneratedSegment({ ...args, source: '1-1 景：书房 夜 内\n人：甲、乙\n△甲伸手。\n甲：我来关灯。', output: prompt() }).ok, true);
+  const output = prompt().replace('｜现场对白｜', '｜内心VO｜');
+  assert.equal(validateGeneratedSegment({ ...args, source: '甲OS（犹豫）：我来关灯。', output }).ok, true);
+});
+
+test('multiline speech and legal wrappers remain exact while real omissions are rejected', () => {
+  const args = { expectedLabel: '1-1-1', contract: 'fast-v8', source: '甲：我来\n\n关灯。' };
+  assert.equal(validateGeneratedSegment({ ...args, output: prompt() }).ok, true);
+  assert.equal(validateGeneratedSegment({ ...args, output: prompt({ speech: '我来' }) }).ok, false);
+  assert.equal(validateGeneratedSegment({ ...args, source: '甲：我来关灯。', output: prompt().replace('『我来关灯。』', '“我来关灯。”') }).ok, true);
+});
+
+test('range validation inherits voice and actor after an automatic cut in a long speech', () => {
+  const sourceText = '甲OS：先说原因，然后说明结果。\n△甲合上书。';
+  const sourceStart = sourceText.indexOf('然后');
+  const sourceEnd = sourceText.indexOf('\n△');
+  const args = { expectedLabel: '1-1-1', contract: 'fast-v8', source: { sourceText, sourceStart, sourceEnd, text: sourceText.slice(sourceStart, sourceEnd) } };
+  const valid = prompt({ speech: '然后说明结果。' }).replace('｜现场对白｜', '｜内心 VO｜');
+  assert.equal(validateGeneratedSegment({ ...args, output: valid }).ok, true);
+  for (const output of [valid.replace('然后说明结果。', '说明结果。'), valid.replace('｜甲｜', '｜乙｜'), valid.replace('｜内心 VO｜', '｜现场对白｜')]) assert.equal(validateGeneratedSegment({ ...args, output }).ok, false);
+});
+
+test('dialogue declaration parser ignores quotation marks inside timing references', () => {
+  const output = prompt({ speech: '很好。主动惩治恶徒同样能拿声望是吧？', speaker: '甲' })
+    .replace('分镜01开始并在分镜01结束', '分镜01开始，在本段末尾停于“这哪是什么人间地狱，”处');
+  const result = validateGeneratedSegment({ expectedLabel: '1-1-1', contract: 'fast-v8', source: '甲：很好。主动惩治恶徒同样能拿声望是吧？', output });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test('outer dialogue quotes keep nested original quotes and ASCII wrappers intact',()=>{
+  for(const [speech,open,close] of [['他说：“乙：你好。”然后离开。','“','”'],['先说原因，然后关灯。','"','"']]){
+    const output=prompt({speech}).replace(`『${speech}』`,`${open}${speech}${close}`);
+    const result=validateGeneratedSegment({expectedLabel:'1-1-1',contract:'fast-v8',source:`甲：${speech}`,output});
+    assert.equal(result.ok,true,JSON.stringify(result.issues));
+  }
+});
+
+test('missing sound continuation is restored from exact declared shot range without changing speech',()=>{
+  const output=prompt({sound:'开关声。'});
+  const repaired=repairGeneratedDialogueContinuations({output,source:'甲：我来关灯。'});
+  assert.equal(validateGeneratedSegment({expectedLabel:'1-1-1',contract:'fast-v8',source:'甲：我来关灯。',output:repaired}).ok,true);
+  assert.match(repaired,/D01开始并结束/);
+  assert.equal(repairGeneratedDialogueContinuations({output,source:'乙：不同台词。'}),output);
+});
+
+test('continuation references written as cross-shot prose include every named shot', () => {
+  const output = prompt().replace('分镜01开始并在分镜01结束', '分镜01开始，跨分镜02，在分镜02结束')
+    .replace('分镜01｜比重约100%', '分镜01｜比重约50%')
+    .replace('甲关灯。', '甲关灯。');
+  // The compact fixture has only one shot, so the named second shot is
+  // intentionally rejected as a missing shot rather than silently ignored.
+  const result = validateGeneratedSegment({ expectedLabel:'1-1-1', source:'甲：我来关灯。', contract:'fast-v8', output });
+  assert.ok(result.issues.some(issue => issue.code === 'INVALID_DIALOGUE_SHOT_REFERENCE'));
+});
+
+test('exact dialogue text can deterministically restore a changed OS/VO marker', () => {
+  const output = prompt({ speech: '我来关灯。', speaker: '甲' });
+  const repaired = repairGeneratedDialogueModes({ output, source: '甲OS：我来关灯。' });
+  assert.equal(validateGeneratedSegment({ expectedLabel: '1-1-1', contract: 'fast-v8', source: '甲OS：我来关灯。', output: repaired }).ok, true);
+});
+
+test('redundant cast metadata and harmless dialogue typography are accepted, extra prose is rejected', () => {
+  const args = { expectedLabel: '1-1-1', contract: 'fast-v8', source: '甲：我来关灯。' };
+  assert.equal(validateGeneratedSegment({ ...args, output: prompt().replace('【连续台词】', '【连续台词】\n人物：甲、乙') }).ok, true);
+  assert.equal(validateGeneratedSegment({ ...args, output: prompt().replace('『我来关灯。』', '「我来\n关灯.」') }).ok, true);
+  assert.equal(validateGeneratedSegment({ ...args, output: prompt().replace('【连续台词】', '【连续台词】\n甲首先决定关灯。') }).ok, false);
+  assert.equal(validateGeneratedSegment({ ...args, output: prompt().replace('分镜01开始并在分镜01结束', '分镜01至分镜02').replace('比重约100%', '比重约100%') }).ok, false);
 });
 
 test('audit accepts explicit no issues and rejects malformed conclusions/references/evidence', () => {
