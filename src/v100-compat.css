@@ -71,8 +71,8 @@
 
 .prompt-edit-textarea{width:100%;min-height:320px;padding:14px;border:1px solid #9fb2e8;border-radius:9px;background:#fffef9;color:#263452;line-height:1.75;resize:vertical;white-space:pre-wrap}
 .prompt-edit-actions{display:flex;align-items:center;gap:8px;margin-right:auto}
-.prompt-edit-button{display:inline-flex;align-items:center;gap:5px;color:#3f63cb!important;border-color:#cfd9f0!important;background:#f4f7ff!important}
-.prompt-edit-button:hover{border-color:#7897ed!important;background:#eaf0ff!important}
+.prompt-edit-button{display:inline-flex;align-items:center;gap:5px;color:var(--brand-text,var(--deep))!important;border-color:var(--brand-line-strong,var(--line))!important;background:#f7f5fc!important}
+.prompt-edit-button:hover{border-color:var(--brand-focus,var(--deep))!important;background:var(--brand-selected,var(--jade))!important}
 .prompt-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
 .skill-content-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px}

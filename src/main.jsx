@@ -27,3 +27,4 @@ if (root) {
 import './workspace-polish.css';
 import './studio-theme.css';
 import './production-workspace.css';
+import './brand-theme.css';
