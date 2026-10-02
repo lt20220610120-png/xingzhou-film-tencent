@@ -80,6 +80,28 @@ test('grounded short scene is one real short segment rather than an inflated 30-
   assert.equal(run.plan.segments.length,1);assert.equal(run.plan.segments[0].recommendedDurationSeconds,10);
 });
 
+test('underfilled model beats are packed and committed without another paid planning call',async()=>{
+  const progress=[];
+  const f=makeFixture({groundedTiming:true,progressHook:async run=>{progress.push(run);return {applied:true};}});
+  const run=await f.controller.start(f.request);
+  assert.equal(run.phase,'completed');assert.equal(run.plan.segments.length,1);
+  assert.equal(f.calls.filter(c=>c.type==='plan').length,1);
+  assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
+  assert.equal(progress.length,1);assert.equal(run.planPacking.originalSegmentCount,2);
+});
+
+test('planning repair receives the previous candidate and preserves rejected evidence',async()=>{
+  let plans=0;
+  const f=makeFixture({textHook:async(call,calls,candidate)=>{
+    if(call.type!=='plan')return;
+    if(++plans===1){const bad=structuredClone(candidate);bad.segments[0].end.prefix='无此原文';return JSON.stringify(bad);}
+    assert.ok(call.payload.messages.some(m=>m.role==='assistant'&&m.content.includes('无此原文')));
+  }});
+  const run=await f.controller.start(f.request);
+  assert.equal(run.phase,'completed');assert.equal(run.planningHistory.length,1);
+  assert.equal(run.planningHistory[0].issues[0].code,'INVALID_ANCHOR');
+});
+
 test('explicit resume gets a fresh bounded repair round for rejected segments',async()=>{
   let bad=true;const f=makeFixture({skillHook:async()=>bad?'编号缺失且无法解析':undefined});
   const failed=await f.controller.start(f.request);assert.equal(failed.phase,'needs-review');

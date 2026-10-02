@@ -57,7 +57,8 @@ function settings(root) {
     usersFile: path.resolve(root, env.WB_USERS_FILE || path.join(dataDir, 'users.json')),
     authDir: path.resolve(root, env.WB_AUTH_DIR || path.join(upstreamDir, 'auths')),
     upstreamConfig: path.resolve(root, env.WB_UPSTREAM_CONFIG || path.join(upstreamDir, 'config.json')),
-    python: path.join(root, '.venv/Scripts/python.exe'),
+    python: path.join(root, '.venv/Scripts/pythonw.exe'),
+    legacyPython: path.join(root, '.venv/Scripts/python.exe'),
   };
 }
 
@@ -171,8 +172,8 @@ function createWorkBuddyService({ userDataDir, exec = runFile, fetch: request = 
   }
 
   function processScript(root, config, stopping = false, expectedPid = null) {
-    const prefix = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $expected=${psLiteral(config.python)}; $conns=@(Get-NetTCPConnection -LocalPort ${config.port} -State Listen -ErrorAction SilentlyContinue); $ids=@($conns | Select-Object -ExpandProperty OwningProcess -Unique); if($ids.Count -ne 1){ [pscustomobject]@{found=($ids.Count -gt 0);matches=$false}|ConvertTo-Json -Compress; exit }; $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$ids[0]); $command=[string]$process.CommandLine; $match=($command.StartsWith('"'+$expected+'"',[StringComparison]::OrdinalIgnoreCase) -or $command.StartsWith($expected+' ',[StringComparison]::OrdinalIgnoreCase)) -and ($command -match '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)') -and ($command -match '(?:^|\\s)server\\.main:app(?:\\s|$)');`;
-    if (!stopping) return `${prefix} [pscustomobject]@{found=$true;matches=$match;pid=$process.ProcessId}|ConvertTo-Json -Compress`;
+    const prefix = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $expected=${psLiteral(config.python)}; $legacy=${psLiteral(config.legacyPython)}; $conns=@(Get-NetTCPConnection -LocalPort ${config.port} -State Listen -ErrorAction SilentlyContinue); $ids=@($conns | Select-Object -ExpandProperty OwningProcess -Unique); if($ids.Count -ne 1){ [pscustomobject]@{found=($ids.Count -gt 0);matches=$false}|ConvertTo-Json -Compress; exit }; $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$ids[0]); $command=[string]$process.CommandLine; $match=($command.StartsWith('"'+$expected+'"',[StringComparison]::OrdinalIgnoreCase) -or $command.StartsWith($expected+' ',[StringComparison]::OrdinalIgnoreCase) -or $command.StartsWith('"'+$legacy+'"',[StringComparison]::OrdinalIgnoreCase) -or $command.StartsWith($legacy+' ',[StringComparison]::OrdinalIgnoreCase)) -and ($command -match '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)') -and ($command -match '(?:^|\\s)server\\.main:app(?:\\s|$)');`;
+    if (!stopping) return `${prefix} $legacyMatch=$match -and ($command.StartsWith('"'+$legacy+'"',[StringComparison]::OrdinalIgnoreCase) -or $command.StartsWith($legacy+' ',[StringComparison]::OrdinalIgnoreCase)); [pscustomobject]@{found=$true;matches=$match;legacy=$legacyMatch;pid=$process.ProcessId}|ConvertTo-Json -Compress`;
     return `${prefix} if(-not $match -or $process.ProcessId -ne ${Number(expectedPid)}){ throw 'Process identity mismatch' }; $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$process.ProcessId) | Where-Object {$_.Name -match '^python(?:w)?\\.exe$'}); foreach($child in $children){ Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue }; Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop; [pscustomobject]@{stopped=$true}|ConvertTo-Json -Compress`;
   }
 
@@ -234,7 +235,7 @@ function createWorkBuddyService({ userDataDir, exec = runFile, fetch: request = 
     if (starts.has(located)) return starts.get(located);
     const starting = (async () => {
       const config = settings(located);
-      const current = await health(config);
+      let current = await health(config);
       let existing;
       if (current.running) {
         existing = await inspectManager(located, config);
@@ -244,15 +245,27 @@ function createWorkBuddyService({ userDataDir, exec = runFile, fetch: request = 
         existing = await inspectManager(located, config);
       }
       if (existing.found && !existing.matches) throw new Error('面板端口已被其他进程占用，无法确认身份');
-      if (!current.running && !isFile(config.python)) throw new Error('缺少 Python 运行环境，请在面板目录完成首次安装');
+      if ((!current.running || existing.legacy === true) && !isFile(config.python)) throw new Error('缺少 Python 运行环境，请在面板目录完成首次安装');
       const upstreamExe = path.join(config.upstreamDir, 'wb2api.exe');
       if (!isFile(upstreamExe) || !isFile(config.upstreamConfig)) throw new Error('上游运行文件缺失，请检查面板安装目录');
       const upstreamState = await inspectUpstream(config);
       if (upstreamState.found && !upstreamState.matches) throw new Error('上游端口被其他服务占用，无法确认身份');
       if (!upstreamState.found) launch(upstreamExe, ['-config', config.upstreamConfig], config.upstreamDir,
         path.join(config.upstreamDir, 'data/server.out.log'), path.join(config.upstreamDir, 'data/server.err.log'));
+      if (current.running && existing.legacy === true) {
+        // Recheck identity in stop before replacing a console-backed manager.
+        // Panel open/update already serialize this entire startup promise.
+        await stop(located);
+        current = await health(config);
+        existing = await inspectManager(located, config);
+        if ((current.reachable && !current.running) || (existing.found && !existing.matches)) throw new Error('面板端口已被其他进程占用，无法确认身份');
+        if (current.running && !existing.found) throw new Error('面板服务身份不匹配');
+      }
       if (current.running) return status(located);
       let launched = null;
+      // The venv console launcher starts another interpreter that allocates a
+      // visible console despite windowsHide + detached. pythonw keeps both
+      // processes windowless while redirected logs and detached lifetime work.
       if (!existing.found) launched = launch(config.python, ['-m', 'uvicorn', 'server.main:app', '--env-file', '.env', '--host', '127.0.0.1', '--port', String(config.port)], located,
         path.join(config.dataDir, 'manager.out.log'), path.join(config.dataDir, 'manager.err.log'));
       const deadline = Date.now() + startupTimeoutMs;

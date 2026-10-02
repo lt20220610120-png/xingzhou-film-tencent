@@ -45,6 +45,12 @@ test('rejects over-limit rather than clipping and underfilled nonfinal segments'
   assert.equal(validateScenePlan({ segments: [candidateSegment(tape.units.at(-1).id, 5)] }, { tape, maxDurationSeconds: 30 }).ok, true);
 });
 
+test('punctuation alone cannot be a video segment',()=>{
+  const tape=buildSceneSourceTape('甲：走！');
+  const result=validateScenePlan({segments:[candidateSegment('u1',30,{end:{unitId:'u1',prefix:'甲：走'}}),candidateSegment('u1',2)]},{tape,maxDurationSeconds:30});
+  assert.equal(result.ok,false);assert.ok(result.issues.some(i=>i.code==='EMPTY_SEGMENT'));
+});
+
 test('decimal timing sums do not manufacture an over-limit binary rounding error', () => {
   const tape = buildSceneSourceTape('甲：台词和动作并行。');
   const segment = candidateSegment(tape.units[0].id, 30, { timing: { speechSeconds: 26.4, actionSeconds: 6.4, overlapSeconds: 2.8, transitionSeconds: 0 } });

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { createWorkBuddyPanel, normalizeBounds, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 
-function fixture(account = { isAdmin: true }) {
+function fixture(account = { isAdmin: true }, serviceOverrides = {}) {
   let current = account, token = 'session-a', cookieCount = 0, started = 0, authorized = 0, loaded = 0, cleared = 0;
   const views = [];
   class View {
@@ -20,7 +20,7 @@ function fixture(account = { isAdmin: true }) {
   const updater = { update: async () => {} };
   const access = { session: async () => { authorized++; return current; }, token: () => token };
   const events = [];
-  const panel = createWorkBuddyPanel({ getWindow: () => win, accessService: access, updater, onState: (value) => events.push(value), service: { status: async () => ({ installed: true, running: true, root: '/local', port: 7864 }), start: async () => { started++; return { installed: true, running: true, root: '/local', port: 7864 }; }, sessionCookie: () => ({ url: 'http://127.0.0.1:7864', name: 'wb_session', value: 'private', httpOnly: true }) }, WebContentsView: View, session: { fromPartition: () => partition }, shell: { openExternal: async () => {} }, setInterval: () => 1, clearInterval: () => {} });
+  const panel = createWorkBuddyPanel({ getWindow: () => win, accessService: access, updater, onState: (value) => events.push(value), service: { status: async () => ({ installed: true, running: true, root: '/local', port: 7864 }), start: async () => { started++; return { installed: true, running: true, root: '/local', port: 7864 }; }, sessionCookie: () => ({ url: 'http://127.0.0.1:7864', name: 'wb_session', value: 'private', httpOnly: true }), ...serviceOverrides }, WebContentsView: View, session: { fromPartition: () => partition }, shell: { openExternal: async () => {} }, setInterval: () => 1, clearInterval: () => {} });
   return { panel, access, updater, events, views, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, counts: () => ({ cookieCount, started }), lifecycle: () => ({ authorized, loaded, cleared }) };
 }
 
@@ -111,6 +111,23 @@ test('updating prevents reopening the page and overlapping updates', async () =>
   await assert.rejects(f.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } }), /更新/);
   await assert.rejects(f.panel.update(), /更新/);
   finish(); const result = await updating; assert.equal(result.installed, true); assert.equal(f.panel.isUpdating(), false);
+});
+test('updating waits for an in-flight manager migration before replacing its files', async () => {
+  let finishStartup, updates = 0;
+  const f = fixture({ isAdmin: true }, { start: () => new Promise(resolve => { finishStartup = resolve; }) });
+  const opening = f.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } });
+  const cancelled = assert.rejects(opening, /取消/);
+  await new Promise(setImmediate);
+  f.updater.update = async () => { updates++; };
+  const updating = f.panel.update();
+  await new Promise(setImmediate);
+  assert.equal(f.panel.isUpdating(), true);
+  assert.equal(updates, 0);
+  await assert.rejects(f.panel.open(), /更新/);
+  finishStartup({ installed: true, running: true, root: '/local', port: 7864 });
+  await cancelled;
+  await updating;
+  assert.equal(updates, 1);
 });
 test('the panel can copy text but cannot read the clipboard or grant unrelated permissions', async () => {
   const f = fixture(); await f.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } });

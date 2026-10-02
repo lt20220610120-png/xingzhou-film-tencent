@@ -1,5 +1,6 @@
 import { buildSceneSourceTape, validateScenePlan, parseStructuredJson } from './directorSegmentation.js';
 import { recalibrateScenePlanTimings } from './directorTiming.js';
+import { packScenePlan } from './directorPlanPacking.js';
 import { buildSegmentationMessages, buildSegmentSkillRequest, buildSceneAuditMessages } from './directorSegmentationMessages.js';
 import { identifyPromptContract, validateGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, parseSceneAudit } from './directorPromptValidation.js';
 import { createSceneSnapshot } from './directorQuickStore.js';
@@ -110,7 +111,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
         let issues=run.planIssues||[];
         for(let attempt=run.planQualityFailures||0;attempt<maxQualityAttempts;attempt++){
           run.phase='planning';run.planningAttempts=(run.planningAttempts||0)+1;await persist(run);
-          const output=run.lastPlanningOutput||await request(run,version,'plan',{messages:buildSegmentationMessages({snapshot:run.snapshot,tape,validationIssues:issues}),profileId:run.snapshot.profileId});
+          const output=run.lastPlanningOutput||await request(run,version,'plan',{messages:buildSegmentationMessages({snapshot:run.snapshot,tape,validationIssues:issues,previousCandidate:run.previousPlanningCandidate}),profileId:run.snapshot.profileId});
           run.phase='validating-plan';run.lastPlanningOutput=output;await persist(run);
           let candidate;
           try{candidate=parseJson(output);}catch{issues=[{code:'INVALID_JSON',message:'请只返回完整且有效的 JSON 计划'}];run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
@@ -119,9 +120,13 @@ export function createQuickGenerationController({getContext,executeText,executeS
             run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;
           }
           if(Array.isArray(candidate?.segments))candidate.segments.forEach(segment=>{if(segment.visualNotes===undefined)segment.visualNotes=[];});
-          if(groundedTiming)candidate=recalibrateScenePlanTimings(candidate,{tape}).candidate;
+          if(groundedTiming){
+            candidate=recalibrateScenePlanTimings(candidate,{tape}).candidate;
+            const packed=packScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+            if(packed.changed){run.planPacking={version:1,originalSegmentCount:packed.originalSegmentCount,segmentCount:packed.segmentCount};candidate=packed.candidate;}
+          }
           const validated=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming});
-          if(!validated.ok){issues=validated.issues;run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
+          if(!validated.ok){issues=validated.issues;run.previousPlanningCandidate=candidate;run.planningHistory=[...(run.planningHistory||[]),{output,issues,at:new Date().toISOString()}].slice(-3);run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
           run.plan={...validated.plan,id:`plan-${run.id}`,version:1,sceneLabel:run.snapshot.sceneLabel,
             sourceSnapshot:tape.sourceSnapshot,sourceText:tape.sourceText,sceneHeader:tape.sceneHeader,
             sourceHash:run.snapshot.sourceHash,settingsHash:run.snapshot.settingsHash,skillHash:run.snapshot.skillHash,profileHash:run.snapshot.profileHash,

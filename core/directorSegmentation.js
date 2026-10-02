@@ -136,7 +136,7 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds, grounde
     }
     if (sourceEnd <= sourceStart) issues.push(issue('ANCHOR_ORDER', '片段结束锚点必须严格递增，不能产生重复或空段', segmentIndex, segment.end));
     if (!isLegal(sourceEnd)) issues.push(issue('INVALID_BOUNDARY', '不能在 Unicode 字符或词语内部切分', segmentIndex, segment.end));
-    if (sourceEnd > sourceStart && !tape.sourceText.slice(sourceStart, sourceEnd).trim()) issues.push(issue('EMPTY_SEGMENT', '片段不能只有空白字符', segmentIndex));
+    if (sourceEnd > sourceStart && !tape.sourceText.slice(sourceStart, sourceEnd).replace(/[\s\p{P}]/gu, '')) issues.push(issue('EMPTY_SEGMENT', '片段不能只有空白或标点，必须保留可表演的原文内容', segmentIndex));
     let estimatedSeconds;
     try { estimatedSeconds = estimateSegmentSeconds(segment.timing); } catch (error) { issues.push(issue('INVALID_TIMING', error.message, segmentIndex, segment.timing)); }
     const grounded = groundedTiming && sourceEnd > sourceStart ? validateDirectorSegmentTiming({ sourceText: tape.sourceText, sourceStart, sourceEnd, timing: segment.timing, maxDurationSeconds, segmentIndex }) : null;
