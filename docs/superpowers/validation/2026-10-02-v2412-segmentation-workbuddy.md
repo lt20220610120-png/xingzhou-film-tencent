@@ -32,4 +32,8 @@ WorkBuddy 的 venv `python.exe` 转发到基础解释器后产生可见控制台
 - 2.4.12 安装包制作完成，安装包运行时验证 `PASS`（页面、预加载桥、本地媒体及运行时依赖）。
 - 原生桌面截图 `v2412-native-workbuddy.png` 确认真实内嵌仪表盘可见、状态已连接，页面前方没有控制台。
 
-公开更新清单校验完成后补记。
+- 源码提交 `a455eb3` 已推送到源仓库 `main`；发布清单提交 `6dc837d` 已同步。
+- 发布页：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.4.12 。
+- 两个公开仓库的 `latest.json` 均核验为 2.4.12，安装包地址、文件大小 102364292 字节与本地一致。
+- 从公开链接完整下载安装包并校验 SHA256：`7528711583ef7b6c175e9f30f761f93ab0cddda5e6e52ef857c77aa5b33c6430`，与两个清单及本地安装包一致。报告：`qa/director-reliability/public-release-2.4.12.json`。
+- 关闭两个隔离验证应用后，真实 WorkBuddy 状态再次核验 `running: true, version: v1.0.78`。用户原应用未被强制关闭。
