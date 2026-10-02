@@ -2,7 +2,7 @@ import { buildSceneSourceTape, validateScenePlan, parseStructuredJson } from './
 import { recalibrateScenePlanTimings } from './directorTiming.js';
 import { packScenePlan } from './directorPlanPacking.js';
 import { buildSegmentationMessages, buildSegmentSkillRequest, buildSceneAuditMessages } from './directorSegmentationMessages.js';
-import { identifyPromptContract, validateGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, parseSceneAudit } from './directorPromptValidation.js';
+import { identifyPromptContract, validateAndRepairGeneratedSegment, parseSceneAudit } from './directorPromptValidation.js';
 import { createSceneSnapshot } from './directorQuickStore.js';
 
 const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
@@ -74,7 +74,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       const sourceFor=segment=>({text:tape.sourceText.slice(segment.sourceStart,segment.sourceEnd),sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
       // Older failed checkpoints often contain valid paid output rejected by
       // the former cast/OS parser. Recheck it locally before spending again.
-      if(run.processingVersion!==3){
+      if(run.processingVersion!==4){
         const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
         run.segmentQualityFailures={};run.auditRepairIndexes=[];run.auditRepairAttempts={};run.auditWarnings=[];run.checks={audited:false,ranges:{}};
         run.planQualityFailures=0;run.planIssues=[];
@@ -83,29 +83,28 @@ export function createQuickGenerationController({getContext,executeText,executeS
             const unit=tape.units.find(unit=>unit.end===segment.sourceEnd)||tape.units.find(unit=>unit.start<segment.sourceEnd&&unit.end>segment.sourceEnd);
             return {...segment,end:unit?{unitId:unit.id,...(unit.end===segment.sourceEnd?{}:{prefix:unit.text.slice(0,segment.sourceEnd-unit.start)})}:null};
           })};
-          const checked=validateScenePlan(recalibrateScenePlanTimings(candidate,{tape}).candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true});
-          if(!checked.ok){
-            run.previousDrafts=Object.values(run.segmentDrafts).filter(d=>d.prompt?.content);
+          const checked=validateScenePlan(recalibrateScenePlanTimings(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds}).candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true});
+          if(!checked.ok||checked.plan.segments.length!==run.plan.segments.length){
+            run.previousDrafts=[...(run.previousDrafts||[]),...Object.values(run.segmentDrafts).filter(d=>d.prompt?.content)];
+            // A partially published plan is immutable. A new source partition
+            // needs fresh plan/prompt IDs while preserving its paid history.
+            run.nextPlanId=`plan-${run.id}-revised-${uid()}`;
             run.previousPlan=run.plan;run.plan=null;run.segmentDrafts={};run.promptIds=[];run.sharedBaseline='';run.lastPlanningOutput='';
-          }else run.plan={...run.plan,segments:checked.plan.segments.map((segment,i)=>({...segment,id:run.plan.segments[i].id,index:i+1}))};
+          }else{
+            const published=context.episode.quickScenePlans?.find(plan=>plan.id===run.plan.id);
+            // New timing facts alone cannot rewrite a plan already referenced
+            // by saved cards. The store rejects differing JSON for that ID.
+            run.plan=published?clone(published):{...run.plan,segments:checked.plan.segments.map((segment,i)=>({...segment,id:run.plan.segments[i].id,index:i+1}))};
+          }
         }
         let baseline='';
         for(const segment of run.plan?.segments||[]){
           const draft=run.segmentDrafts[segment.id];if(!draft?.prompt?.content)continue;
-          let candidateOutput=draft.prompt.content;
-          let checked=validateGeneratedSegment({output:candidateOutput,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:baseline});
-          if(!checked.ok&&checked.issues?.length&&checked.issues.every(item=>item.code==='DIALOGUE_MODE_CHANGED')){
-            candidateOutput=repairGeneratedDialogueModes({output:candidateOutput,source:sourceFor(segment)});
-            checked=validateGeneratedSegment({output:candidateOutput,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:baseline});
-          }
-          if(!checked.ok&&checked.issues?.length&&checked.issues.every(item=>item.code==='MISSING_DIALOGUE_CONTINUATION')){
-            candidateOutput=repairGeneratedDialogueContinuations({output:candidateOutput,source:sourceFor(segment)});
-            checked=validateGeneratedSegment({output:candidateOutput,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:baseline});
-          }
-          run.segmentDrafts[segment.id]={...draft,prompt:checked.prompt||{...draft.prompt,content:candidateOutput},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[]};
+          const checked=validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:baseline});
+          run.segmentDrafts[segment.id]={...draft,prompt:checked.prompt||{...draft.prompt,content:checked.output},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[],localRepairs:checked.repairs};
           if(checked.ok&&!baseline&&checked.baseline)baseline=checked.baseline;
         }
-        run.sharedBaseline=baseline||run.sharedBaseline;run.processingVersion=3;await persist(run);
+        run.sharedBaseline=baseline||run.sharedBaseline;run.processingVersion=4;await persist(run);
       }
       if(!run.plan){
         let issues=run.planIssues||[];
@@ -121,13 +120,17 @@ export function createQuickGenerationController({getContext,executeText,executeS
           }
           if(Array.isArray(candidate?.segments))candidate.segments.forEach(segment=>{if(segment.visualNotes===undefined)segment.visualNotes=[];});
           if(groundedTiming){
-            candidate=recalibrateScenePlanTimings(candidate,{tape}).candidate;
+            const originalSegmentCount=candidate.segments?.length;
+            const calibration=recalibrateScenePlanTimings(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+            candidate=calibration.candidate;
+            if(calibration.changed)run.timingCalibration={version:2,changes:calibration.changes};
+            if(candidate.segments?.length!==originalSegmentCount)run.planPacking={version:2,originalSegmentCount,segmentCount:candidate.segments?.length};
             const packed=packScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
             if(packed.changed){run.planPacking={version:1,originalSegmentCount:packed.originalSegmentCount,segmentCount:packed.segmentCount};candidate=packed.candidate;}
           }
           const validated=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming});
           if(!validated.ok){issues=validated.issues;run.previousPlanningCandidate=candidate;run.planningHistory=[...(run.planningHistory||[]),{output,issues,at:new Date().toISOString()}].slice(-3);run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
-          run.plan={...validated.plan,id:`plan-${run.id}`,version:1,sceneLabel:run.snapshot.sceneLabel,
+          run.plan={...validated.plan,id:run.nextPlanId||`plan-${run.id}`,version:1,sceneLabel:run.snapshot.sceneLabel,
             sourceSnapshot:tape.sourceSnapshot,sourceText:tape.sourceText,sceneHeader:tape.sceneHeader,
             sourceHash:run.snapshot.sourceHash,settingsHash:run.snapshot.settingsHash,skillHash:run.snapshot.skillHash,profileHash:run.snapshot.profileHash,
             maxDurationSeconds:run.snapshot.maxDurationSeconds,rulesVersion:1,createdAt:new Date().toISOString(),
@@ -136,6 +139,23 @@ export function createQuickGenerationController({getContext,executeText,executeS
         }
         if(!run.plan)throw error(issues.map(i=>i.message||i.code).join('；')||'分段计划未通过时长与原文核对','NEEDS_REVIEW');
       }
+      // An interrupted run from this same processing version can already have
+      // paid text that needs only deterministic formatting repairs introduced
+      // after it was saved. Recover that text before making another request;
+      // keep the calibrated plan, accepted clips and their durable IDs intact.
+      const recoveryContext=await assertCurrent(run,version);
+      const recoveryContract=identifyPromptContract(recoveryContext.skill);
+      let recoveredDraft=false;
+      for(const segment of run.plan.segments){
+        const draft=run.segmentDrafts[segment.id];
+        if(draft?.validated||!draft?.prompt?.content)continue;
+        const checked=validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract:recoveryContract,sharedBaseline:run.sharedBaseline});
+        if(!checked.ok&&checked.output===draft.prompt.content)continue;
+        run.segmentDrafts[segment.id]={...draft,prompt:checked.prompt||{...draft.prompt,content:checked.output},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[],localRepairs:[...new Set([...(draft.localRepairs||[]),...checked.repairs])]};
+        if(checked.ok&&!run.sharedBaseline&&checked.baseline)run.sharedBaseline=checked.baseline;
+        recoveredDraft=true;
+      }
+      if(recoveredDraft)await persist(run);
       while(!run.checks.audited){
         run.phase='generating';await persist(run);
         const context=await assertCurrent(run,version);
@@ -153,19 +173,10 @@ export function createQuickGenerationController({getContext,executeText,executeS
             if(issues.length)built.input+=`\n\n【修正本条】\n${JSON.stringify(issues)}\n只修正本条问题，保持原台词、剧情、编号、目标时长和整场基准。`;
             run.currentSegmentIndex=segment.index;await persist(run);
             const output=await request(run,version,'skill',{...built,skillId:run.snapshot.skillId,profileId:run.snapshot.profileId});
-            let candidateOutput=output;
-            let checked=validateGeneratedSegment({output:candidateOutput,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
-            if(!checked.ok&&checked.issues?.length&&checked.issues.every(item=>item.code==='DIALOGUE_MODE_CHANGED')){
-              candidateOutput=repairGeneratedDialogueModes({output:candidateOutput,source:sourceFor(segment)});
-              checked=validateGeneratedSegment({output:candidateOutput,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
-            }
-            if(!checked.ok&&checked.issues?.length&&checked.issues.every(item=>item.code==='MISSING_DIALOGUE_CONTINUATION')){
-              candidateOutput=repairGeneratedDialogueContinuations({output:candidateOutput,source:sourceFor(segment)});
-              checked=validateGeneratedSegment({output:candidateOutput,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
-            }
+            const checked=validateAndRepairGeneratedSegment({output,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
             const failures=(run.segmentQualityFailures[segment.id]||0)+(checked.ok?0:1);
             run.segmentQualityFailures[segment.id]=failures;
-            run.segmentDrafts[segment.id]={prompt:checked.prompt||{label:`${run.snapshot.sceneLabel}-${segment.index}`,content:candidateOutput},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[],qualityFailures:failures};
+            run.segmentDrafts[segment.id]={prompt:checked.prompt||{label:`${run.snapshot.sceneLabel}-${segment.index}`,content:checked.output},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[],qualityFailures:failures,localRepairs:checked.repairs};
             if(checked.ok&&!run.sharedBaseline&&checked.baseline)run.sharedBaseline=checked.baseline;
             await persist(run);
             if(checked.ok){
@@ -245,7 +256,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       const snapshot=await createSceneSnapshot(sceneRequest);
       if([...runs.values()].some(r=>isQuickRunActive(r)&&snapshotKey(r.snapshot)===snapshotKey(snapshot)))throw error('当前场景正在生成','BUSY');
       const id=runId||uid();if(runs.has(id))throw error('任务编号已存在','BUSY');
-      const run={id,kind:'scene',...(batchId?{batchId}:{}),snapshot,phase:'planning',createdAt:new Date().toISOString(),revision:0,processingVersion:3,plan:null,segmentDrafts:{},segmentQualityFailures:{},sharedBaseline:'',checks:{audited:false,ranges:{}},errors:[],promptIds:[],auditRepairIndexes:[]};
+      const run={id,kind:'scene',...(batchId?{batchId}:{}),snapshot,phase:'planning',createdAt:new Date().toISOString(),revision:0,processingVersion:4,plan:null,segmentDrafts:{},segmentQualityFailures:{},sharedBaseline:'',checks:{audited:false,ranges:{}},errors:[],promptIds:[],auditRepairIndexes:[]};
       runs.set(run.id,run);
       const initialVersion=versions.get(run.id)||0;
       await persist(run);

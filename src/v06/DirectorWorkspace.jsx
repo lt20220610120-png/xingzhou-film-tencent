@@ -586,10 +586,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         </div>
       )}
 
-      {/* 快速模式：三栏布局 — 场景列表 | 场景编辑 | 提示词结果 */}
+      {/* 快速模式：场景导航下方，原文与提示词使用等高双栏。 */}
       {mode === 'quick' && (
         <div className="quick-mode-container">
-          {quickSettings.segmentationMode==='auto'&&<DirectorBatchPanel project={project} skill={currentSkill} profile={directorProfile} maxDurationSeconds={quickSettings.maxDurationSeconds} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked)||project.canWrite===false} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/>}
+          {quickSettings.segmentationMode==='auto'&&<DirectorBatchPanel key={`${accountId}:${project.id}`} project={project} accountId={accountId} skill={currentSkill} profile={directorProfile} maxDurationSeconds={quickSettings.maxDurationSeconds} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked)||project.canWrite===false} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/>}
           {/* 左栏：场景列表 */}
           <nav className="quick-scene-rail">
             <div className="quick-scene-rail-title">场景列表</div>
@@ -677,6 +677,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 <p>选择 Skill 并运行，生成的提示词会出现在这里。</p>
               </div>
             )}
+            <div className="quick-prompts-info"><small>{scenePrompts.length?`已保存 ${scenePrompts.length} 条提示词 · 切换场景后可继续查看。`:'通过核对的提示词会自动保存在此处。'}</small></div>
           </section>
         </div>
       )}

@@ -76,6 +76,7 @@ test('visual beat cues are original evidence with offsets, never narration word-
   assert.equal(beats.length, 2);
   for (const beat of beats) {
     assert.equal(source.slice(beat.sourceStart, beat.sourceEnd), beat.sourceQuote);
-    assert.deepEqual(beat.typicalSeconds, [2, 3]);
+    assert.ok(beat.typicalSeconds[0] <= beat.typicalSeconds[1]);
   }
+  assert.deepEqual(beats[0].typicalSeconds, [0.8, 1.5], 'a quick wipe is shorter than a separate three-second hold');
 });

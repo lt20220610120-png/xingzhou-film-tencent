@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import {
   ArrowLeft, Plus, X, Users, FileText, Palette, Box, Clapperboard,
   UserPlus, BarChart3, MessagesSquare, Sparkles, RefreshCw, Send,
-  Image as ImageIcon, Upload, Trash2, Check, Film, AtSign, Loader2, PencilLine, Save,
+  Image as ImageIcon, Upload, Download, Trash2, Check, Film, AtSign, Loader2, PencilLine, Save,
 } from 'lucide-react';
 import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
@@ -184,51 +184,58 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId 
   };
 
   return (
-    <div className="collab-info">
-      <aside className="collab-info-side">
+    <div className="collab-info art-analysis-info">
+      <aside className="collab-info-side" aria-label="美术分析配置">
+        <header className="art-config-heading"><Palette size={20}/><div><h2>美术配置</h2><p>从剧本提取人物、场景与道具</p></div></header>
+        <div className="art-config-fields">
         <div className="collab-panel-title"><Palette size={15} /> 画风</div>
         <div className="collab-style-chips">
           {COLLAB_STYLES.map((s) => (
-            <button key={s} disabled={!canEdit} className={`style-chip ${selectedStyle === s ? 'active' : ''}`}
+            <button key={s} disabled={!canEdit} aria-pressed={selectedStyle===s} className={`style-chip ${selectedStyle === s ? 'active' : ''}`}
               onClick={() => { const next = selectedStyle === s ? '' : s; setSelectedStyle(next); saveInfo({ style: next }); }}>{s}</button>
           ))}
         </div>
         <div className="collab-panel-title"><FileText size={15} /> 题材</div>
-        <textarea className="collab-genre-input" value={genre} disabled={!canEdit}
+        <textarea className="collab-genre-input" aria-label="剧本题材与时代" value={genre} disabled={!canEdit}
           onChange={(e) => setGenre(e.target.value)} onBlur={() => canEdit && genre !== (project.genre || '') && saveInfo({ genre })}
-          placeholder={'手动填写整个剧本的题材与时代设定。\n例如：现代都市职场复仇 / 西方狼人吸血鬼 / 古代宫斗 / 民国谍战……'} />
+          placeholder={'填写题材与时代设定\n例如：现代都市、青春恋爱、甜宠'} />
         <div className="collab-panel-title"><Sparkles size={15} /> 分析模型</div>
         <select aria-label="分析模型" value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!canEdit || analyzing}>
           {!apiProfiles.length && <option value="">请先在 API 接口中添加模型</option>}
           {apiProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}
         </select>
-        <div className="collab-panel-title"><Check size={15} /> Skill</div>
-        <div className="collab-locked-skill">
-          <b>{COLLAB_ART_SKILL_NAME}</b>
-          <small>内置锁定 · 按集输出人物/场景/道具美术清单，软件自动分框识别</small>
         </div>
+        <div className="collab-locked-skill">
+          <span className="art-skill-label"><Check size={14}/>内置美术规则</span>
+          <b>{COLLAB_ART_SKILL_NAME}</b>
+          <small>按集整理美术清单，完成后同步到资产。</small>
+        </div>
+        <div className="art-config-execution">
         <div className="collab-analysis-actions">
-          <button className="primary collab-analyze-btn" onClick={runAllAnalysis} disabled={!canEdit || analyzing}>
+          <button className="primary collab-analyze-btn" onClick={runAllAnalysis} disabled={!canEdit || analyzing || !profile}>
             {analyzing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />} {analyzing ? '分析中…' : '分析 / 继续未完成'}
           </button>
           {analyzing && <button className="danger" onClick={() => stopAnalysis({ projectId: project.id, api, accountId })}><X size={16} /> 停止分析</button>}
         </div>
-        <button className="ghost" onClick={async()=>{try{const saved=await api.analysisLoad({projectId:project.id});const content=Object.values(saved?.episodes||{}).flatMap(r=>[...(r.outputs||[]).filter(Boolean),...(r.failure?.partialText?['【未完成片段 · 仅供核对】\n'+r.failure.partialText]:[])]).join('\n\n');if(!content){setNotice('暂无已保存的分析结果');return;}await api.saveTxt({name:project.name+'-已保存美术清单',content});}catch(e){setError(e.message);}}}>导出已保存清单</button>
-        <small className="analysis-checkpoint-note">逐段自动保存 · 中断可继续 · 每集完成同步资产</small>
+        <button className="secondary art-export-button" onClick={async()=>{try{const saved=await api.analysisLoad({projectId:project.id});const content=Object.values(saved?.episodes||{}).flatMap(r=>[...(r.outputs||[]).filter(Boolean),...(r.failure?.partialText?['【未完成片段 · 仅供核对】\n'+r.failure.partialText]:[])]).join('\n\n');if(!content){setNotice('暂无已保存的分析结果');return;}await api.saveTxt({name:project.name+'-已保存美术清单',content});}catch(e){setError(e.message);}}}><Download size={15}/>导出已保存清单</button>
+        <small className="analysis-checkpoint-note"><Save size={13}/>自动保存进度，中断后可继续。</small>
         {(analysisJob?.pending>0)&&<button className="secondary" disabled={!canEdit||analyzing||analysisJob.syncing} onClick={() => syncPendingArtAnalysis({ project, refresh, api, assets, accountId })}>{analysisJob.syncing?'同步中…':`同步已保存结果（${analysisJob.pending}）`}</button>}
+        </div>
+        <div className="art-config-status" aria-live="polite">
         <AnalysisSyncDetails job={analysisJob}/>
-        {error && <div className="collab-error">{error}</div>}
+        {error && <div className="collab-error" role="alert">{error}</div>}
         {(notice || analysisJob?.notice) && <div className="collab-notice">{notice || analysisJob.notice}</div>}
         {analysisJob?.error && <div className="collab-error">{analysisJob.error}</div>}
+        </div>
       </aside>
       <section className="collab-info-script">
         <div className="collab-panel-title">
-          <FileText size={15} /> 完整剧本（可修改）
+          <FileText size={16} /> 完整剧本<span className="art-script-edit-status">{!canEdit?'只读':script===(project.script||'')?'已保存':'有未保存修改'}</span>
           <button className="ghost collab-save-script" disabled={!canEdit || saving || script === (project.script || '')} onClick={() => saveInfo({ script })}>
             <Save size={14} /> {saving ? '保存中…' : '保存剧本'}
           </button>
         </div>
-        <textarea value={script} readOnly={!canEdit} onChange={(e) => setScript(e.target.value)} placeholder="这里展示项目的完整剧本，可直接修改后保存。" />
+        <textarea aria-label="完整剧本" value={script} readOnly={!canEdit} onChange={(e) => setScript(e.target.value)} placeholder="这里展示项目的完整剧本，可直接修改后保存。" />
       </section>
     </div>
   );

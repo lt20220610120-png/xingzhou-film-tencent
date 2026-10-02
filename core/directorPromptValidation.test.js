@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { identifyPromptContract, validateGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, parseSceneAudit } from './directorPromptValidation.js';
+import { identifyPromptContract, validateGeneratedSegment, validateAndRepairGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, repairGeneratedShotWeights, parseSceneAudit } from './directorPromptValidation.js';
 
 const baseline = '影像基准=数字电影；镜组=35mm T2.8；采样=24fps 180° EI800；WB=5600K；主光=窗光5600K 方位角90° 仰角45°；补光=墙反射5600K；K:F=2:1；影调=Rec.709 白位90IRE';
 const prompt = ({ label = '1-1-1', speech = '我来关灯。', speaker = '甲', light = baseline, sound = '甲的D01开始并结束。', camera = '侧方拍摄。' } = {}) => `${label}
@@ -156,6 +156,123 @@ test('exact dialogue text can deterministically restore a changed OS/VO marker',
   const output = prompt({ speech: '我来关灯。', speaker: '甲' });
   const repaired = repairGeneratedDialogueModes({ output, source: '甲OS：我来关灯。' });
   assert.equal(validateGeneratedSegment({ expectedLabel: '1-1-1', contract: 'fast-v8', source: '甲OS：我来关灯。', output: repaired }).ok, true);
+});
+
+const twoShotPrompt = ({ speech = '我来关灯。', declarations, firstSound = 'D01开始。', secondSound = '衣料轻响。' } = {}) => {
+  const base = prompt({ speech });
+  const pictureStart = base.indexOf('【画面内容】') + '【画面内容】'.length;
+  const pictureEnd = base.indexOf('【人物起止与运动轨迹】');
+  const shot = base.slice(pictureStart, pictureEnd).trim();
+  const first = shot.replace('比重约100%', '比重约50%').replace(/^声音：.*$/mu, `声音：${firstSound}`);
+  const second = shot.replace('分镜01', '分镜02').replace('比重约100%', '比重约50%').replace(/^声音：.*$/mu, `声音：${secondSound}`);
+  return (base.slice(0, pictureStart) + `\n${first}\n${second}\n` + base.slice(pictureEnd))
+    .replace(/【连续台词】\n[\s\S]*?(?=【画面内容】)/u, `【连续台词】\n${declarations || `D01｜甲｜现场对白｜分镜01开始并在分镜02结束：『${speech}』`}\n`);
+};
+
+test('mixed inner-voice and continuation formatting failures repair together while the action continues', () => {
+  const source = '甲OS：我搜到项链了。\n△甲把金项链放进包里。';
+  const output = twoShotPrompt({ speech: '我搜到项链了。' }).replaceAll('甲关灯。', '甲把金项链放进包里。');
+  const args = { output, source, expectedLabel: '1-1-1', contract: 'fast-v8' };
+  const initial = validateGeneratedSegment(args);
+  assert.deepEqual(new Set(initial.issues.map(entry => entry.code)), new Set(['DIALOGUE_MODE_CHANGED', 'MISSING_DIALOGUE_CONTINUATION']));
+  const repaired = validateAndRepairGeneratedSegment(args);
+  assert.equal(repaired.ok, true, JSON.stringify(repaired.issues));
+  assert.deepEqual(repaired.repairs, ['DIALOGUE_MODE_CHANGED', 'MISSING_DIALOGUE_CONTINUATION']);
+  assert.match(repaired.output, /甲｜内心VO/);
+  assert.match(repaired.output, /声音：衣料轻响。；D01继续并结束。/);
+  assert.match(repaired.output, /表演与动作：甲把金项链放进包里。/);
+});
+
+test('a wrong declaration shot reconciles to the existing sound assignment without duplicating the voice', () => {
+  const source = '甲OS：我来关灯。\n系统 VO：任务完成。';
+  const output = twoShotPrompt({
+    declarations: 'D01｜甲｜内心VO｜分镜01内说完：『我来关灯。』\nD02｜系统｜场外声音｜分镜01内说完：『任务完成。』',
+    firstSound: 'D01内心VO说完；开关声。', secondSound: 'D02系统VO在画外响起；环境声。',
+  });
+  const checked = validateAndRepairGeneratedSegment({ output, source, expectedLabel: '1-1-1', contract: 'fast-v8' });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.match(checked.output, /D02｜系统｜场外声音｜分镜02开始并在分镜02结束：『任务完成。』/);
+  const soundRows = [...checked.output.matchAll(/^声音：([^\n]*)/gmu)].map(match => match[1]);
+  assert.doesNotMatch(soundRows[0], /D02/);
+  assert.match(soundRows[1], /D02/);
+});
+
+test('local formatting repairs never waive changed dialogue, speakers, or a different lighting baseline', () => {
+  const source = '甲OS：我来关灯。';
+  for (const output of [twoShotPrompt({ speech: '我去关灯。' }), twoShotPrompt().replace('D01｜甲｜', 'D01｜乙｜')]) {
+    const checked = validateAndRepairGeneratedSegment({ output, source, expectedLabel: '1-1-1', contract: 'fast-v8' });
+    assert.equal(checked.ok, false);
+    assert.equal(checked.output, output);
+    assert.ok(checked.issues.some(entry => ['DIALOGUE_TEXT_CHANGED', 'DIALOGUE_SPEAKER_CHANGED'].includes(entry.code)));
+  }
+  const changedLight = validateAndRepairGeneratedSegment({ output: twoShotPrompt(), source, expectedLabel: '1-1-1', contract: 'fast-v8', sharedBaseline: baseline.replace('EI800', 'EI1600') });
+  assert.equal(changedLight.ok, false);
+  assert.deepEqual(changedLight.issues.map(entry => entry.code), ['BASELINE_CHANGED']);
+});
+
+test('multiline original speech remains eligible for a guarded voice-marker repair', () => {
+  const source = '甲OS：我来\n关灯。';
+  const output = prompt().replace('『我来关灯。』', '『我来\n关灯。』');
+  const checked = validateAndRepairGeneratedSegment({ output, source, expectedLabel: '1-1-1', contract: 'fast-v8' });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.match(checked.output, /『我来\n关灯。』/);
+});
+
+test('positive shot percentages normalize to exactly 100 while preserving their relative proportions and all other text', () => {
+  const output = twoShotPrompt({ secondSound: 'D01继续并结束。' })
+    .replace('比重约50%', '比重约3%').replace('比重约50%', '比重约7%');
+  const repaired = repairGeneratedShotWeights({ output });
+  const weights = [...repaired.matchAll(/^分镜\d+｜比重约([\d.]+)%$/gmu)].map(match => Number(match[1]));
+  assert.deepEqual(weights, [30, 70]);
+  assert.equal(weights.reduce((sum, weight) => sum + weight, 0), 100);
+  assert.equal(repaired.replace(/(比重约)[\d.]+%/gu, '$1WEIGHT%'), output.replace(/(比重约)[\d.]+%/gu, '$1WEIGHT%'));
+  assert.equal(validateGeneratedSegment({ output: repaired, source: '甲：我来关灯。', expectedLabel: '1-1-1', contract: 'fast-v8' }).ok, true);
+});
+
+test('percentage normalization uses deterministic rounding that retains every positive shot', () => {
+  const output = twoShotPrompt({ secondSound: 'D01继续并结束。' })
+    .replace('比重约50%', '比重约8%').replace('比重约50%', '比重约7%');
+  const repaired = repairGeneratedShotWeights({ output });
+  assert.match(repaired, /比重约53\.333333%/);
+  assert.match(repaired, /比重约46\.666667%/);
+  assert.equal(repairGeneratedShotWeights({ output: repaired }), repaired);
+});
+
+test('weights, OS voice and continuation errors can repair together without changing the original dialogue', () => {
+  const source = '甲OS：我来关灯。';
+  const output = twoShotPrompt().replaceAll('比重约50%', '比重约45%');
+  const checked = validateAndRepairGeneratedSegment({ output, source, expectedLabel: '1-1-1', contract: 'fast-v8' });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.deepEqual(checked.repairs, ['DIALOGUE_MODE_CHANGED', 'MISSING_DIALOGUE_CONTINUATION', 'INVALID_SHOT_WEIGHTS']);
+  assert.match(checked.output, /D01｜甲｜内心VO｜分镜01开始并在分镜02结束：『我来关灯。』/);
+  assert.equal([...checked.output.matchAll(/比重约50%/gu)].length, 2);
+});
+
+test('missing, zero, negative or invalid shot weights and non-continuous shots are not fabricated', () => {
+  const base = twoShotPrompt({ secondSound: 'D01继续并结束。' });
+  for (const output of [
+    base.replace('比重约50%', '比重约0%'),
+    base.replace('比重约50%', '比重约-5%'),
+    base.replace('比重约50%', '比重约NaN%'),
+    base.replace('比重约50%', '比重约Infinity%'),
+    base.replace('分镜02｜比重约50%', '分镜02｜'),
+    base.replace('分镜02｜', '分镜03｜'),
+    base.replace('分镜02｜', '分镜01｜'),
+  ]) {
+    assert.equal(repairGeneratedShotWeights({ output }), output);
+    assert.equal(validateAndRepairGeneratedSegment({ output, source: '甲：我来关灯。', expectedLabel: '1-1-1', contract: 'fast-v8' }).ok, false);
+  }
+  assert.equal(validateGeneratedSegment({ output: base.replace('比重约50%', '比重约0%').replace('比重约50%', '比重约100%'), source: '甲：我来关灯。', expectedLabel: '1-1-1', contract: 'fast-v8' }).ok, false);
+});
+
+test('computed percentage repair does not waive invalid fields or changed source dialogue', () => {
+  const base = twoShotPrompt({ secondSound: 'D01继续并结束。' }).replaceAll('比重约50%', '比重约45%');
+  for (const output of [base.replace('『我来关灯。』', '『我去关灯。』'), base.replace('景别：甲手部特写。', '')]) {
+    const checked = validateAndRepairGeneratedSegment({ output, source: '甲：我来关灯。', expectedLabel: '1-1-1', contract: 'fast-v8' });
+    assert.equal(checked.ok, false);
+    assert.ok(checked.repairs.includes('INVALID_SHOT_WEIGHTS'));
+    assert.ok(checked.issues.some(entry => ['DIALOGUE_TEXT_CHANGED', 'INVALID_PROMPT_FIELD', 'INVALID_SHOT_FIELDS'].includes(entry.code)));
+  }
 });
 
 test('redundant cast metadata and harmless dialogue typography are accepted, extra prose is rejected', () => {

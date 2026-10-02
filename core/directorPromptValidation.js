@@ -53,7 +53,7 @@ const dialogueDeclarations = block => {
         else if(rest[index]===closing&&--depth===0){closingIndex=index;break;}
       }
       if(closingIndex<0||rest.slice(closingIndex+1).trim())continue;
-      parsed={number,speaker,mode,reference:rest.slice(0,openingIndex).replace(/[：:]\s*$/u,''),opening,closing,literal:rest.slice(openingIndex,closingIndex+1)};
+      parsed={number,speaker,mode,reference:rest.slice(0,openingIndex).replace(/[：:]\s*$/u,''),referencePrefix:rest.slice(0,openingIndex),opening,closing,literal:rest.slice(openingIndex,closingIndex+1)};
     }
     if (!parsed) { invalid.push(chunk); continue; }
     const closing = parsed.closing;
@@ -74,7 +74,7 @@ const dialogueDeclarations = block => {
     // collect every explicitly named shot as well so continuation checks cover
     // the actual local shots.
     for (const match of reference.matchAll(/分镜\s*(\d+)/gu)) refs.add(Number(match[1]));
-    declarations.push({ number: parsed.number, speaker: parsed.speaker.trim(), mode: parsed.mode.trim(), speech, refs: [...refs] });
+    declarations.push({ number: parsed.number, speaker: parsed.speaker.trim(), mode: parsed.mode.trim(), speech, refs: [...refs], referencePrefix: parsed.referencePrefix });
   }
   return { declarations, invalid };
 };
@@ -107,7 +107,7 @@ const checkFastContract = (body, source, sharedBaseline, issues) => {
 
   const shots = [...blocks.画面内容.matchAll(/^分镜\s*(\d+)\s*[｜|]\s*比重\s*约?\s*(\d+(?:\.\d+)?)\s*%[^\n]*$/gm)];
   if (!shots.length || shots.some((shot, index) => Number(shot[1]) !== index + 1)) issues.push(issue('INVALID_SHOT_SEQUENCE', '分镜应从01连续递增，且每镜有明确比重'));
-  if (Math.abs(shots.reduce((sum, shot) => sum + Number(shot[2]), 0) - 100) > 0.1) issues.push(issue('INVALID_SHOT_WEIGHTS', '分镜比重合计必须为100%'));
+  if (shots.some(shot => !Number.isFinite(Number(shot[2])) || Number(shot[2]) <= 0) || Math.abs(shots.reduce((sum, shot) => sum + Number(shot[2]), 0) - 100) > 0.1) issues.push(issue('INVALID_SHOT_WEIGHTS', '每镜比重必须为合法正数，且分镜比重合计必须为100%'));
   const shotBodies = new Map();
   const cameraLabels = new Set(['正面拍摄', '侧方拍摄', '侧前方拍摄', '侧后方拍摄', '背面拍摄', '平视拍摄', '俯视拍摄', '仰视拍摄', '高机位拍摄', '低机位拍摄', '顶视拍摄', '主观视角拍摄']);
   shots.forEach((shot, index) => {
@@ -190,6 +190,63 @@ export const validateGeneratedSegment = ({ output, expectedLabel, source = '', c
   return { ok: !issues.length, ...(!issues.length ? { prompt: { label: expectedLabel, content } } : {}), baseline: checked.baseline, issues, capabilities };
 };
 
+// Repair independent formatting errors together. Dialogue repairs require a
+// complete source-text/speaker match; weight repair changes only numeric shot
+// percentages. Revalidate the complete contract after each repair so no lexical
+// or structural failure is waived.
+export const validateAndRepairGeneratedSegment = options => {
+  let output = options.output;
+  let checked = validateGeneratedSegment(options);
+  const repairs = [];
+  for (const [code, repair] of [
+    ['DIALOGUE_MODE_CHANGED', repairGeneratedDialogueModes],
+    ['MISSING_DIALOGUE_CONTINUATION', repairGeneratedDialogueContinuations],
+    ['INVALID_SHOT_WEIGHTS', repairGeneratedShotWeights],
+  ]) {
+    if (!checked.issues.some(entry => entry.code === code)) continue;
+    const repaired = repair({ output, source: options.source });
+    if (repaired === output) continue;
+    output = repaired;
+    repairs.push(code);
+    checked = validateGeneratedSegment({ ...options, output });
+  }
+  return { ...checked, output, repairs };
+};
+
+export const repairGeneratedShotWeights = ({ output }) => {
+  if (typeof output !== 'string' || !output.trim()) return output;
+  const pictureHeading = '【画面内容】', trajectoryHeading = '【人物起止与运动轨迹】';
+  const start = output.indexOf(pictureHeading), end = output.indexOf(trajectoryHeading, start);
+  if (start < 0 || end <= start || output.indexOf(pictureHeading, start + pictureHeading.length) >= 0) return output;
+  const picture = output.slice(start, end);
+  const headers = [...picture.matchAll(/^分镜[^\n]*$/gmu)];
+  const parsed = headers.map(header => header[0].match(/^(分镜\s*(\d+)\s*[｜|]\s*比重\s*约?\s*)(\d+(?:\.\d+)?)(\s*%[^\n]*)$/u));
+  // A missing/invalid/duplicate shot or non-positive weight needs a real
+  // content correction. Never manufacture a shot or invent its relative size.
+  if (!headers.length || parsed.some((row, index) => !row || Number(row[2]) !== index + 1 || !Number.isFinite(Number(row[3])) || Number(row[3]) <= 0)) return output;
+  const weights = parsed.map(row => Number(row[3]));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  if (!Number.isFinite(total) || total <= 0 || Math.abs(total - 100) <= 0.1) return output;
+  const scale = 1_000_000, whole = 100 * scale;
+  const quotas = weights.map(weight => weight / total * whole);
+  // Refuse extreme ratios that cannot remain positive at the chosen precision.
+  if (quotas.some(quota => !Number.isFinite(quota) || quota < 1)) return output;
+  const allocated = quotas.map(Math.floor);
+  const remaining = whole - allocated.reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > headers.length) return output;
+  const remainderOrder = quotas.map((quota, index) => ({ index, fraction: quota - allocated[index] }))
+    .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+  for (let index = 0; index < remaining; index += 1) allocated[remainderOrder[index % remainderOrder.length].index] += 1;
+  let repaired = picture;
+  for (let index = headers.length - 1; index >= 0; index -= 1) {
+    const header = headers[index], row = parsed[index];
+    const percentage = (allocated[index] / scale).toFixed(6).replace(/(\.\d*?)0+$/u, '$1').replace(/\.$/u, '');
+    const replacement = `${row[1]}${percentage}${row[4]}`;
+    repaired = repaired.slice(0, header.index) + replacement + repaired.slice(header.index + header[0].length);
+  }
+  return output.slice(0, start) + repaired + output.slice(end);
+};
+
 // A model can preserve every source character and actor while spelling an
 // explicit OS/VO marker differently (for example “现场对白” instead of the
 // source's “内心VO”). That is a deterministic formatting error, not a reason
@@ -202,8 +259,11 @@ export const repairGeneratedDialogueModes = ({ output, source = '' }) => {
   const sourceChars = original.flatMap(row => [...normalizeDialogueText(row.speech)].map(character => ({ character, speaker:compact(row.speaker), mode: normalizeDialogueMode(row.mode) })));
   let cursor = 0;
   const expectedModes = new Map();
-  const lines = output.split('\n');
-  const declarations = dialogueDeclarations(lines.filter(line => /^D\s*\d+\s*[｜|]/u.test(line.trim())).join('\n')).declarations;
+  const blockStart = output.indexOf('【连续台词】'), blockEnd = output.indexOf('【画面内容】', blockStart);
+  if (blockStart < 0 || blockEnd <= blockStart) return output;
+  const parsed = dialogueDeclarations(output.slice(blockStart + '【连续台词】'.length, blockEnd));
+  if (parsed.invalid.length) return output;
+  const declarations = parsed.declarations;
   for (const declaration of declarations) {
     const chars = [...normalizeDialogueText(declaration.speech)];
     if (!chars.length || cursor + chars.length > sourceChars.length) return output;
@@ -231,7 +291,9 @@ export const repairGeneratedDialogueContinuations = ({ output, source = '' }) =>
   const pictureBlockStart = output.indexOf('【画面内容】');
   if (dialogueBlockStart < 0 || pictureBlockStart < 0 || pictureBlockStart <= dialogueBlockStart) return output;
   const dialogueBlock = output.slice(dialogueBlockStart + '【连续台词】'.length, pictureBlockStart);
-  const declarations = dialogueDeclarations(dialogueBlock).declarations;
+  const parsed = dialogueDeclarations(dialogueBlock);
+  if (parsed.invalid.length) return output;
+  const declarations = parsed.declarations;
   const assigned=rows=>rows.flatMap(row=>[...normalizeDialogueText(row.speech)].map(character=>({character,speaker:compact(row.speaker)})));
   const originalChars=assigned(original),declaredChars=assigned(declarations);
   if(originalChars.length!==declaredChars.length||!originalChars.every((row,i)=>row.character===declaredChars[i].character&&row.speaker===declaredChars[i].speaker))return output;
@@ -240,6 +302,29 @@ export const repairGeneratedDialogueContinuations = ({ output, source = '' }) =>
   const shots = [...pictureBlock.matchAll(/^分镜\s*(\d+)\s*[｜|][^\n]*$/gmu)].map((match, index, rows) => ({
     number: Number(match[1]), start: match.index + match[0].length, end: rows[index + 1]?.index ?? pictureBlock.length,
   }));
+  const validShotNumbers = new Set(shots.map(shot => shot.number));
+  if (validShotNumbers.size !== shots.length) return output;
+  const soundRefs = new Map(declarations.map(declaration => [declaration.number, []]));
+  for (const shot of shots) {
+    const sound = values(pictureBlock.slice(shot.start, shot.end), '声音').join(' ');
+    for (const match of sound.matchAll(/(?<![A-Za-z0-9])D\s*(\d+)(?!\d)/gu)) {
+      const refs = soundRefs.get(Number(match[1]));
+      if (refs && !refs.includes(shot.number)) refs.push(shot.number);
+    }
+  }
+  const correctedReferences = new Map();
+  for (const declaration of declarations) {
+    if (!declaration.refs.length || declaration.refs.some(ref => !validShotNumbers.has(ref))) continue;
+    const actual = soundRefs.get(declaration.number);
+    // A declaration may name shot01 while the actual sound row explicitly
+    // assigns that same D row to shot02. Reconcile to the existing assignment
+    // instead of inserting the speech a second time into shot01. Partially
+    // specified genuine ranges retain their range and get missing markers.
+    if (actual.length && !actual.some(ref => declaration.refs.includes(ref))) {
+      correctedReferences.set(declaration.number, { previousPrefix: declaration.referencePrefix, first: Math.min(...actual), last: Math.max(...actual) });
+      declaration.refs = actual;
+    }
+  }
   const edits = [];
   for (const declaration of declarations) {
     for (let ref=Math.min(...declaration.refs);ref<=Math.max(...declaration.refs);ref++) {
@@ -254,9 +339,15 @@ export const repairGeneratedDialogueContinuations = ({ output, source = '' }) =>
       edits.push({ index: soundOffset, text: marker });
     }
   }
-  if (!edits.length) return output;
+  if (!edits.length && !correctedReferences.size) return output;
   let repaired = output;
   for (const edit of edits.sort((a, b) => b.index - a.index)) repaired = repaired.slice(0, edit.index) + edit.text + repaired.slice(edit.index);
+  if (correctedReferences.size) repaired = repaired.replace(/^D\s*(\d+)\s*([｜|])([^｜|]*)([｜|])([^｜|]*)([｜|])([^\n]*)$/gmu, (line, number, firstBar, speaker, secondBar, mode, thirdBar, rest) => {
+    const correction = correctedReferences.get(Number(number));
+    if (!correction || !rest.startsWith(correction.previousPrefix)) return line;
+    const reference = `分镜${String(correction.first).padStart(2, '0')}开始并在分镜${String(correction.last).padStart(2, '0')}结束：`;
+    return `D${String(number).padStart(2, '0')}${firstBar}${speaker}${secondBar}${mode}${thirdBar}${reference}${rest.slice(correction.previousPrefix.length)}`;
+  });
   return repaired;
 };
 

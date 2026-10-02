@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDirectorDialogues, sourceDialogues, countDialogueCharacters, normalizeDialogueText } from './directorDialogue.js';
+import { parseDirectorDialogues, sourceDialogues, countDialogueCharacters, normalizeDialogueText, normalizeDialogueMode } from './directorDialogue.js';
 
 const plain = rows => rows.map(({ speaker, speech, mode }) => ({ speaker, speech, mode }));
 
@@ -15,9 +15,18 @@ test('attached and separated OS/VO or parenthetical voice annotations retain spe
     { speaker: '林甲', speech: '别紧张。', mode: '内心VO' },
     { speaker: '林甲', speech: '我能办好。', mode: '内心VO' },
     { speaker: '林甲', speech: '现在就走。', mode: '内心VO' },
-    { speaker: '系统', speech: '已找到钥匙。', mode: '内心VO' },
-    { speaker: '陈乙', speech: '这里好安静。', mode: '内心VO' },
+    { speaker: '系统', speech: '已找到钥匙。', mode: '场外声音' },
+    { speaker: '陈乙', speech: '这里好安静。', mode: '场外声音' },
     { speaker: '陈乙', speech: '等等我！', mode: '场外声音' },
+  ]);
+});
+
+test('explicit thoughts remain distinct from audible system and off-screen voices', () => {
+  for (const mode of ['OS', 'O.S.', '内心VO', '内心 V.O.', '心声']) assert.equal(normalizeDialogueMode(mode), '内心VO');
+  for (const mode of ['VO', 'V.O.', '系统VO', '场外声音', '旁白']) assert.equal(normalizeDialogueMode(mode), '场外声音');
+  assert.deepEqual(plain(parseDirectorDialogues('甲（内心 V.O.）：我找到了。\n警察 VO：站住！')), [
+    { speaker: '甲', speech: '我找到了。', mode: '内心VO' },
+    { speaker: '警察', speech: '站住！', mode: '场外声音' },
   ]);
 });
 

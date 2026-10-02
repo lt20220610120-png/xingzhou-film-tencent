@@ -44,9 +44,15 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     };
     const commit=async(run,partial=false)=>{
       if(accountRef.current!==run.snapshot.accountId)return {applied:false,conflict:'账号已切换'};
-      const result=commitQuickSceneRun({...stateRef.current,accountId:accountRef.current},run,{partial});
+      let result;
+      // App's setter publishes the latest ref synchronously. Every parallel
+      // scene merges inside that setter, so another scene's saved results and
+      // concurrent user edits remain part of this exact persisted snapshot.
+      setState(current=>{
+        result=commitQuickSceneRun({...current,accountId:accountRef.current},run,{partial});
+        return result.applied?{...current,directorProjects:result.state.directorProjects}:current;
+      });
       if(!result.applied)return result;
-      setState(current=>({...current,directorProjects:result.state.directorProjects}));
       persistence.enqueue(stateRef.current);await persistence.flush();
       return {applied:true};
     };

@@ -9,6 +9,7 @@ const { createWorkBuddyService } = require('./workbuddy-service.cjs');
 
 function fixture(t, env = '') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xz-workbuddy-'));
+  const verifiedDir = fs.realpathSync(dir), verifiedParent = fs.realpathSync(os.tmpdir()), cleanupTasks = [];
   const root = path.join(dir, 'manager');
   const userDataDir = path.join(dir, 'profile');
   for (const name of ['server', 'web/out', 'data', '.venv/Scripts', 'upstream/auths', 'upstream/data']) {
@@ -24,8 +25,18 @@ function fixture(t, env = '') {
     secret: 'test-only-secret', users: [{ username: 'observer', role: 'viewer' }, { username: 'fixture-admin', role: 'admin', sv: 3 }],
   }));
   fs.writeFileSync(path.join(root, 'upstream/auths/workbuddy-fixture.json'), '{}');
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return { root, userDataDir };
+  t.after(async () => {
+    for (const cleanup of cleanupTasks) await cleanup();
+    // A detached Windows launcher may release its working directory/log
+    // handles just after the stand-in writes its final success marker.
+    // Resolve and verify the exact fixture before retrying recursive removal.
+    const target = fs.realpathSync(dir);
+    assert.equal(target, verifiedDir);
+    assert.equal(path.dirname(target), verifiedParent);
+    assert.match(path.basename(target), /^xz-workbuddy-[a-zA-Z0-9]+$/);
+    await fs.promises.rm(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+  return { root, userDataDir, beforeCleanup: callback => cleanupTasks.push(callback) };
 }
 
 const healthy = async () => ({ ok: true, json: async () => ({ ok: true, service: 'workbuddy-manager' }) });
@@ -244,11 +255,27 @@ test('Windows manager has no console and keeps writing logs after its launching 
   let python;
   try { python = execFileSync('python', ['-c', 'import sys; print(sys.executable)'], { windowsHide: true, encoding: 'utf8' }).trim(); }
   catch { t.skip('Native Python is required for the Windows console regression'); return; }
-  const { root, userDataDir } = fixture(t);
+  const { root, userDataDir, beforeCleanup } = fixture(t);
   fs.unlinkSync(path.join(root, '.venv/Scripts/python.exe'));
   fs.unlinkSync(path.join(root, '.venv/Scripts/pythonw.exe'));
   execFileSync(python, ['-m', 'venv', '--without-pip', path.join(root, '.venv')], { windowsHide: true, timeout: 10000 });
   const report = path.join(root, 'console.json');
+  const launchReport = path.join(root, 'spawned-process.json');
+  beforeCleanup(async () => {
+    const ids = new Set();
+    for (const file of [launchReport, report]) if (fs.existsSync(file)) {
+      const pid = JSON.parse(fs.readFileSync(file, 'utf8')).pid;
+      if (Number.isInteger(pid) && pid > 0) ids.add(pid);
+    }
+    const expected = path.join(root, '.venv/Scripts/pythonw.exe').replaceAll("'", "''");
+    for (const pid of ids) {
+      // Only inspect IDs captured from this test's actual spawn/self-report.
+      // Never enumerate, stop, or wait for the user's installed WorkBuddy.
+      await promisify(run)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        `$ErrorActionPreference='Stop'; $record=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if(-not $record){exit}; $command=[string]$record.CommandLine; if(-not $command.Contains('${expected}') -or $command -notmatch '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)' -or $command -notmatch '(?:^|\\s)server\\.main:app(?:\\s|$)'){throw 'Fixture process identity mismatch'}; $owned=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if($owned -and -not $owned.WaitForExit(5000)){throw 'Fixture manager did not exit before cleanup'}`],
+        { windowsHide: true, timeout: 8000 });
+    }
+  });
   // A minimal uvicorn stand-in exercises the real venv launcher and Windows
   // console APIs without installing packages or touching the user's service.
   fs.writeFileSync(path.join(root, 'uvicorn.py'), `import ctypes,json,os,sys,time
@@ -260,11 +287,16 @@ print('manager-stderr',file=sys.stderr,flush=True)
 with open('console.json','w') as f: json.dump({'pid':os.getpid(),'console':console or 0,'args':sys.argv},f)
 time.sleep(1.5)
 with open('survived.txt','w') as f: f.write('alive')
+# Keep the process/log handles live after the success marker so cleanup must
+# wait for process exit rather than accidentally depending on timing.
+time.sleep(1)
 `);
   const parent = path.join(root, 'launch.cjs');
   fs.writeFileSync(parent, `const fs=require('node:fs');
+const {spawn}=require('node:child_process');
 const {createWorkBuddyService}=require(${JSON.stringify(require.resolve('./workbuddy-service.cjs'))});
 const service=createWorkBuddyService({userDataDir:${JSON.stringify(userDataDir)},pollIntervalMs:10,
+spawn:(file,args,options)=>{const child=spawn(file,args,options);fs.writeFileSync(${JSON.stringify(launchReport)},JSON.stringify({pid:child.pid}));return child;},
 fetch:async()=>{if(!fs.existsSync(${JSON.stringify(report)})) throw Error('pending');return {ok:true,json:async()=>({ok:true,service:'workbuddy-manager'})};},
 exec:async(_file,args)=>({stdout:JSON.stringify({found:args.at(-1).includes('7863')||fs.existsSync(${JSON.stringify(report)}),matches:true,pid:123})})});
 service.start(${JSON.stringify(root)}).catch(()=>{process.exitCode=1});

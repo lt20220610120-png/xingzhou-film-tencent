@@ -12,7 +12,7 @@ const fields = ['speechSeconds', 'actionSeconds', 'transitionSeconds'];
 export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   const unchanged = { candidate, changed: false };
   const initial = validateScenePlan(candidate, { tape, maxDurationSeconds, groundedTiming: true });
-  if (initial.ok || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED'].includes(i.code))) return unchanged;
+  if (initial.ok || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED'].includes(i.code) || (i.code === 'INVALID_TIMING' && i.message === '片段估计时长必须大于零'))) return unchanged;
   const events = [], spans = [];
   let start = 0;
   for (const segment of candidate.segments) {
@@ -23,12 +23,20 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
     // Keep cumulative allocation exact even for fractional speech rates.
     audible.forEach((position, i) => events.push({ position, field: 'speechSeconds', amount: round(segment.timing.speechSeconds * (i + 1) / audible.length) - round(segment.timing.speechSeconds * i / audible.length) }));
     if (!audible.length && segment.timing.speechSeconds) return unchanged;
-    const actionEnds = facts.actionCues.map(beat => beat.sourceEnd);
+    const weightedCues = facts.actionCues.filter(beat => beat.category !== 'environment' && beat.category !== 'sound-effect');
+    const actionEnds = weightedCues.map(beat => beat.sourceEnd);
     // Gestures accompanying a line have no standalone △ cue. Their residual
     // exclusive time belongs to the end of that performance, never a new event.
     if (!actionEnds.length) actionEnds.push(end);
     const exclusive = segment.timing.actionSeconds - segment.timing.overlapSeconds;
-    actionEnds.forEach((position, i) => events.push({ position, field: 'actionSeconds', amount: round(exclusive * (i + 1) / actionEnds.length) - round(exclusive * i / actionEnds.length) }));
+    const weights = weightedCues.map(beat => Math.max(0, (beat.seconds ?? 2.5) - beat.overlapSeconds));
+    const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+    let allocated = 0;
+    actionEnds.forEach((position, i) => {
+      const amount = weightTotal ? exclusive * weights[i] / weightTotal : exclusive / actionEnds.length;
+      const next = i === actionEnds.length - 1 ? exclusive : round(allocated + amount);
+      events.push({ position, field: 'actionSeconds', amount: round(next - allocated) }); allocated = next;
+    });
     events.push({ position: end, field: 'transitionSeconds', amount: segment.timing.transitionSeconds });
     spans.push({ start, end, segment }); start = end;
   }

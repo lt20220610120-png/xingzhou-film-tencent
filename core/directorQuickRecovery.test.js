@@ -77,7 +77,7 @@ test('ambiguous timeout is not automatically billed again',async()=>{
 test('grounded short scene is one real short segment rather than an inflated 30-second clip',async()=>{
   const f=makeFixture({groundedTiming:true,textHook:async call=>call.type==='plan'?JSON.stringify({segments:[{end:{unitId:'u2'},timing:{speechSeconds:30,actionSeconds:7,overlapSeconds:0,transitionSeconds:0},startState:'灯亮',endState:'灯灭',boundary:'scene-end',visualNotes:[]}]}):undefined});
   const run=await f.controller.start(f.request);assert.equal(run.phase,'completed');
-  assert.equal(run.plan.segments.length,1);assert.equal(run.plan.segments[0].recommendedDurationSeconds,10);
+  assert.equal(run.plan.segments.length,1);assert.equal(run.plan.segments[0].recommendedDurationSeconds,3, 'ten spoken characters do not justify seven additional seconds of invented staging');
 });
 
 test('underfilled model beats are packed and committed without another paid planning call',async()=>{

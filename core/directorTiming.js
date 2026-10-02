@@ -1,4 +1,5 @@
 import { parseDirectorDialogues, countDialogueCharacters } from './directorDialogue.js';
+import { describeDirectorActionTiming, estimateDirectorActionTimeline, DIRECTOR_ACTION_TIMING_REFERENCE } from './directorActionTiming.js';
 
 export const DIRECTOR_SPEECH_CHARACTERS_PER_SECOND = 4;
 const slowRate = 3;
@@ -17,7 +18,8 @@ export const extractDirectorVisualBeats = sourceText => {
       const sourceQuote = sentence[0].trim();
       if (!sourceQuote) continue;
       const leading = sentence[0].indexOf(sourceQuote);
-      beats.push({ sourceStart: contentStart + sentence.index + leading, sourceEnd: contentStart + sentence.index + leading + sourceQuote.length, sourceQuote, typicalSeconds: [2, 3] });
+      const estimate = describeDirectorActionTiming(sourceQuote);
+      beats.push({ sourceStart: contentStart + sentence.index + leading, sourceEnd: contentStart + sentence.index + leading + sourceQuote.length, sourceQuote, ...estimate });
     }
   }
   return beats;
@@ -25,7 +27,21 @@ export const extractDirectorVisualBeats = sourceText => {
 
 const dialogueRanges = dialogue => Array.isArray(dialogue.ranges) ? dialogue.ranges : Number.isInteger(dialogue.speechStart) && Number.isInteger(dialogue.speechEnd) ? [{ start: dialogue.speechStart, end: dialogue.speechEnd }] : Number.isInteger(dialogue.sourceStart) && Number.isInteger(dialogue.sourceEnd) ? [{ start: dialogue.sourceStart, end: dialogue.sourceEnd }] : [];
 
-export const getDirectorSegmentTimingFacts = ({ sourceText, sourceStart = 0, sourceEnd, dialogues, visualBeats } = {}) => {
+const hasOnlySpokenContent = (source, start, end, records) => {
+  const ranges = records.flatMap(record => dialogueRanges(record).map((range, index) => {
+    const lineStart = source.lastIndexOf('\n', range.start - 1) + 1;
+    const prefix = source.slice(lineStart, range.start);
+    const headerOnly = index === 0 && /^[\t ]*[\p{L}][\p{L}\p{N}·.]*(?:[\t ]+(?:O\.?S\.?|V\.?O\.?))?(?:[\t ]*[（(][^）)\n]*[）)])*[\t ]*[：:][\t ]*[“『「‘"]?$/u.test(prefix);
+    return { start: Math.max(start, headerOnly ? lineStart : range.start), end: Math.min(end, range.end) };
+  })).filter(range => range.end > range.start).sort((a, b) => a.start - b.start);
+  if (!ranges.length) return false;
+  let cursor = start, remainder = '';
+  for (const range of ranges) { remainder += source.slice(cursor, Math.max(cursor, range.start)); cursor = Math.max(cursor, range.end); }
+  remainder += source.slice(cursor, end);
+  return !remainder.replace(/^[\t ]*(?:人|人物|角色|出场人物|出场角色)[\t ]*[：:][^\n]*$/gm, '').replace(/[”』」’"]/g, '').trim();
+};
+
+export const getDirectorSegmentTimingFacts = ({ sourceText, sourceStart = 0, sourceEnd, dialogues, visualBeats, maxDurationSeconds } = {}) => {
   const source = String(sourceText || '');
   const end = sourceEnd ?? source.length;
   const records = dialogues || parseDirectorDialogues(source);
@@ -35,12 +51,18 @@ export const getDirectorSegmentTimingFacts = ({ sourceText, sourceStart = 0, sou
     return { speaker: dialogue.speaker, mode: dialogue.mode, characterCount: countDialogueCharacters(text), ranges };
   }).filter(dialogue => dialogue.characterCount > 0);
   const speechCharacterCount = speech.reduce((total, dialogue) => total + dialogue.characterCount, 0);
-  const actionCues = (visualBeats || extractDirectorVisualBeats(source)).filter(beat => beat.sourceEnd > sourceStart && beat.sourceStart < end).map(beat => ({ ...beat, sourceStart: Math.max(sourceStart, beat.sourceStart), sourceEnd: Math.min(end, beat.sourceEnd), sourceQuote: source.slice(Math.max(sourceStart, beat.sourceStart), Math.min(end, beat.sourceEnd)) }));
+  const allBeats = visualBeats || extractDirectorVisualBeats(source);
+  const onlyEstablishing = records.length === 0 && allBeats.length > 0 && allBeats.every(beat => beat.category === 'environment');
+  const establishingSeconds = Number.isInteger(maxDurationSeconds) && maxDurationSeconds > 0 ? Math.min(2, maxDurationSeconds) : 2;
+  const actionCues = allBeats.filter(beat => beat.sourceEnd > sourceStart && beat.sourceStart < end).map(beat => ({ ...beat, sourceStart: Math.max(sourceStart, beat.sourceStart), sourceEnd: Math.min(end, beat.sourceEnd), sourceQuote: source.slice(Math.max(sourceStart, beat.sourceStart), Math.min(end, beat.sourceEnd)), ...(onlyEstablishing && beat === allBeats[0] ? { category: 'establishing-only', seconds: establishingSeconds, typicalSeconds: [1, 2], bounded: true } : {}) }));
+  const actionTimeline = estimateDirectorActionTimeline({ sourceText: source, actionCues, dialogues: speech });
   return {
     sourceStart, sourceEnd: end, speechCharacterCount,
     speechSecondsAt4: round(speechCharacterCount / DIRECTOR_SPEECH_CHARACTERS_PER_SECOND),
     speechSecondsAt3: round(speechCharacterCount / slowRate),
-    dialogues: speech, actionCues,
+    dialogues: speech, actionCues: actionTimeline.cues, actionTimeline,
+    onlySpokenContent: hasOnlySpokenContent(source, sourceStart, end, records),
+    quickPerformanceSeconds: round(speechCharacterCount / 4 + actionTimeline.actionSeconds - actionTimeline.overlapSeconds),
   };
 };
 
@@ -50,8 +72,8 @@ export const buildSceneTimingFacts = tape => {
   const visualBeats = extractDirectorVisualBeats(sourceText);
   const scene = getDirectorSegmentTimingFacts({ sourceText, dialogues, visualBeats });
   return {
-    version: 1,
-    rules: { normalSpeechCharactersPerSecond: 4, slowerSpeechCharactersPerSecond: 3, typicalIndependentVisualBeatSeconds: [2, 3], actionTextCharacterCountIsNotDuration: true, shotCountIsNotDuration: true },
+    version: 2,
+    rules: { normalSpeechCharactersPerSecond: 4, slowerSpeechCharactersPerSecond: 3, typicalIndependentVisualBeatSeconds: [2, 3], actionTextCharacterCountIsNotDuration: true, shotCountIsNotDuration: true, staticDescriptionAddsSeconds: false, automaticEmptyOpeningShot: false, cutsAddSeconds: false, actionReference: DIRECTOR_ACTION_TIMING_REFERENCE.map(({ pattern, ...rule }) => rule) },
     scene,
     units: (tape?.units || []).map(unit => ({ unitId: unit.id, ...getDirectorSegmentTimingFacts({ sourceText, sourceStart: unit.start, sourceEnd: unit.end, dialogues, visualBeats }) })),
   };
@@ -70,10 +92,10 @@ export const validateDirectorSegmentTiming = ({ sourceText, sourceStart, sourceE
   return { ok: !issues.length, issues, facts };
 };
 
-// Only recalibrate known spoken text. Never invent action duration, alter a
-// source anchor, shorten dialogue or silently clip a recommendation to a cap.
-// A corrected total may require another planning pass at different anchors.
-export const recalibrateScenePlanTimings = (candidate, { tape } = {}) => {
+// Rehearse quick-mode timing against immutable source evidence. Unknown or
+// prolonged actions retain the planner's estimate; known compact performances
+// use the editorial reference rather than arbitrary holds/empty shots.
+export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSeconds } = {}) => {
   let parsed;
   try {
     parsed = typeof candidate === 'string' ? JSON.parse(candidate.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1')) : structuredClone(candidate);
@@ -91,16 +113,36 @@ export const recalibrateScenePlanTimings = (candidate, { tape } = {}) => {
     if (sourceEnd <= sourceStart) return { candidate: parsed, changed: Boolean(changes.length), changes };
     const timing = segment.timing;
     if (finite(timing?.speechSeconds)) {
-      const facts = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, sourceStart, sourceEnd });
-      if (timing.speechSeconds + 0.5 < facts.speechSecondsAt4 || timing.speechSeconds > facts.speechSecondsAt3 + 2) {
-        const previousSpeechSeconds = timing.speechSeconds;
-        timing.speechSeconds = facts.speechSecondsAt4;
-        if (finite(timing.overlapSeconds) && finite(timing.actionSeconds)) timing.overlapSeconds = Math.min(timing.overlapSeconds, timing.speechSeconds, timing.actionSeconds);
-        changes.push({ segmentIndex: arrayIndex + 1, previousSpeechSeconds, speechSeconds: timing.speechSeconds, speechCharacterCount: facts.speechCharacterCount });
+      const facts = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, sourceStart, sourceEnd, maxDurationSeconds });
+      const previousTiming = { ...timing };
+      timing.speechSeconds = facts.speechSecondsAt4;
+      if (finite(timing.actionSeconds) && finite(timing.overlapSeconds) && finite(timing.transitionSeconds)) {
+        const timeline = facts.actionTimeline;
+        const realCues = facts.actionCues.filter(cue => cue.category !== 'environment');
+        const minimumUnknown = realCues.filter(cue => !cue.bounded).reduce((sum, cue) => sum + (cue.minimumSeconds || 0), 0);
+        const unknownShare = realCues.length ? Math.max(minimumUnknown, previousTiming.actionSeconds * timeline.unknownBeatCount / realCues.length) : 0;
+        // No △ evidence: retain genuine in-dialogue staging estimates, except
+        // a scene made entirely of spoken text does not imply extra gestures.
+        const action = realCues.length ? timeline.actionSeconds + unknownShare : facts.actionCues.length || facts.onlySpokenContent ? 0 : previousTiming.actionSeconds;
+        timing.actionSeconds = round(action);
+        timing.overlapSeconds = round(Math.min(timing.speechSeconds, action, timeline.overlapSeconds + Math.min(unknownShare, previousTiming.overlapSeconds)));
+        if (!realCues.length && !facts.actionCues.length) timing.overlapSeconds = Math.min(timing.speechSeconds, action, previousTiming.overlapSeconds);
+        if (!/(?:淡入|淡出|叠化|空镜).{0,12}\d+(?:\.\d+)?秒/.test(tape.sourceText.slice(sourceStart, sourceEnd))) timing.transitionSeconds = 0;
       }
+      if (Object.keys(previousTiming).some(key => previousTiming[key] !== timing[key])) changes.push({ segmentIndex: arrayIndex + 1, previousTiming, timing: { ...timing }, previousSpeechSeconds: previousTiming.speechSeconds, speechSeconds: timing.speechSeconds, speechCharacterCount: facts.speechCharacterCount });
       segment.timingFacts = facts;
     }
     sourceStart = sourceEnd;
+  }
+  // Model boundaries must not destroy simultaneous action/voiceover and turn
+  // one compact scene into a thirty-second clip plus a sliver.
+  if (parsed.segments.length > 1 && sourceStart === tape.sourceText.length && Number.isInteger(maxDurationSeconds)) {
+    const whole = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, maxDurationSeconds });
+    if (!whole.actionTimeline.unknownBeatCount && whole.quickPerformanceSeconds > 0 && whole.quickPerformanceSeconds <= maxDurationSeconds) {
+      const first = parsed.segments[0], last = parsed.segments.at(-1);
+      parsed.segments = [{ ...last, startState: first.startState, timing: { speechSeconds: whole.speechSecondsAt4, actionSeconds: whole.actionTimeline.actionSeconds, overlapSeconds: whole.actionTimeline.overlapSeconds, transitionSeconds: 0 }, visualNotes: parsed.segments.flatMap(segment => segment.visualNotes || []), timingFacts: whole }];
+      changes.push({ wholeSceneMerged: true, estimatedSeconds: whole.quickPerformanceSeconds });
+    }
   }
   return { candidate: parsed, changed: Boolean(changes.length), changes };
 };

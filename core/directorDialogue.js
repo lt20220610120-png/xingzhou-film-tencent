@@ -17,7 +17,11 @@ const insideQuoted = (text, end) => {
 export const normalizeDialogueMode = mode => {
   const text = String(mode || '').replace(/\s+/gu, '');
   if (/(?:场外|画外现场|非现场|画外声)/u.test(text)) return '场外声音';
-  if (/(?:内心|心声|心理|旁白|OS|O\.S\.?|VO|V\.O\.?)/iu.test(text)) return '内心VO';
+  if (/(?:内心|心声|心理|O\.?S\.?)/iu.test(text)) return '内心VO';
+  // VO describes an audible voice outside the visible performance, whereas
+  // OS/explicit inner-voice annotations identify the actor's thoughts. A
+  // system VO or an unseen policeman must not become somebody's inner voice.
+  if (/(?:旁白|V\.?O\.?)/iu.test(text)) return '场外声音';
   if (/(?:现场对白|对白|对话|同期声)/u.test(text)) return '现场对白';
   return text || null;
 };
@@ -42,7 +46,7 @@ const parseHeader = header => {
   const suffix = speaker.match(/(?:\s+(O\.?S\.?|V\.?O\.?)|(?<=[\p{Script=Han}])(O\.?S\.?|V\.?O\.?))$/u);
   const voice = suffix?.[1] || suffix?.[2] || '';
   if (suffix) speaker = speaker.slice(0, suffix.index).trim();
-  const explicitMode = /(?:场外|画外现场|画外声)/u.test(directions) ? '场外声音' : /(?:内心|心声|心理|旁白|[OV]\.?[SO]\.?)/iu.test(`${voice} ${directions}`) ? '内心VO' : null;
+  const explicitMode = /(?:场外|画外现场|画外声|内心|心声|心理|旁白|[OV]\.?[SO]\.?)/iu.test(`${voice} ${directions}`) ? normalizeDialogueMode(`${voice} ${directions}`) : null;
   return { speaker, mode: explicitMode };
 };
 
