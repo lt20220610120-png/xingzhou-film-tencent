@@ -18,10 +18,10 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const status={preview:'待开始',running:'正在生成',pausing:'正在保存并发请求，完成后暂停',paused:'已暂停，可以继续',completed:'整本任务已完成','completed-with-errors':'本轮已结束，部分场景需处理',cancelled:'任务已结束'};
  const rowStatus={pending:'待处理',running:'处理中',completed:'已保存',skipped:'跳过',stale:'需重新建立任务',failed:'失败，可继续',paused:'已暂停'};
  return <section className="director-batch-panel" aria-label="整本剧本生成">
-  <div className="director-batch-heading"><div><strong>整本提示词</strong><small>各集场景并发生成；已完成结果自动保存，中断后可继续。</small></div>
+  <div className="director-batch-heading"><div className="director-batch-purpose"><strong>整本提示词</strong><small>按场景并发生成，进度自动保存，中断后可继续。</small></div>
    <div className="director-batch-settings">
-    <label>最高视频时长<select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled} onChange={e=>changeSettings({maxDurationSeconds:Number(e.target.value)})}>{Array.from({length:30},(_,i)=>i+1).map(n=><option key={n} value={n}>{n} 秒</option>)}</select></label>
-    <label>场景并发<select aria-label="整本场景并发" value={concurrency} disabled={active||disabled} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">全部场景</option>{[2,4,8,16,32].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
+    <label><span>最高视频时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled} onChange={e=>changeSettings({maxDurationSeconds:Number(e.target.value)})}>{Array.from({length:30},(_,i)=>i+1).map(n=><option key={n} value={n}>{n} 秒</option>)}</select></label>
+    <label><span>场景并发</span><select aria-label="整本场景并发" value={concurrency} disabled={active||disabled} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">全部场景</option>{[2,4,8,16,32].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
    <button className="secondary" disabled={disabled||active||!skill||!profile} onClick={open}>一键生成整本提示词</button>
    </div>
   </div>

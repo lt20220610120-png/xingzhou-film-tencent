@@ -21,12 +21,13 @@ test('a ten second scene stays one ten second clip', () => {
   const checked=validateScenePlan(packScenePlan(candidate,{tape,maxDurationSeconds:30}).candidate,{tape,maxDurationSeconds:30,groundedTiming:true});
   assert.equal(checked.ok,true);assert.deepEqual(checked.plan.segments.map(s=>s.recommendedDurationSeconds),[10]);
 });
-test('can move a boundary into the next speech without repeating or dropping words',()=>{
+test('moves an entire short speech to the next clip instead of splitting it to fill thirty seconds',()=>{
   const {tape,candidate}=make(['甲：'+ '你好'.repeat(40), '乙：'+ '再见'.repeat(40), '甲：'+ '知道'.repeat(40)], [20,20,20]);
   const checked=validateScenePlan(packScenePlan(candidate,{tape,maxDurationSeconds:30}).candidate,{tape,maxDurationSeconds:30,groundedTiming:true});
   assert.equal(checked.ok,true,JSON.stringify(checked.issues));
-  assert.deepEqual(checked.plan.segments.map(s=>s.recommendedDurationSeconds),[30,30]);
-  assert.equal(checked.plan.segments[0].sourceEnd>tape.units[0].end,true);
+  assert.deepEqual(checked.plan.segments.map(s=>s.recommendedDurationSeconds),[20,20,20]);
+  assert.equal(checked.plan.segments[0].sourceEnd,tape.units[0].end);
+  assert.ok(checked.plan.segments.slice(0,-1).every(s=>s.completeDialoguePriority));
 });
 test('never repairs missing source or invalid anchors by guessing',()=>{
   const {tape,candidate}=make(['甲：你好','乙：再见'],[.5,.5]);
@@ -53,9 +54,8 @@ test('never leaves final punctuation as a separate video when action time is cha
   const {tape,candidate}=make(['甲：'+ '你好'.repeat(58)+'！'], [29]);
   candidate.segments[0].timing.actionSeconds=4;
   const packed=packScenePlan(candidate,{tape,maxDurationSeconds:30});
-  assert.equal(packed.changed,true);
+  assert.equal(packed.changed,false, 'a short complete turn cannot be broken to fit invented extra staging');
   const checked=validateScenePlan(packed.candidate,{tape,maxDurationSeconds:30,groundedTiming:true});
-  assert.equal(checked.ok,true);
-  for(const segment of checked.plan.segments)assert.ok(segment.timingFacts.speechCharacterCount>0);
-  assert.ok(!/^[\p{P}\s]/u.test(tape.sourceText.slice(checked.plan.segments[0].sourceEnd)));
+  assert.equal(checked.ok,false);
+  assert.equal(packed.candidate.segments.length,1);
 });

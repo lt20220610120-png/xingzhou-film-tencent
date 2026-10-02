@@ -29,8 +29,8 @@ test('speaker metadata and action description words never become dialogue durati
 });
 
 test('a prefix cut inside a long monologue counts the suffix without duplicating actor labels or speech', () => {
-  const tape = buildSceneSourceTape(`甲 OS（严肃）：${speech(120)}，${speech(40)}。`);
-  const prefix = `甲 OS（严肃）：${speech(120)}，`;
+  const tape = buildSceneSourceTape(`甲 OS（严肃）：${speech(120)}。${speech(40)}。`);
+  const prefix = `甲 OS（严肃）：${speech(120)}。`;
   const first = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, sourceStart: 0, sourceEnd: prefix.length });
   const second = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, sourceStart: prefix.length, sourceEnd: tape.sourceText.length });
   assert.equal(first.speechCharacterCount, 120);

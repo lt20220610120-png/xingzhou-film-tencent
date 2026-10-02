@@ -190,6 +190,32 @@ export const validateGeneratedSegment = ({ output, expectedLabel, source = '', c
   return { ok: !issues.length, ...(!issues.length ? { prompt: { label: expectedLabel, content } } : {}), baseline: checked.baseline, issues, capabilities };
 };
 
+export const splitWholeScenePromptOutput = ({ output, expectedLabels, complete = true }) => {
+  if (typeof output !== 'string' || !output.trim()) return { prompts: [], issues: [issue('EMPTY_SCENE_OUTPUT', '模型没有返回整场提示词正文')] };
+  let text = output.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n').trim();
+  const fence = text.match(/^```(?:text|markdown)?\s*\n([\s\S]*?)\n```$/iu);
+  if (fence) text = fence[1].trim();
+  const lines = text.split('\n'), positions = [];
+  let offset = 0;
+  for (const line of lines) {
+    const identifier = line.trim().match(ID), bracket = line.trim().match(BRACKET);
+    if (identifier || bracket) positions.push({ offset, line, label: identifier?.[1] || expectedLabels[Number(bracket?.[1]) - 1] || `括号${bracket?.[1]}` });
+    offset += line.length + 1;
+  }
+  const issues = [], expected = new Set(expectedLabels);
+  if (positions[0]?.offset !== 0) issues.push(issue('UNEXPECTED_SCENE_PREFACE', '整场规范编号之前存在分析或非结果内容'));
+  if (positions.length !== expectedLabels.length) issues.push(issue('INCOMPLETE_SCENE_OUTPUT', `整场应返回 ${expectedLabels.length} 条提示词，实际检测到 ${positions.length} 条`));
+  const counts = new Map();
+  for (const position of positions) counts.set(position.label, (counts.get(position.label) || 0) + 1);
+  for (const label of expectedLabels) if (!counts.has(label)) issues.push(issue('MISSING_SCENE_PROMPT', `整场输出缺少 ${label}`, { label }));
+  for (const [label, count] of counts) if (!expected.has(label) || count !== 1) issues.push(issue('INVALID_SCENE_LABEL', `整场输出含错误或重复编号 ${label}`, { label, count }));
+  if (positions.some((position, index) => expected.has(position.label) && expectedLabels.indexOf(position.label) < expectedLabels.indexOf(positions[index - 1]?.label))) issues.push(issue('INVALID_SCENE_ORDER', '整场提示词必须按规范编号顺序输出'));
+  const prompts = positions.flatMap((position, index) => !expected.has(position.label) || counts.get(position.label) !== 1 || (!complete && index === positions.length - 1)
+    ? [] : [{ label: position.label, content: text.slice(position.offset, positions[index + 1]?.offset ?? text.length).trim() }]);
+  if (!complete) issues.push(issue('TRUNCATED_SCENE_OUTPUT', '整场回包被截断，末条仍需完整返回；已完整条目已保留'));
+  return { prompts, issues };
+};
+
 // Repair independent formatting errors together. Dialogue repairs require a
 // complete source-text/speaker match; weight repair changes only numeric shot
 // percentages. Revalidate the complete contract after each repair so no lexical

@@ -1,5 +1,6 @@
 import { parseDirectorDialogues, countDialogueCharacters } from './directorDialogue.js';
 import { describeDirectorActionTiming, estimateDirectorActionTimeline, DIRECTOR_ACTION_TIMING_REFERENCE } from './directorActionTiming.js';
+import { wholeSceneCompression } from './directorDurationPolicy.js';
 
 export const DIRECTOR_SPEECH_CHARACTERS_PER_SECOND = 4;
 const slowRate = 3;
@@ -79,14 +80,15 @@ export const buildSceneTimingFacts = tape => {
   };
 };
 
-export const validateDirectorSegmentTiming = ({ sourceText, sourceStart, sourceEnd, timing, maxDurationSeconds, segmentIndex } = {}) => {
+export const validateDirectorSegmentTiming = ({ sourceText, sourceStart, sourceEnd, timing, maxDurationSeconds, segmentIndex, wholeSceneCompression = false } = {}) => {
   const facts = getDirectorSegmentTimingFacts({ sourceText, sourceStart, sourceEnd });
   const issues = [];
   const issue = (code, message, evidence) => issues.push({ code, message, segmentIndex, evidence });
   // Allow only arithmetic/rounding variation, never an assumed speed of 6–8
   // Chinese characters per second to fit long original dialogue into a clip.
   const minimum = facts.speechSecondsAt4;
-  if (minimum > maxDurationSeconds + 0.25) issue('SPEECH_CAPACITY_EXCEEDED', '原文可听台词按4字/秒已超过最高时长，需要在语义边界继续细分，不能加速吞字或删除台词', { speechCharacterCount: facts.speechCharacterCount, speechSecondsAt4: minimum, maxDurationSeconds });
+  const capacitySeconds = wholeSceneCompression && maxDurationSeconds === 30 && sourceStart === 0 && sourceEnd === sourceText.length ? 35 : maxDurationSeconds;
+  if (minimum > capacitySeconds + 0.25) issue('SPEECH_CAPACITY_EXCEEDED', '原文可听台词按4字/秒已超过最高时长，需要在完整句子的边界继续细分，不能吞字或删除台词', { speechCharacterCount: facts.speechCharacterCount, speechSecondsAt4: minimum, maxDurationSeconds });
   if (finite(timing?.speechSeconds) && timing.speechSeconds + 0.5 < minimum) issue('SPEECH_TIMING_UNDERESTIMATED', '对白、内心OS及可听VO必须按原文口播字数计时；当前计划少计了语音时长', { claimedSpeechSeconds: timing.speechSeconds, speechCharacterCount: facts.speechCharacterCount, speechSecondsAt4: minimum });
   if (finite(timing?.speechSeconds) && timing.speechSeconds > facts.speechSecondsAt3 + 2) issue('SPEECH_TIMING_INFLATED', '不能把少量台词虚报为整条语音时长来凑满上限；按3~4字/秒重估，真实独立动作另计', { claimedSpeechSeconds: timing.speechSeconds, speechCharacterCount: facts.speechCharacterCount, speechSecondsAt3: facts.speechSecondsAt3 });
   return { ok: !issues.length, issues, facts };
@@ -105,6 +107,7 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
   const changes = [];
   let sourceStart = 0;
   for (const [arrayIndex, segment] of parsed.segments.entries()) {
+    delete segment.durationCompression; delete segment.naturalEstimatedSeconds;
     const unit = units.get(segment?.end?.unitId);
     if (!unit) return { candidate: parsed, changed: Boolean(changes.length), changes };
     const prefix = segment.end.prefix;
@@ -138,10 +141,22 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
   // one compact scene into a thirty-second clip plus a sliver.
   if (parsed.segments.length > 1 && sourceStart === tape.sourceText.length && Number.isInteger(maxDurationSeconds)) {
     const whole = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, maxDurationSeconds });
-    if (!whole.actionTimeline.unknownBeatCount && whole.quickPerformanceSeconds > 0 && whole.quickPerformanceSeconds <= maxDurationSeconds) {
+    const mergeLimit = maxDurationSeconds === 30 ? 35 : maxDurationSeconds;
+    if (!whole.actionTimeline.unknownBeatCount && whole.quickPerformanceSeconds > 0 && whole.quickPerformanceSeconds <= mergeLimit) {
       const first = parsed.segments[0], last = parsed.segments.at(-1);
       parsed.segments = [{ ...last, startState: first.startState, timing: { speechSeconds: whole.speechSecondsAt4, actionSeconds: whole.actionTimeline.actionSeconds, overlapSeconds: whole.actionTimeline.overlapSeconds, transitionSeconds: 0 }, visualNotes: parsed.segments.flatMap(segment => segment.visualNotes || []), timingFacts: whole }];
       changes.push({ wholeSceneMerged: true, estimatedSeconds: whole.quickPerformanceSeconds });
+    }
+  }
+  if (parsed.segments.length === 1 && sourceStart === tape.sourceText.length) {
+    const segment = parsed.segments[0], timing = segment.timing;
+    const naturalEstimatedSeconds = finite(timing?.speechSeconds) && finite(timing?.actionSeconds) && finite(timing?.overlapSeconds) && finite(timing?.transitionSeconds)
+      ? round(timing.speechSeconds + timing.actionSeconds - timing.overlapSeconds + timing.transitionSeconds) : NaN;
+    const compression = wholeSceneCompression({ naturalEstimatedSeconds, maxDurationSeconds, sourceEnd: sourceStart, sourceLength: tape.sourceText.length, segmentCount: 1 });
+    if (compression) {
+      segment.durationCompression = compression; segment.naturalEstimatedSeconds = naturalEstimatedSeconds;
+      segment.estimatedSeconds = 30; segment.recommendedDurationSeconds = 30;
+      changes.push({ wholeSceneCompressed: true, naturalEstimatedSeconds, targetDurationSeconds: 30 });
     }
   }
   return { candidate: parsed, changed: Boolean(changes.length), changes };

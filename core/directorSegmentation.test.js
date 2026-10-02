@@ -75,9 +75,10 @@ test('rejects missing coverage, repeated/reversed anchor and invalid timing over
 });
 
 test('precise prefixes split long speech without repeating or losing source, invalid word boundaries rejected', () => {
-  const tape = buildSceneSourceTape('甲：我先说明原因，然后继续说明结果。');
+  const firstSentence='我'.repeat(52)+'。';
+  const tape = buildSceneSourceTape('甲：'+firstSentence+'我'.repeat(28)+'。');
   const unit = tape.units[0];
-  const good = validateScenePlan({ segments: [candidateSegment(unit.id, 13, { end: { unitId: unit.id, prefix: '甲：我先说明原因，' } }), candidateSegment(tape.units.at(-1).id, 7)] }, { tape, maxDurationSeconds: 15 });
+  const good = validateScenePlan({ segments: [candidateSegment(unit.id, 13, { end: { unitId: unit.id, prefix: '甲：'+firstSentence } }), candidateSegment(tape.units.at(-1).id, 7)] }, { tape, maxDurationSeconds: 15 });
   assert.equal(good.ok, true, JSON.stringify(good.issues));
   assert.equal(good.plan.segments.map(segment => tape.sourceText.slice(segment.sourceStart, segment.sourceEnd)).join(''), tape.sourceText);
   const wordTape = buildSceneSourceTape('甲：unbrokenword continues。');

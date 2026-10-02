@@ -63,7 +63,7 @@ test('commit rejects missing/stale/locked targets, invalid drafts and tombstones
  assert.equal(commitQuickSceneRun(deleted,run).applied,false);assert.equal(deleted.directorProjects[0].promptHistory.length,1);
  assert.equal(commitQuickSceneRun(state,{...run,plan:{...run.plan,sourceText:'甲关门。乙微笑。'}}).applied,false);
 });
-test('real controller contract atomically commits 30+10 with preallocated IDs and retains serial reference',async()=>{
+test('real controller commits 30+10 with preallocated IDs from one whole-scene Skill response',async()=>{
  const fixtureValue=await fixture();let state=fixtureValue.state;const calls=[],files=new Map();
  const controller=createQuickGenerationController({
   getContext:()=>({...fixtureValue.context,project:state.directorProjects[0],episode:state.directorProjects[0].episodes[1],permissions:{canGenerate:true}}),
@@ -71,12 +71,15 @@ test('real controller contract atomically commits 30+10 with preallocated IDs an
   executeText:async({messages})=>messages[0].content.includes('核对')?JSON.stringify({ok:true,issues:[]}):JSON.stringify({segments:[
    {end:{unitId:'u1',prefix:'甲开门。'},timing:{speechSeconds:28,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'门关闭',endState:'门打开',boundary:'转乙',visualNotes:[]},
    {end:{unitId:'u1'},timing:{speechSeconds:8,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'门打开',endState:'乙微笑',boundary:'结束',visualNotes:[]}]}),
-  executeSkill:async request=>{calls.push(request);return `${request.input.match(/规范编号：(\d+-\d+-\d+)/)[1]}\n【画面内容】\n自然表演。`;},
+  executeSkill:async request=>{calls.push(request);return request.expectedLabels.map(label=>`${label}\n【画面内容】\n自然表演。`).join('\n\n');},
   commitRun:async run=>{const result=commitQuickSceneRun(state,run);state=result.state;return result;},
  });
  const run=await controller.start(fixtureValue.context);assert.equal(run.phase,'completed');
  assert.deepEqual(state.directorProjects[0].episodes[1].prompts.map(p=>p.recommendedDurationSeconds),[30,10]);
- assert.deepEqual(state.directorProjects[0].promptHistory.map(p=>p.id),run.promptIds);assert.ok(calls[1].beforeUserMessages[0].content.includes('自然表演。'));
+ assert.deepEqual(state.directorProjects[0].promptHistory.map(p=>p.id),run.promptIds);
+ assert.equal(calls.length,1);assert.deepEqual(calls[0].expectedLabels,['1-1-1','1-1-2']);
+ assert.match(calls[0].input,/（1）/);assert.match(calls[0].input,/（2）/);
+ assert.ok(calls[0].input.includes('甲开门。'));assert.ok(calls[0].input.includes('乙微笑。'));
  await controller.resume(run.id);assert.equal(state.directorProjects[0].promptHistory.length,2);
 });
 test('duplicate-scene deletion or renumbering cannot reuse an unchanged scene input fingerprint',async()=>{

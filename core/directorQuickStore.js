@@ -1,7 +1,10 @@
 import {buildSkillContext} from './skillContext.js';
 import {parseDirectorScenes,parseMasterScript} from './scriptImport.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
-import {buildSceneSourceTape,NONFINAL_DURATION_RATIO} from './directorSegmentation.js';
+import {buildSceneSourceTape,NONFINAL_DURATION_RATIO,estimateSegmentSeconds} from './directorSegmentation.js';
+import {directorSpeechBoundary,completeDialogueNeedsNextClip} from './directorSpeechBoundaries.js';
+import {validWholeSceneCompression} from './directorDurationPolicy.js';
+import {validateDirectorSegmentTiming} from './directorTiming.js';
 export {markPromptTimingStale} from './promptTiming.js';
 
 const SHA256_K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
@@ -110,9 +113,16 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const segmentIds=new Set();let end=0;
   for(const [i,segment] of plan.segments.entries()){
     const draft=run.segmentDrafts?.[segment.id];
+    const timingTotal=segment.timing?(()=>{try{return estimateSegmentSeconds(segment.timing);}catch{return NaN;}})():segment.estimatedSeconds;
+    const compressed=validWholeSceneCompression(segment,{maxDurationSeconds:snapshot.maxDurationSeconds,sourceLength:plan.sourceText.length,segmentCount:plan.segments.length,naturalEstimatedSeconds:timingTotal});
+    if(!directorSpeechBoundary({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,maxDurationSeconds:snapshot.maxDurationSeconds}).ok)return fail(state,'分段计划截断了完整台词，草稿保留，请重新划分');
+    if((segment.durationCompression||segment.naturalEstimatedSeconds!==undefined)&&!compressed)return fail(state,'整场压缩时长标记不符合30秒目标与30～35秒自然估时限制');
+    if(compressed&&!validateDirectorSegmentTiming({sourceText:plan.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd,timing:segment.timing,maxDurationSeconds:snapshot.maxDurationSeconds,segmentIndex:i+1,wholeSceneCompression:true}).ok)return fail(state,'整场压缩仍须保留全部口播原字和自然估时，不能低报台词时长');
     if(!segment.id || segmentIds.has(segment.id) || segment.index!==i+1 || segment.sourceStart!==end || !Number.isInteger(segment.sourceEnd) || segment.sourceEnd<=end || segment.sourceEnd>plan.sourceText.length
       || !(segment.estimatedSeconds>0) || !Number.isFinite(segment.estimatedSeconds) || segment.estimatedSeconds>snapshot.maxDurationSeconds
-      || (i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(snapshot.maxDurationSeconds*NONFINAL_DURATION_RATIO))
+      || (i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(snapshot.maxDurationSeconds*NONFINAL_DURATION_RATIO)
+        && !completeDialogueNeedsNextClip({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,estimatedSeconds:segment.estimatedSeconds,maxDurationSeconds:snapshot.maxDurationSeconds}))
+      || (segment.timing && (!Number.isFinite(timingTotal) || (!compressed && timingTotal!==segment.estimatedSeconds)))
       || segment.recommendedDurationSeconds!==Math.ceil(segment.estimatedSeconds) || (!partial && !draft?.validated)
       || (draft?.validated && (draft.prompt?.label!==`${snapshot.sceneLabel}-${i+1}` || !String(draft.prompt?.content || '').trim())))return fail(state,'分段草稿尚未完整校验，不能发布部分结果');
     segmentIds.add(segment.id);end=segment.sourceEnd;
@@ -128,6 +138,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
+    ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),
     sceneAuditStatus:partial?'pending':run.auditWarnings?.length?'warning':'passed',
     ...(run.auditWarnings?.length ? {sceneAuditWarnings:run.auditWarnings.map(item=>({code:item.code,message:item.message,segmentIndex:item.segmentIndex}))} : {}),
   }]:[]);

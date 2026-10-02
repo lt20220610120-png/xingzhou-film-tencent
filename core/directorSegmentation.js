@@ -1,4 +1,6 @@
 import { validateDirectorSegmentTiming } from './directorTiming.js';
+import { directorSpeechBoundary, completeDialogueNeedsNextClip } from './directorSpeechBoundaries.js';
+import { validWholeSceneCompression } from './directorDurationPolicy.js';
 
 /** Source offsets are UTF-16 half-open offsets in sourceText, never in the user's original draft. */
 export const NONFINAL_DURATION_RATIO = 0.85;
@@ -136,19 +138,30 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds, grounde
     }
     if (sourceEnd <= sourceStart) issues.push(issue('ANCHOR_ORDER', '片段结束锚点必须严格递增，不能产生重复或空段', segmentIndex, segment.end));
     if (!isLegal(sourceEnd)) issues.push(issue('INVALID_BOUNDARY', '不能在 Unicode 字符或词语内部切分', segmentIndex, segment.end));
+    const speechBoundary = directorSpeechBoundary({ sourceText: tape.sourceText, sourceEnd, maxDurationSeconds });
+    if (!speechBoundary.ok) issues.push(issue('INCOMPLETE_DIALOGUE_BOUNDARY', '短的单次讲话必须整句留在同一条；仅超出单条上限的长讲话可在完整句号、问号或叹号后切分，不能截断半句话', segmentIndex, { ...speechBoundary, sourceEnd }));
     if (sourceEnd > sourceStart && !tape.sourceText.slice(sourceStart, sourceEnd).replace(/[\s\p{P}]/gu, '')) issues.push(issue('EMPTY_SEGMENT', '片段不能只有空白或标点，必须保留可表演的原文内容', segmentIndex));
     let estimatedSeconds;
     try { estimatedSeconds = estimateSegmentSeconds(segment.timing); } catch (error) { issues.push(issue('INVALID_TIMING', error.message, segmentIndex, segment.timing)); }
-    const grounded = groundedTiming && sourceEnd > sourceStart ? validateDirectorSegmentTiming({ sourceText: tape.sourceText, sourceStart, sourceEnd, timing: segment.timing, maxDurationSeconds, segmentIndex }) : null;
+    const compressed = validWholeSceneCompression({ ...segment, sourceStart, sourceEnd }, { naturalEstimatedSeconds: estimatedSeconds, maxDurationSeconds, sourceLength: tape.sourceText.length, segmentCount: parsed.segments.length });
+    const compression = compressed ? segment.durationCompression : null;
+    if ((segment.durationCompression || segment.naturalEstimatedSeconds !== undefined) && !compressed) issues.push(issue('INVALID_DURATION_COMPRESSION', '整场压缩仅适用于30秒上限、自然估时超过30且不超过35秒、完整单场景一条结果；自然分解与标记必须一致', segmentIndex));
+    const grounded = groundedTiming && sourceEnd > sourceStart ? validateDirectorSegmentTiming({ sourceText: tape.sourceText, sourceStart, sourceEnd, timing: segment.timing, maxDurationSeconds, segmentIndex, wholeSceneCompression: Boolean(compression) }) : null;
     if (grounded) issues.push(...grounded.issues);
+    const naturalEstimatedSeconds = estimatedSeconds;
+    if (compression) estimatedSeconds = 30;
     const recommendedDurationSeconds = Math.ceil(estimatedSeconds);
     if (estimatedSeconds > maxDurationSeconds || recommendedDurationSeconds > maxDurationSeconds) issues.push(issue('DURATION_EXCEEDED', '片段超出最高时长，必须重分段而非截短建议秒数', segmentIndex, { estimatedSeconds, maxDurationSeconds }));
-    if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds)) issues.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds) }));
+    const completeDialoguePriority = arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds)
+      && completeDialogueNeedsNextClip({ sourceText: tape.sourceText, sourceEnd, estimatedSeconds, maxDurationSeconds });
+    if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds) && !completeDialoguePriority) issues.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分；完整台词优先，不能为凑满截断一句话', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds) }));
     if (!meaningfulState(segment.startState) || !meaningfulState(segment.endState)) issues.push(issue('INVALID_SEGMENT_STATE', '每段必须提供非空的起点与终点状态', segmentIndex));
     if (!meaningfulState(segment.boundary) || !Array.isArray(segment.visualNotes)) issues.push(issue('INVALID_SEGMENT_SCHEMA', '每段必须提供非空 boundary 和 visualNotes 数组', segmentIndex));
     segments.push({
       id: typeof segment.id === 'string' && segment.id ? segment.id : `segment-${segmentIndex}`, index: segmentIndex,
       sourceStart, sourceEnd, estimatedSeconds, recommendedDurationSeconds,
+      ...(compression ? { naturalEstimatedSeconds, durationCompression: compression } : {}),
+      ...(completeDialoguePriority ? { completeDialoguePriority: true } : {}),
       timing: segment.timing, startState: segment.startState, endState: segment.endState, boundary: segment.boundary, visualNotes: segment.visualNotes,
       ...(grounded ? { timingFacts: grounded.facts } : {}),
     });

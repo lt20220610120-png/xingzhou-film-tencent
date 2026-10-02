@@ -1,10 +1,10 @@
 // Quick-mode rehearsal estimates, not universal physical durations. Values are
 // editable editorial defaults; explicit script timing always takes precedence.
 export const DIRECTOR_ACTION_TIMING_REFERENCE = Object.freeze([
-  { id: 'expression', label: '眼神、皱眉、短反应', seconds: 0.8, range: [0.5, 1], concurrent: 'dialogue', pattern: /眼神|皱眉|看了.{0,12}一眼|微笑|点.{0,3}头|笑容|脸色|神色|盯着|指尖|泪花/ },
-  { id: 'gesture', label: '抬手、拉到身后、擦泪', seconds: 1.2, range: [0.8, 1.5], concurrent: 'dialogue', pattern: /抬手|张开双臂|擦.{0,8}(?:汗|泪)|拉.{0,12}身后|袖口一抹/ },
-  { id: 'prop', label: '拿取、递交、放入道具', seconds: 1.5, range: [1, 2], concurrent: 'voiceover', pattern: /(?:拿起|取出|递给|放入|扔给|刺入|夹在指缝|整理好)/ },
-  { id: 'movement', label: '起身、短距离转身或行走', seconds: 2, range: [1.5, 3], concurrent: 'voiceover', pattern: /(?:翻身站起|舒展|转身|走进|逼近|后退|蹲下|跪倒|栽倒|闪过|疾掠)/ },
+  { id: 'expression', label: '眼神、皱眉、短反应', seconds: 0.8, range: [0.5, 1], concurrent: 'dialogue', pattern: /眼神|目光|皱眉|看了.{0,12}一眼|微笑|点.{0,3}头|笑容|脸色|神色|盯着|指尖|泪花|噤若寒蝉/ },
+  { id: 'gesture', label: '抬手、拉到身后、擦泪', seconds: 1.2, range: [0.8, 1.5], concurrent: 'dialogue', pattern: /抬手|攥紧|张开双臂|擦.{0,8}(?:汗|泪)|拉.{0,12}身后|袖口一抹/ },
+  { id: 'prop', label: '拿取、递交、放入道具', seconds: 1.5, range: [1, 2], concurrent: 'voiceover', pattern: /(?:拿起|抓起|取出|递给|放入|扔给|摔上桌|刺入|夹在指缝|整理好)/ },
+  { id: 'movement', label: '起身、短距离转身或行走', seconds: 2, range: [1.5, 3], concurrent: 'voiceover', pattern: /(?:翻身站起|舒展|转身|走进|逼近|后退|退离|蹲下|跪倒|栽倒|闪过|疾掠)/ },
   { id: 'combat', label: '一次快速攻击及反应', seconds: 2.5, range: [1.5, 3], concurrent: 'voiceover', pattern: /(?:巴掌|挥拳|一拳|铁拳|一脚|踹|刺入|惨叫|暴起)/ },
   { id: 'search', label: '动作麻利的摸索或搜取', seconds: 2.5, range: [2, 3], concurrent: 'voiceover', pattern: /摸索|搜出|搜刮/ },
   { id: 'switch', label: '关门、调出面板', seconds: 0.8, range: [0.5, 1], concurrent: 'voiceover', pattern: /(?:门.{0,10}关上|调出面板|关灯|灯灭)/ },
@@ -23,9 +23,10 @@ export const describeDirectorActionTiming = sourceQuote => {
   if (/^[啪砰咚嗖啊！!。\s]+$/.test(text)) return { category: 'sound-effect', seconds: 0, typicalSeconds: [0, 0], concurrent: 'none', bounded: true };
   // Description establishes where the existing performance occurs. It does
   // not mandate an additional empty shot before every spoken line.
-  const staticDescription = /^(?:晨光|阳光|月光|灯光|街边|室内|屋内|地下室|潮湿地下室|天花板|角落|房间|窗外|桌上)/.test(text)
-    && !/(?:拿起|走进|走出|跑进|跑出|转身|站起|递给|扔给|挥拳|跪倒|栽倒|搜刮)/.test(text);
+  const staticDescription = /^(?:晨光|阳光|月光|灯光|街边|室内|屋内|地下室|潮湿地下室|天花板|角落|房间|窗外|桌上|仓库中央)/.test(text)
+    && !/(?:拿起|抓起|摔上桌|攥紧|走进|走出|跑进|跑出|转身|站起|递给|扔给|挥拳|跪倒|栽倒|搜刮|退离)/.test(text);
   if (staticDescription && explicit === null) return { category: 'environment', seconds: 0, typicalSeconds: [0, 0], concurrent: 'none', bounded: true };
+  if (/^[\p{L}\p{N}·]{1,20}(?:已|仍)?藏在[^，,。！？]*(?:上方|下方|里面|后面|角落|缝隙|房内|门后)[。！？]?$/u.test(text) && explicit === null) return { category: 'environment', seconds: 0, typicalSeconds: [0, 0], concurrent: 'none', bounded: true };
   if (/咬着.{0,15}(?:汉堡|食物).{0,40}转身走进/.test(text)) return { category: 'quick-food-entry', seconds: 3, typicalSeconds: [3, 5], concurrent: 'none', bounded: true };
   if (/转身擦.{0,12}泪.{0,30}放入.{0,20}转身躺/.test(text)) return { category: 'wipe-store-lie', seconds: 3, typicalSeconds: [2.5, 4], concurrent: 'none', bounded: true };
   const prolonged = /(?:长廊|长距离|跑完|喝完|吃完|持续|一直|久久|长时间|等待|追逐|追赶|慢慢|缓慢|反复|艰难)/.test(text);

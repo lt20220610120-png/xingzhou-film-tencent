@@ -68,3 +68,55 @@ test('ordinary Latin actor names and source typography remain lexical content', 
   assert.notEqual(normalizeDialogueText('好，走吧。'), normalizeDialogueText('好，停下。'));
   assert.notEqual(normalizeDialogueText('真的吗？'), normalizeDialogueText('真的吗！'));
 });
+
+test('announcement fields after full stops remain the original system speech and source offsets', () => {
+  const source = '4-5 景：仓库 深夜 内\n人：马库斯、小弟甲、魏今朝、系统\n系统 VO：发现魔教头目马库斯。主线任务：七日内拔除魔窟。\n系统 VO：失败后，宿主与魏姝皆难逃魔爪。完成奖励：声望三百，属性点零点五，护道锦囊。\n魏今朝 OS：想动我姐？那就别怪我先下手。';
+  const rows = parseDirectorDialogues(source);
+  assert.deepEqual(plain(rows), [
+    { speaker: '系统', mode: '场外声音', speech: '发现魔教头目马库斯。主线任务：七日内拔除魔窟。' },
+    { speaker: '系统', mode: '场外声音', speech: '失败后，宿主与魏姝皆难逃魔爪。完成奖励：声望三百，属性点零点五，护道锦囊。' },
+    { speaker: '魏今朝', mode: '内心VO', speech: '想动我姐？那就别怪我先下手。' },
+  ]);
+  for (const row of rows) assert.equal(source.slice(row.speechStart, row.speechEnd), row.speech);
+  const first = rows[0];
+  assert.deepEqual(plain(sourceDialogues({ sourceText: source, sourceStart: first.speechStart, sourceEnd: first.speechEnd })), [plain(rows)[0]]);
+});
+
+test('spoken field categories work without a cast list and across continuation lines', () => {
+  const source = '系统 VO：领取成功。支线目标：打开门。\n完成条件：找到钥匙。额外奖励：声望十点。\n甲：我知道了。';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [
+    { speaker: '系统', mode: '场外声音', speech: '领取成功。支线目标：打开门。\n完成条件：找到钥匙。额外奖励：声望十点。' },
+    { speaker: '甲', mode: null, speech: '我知道了。' },
+  ]);
+});
+
+test('cast and independently identified actors permit genuine inline speaker changes', () => {
+  const source = '人：系统、甲、乙\n系统 VO：你们好。甲：我来了。\n乙：已经到了。\n甲：跟上。旁白 VO：两人走出门。\n旁白 VO：街灯亮着。';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [
+    { speaker: '系统', mode: '场外声音', speech: '你们好。' },
+    { speaker: '甲', mode: null, speech: '我来了。' },
+    { speaker: '乙', mode: null, speech: '已经到了。' },
+    { speaker: '甲', mode: null, speech: '跟上。' },
+    { speaker: '旁白', mode: '场外声音', speech: '两人走出门。' },
+    { speaker: '旁白', mode: '场外声音', speech: '街灯亮着。' },
+  ]);
+  assert.deepEqual(plain(parseDirectorDialogues('人：结果、甲\n甲：到了。结果：开门。')), [
+    { speaker: '甲', mode: null, speech: '到了。' },
+    { speaker: '结果', mode: null, speech: '开门。' },
+  ]);
+});
+
+test('source speaker header offsets include direction, voice marker, colon and leading speech whitespace', () => {
+  const source = '人：甲、乙\n甲 OS（低声）： 先开门。乙（认真）：好了。';
+  const rows = parseDirectorDialogues(source);
+  assert.deepEqual(rows.map(row => source.slice(row.headerStart, row.headerEnd)), ['甲 OS（低声）： ', '乙（认真）：']);
+  for (const row of rows) assert.equal(row.headerEnd, row.speechStart);
+});
+
+test('a minor inline speaking role omitted from the cast list remains a real actor', () => {
+  assert.deepEqual(plain(parseDirectorDialogues('人：甲、乙\n甲：你好。护士：换药了。乙：好的。')), [
+    { speaker: '甲', speech: '你好。', mode: null },
+    { speaker: '护士', speech: '换药了。', mode: null },
+    { speaker: '乙', speech: '好的。', mode: null },
+  ]);
+});

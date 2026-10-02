@@ -10,7 +10,7 @@ const css = () => fs.readFileSync(path.join(root, 'src/v100-compat.css'), 'utf8'
 
 test('核心层提供风格与画幅常量及设置函数', () => {
   const src = store();
-  assert.match(src, /PROJECT_STYLES\s*=\s*\['真人电影集',\s*'3DCG动漫',\s*'2D动漫'\]/);
+  assert.match(src, /PROJECT_STYLES\s*=\s*\['真人电影级',\s*'3DCG动漫',\s*'2D动漫'\]/);
   assert.match(src, /PROJECT_RATIOS\s*=\s*\['9:16',\s*'16:9'\]/);
   assert.match(src, /export const setDirectorProjectStyle/);
   assert.match(src, /export const setDirectorProjectRatio/);

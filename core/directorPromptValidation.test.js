@@ -1,8 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { identifyPromptContract, validateGeneratedSegment, validateAndRepairGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, repairGeneratedShotWeights, parseSceneAudit } from './directorPromptValidation.js';
+import { identifyPromptContract, validateGeneratedSegment, validateAndRepairGeneratedSegment, repairGeneratedDialogueModes, repairGeneratedDialogueContinuations, repairGeneratedShotWeights, parseSceneAudit, splitWholeScenePromptOutput } from './directorPromptValidation.js';
 
 const baseline = '影像基准=数字电影；镜组=35mm T2.8；采样=24fps 180° EI800；WB=5600K；主光=窗光5600K 方位角90° 仰角45°；补光=墙反射5600K；K:F=2:1；影调=Rec.709 白位90IRE';
+
+test('whole-scene splitter maps exact canonical and legacy bracket IDs without renumbering an invalid reply', () => {
+  const expectedLabels = ['2-1-1', '2-1-2'];
+  const canonical = splitWholeScenePromptOutput({ output: '```text\n## 2-1-1\n第一条。\n\n**2-1-2**\n第二条。\n```', expectedLabels });
+  assert.deepEqual(canonical.issues, []);
+  assert.deepEqual(canonical.prompts.map(item => item.label), expectedLabels);
+  assert.match(canonical.prompts[1].content, /第二条/);
+  const brackets = splitWholeScenePromptOutput({ output: '（1）\n第一条。\n（2）\n第二条。', expectedLabels });
+  assert.deepEqual(brackets.issues, []);
+  assert.deepEqual(brackets.prompts.map(item => item.label), expectedLabels);
+  for (const output of ['2-1-1\n第一条。\n2-1-3\n错误第三条。', '（1）\n第一条。\n（3）\n错误第三条。']) {
+    const invalid = splitWholeScenePromptOutput({ output, expectedLabels });
+    assert.deepEqual(invalid.prompts.map(item => item.label), ['2-1-1']);
+    assert.ok(invalid.issues.some(item => item.code === 'MISSING_SCENE_PROMPT'));
+    assert.ok(invalid.issues.some(item => item.code === 'INVALID_SCENE_LABEL'));
+  }
+});
+
+test('whole-scene duplicate and reversed IDs fail even when the detected item count matches', () => {
+  const expectedLabels = ['2-1-1', '2-1-2'];
+  const duplicate = splitWholeScenePromptOutput({ output: '2-1-1\n第一条。\n2-1-1\n重复条。', expectedLabels });
+  assert.deepEqual(duplicate.prompts, []);
+  assert.ok(duplicate.issues.some(item => item.code === 'INVALID_SCENE_LABEL'));
+  assert.ok(duplicate.issues.some(item => item.code === 'MISSING_SCENE_PROMPT'));
+  const reversed = splitWholeScenePromptOutput({ output: '2-1-2\n第二条。\n2-1-1\n第一条。', expectedLabels });
+  assert.ok(reversed.issues.some(item => item.code === 'INVALID_SCENE_ORDER'));
+  assert.deepEqual(reversed.prompts.map(item => item.label), ['2-1-2', '2-1-1']);
+});
+
+test('truncated whole-scene output only exposes prior complete blocks, never its last unfinished block', () => {
+  const result = splitWholeScenePromptOutput({ output: '2-1-1\n第一条完整内容。\n2-1-2\n【基础设定】\n人物：', expectedLabels: ['2-1-1', '2-1-2'], complete: false });
+  assert.deepEqual(result.prompts, [{ label: '2-1-1', content: '2-1-1\n第一条完整内容。' }]);
+  assert.ok(result.issues.some(item => item.code === 'TRUNCATED_SCENE_OUTPUT'));
+  const empty = splitWholeScenePromptOutput({ output: '', expectedLabels: ['2-1-1'] });
+  assert.deepEqual(empty.prompts, []);
+  assert.equal(empty.issues[0].code, 'EMPTY_SCENE_OUTPUT');
+});
 const prompt = ({ label = '1-1-1', speech = '我来关灯。', speaker = '甲', light = baseline, sound = '甲的D01开始并结束。', camera = '侧方拍摄。' } = {}) => `${label}
 【基础设定】
 人物：甲和乙在场，甲持灯绳，乙坐在书桌旁。
@@ -92,6 +129,27 @@ test('colon inside original speech is kept as dialogue rather than misread as an
   for (const speech of ['我告诉你，答案：不。', '他说：“乙：不好。”然后就走了。', '听好了：不要再开灯。']) {
     const result = validateGeneratedSegment({ expectedLabel: '1-1-1', source: `甲：${speech}`, contract: 'fast-v8', output: prompt({ speech }) });
     assert.equal(result.ok, true, JSON.stringify(result.issues));
+  }
+});
+
+test('system mission and reward headings are literal audible dialogue, not fictitious actor labels', () => {
+  const speech = '发现魔教头目马库斯。主线任务：七日内拔除魔窟。完成奖励：声望三百，属性点零点五。';
+  const args = { expectedLabel: '1-1-1', source: `人：魏今朝、系统\n系统 VO：${speech}`, contract: 'fast-v8' };
+  const output = prompt({ speaker: '系统', speech }).replace('｜现场对白｜', '｜场外声音｜');
+  const checked = validateAndRepairGeneratedSegment({ ...args, output });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.deepEqual(checked.repairs, []);
+  assert.equal(checked.output, output);
+  for (const changed of [
+    output.replace('主线任务：', ''),
+    output.replace('完成奖励：', ''),
+    output.replace('声望三百，属性点零点五', '声望300，属性点0.5'),
+    output.replace('七日内拔除魔窟。', '七日内拔除魔窟。七日内拔除魔窟。'),
+    output.replace('｜系统｜', '｜魏今朝｜'),
+  ]) {
+    const rejected = validateAndRepairGeneratedSegment({ ...args, output: changed });
+    assert.equal(rejected.ok, false);
+    assert.ok(rejected.issues.some(issue => ['DIALOGUE_TEXT_CHANGED', 'DIALOGUE_SPEAKER_CHANGED'].includes(issue.code)));
   }
 });
 

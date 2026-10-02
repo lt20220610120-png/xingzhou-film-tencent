@@ -345,8 +345,11 @@ export const removeSkill = (state, skillId) => ({
 //  项目风格与画幅（导演工作台）
 // ==============================
 
-export const PROJECT_STYLES = ['真人电影集', '3DCG动漫', '2D动漫'];
+export const PROJECT_STYLES = ['真人电影级', '3DCG动漫', '2D动漫'];
 export const PROJECT_RATIOS = ['9:16', '16:9'];
+
+// Keep persisted settings unchanged so existing paid drafts retain their fingerprint.
+export const displayProjectStyle = (style) => style === '真人电影集' ? '真人电影级' : (style || '');
 
 export const setDirectorProjectStyle = (state, projectId, style) => ({
   ...state,
@@ -365,7 +368,7 @@ export const setDirectorProjectRatio = (state, projectId, aspectRatio) => ({
 // 生成"项目设定"前置声明：在 Skill 运行前，先让大模型读取项目的风格与画幅
 export const buildProjectPreamble = (project) => {
   if (!project) return '';
-  const style = project.style || '';
+  const style = displayProjectStyle(project.style);
   const ratio = project.aspectRatio || '';
   if (!style && !ratio) return '';
   const lines = ['【项目设定 · 请先读取】'];

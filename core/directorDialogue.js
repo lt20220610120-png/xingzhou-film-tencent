@@ -3,6 +3,11 @@
 const METADATA_LABELS = new Set(['人', '人物', '角色', '出场人物', '出场角色', '场景', '道具', '音效', '特写', '时间', '镜头', '动作', '画面', '说明', '景', '内景', '外景', '运镜', '光影', '声音', '音色', '限制', '画幅与风格', '光影基调', '节奏与环境声']);
 const ACTION_START = /^(?:[△Δ▲]|\d+\s*[-—]\s*\d+\s*景[：:]|(?:场景|景|人|人物|角色|出场人物|出场角色|动作|镜头|画面|特写|旁白说明)[\t ]*[：:]|[（(]\d+[）)]\s*$|[（(][^）)]+[）)]\s*$|【[^】]+】)/u;
 const SPEAKER_HEADER = /([\p{L}][\p{L}\p{N}·.]{0,31}(?:[\t ]+(?:O\.?S\.?|V\.?O\.?))?(?:[\t ]*[（(][^）)\n]*[）)])*)[\t ]*[：:]/gu;
+const CAST_HEADER = /^(?:人|人物|角色|出场人物|出场角色)[\t ]*[：:][\t ]*(.*)$/u;
+// Colon labels inside a spoken announcement are words, not actors. This is a
+// category rule rather than a list of one project's system messages; explicit
+// cast entries still take precedence when a real actor has such a name.
+const SPEECH_FIELD_LABEL = /(?:任务|奖励|条件|后果|结果|目标|提示|原因|说明|状态|时间|地点|属性|声望|等级|进度|数量|答案|指令|限制|建议|名称|编号|要求|内容|规则|密码|别名)$/u;
 const quotePairs = new Map([['“', '”'], ['『', '』'], ['「', '」'], ['‘', '’'], ['"', '"']]);
 
 const insideQuoted = (text, end) => {
@@ -59,6 +64,11 @@ const literalRange = (source, start, end) => {
 
 export const parseDirectorDialogues = source => {
   const text = typeof source === 'string' ? source : String(source?.text || '');
+  const castSpeakers = new Set(text.split('\n').flatMap(line => {
+    const names = line.trim().match(CAST_HEADER)?.[1];
+    if (!names) return [];
+    return names.split(/[、,，;；]/u).map(name => parseHeader(name.trim()).speaker).filter(Boolean);
+  }));
   const dialogues = [];
   let active = null;
   let lineStart = 0;
@@ -66,9 +76,12 @@ export const parseDirectorDialogues = source => {
     const trimmed = line.trim();
     if (!trimmed) { lineStart += line.length + 1; continue; }
     const candidates = [...line.matchAll(SPEAKER_HEADER)].map(match => ({ match, ...parseHeader(match[1]) }))
-      .filter(candidate => !METADATA_LABELS.has(candidate.speaker) && !/^\s*[△Δ▲]\s*$/u.test(line.slice(0, candidate.match.index)) && !insideQuoted(line, candidate.match.index));
+      .filter(candidate => !METADATA_LABELS.has(candidate.speaker) && (!SPEECH_FIELD_LABEL.test(candidate.speaker) || castSpeakers.has(candidate.speaker)) && !/^\s*[△Δ▲]\s*$/u.test(line.slice(0, candidate.match.index)) && !insideQuoted(line, candidate.match.index));
     // "答案：…" inside a speech is prose, not a new actor. Inline changes are
     // accepted after a completed utterance, matching ordinary script notation.
+    // A cast list can omit a small speaking part such as a nurse or policeman.
+    // Preserve the original inline-speaker support after a full stop; reject
+    // prose field categories above, not every actor absent from the cast list.
     const speakers = candidates.filter((candidate, index) => index === 0 || /[。！？!?][\t ]*$/u.test(line.slice(0, candidate.match.index)));
     const explicitInlineSpeaker = speakers.length && /^[\s]*[△Δ▲]/u.test(line) && /[。！？!?，,；;][\t ]*$/u.test(line.slice(0, speakers[0].match.index));
     if (speakers.length && (!ACTION_START.test(trimmed) || explicitInlineSpeaker)) {
@@ -79,7 +92,7 @@ export const parseDirectorDialogues = source => {
         const action = text.slice(start, next).search(/[△Δ▲]/u);
         const range = literalRange(text, start, action < 0 ? next : start + action);
         if (range.start >= range.end) return;
-        const row = { speaker: candidate.speaker, mode: candidate.mode, speech: text.slice(range.start, range.end), ranges: [range], speechStart: range.start, speechEnd: range.end };
+        const row = { speaker: candidate.speaker, mode: candidate.mode, speech: text.slice(range.start, range.end), ranges: [range], headerStart: lineStart + candidate.match.index, headerEnd: range.start, speechStart: range.start, speechEnd: range.end };
         dialogues.push(row);
         active = action < 0 ? row : null;
       });

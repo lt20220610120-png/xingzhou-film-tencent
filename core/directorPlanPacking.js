@@ -1,5 +1,6 @@
-import { validateScenePlan, NONFINAL_DURATION_RATIO } from './directorSegmentation.js';
+import { validateScenePlan } from './directorSegmentation.js';
 import { getDirectorSegmentTimingFacts } from './directorTiming.js';
+import { directorSpeechBoundary } from './directorSpeechBoundaries.js';
 
 const round = n => Math.round(n * 1e6) / 1e6;
 const fields = ['speechSeconds', 'actionSeconds', 'transitionSeconds'];
@@ -12,7 +13,7 @@ const fields = ['speechSeconds', 'actionSeconds', 'transitionSeconds'];
 export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   const unchanged = { candidate, changed: false };
   const initial = validateScenePlan(candidate, { tape, maxDurationSeconds, groundedTiming: true });
-  if (initial.ok || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED'].includes(i.code) || (i.code === 'INVALID_TIMING' && i.message === '片段估计时长必须大于零'))) return unchanged;
+  if (initial.ok || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED', 'INCOMPLETE_DIALOGUE_BOUNDARY'].includes(i.code) || (i.code === 'INVALID_TIMING' && i.message === '片段估计时长必须大于零'))) return unchanged;
   const events = [], spans = [];
   let start = 0;
   for (const segment of candidate.segments) {
@@ -42,8 +43,8 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   }
   events.sort((a,b) => a.position - b.position);
   const boundaries = new Set([tape.sourceText.length]);
-  // Only word/grapheme boundaries inside actual speech or after an action.
-  // Never cut inside a descriptive action to manufacture a 30-second result.
+  // Spoken word positions allocate exact speech time, but they are not cut
+  // positions. Only a complete turn or a full sentence of a long turn may cut.
   const wordEnds = new Set();
   for (const part of new Intl.Segmenter('zh', { granularity: 'word' }).segment(tape.sourceText)) {
     wordEnds.add(part.index); wordEnds.add(part.index + part.segment.length);
@@ -54,7 +55,8 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   for (const beat of getDirectorSegmentTimingFacts({sourceText:tape.sourceText}).actionCues) boundaries.add(beat.sourceEnd);
   // Closing punctuation belongs to the preceding words. A lexical boundary
   // just before "！" is legal to Segmenter but cannot form a new performance.
-  const options=[...boundaries].filter(end=>end>0&&wordEnds.has(end)&&(end===tape.sourceText.length||! /^[\p{P}\p{S}]/u.test(tape.sourceText.slice(end)))).sort((a,b)=>a-b);
+  const options=[...boundaries].filter(end=>end>0&&wordEnds.has(end)&&(end===tape.sourceText.length||! /^[\p{P}\p{S}]/u.test(tape.sourceText.slice(end)))
+    && directorSpeechBoundary({sourceText:tape.sourceText,sourceEnd:end,maxDurationSeconds}).ok).sort((a,b)=>a-b);
   const cumulative=new Map(); let cursor=0; const sum={speechSeconds:0,actionSeconds:0,transitionSeconds:0};
   cumulative.set(0,{...sum});
   for(const end of options){
@@ -67,10 +69,11 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   while(start<tape.sourceText.length){
     const remaining=totalFor(start,tape.sourceText.length);
     if(remaining>0&&remaining<=maxDurationSeconds){cuts.push(tape.sourceText.length);break;}
-    const possible=options.filter(end=>end>start&&end<tape.sourceText.length&&totalFor(start,end)>=Math.ceil(NONFINAL_DURATION_RATIO*maxDurationSeconds)&&totalFor(start,end)<=maxDurationSeconds);
+    const possible=options.filter(end=>end>start&&end<tape.sourceText.length&&totalFor(start,end)>0&&totalFor(start,end)<=maxDurationSeconds);
     if(!possible.length)return unchanged;
-    // Prefer a completed utterance/action close to the cap; otherwise a legal
-    // spoken-word boundary with a reaction/sound bridge preserves the dialogue.
+    // Prefer the latest complete turn/action. Completeness outranks the fill
+    // ratio; the validator permits short clips only when the next full turn
+    // cannot fit, so this cannot manufacture arbitrary five-second clips.
     const natural=possible.filter(end=>totalFor(start,end)>=maxDurationSeconds-2&&(/[。！？!?；;\n]\s*$/.test(tape.sourceText.slice(start,end))||spans.some(s=>s.end===end)));
     const end=(natural.length?natural:possible).at(-1);cuts.push(end);start=end;
   }

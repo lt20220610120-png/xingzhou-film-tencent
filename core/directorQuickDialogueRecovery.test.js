@@ -58,11 +58,11 @@ function fixture() {
       const audit = messages[0].content.includes('核对'); calls.push(audit ? 'audit' : 'plan');
       return JSON.stringify(audit ? { ok: true, issues: [] } : candidate);
     },
-    executeSkill: async ({ input }) => {
-      const label = input.match(/规范编号：(\d+-\d+-\d+)/)?.[1]; calls.push(label);
-      return { output: label === '1-1-3' ? thirdOutput : fastPrompt(label, label === '1-1-1'
+    executeSkill: async ({ expectedLabels }) => {
+      calls.push('whole-scene');
+      return { output: expectedLabels.map(label => label === '1-1-3' ? thirdOutput : fastPrompt(label, label === '1-1-1'
         ? 'D01｜甲｜现场对白｜分镜01内说完：『先把灯关了。』'
-        : 'D01｜乙｜现场对白｜分镜01内说完：『已经关好了。』', ['D01开始并结束。']) };
+        : 'D01｜乙｜现场对白｜分镜01内说完：『已经关好了。』', ['D01开始并结束。'])).join('\n\n') };
     },
     commitProgress: async run => { progress.push(structuredClone(run)); return { applied: true }; },
     commitRun: async run => { commits.push(structuredClone(run)); return { applied: true }; },
@@ -74,10 +74,10 @@ test('all three clips finish and publish when the third has mixed OS and sound-r
   const f = fixture();
   const run = await f.controller.start(f.request);
   assert.equal(run.phase, 'completed', JSON.stringify(run.errors));
-  assert.deepEqual(f.calls, ['plan', '1-1-1', '1-1-2', '1-1-3', 'audit']);
+  assert.deepEqual(f.calls, ['plan', 'whole-scene', 'audit']);
   assert.equal(f.progress.length, 3);
   assert.equal(f.commits.length, 1);
-  assert.equal(run.processingVersion, 4);
+  assert.equal(run.processingVersion, 6);
   const third = run.segmentDrafts[run.plan.segments[2].id];
   assert.equal(third.validated, true);
   assert.deepEqual(third.localRepairs, ['DIALOGUE_MODE_CHANGED', 'MISSING_DIALOGUE_CONTINUATION']);
@@ -106,7 +106,7 @@ test('version 3 failed paid third clip is repaired on resume without generating 
   assert.deepEqual(restored.calls, ['audit']);
   assert.deepEqual(done.promptIds, complete.promptIds);
   assert.equal(Object.values(done.segmentDrafts).filter(draft => draft.validated).length, 3);
-  assert.equal(restored.progress.length, 3);
+  assert.equal(restored.progress.length, 1);
   assert.equal(restored.commits.length, 1);
 });
 
@@ -126,11 +126,11 @@ test('same-version rejected paid draft repairs shot percentages locally without 
   await restored.controller.restore();
   const done = await restored.controller.resume(saved.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 4);
+  assert.equal(done.processingVersion, 6);
   assert.deepEqual(restored.calls, ['audit']);
   assert.deepEqual(done.plan, complete.plan);
   assert.deepEqual(done.promptIds, complete.promptIds);
   assert.equal(Object.values(done.segmentDrafts).filter(draft => draft.validated).length, 3);
   assert.ok(done.segmentDrafts[thirdId].localRepairs.includes('INVALID_SHOT_WEIGHTS'));
-  assert.equal(restored.progress.length, 3);
+  assert.equal(restored.progress.length, 1);
 });

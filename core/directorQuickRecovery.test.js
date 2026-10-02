@@ -38,10 +38,11 @@ function makeFixture({ textHook, skillHook, saveHook, progressHook, groundedTimi
       return override ?? JSON.stringify(type === 'plan' ? candidate : { ok: true, issues: [] });
     },
     executeSkill: async payload => {
-      const label = payload.input.match(/规范编号：(\d+-\d+-\d+)/)?.[1];
-      const call = { type: 'skill', label, payload }; calls.push(call);
+      const labels = payload.expectedLabels || [...new Set(payload.input.match(/\d+-\d+-\d+/g))];
+      const label = labels[0];
+      const call = { type: 'skill', label, labels, payload }; calls.push(call);
       const override = await skillHook?.(call, calls);
-      return { output: override ?? `${label}\n【画面内容】\n自然镜头与对应原话。` };
+      return { output: override ?? labels.map(current=>`${current}\n【画面内容】\n自然镜头与对应原话。`).join('\n\n') };
     },
     commitRun: async run => { commits.push(structuredClone(run)); return { applied: true }; },
     commitProgress: progressHook,
@@ -49,14 +50,26 @@ function makeFixture({ textHook, skillHook, saveHook, progressHook, groundedTimi
   return { controller: createQuickGenerationController(deps), deps, calls, commits, saves, records, request, candidate, changeAccount: () => { accountId = 'other'; }, changeSource: value => { currentSource = value; } };
 }
 
-test('validated results are saved before a later segment fails and resume skips paid accepted work',async()=>{
-  const progress=[];let fail=true;
-  const f=makeFixture({progressHook:async run=>{progress.push(structuredClone(run));return {applied:true};},skillHook:async call=>{if(fail&&call.label==='1-1-2')throw new Error('网络中断');}});
+test('partial whole-scene results are saved before repair fails and resume preserves accepted paid output',async()=>{
+  const progress=[];let fail=true,paidCalls=0;
+  const f=makeFixture({progressHook:async run=>{progress.push(structuredClone(run));return {applied:true};},skillHook:async call=>{
+    if(!fail)return;
+    if(++paidCalls===1)return `${call.labels[0]}\n【画面内容】\n自然镜头与对应原话。`;
+    throw new Error('网络中断');
+  }});
   const stopped=await f.controller.start(f.request);
   assert.equal(stopped.phase,'failed');assert.equal(progress.length,1);
   assert.equal(Object.values(progress[0].segmentDrafts).filter(d=>d.validated).length,1);
+  const first=stopped.plan.segments[0],accepted=structuredClone(stopped.segmentDrafts[first.id].prompt);
+  assert.equal(stopped.wholeSceneResponses[0].output,accepted.content);
   fail=false;const done=await f.controller.resume(stopped.id);
-  assert.equal(done.phase,'completed');assert.equal(f.calls.filter(c=>c.label==='1-1-1').length,1);
+  assert.equal(done.phase,'completed');assert.equal(f.calls.filter(c=>c.type==='skill').length,3);
+  assert.deepEqual(done.segmentDrafts[first.id].prompt,accepted);
+  assert.deepEqual(done.promptIds,stopped.promptIds);
+  const resumed=f.calls.filter(c=>c.type==='skill').at(-1);
+  assert.deepEqual(resumed.labels,['1-1-1','1-1-2']);
+  assert.deepEqual(resumed.payload.preservedPrompts,[{label:'1-1-1',content:accepted.content}]);
+  assert.match(resumed.payload.input,/（1）/);assert.match(resumed.payload.input,/（2）/);
 });
 
 test('truncated output gets one bounded retry with larger output budget',async()=>{
@@ -87,7 +100,7 @@ test('underfilled model beats are packed and committed without another paid plan
   assert.equal(run.phase,'completed');assert.equal(run.plan.segments.length,1);
   assert.equal(f.calls.filter(c=>c.type==='plan').length,1);
   assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
-  assert.equal(progress.length,1);assert.equal(run.planPacking.originalSegmentCount,2);
+  assert.equal(progress.length,1,JSON.stringify(progress.map(item=>({phase:item.phase,attempts:item.wholeSceneAttempts,drafts:Object.keys(item.segmentDrafts)}))));assert.equal(run.planPacking.originalSegmentCount,2);
 });
 
 test('planning repair receives the previous candidate and preserves rejected evidence',async()=>{
@@ -180,23 +193,29 @@ test('restored validated-plan input reuses saved planning response without billi
   assert.equal(done.id, complete.id);
 });
 
-test('first lighting baseline and accepted draft survive interrupted second request', async () => {
-  let failed = false;
+test('first lighting baseline and accepted draft survive interrupted whole-scene repair', async () => {
+  let failed = false,paidCalls=0;
+  const firstContent='1-1-1\n【整体视听】\n光影基调：测试固定基准\n镜头：甲关闭灯。';
   const fixture = makeFixture({ skillHook: async call => {
-    if (call.label === '1-1-2') { failed = true; throw new Error('模拟断网'); }
-    return `${call.label}\n【整体视听】\n光影基调：测试固定基准\n镜头：甲关闭灯。`;
+    if (++paidCalls>1) { failed = true; throw new Error('模拟断网'); }
+    return firstContent;
   } });
   const interrupted = await fixture.controller.start(fixture.request);
   assert.equal(interrupted.phase, 'failed'); assert.equal(failed, true);
   assert.equal(interrupted.sharedBaseline, '测试固定基准');
-  const resumed = makeFixture({ skillHook: async call => `${call.label}\n光影基调：测试固定基准\n乙在灯灭后回答。` });
+  const resumed = makeFixture({ skillHook: async call => {
+    assert.deepEqual(call.labels,['1-1-1','1-1-2']);
+    assert.deepEqual(call.payload.preservedPrompts,[{label:'1-1-1',content:firstContent}]);
+    return `${firstContent}\n\n1-1-2\n光影基调：测试固定基准\n乙在灯灭后回答。`;
+  } });
   resumed.records.set(interrupted.id, structuredClone(interrupted));
   await resumed.controller.restore();
   const done = await resumed.controller.resume(interrupted.id);
   assert.equal(done.phase, 'completed');
   assert.deepEqual(done.promptIds, interrupted.promptIds);
-  assert.equal(resumed.calls.filter(call => call.type === 'skill' && call.label === '1-1-1').length, 0);
-  assert.match(resumed.calls.find(call => call.type === 'skill').payload.beforeUserMessages[0].content, /测试固定基准/);
+  assert.equal(resumed.calls.filter(call => call.type === 'skill').length, 1);
+  assert.equal(done.segmentDrafts[done.plan.segments[0].id].prompt.content,firstContent);
+  assert.match(JSON.stringify(resumed.calls.find(call => call.type === 'skill').payload), /测试固定基准/);
 });
 
 test('changed source or account while waiting prevents committing any late response', async () => {

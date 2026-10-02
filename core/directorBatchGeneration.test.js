@@ -19,13 +19,13 @@ function fixture(){
    if(payload.messages[0].content.includes('核对'))return '{"ok":true,"issues":[]}';
    return JSON.stringify({segments:[{end:{unitId:'u1'},timing:{speechSeconds:2,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'起点',endState:'终点',boundary:'scene-end',visualNotes:[]}]});
  },executeSkill:async payload=>{
-   calls.push({kind:'skill',scene:payload.snapshot.sceneLabel});
+   calls.push({kind:'skill',scene:payload.snapshot.sceneLabel,expectedLabels:payload.expectedLabels,input:payload.input});
    activeSkills++;maxActiveSkills=Math.max(maxActiveSkills,activeSkills);
    try{
     if(waitAllRequests)await waitAllRequests;
     if(waitRequest){const pending=waitRequest;waitRequest=null;await pending;}
     if(failScene===payload.snapshot.sceneLabel)throw new Error('模拟断网');
-    return `${payload.snapshot.sceneLabel}-1\n正常镜头与原台词。`;
+    return payload.expectedLabels.map(label=>`${label}\n正常镜头与原台词。`).join('\n\n');
    }finally{activeSkills--;}
  },commitRun:async run=>{const result=commitQuickSceneRun(state,run);state=result.state;return result;}});
  const scene=makeScene();
@@ -69,6 +69,10 @@ test('all-scene parallel mode starts every scene before any paid response finish
  await until(()=>f.calls.filter(call=>call.kind==='skill').length===3);
  assert.equal(f.maxActiveSkills,3);assert.equal(f.batch.entries()[0].activeSceneCount,3);
  assert.deepEqual(f.batch.entries()[0].currentSceneLabels,['1-1','1-2','3-1']);
+ for(const call of f.calls.filter(call=>call.kind==='skill')){
+  assert.deepEqual(call.expectedLabels,[`${call.scene}-1`]);
+  assert.match(call.input,/（1）/);
+ }
  assert.equal(f.state.directorProjects[0].episodes[1].prompts,undefined);
  release();assert.equal((await task).phase,'completed');
 });
@@ -78,7 +82,8 @@ test('pause saves every concurrent paid response; repeat resume cannot duplicate
  await until(()=>f.calls.filter(call=>call.kind==='skill').length===3);
  const id=f.batch.entries()[0].id;await f.batch.pause(id);resolve();await task;
  assert.equal(f.batch.get(id).phase,'paused');assert.equal(f.batch.get(id).targets.filter(target=>target.status==='paused').length,3);
- assert.equal(f.scene.entries().filter(run=>run.segmentDrafts?.[run.plan.segments[0].id]?.validated).length,3);
+ assert.equal(f.scene.entries().filter(run=>run.wholeSceneResponses?.some(response=>response.complete&&response.output)).length,3,
+  'every paid whole-scene response must be durably retained before pausing');
  const before=f.calls.filter(c=>c.kind==='skill').length;
  await Promise.all([f.batch.resume(id),f.batch.resume(id)]);
  assert.equal(f.batch.get(id).phase,'completed');assert.equal(f.calls.filter(c=>c.kind==='skill').length-before,0);

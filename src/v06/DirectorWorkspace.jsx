@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { readRemembered, useRememberedState } from '../useRememberedState.js';
 import {
   ArrowLeft, Upload, FileText, BookOpen, Plus, Trash2, Sparkles,
-  Save, Bot, X, Check, Pin, Copy, RefreshCw, Film, PencilLine, Users, Lock, Unlock, Cloud
+  Save, Bot, X, Check, Pin, Copy, RefreshCw, Film, PencilLine, Users, Lock, Unlock, Cloud, AlertTriangle
 } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { ProjectCardHub } from './ProjectCardHub.jsx';
@@ -19,7 +19,7 @@ import {
   deleteDirectorPromptsEverywhere, updateDirectorPromptEverywhere, buildPromptHistoryExport,
   appendDirectorEpisodePrompts, buildPromptGroupExport,
   PROJECT_STYLES, PROJECT_RATIOS,
-  setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble
+  setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble, displayProjectStyle
 } from '../../core/projectStore.js';
 import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterSetting } from '../../core/scriptImport.js';
 import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
@@ -165,7 +165,8 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
     <div className="prompt-card">
       <div className="prompt-card-head">
         <div className="prompt-identity"><div className="prompt-label">{prompt.label || `提示词 ${index + 1}`}</div>
-          {prompt.recommendedDurationSeconds&&<span className={`prompt-duration${prompt.durationStatus==='needs-review'?' needs-review':''}`} title="按当前内容估算；实际生成请结合所选视频模型的可选时长。">建议生成时长 {prompt.recommendedDurationSeconds} 秒{prompt.durationStatus==='needs-review'?' · 时长待复核':''}</span>}
+          {prompt.recommendedDurationSeconds&&<span className={`prompt-duration${prompt.durationStatus==='needs-review'?' needs-review':''}`} title={prompt.durationCompression ? '整场自然表演预计略超过30秒，按紧凑节奏生成30秒视频，保留完整剧情和台词。' : '按当前内容估算；实际生成请结合所选视频模型的可选时长。'}>建议生成时长 {prompt.recommendedDurationSeconds} 秒{prompt.durationStatus==='needs-review'?' · 时长待复核':''}</span>}
+          {prompt.durationCompression&&Number.isFinite(prompt.naturalEstimatedSeconds)&&<small className="prompt-duration-compression">自然预计 {Math.round(prompt.naturalEstimatedSeconds*10)/10} 秒 · 紧凑节奏</small>}
           {prompt.generationRunId&&<small className="prompt-generation-batch">{new Date(prompt.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 批次</small>}
           {prompt.sceneAuditStatus==='pending'&&<small className="prompt-generation-batch">已保存 · 整场核对中</small>}
           {prompt.sceneAuditStatus==='warning'&&<small className="prompt-generation-batch prompt-audit-warning">已保存 · 整场核对有提醒</small>}
@@ -219,6 +220,25 @@ function parseSegments(text) {
 /* ================================================================
  * EpisodeDirector - 逐集导演编辑（支持 creative/quick 模式）
  * ================================================================ */
+function DirectorCloudNotice({ notice }) {
+  if (!notice) return null;
+  const raw = String(notice);
+  const conflict = /冲突|同时被修改|版本.*不一致/i.test(raw);
+  const failure = conflict || /error|失败|异常|无法|denied|forbidden/i.test(raw);
+  const withoutInvocation = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '');
+  const message = conflict
+    ? '剧本在本机和云端都被修改，本地草稿已保留。请刷新云端并核对版本。'
+    : /[\u3400-\u9fff]/.test(withoutInvocation)
+      ? withoutInvocation.replace(/文档\/script/g, '剧本文档')
+      : failure ? '云端同步未完成，请刷新云端后重试。' : raw;
+  return <section className={`director-cloud-notice ${failure ? 'warning' : 'success'}`} role={failure ? 'alert' : 'status'}>
+    {failure ? <AlertTriangle size={16}/> : <Cloud size={16}/>}
+    <div><strong>{conflict ? '云端同步存在冲突' : failure ? '云端同步未完成' : '云端同步'}</strong><p>{message}</p>
+      {failure && <details><summary>技术详情</summary><pre>{raw}</pre></details>}
+    </div>
+  </section>;
+}
+
 function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId, quickGeneration,onJumpToScene }) {
   const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
   const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
@@ -267,6 +287,9 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   let quickSettings;try{quickSettings=JSON.parse(settingsJson);}catch{quickSettings={};}
   quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=1&&quickSettings.maxDurationSeconds<=30?quickSettings.maxDurationSeconds:30};
   const [sourceView,setSourceView]=useState('source');
+  const manualOutputKey = sceneLabel => `xz-director-manual-output:${accountId}:${project.id}:${episode.id}:${sceneLabel}`;
+  const [manualOutputRevision,setManualOutputRevision]=useState(0);
+  const manualOutputs=(()=>{try{return JSON.parse(localStorage.getItem(manualOutputKey(currentScene))||'[]');}catch{return [];}})();
   const [autoError,setAutoError]=useState('');
   const localRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
@@ -370,28 +393,25 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       if (skillId) localStorage.setItem('xz-last-used-skill', skillId);
       const preamble = buildProjectPreamble(project);
       const tasks = buildNumberedSceneTasks(inputText, sceneLabel);
-      // 并发向大模型发起各分段请求，读取输出后按编号排序
-      const results = await Promise.allSettled(tasks.map(async (task) => {
-        const taskInput = preamble ? `${preamble}\n\n${task.input}` : task.input;
-        const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId, input: taskInput, assistantRole: '行舟影视导演提示词助手' });
-        return { task, output: result.output };
-      }));
-      const generatedParts = [];
-      for (const { value: { task, output } } of results.filter(result => result.status === 'fulfilled')) {
-        const parsed = splitNumberedPromptOutput(output);
-        if (parsed.length === 1) {
-          const rawContent = parsed[0].content || output;
-          const firstLine = rawContent.split('\n', 1)[0];
-          const hasCanonicalLabel = /^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\d+-\d+-\d+(?:\*\*|__)?\s*$/.test(firstLine);
-          const content = hasCanonicalLabel
-            ? rawContent
-            : `${task.label}\n${rawContent}`;
-          generatedParts.push({ label: task.label, content });
-        } else {
-          generatedParts.push(...parsed);
-        }
-      }
       const sourceText = preamble ? `${preamble}\n\n${inputText}` : inputText;
+      // 括号划分提交时段；整场一次预演与一次输出，不拆成独立请求。
+      const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId,
+        input: `${sourceText}\n\n【整场提交说明】\n请先通读以上整场戏并完成覆盖所有括号的导演预演，再一次输出全部 ${tasks.length} 条提示词。括号是提交边界，不是重新构想场景的起点。规范编号按原括号对应：${tasks.map(task=>task.label).join('、')}。同场光影基调逐字复用，人物、道具、声音和末首镜连续。`,
+        assistantRole: '行舟影视导演提示词助手', requestOptions: {maxOutputTokens:32768} });
+      // Keep the paid whole-scene reply even when its numbering needs review.
+      const replyKey=manualOutputKey(sceneLabel);
+      const replies=JSON.parse(localStorage.getItem(replyKey)||'[]');
+      localStorage.setItem(replyKey,JSON.stringify([...replies,{output:result.output,sourceText,skillId,profileId:directorProfile?.id,createdAt:new Date().toISOString()}]));
+      setManualOutputRevision(value=>value+1);
+      const parsed = splitNumberedPromptOutput(result.output);
+      if (parsed.length !== tasks.length) throw new Error(`整场应输出 ${tasks.length} 条提示词，接口返回 ${parsed.length} 条，请检查完整回包后重试。`);
+      const generatedParts = parsed.map((part,index)=>{
+        const label=tasks[index].label;
+        if (/^\d+-\d+-\d+$/.test(part.label)&&part.label!==label) throw new Error(`整场输出编号 ${part.label} 与原分段 ${label} 不一致`);
+        if (!/^\d+-\d+-\d+$/.test(part.label)&&part.label!==label.split('-').at(-1)) throw new Error(`整场括号编号 ${part.label} 与原分段 ${label} 不一致`);
+        const hasCanonicalLabel=/^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\d+-\d+-\d+(?:\*\*|__)?\s*$/.test(part.content.split('\n',1)[0]);
+        return {label,content:hasCanonicalLabel?part.content:`${label}\n${part.content}`};
+      });
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
         parts: generatedParts,
@@ -404,8 +424,6 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         status: '已生成提示词',
         lastUsedSkill: currentSkill?.name || '',
       }), project.id, newPrompts));
-      const failures = results.filter(result => result.status === 'rejected');
-      if (failures.length) throw new Error(`${failures.length} 段生成失败，成功的 ${results.length-failures.length} 段已保存。${failures[0].reason?.message || '请检查所选接口后重试失败段落'}`);
     } catch (e) {
       directorJobs.finish(jobKey(sceneLabel),e.message || '生成失败');
       console.error('快速模式运行失败:', e);
@@ -459,10 +477,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       {runningScenes.size>0&&<div className="collab-notice" role="status">本集有 {runningScenes.size} 个任务正在生成，切换分集或工作台后会继续，结果自动保存。</div>}
       {generationErrors.map(([key,job])=><div key={key} className="collab-error" role="alert">{key.slice(jobPrefix.length+1)}：{job.error}</div>)}
       {/* 头部 */}
-      <header>
-        <div className="eyebrow">
-          <span>导演项目 · {episode.title}</span>
-          <div className="mode-switch">
+      <header className="director-workspace-header">
+        <p className="director-episode-caption">导演项目 · {episode.title}</p>
+        <div className="director-workspace-toolbar">
+          <div className="mode-switch" aria-label="导演模式">
             <button
               className={mode === 'creative' ? 'active' : ''}
               onClick={() => setMode('creative')}
@@ -481,20 +499,21 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             >
               历史提示词
             </button>
-            {project.cloudProjectId && <button className="director-cloud-refresh" onClick={onRefreshCloud} disabled={refreshingCloud}><RefreshCw size={15} className={refreshingCloud ? 'spin' : ''}/> {refreshingCloud ? '刷新中…' : '刷新云端'}</button>}
-            {cloudRefreshNotice && <span className="director-refresh-notice">{cloudRefreshNotice}</span>}
           </div>
-        </div>
-        <div className="editor-head-actions">
+          <div className="editor-head-actions">
+            {project.cloudProjectId && <button className="secondary director-cloud-refresh" onClick={onRefreshCloud} disabled={refreshingCloud}><RefreshCw size={15} className={refreshingCloud ? 'spin' : ''}/> {refreshingCloud ? '刷新中…' : '刷新云端'}</button>}
           <button
             className="secondary ai-button"
             onClick={() => onAttach?.(buildAiContextForEpisode())}
           >
             <Bot size={17} /> 添加到 AI 对话
           </button>
+          </div>
         </div>
       </header>
+      <DirectorCloudNotice notice={cloudRefreshNotice}/>
 
+      <section className="director-config-rack" aria-label="提示词模型与项目设定">
       <ModelSelect profiles={state.apiProfiles||[]} value={directorModelId} onChange={setDirectorModelId} label="本集提示词模型"/>
       {/* 项目设定功能区：风格与画幅（创造/快速模式共用，运行 Skill 前优先注入给大模型） */}
       <div className="project-style-bar">
@@ -504,8 +523,9 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
           {PROJECT_STYLES.map((s) => (
             <button
               key={s}
-              className={`style-chip ${(project.style || '') === s ? 'active' : ''}`}
-              onClick={() => setState((st) => setDirectorProjectStyle(st, project.id, project.style === s ? '' : s))}
+              className={`style-chip ${displayProjectStyle(project.style) === s ? 'active' : ''}`}
+              aria-pressed={displayProjectStyle(project.style) === s}
+              onClick={() => setState((st) => setDirectorProjectStyle(st, project.id, displayProjectStyle(project.style) === s ? '' : s))}
             >
               {s}
             </button>
@@ -517,6 +537,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             <button
               key={r}
               className={`style-chip ${(project.aspectRatio || '') === r ? 'active' : ''}`}
+              aria-pressed={(project.aspectRatio || '') === r}
               onClick={() => setState((st) => setDirectorProjectRatio(st, project.id, project.aspectRatio === r ? '' : r))}
             >
               {r}
@@ -525,10 +546,11 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         </div>
         <small className="style-bar-hint">
           {project.style || project.aspectRatio
-            ? `已设定：${[project.style, project.aspectRatio].filter(Boolean).join(' · ')}，运行 Skill 时大模型会优先读取`
-            : '选择后运行 Skill，大模型会先读取风格与画幅再生成提示词'}
+            ? `已设定：${[displayProjectStyle(project.style), project.aspectRatio].filter(Boolean).join(' · ')}。生成前优先读取项目设定。`
+            : '生成前优先读取项目风格与画幅。'}
         </small>
       </div>
+      </section>
 
       {/* 创造模式：逐场景阅读剧本、记录导演构想，再生成提示词 */}
       {mode === 'creative' && (
@@ -592,7 +614,8 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
           {quickSettings.segmentationMode==='auto'&&<DirectorBatchPanel key={`${accountId}:${project.id}`} project={project} accountId={accountId} skill={currentSkill} profile={directorProfile} maxDurationSeconds={quickSettings.maxDurationSeconds} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked)||project.canWrite===false} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/>}
           {/* 左栏：场景列表 */}
           <nav className="quick-scene-rail">
-            <div className="quick-scene-rail-title">场景列表</div>
+            <div className="quick-scene-rail-title">本集场景 <span>{segments.length} 场</span></div>
+            <div className="director-scene-strip">
             {segments.map((seg) => (
               <button
                 key={seg.label}
@@ -606,6 +629,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             {segments.length === 0 && (
               <div className="quick-scene-empty">未检测到 (1)(2) 分段标记</div>
             )}
+            </div>
           </nav>
 
           {/* 中栏：选中场景的可编辑卡片 */}
@@ -636,6 +660,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                   </div>
                 </div>
                 {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
+                {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><pre key={index}>{reply.output}</pre>)}</details>}
                 <textarea
                   className="quick-scene-textarea"
                   value={quickSettings.segmentationMode==='auto'&&sourceView==='plan'?autoSceneText:currentSceneContent}
@@ -887,7 +912,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       await loadCloudProjects();
       const cloud = await api.directorCollabGetProject({ projectId: selectedProject.cloudProjectId });
       setState(current=>({...current,directorProjects:reconcileDirectorCloudProjects(current.directorProjects||[],[cloud])}));
-      setCloudRefreshNotice('已读取云端更新；未保存修改会保留，冲突时请核对提示');
+      setCloudRefreshNotice('已读取云端更新，本地未保存的修改已保留。');
       setTimeout(() => setCloudRefreshNotice(''), 2400);
     } catch (error) {
       setCloudRefreshNotice(`刷新失败：${error.message || '网络连接异常'}`);

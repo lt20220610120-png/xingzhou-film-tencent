@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createInitialState, importDirectorProject,
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble,
-  PROJECT_STYLES, PROJECT_RATIOS,
+  PROJECT_STYLES, PROJECT_RATIOS, displayProjectStyle,
 } from './projectStore.js';
 
 const seed = () => {
@@ -55,6 +55,14 @@ test('只设置其中一项时 preamble 仅包含该项', () => {
 });
 
 test('风格与画幅选项符合产品定义', () => {
-  assert.deepEqual(PROJECT_STYLES, ['真人电影集', '3DCG动漫', '2D动漫']);
+  assert.deepEqual(PROJECT_STYLES, ['真人电影级', '3DCG动漫', '2D动漫']);
   assert.deepEqual(PROJECT_RATIOS, ['9:16', '16:9']);
+});
+
+test('旧电影风格显示与新生成使用电影级，保留原项目设置', () => {
+  const project = { style: '真人电影集', aspectRatio: '9:16' };
+  assert.equal(displayProjectStyle(project.style), '真人电影级');
+  assert.equal(displayProjectStyle('3DCG动漫'), '3DCG动漫');
+  assert.match(buildProjectPreamble(project), /本项目风格：真人电影级/);
+  assert.equal(project.style, '真人电影集');
 });
