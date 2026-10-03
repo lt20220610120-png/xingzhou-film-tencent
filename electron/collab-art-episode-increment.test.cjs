@@ -30,7 +30,7 @@ test('信息页与美术页复用项目级后台分析入口，候选留本地�
   assert.match(ui, /const collabAnalysisJobs = new Map\(\)/);
   assert.match(ui, /function startCollabArtAnalysis/);
   assert.doesNotMatch(ui, /function syncPendingArtAnalysis|store\.sync\(/);
-  assert.match(ui, /点击发布后上传/);
+  assert.match(ui, /本地核实 · 发布时上传/);
   const calls = ui.match(/startCollabArtAnalysis\(\{/g) || [];
   assert.ok(calls.length >= 2, `信息页和美术页应共用入口，实际 ${calls.length} 处`);
 });

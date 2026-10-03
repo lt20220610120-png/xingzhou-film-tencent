@@ -42,7 +42,7 @@ import '../art-workbench.css';
 const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, assets: Box, storyboard: Clapperboard, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
 const analysisJobKey = (accountId,projectId) => `${accountId||'local'}:${projectId}`;
-const artSyncNotice = result => `本机已保存 ${result.completed} 集候选清单；${result.published} 集已发布${result.pending?`；${result.pending} 集有本地未发布内容`:''}。请到「清单核实」检查，点击发布后上传到美术与资产。`;
+const artSyncNotice = result => `本机已保存 ${result.completed} 集候选清单；${result.published} 集已发布${result.pending?`；${result.pending} 集有本地未发布内容`:''}。`;
 const fmtTime = (v) => { try { return new Date(v).toLocaleString('zh-CN', { hour12: false }); } catch { return v || '—'; } };
 
 const runAnalysis = args => runArtReviewAnalysis(args);
@@ -174,7 +174,7 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
   return (
     <div className="collab-info art-analysis-info">
       <aside className="collab-info-side" aria-label="美术分析配置">
-        <header className="art-config-heading"><Palette size={20}/><div><h2>美术配置</h2><p>从剧本提取人物、场景与道具</p></div></header>
+        <header className="art-config-heading"><Palette size={20}/><div><h2>美术配置</h2></div></header>
         <div className="art-config-fields">
         <div className="collab-panel-title"><Palette size={15} /> 画风</div>
         <div className="collab-style-chips">
@@ -196,7 +196,6 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
         <div className="collab-locked-skill">
           <span className="art-skill-label"><Check size={14}/>内置美术规则</span>
           <b>{COLLAB_ART_SKILL_NAME}</b>
-          <small>按集整理候选清单；核实后发布到美术与资产。</small>
         </div>
         <div className="art-config-execution">
         <div className="collab-analysis-actions">
@@ -207,7 +206,6 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
         </div>
         <button className="secondary art-export-button" onClick={onOpenReview}><ClipboardCheck size={15}/>打开清单核实</button>
         <button className="secondary art-export-button" onClick={async()=>{try{const store=getArtReviewStore({api,projectId:project.id,accountId});await store.load(project,assets);const content=Object.values(store.snapshot().episodes).map(r=>r.inventory||r.rawOutput).filter(Boolean).join('\n\n');if(!content){setNotice('暂无已保存的分析结果');return;}await api.saveTxt({name:project.name+'-已保存美术清单',content});}catch(e){setError(e.message);}}}><Download size={15}/>导出已保存清单</button>
-        <small className="analysis-checkpoint-note"><Save size={13}/>自动保存进度，中断后可继续。</small>
         </div>
         <div className="art-config-status" aria-live="polite">
         <AnalysisSyncDetails job={analysisJob}/>
@@ -405,7 +403,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {error && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
-      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><p>包含本资产的前置、画风、描述和当前参考设置。</p><textarea readOnly value={buildImagePrompt(asset, refAsset, project.style)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
+      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><textarea readOnly value={buildImagePrompt(asset, refAsset, project.style)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
       <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
@@ -734,7 +732,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
           <div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}>
             <div className="modal collab-art-export-modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式">
               <header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header>
-              <p>选择整理方式后，再选电脑上的保存位置。按场景导出为「第N集 / 场景N-M」，共享图片进入每个关联场景；未关联图片单独保留。</p>
+              <p>按场景导出：第N集 / 场景N-M。共享图片复制到各关联场景，未关联图片单独保留。</p>
               <div className="modal-actions collab-art-export-options">
                 <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button>
                 <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button>
@@ -742,7 +740,6 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
               </div>
             </div>
           </div>,document.body)}
-        <p className="collab-art-isolation-hint">新增分集只进入当前协作项目，不反向同步到导演工作台；既有分集美术和图片不会重新生成。</p>
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}
         {analysisJob?.error && <div className="collab-error">{analysisJob.error}</div>}
@@ -782,7 +779,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   return (
     <div ref={locator.root} className="collab-art art-workbench">
       <div className="collab-episode-analysisbar">
-        <div><b><Sparkles size={15}/> 第 {episode} 集增量美术</b><small>分析生成候选清单；逐场核实后发布，已有图片和编辑保留。</small></div>
+        <div><b><Sparkles size={15}/> 第 {episode} 集增量美术</b></div>
         <button className="secondary" onClick={onOpenReview}><ClipboardCheck size={14}/>清单核实</button>
         <ModelSelect profiles={analysisProfiles} value={analysisModelId} onChange={setAnalysisModelId} disabled={analyzing} label="本集分析模型"/>
         <button className="primary" onClick={() => analyzeEpisode(false)} disabled={!canEdit||analyzing||Boolean(episodeIdentityError)}>{analyzing?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {analyzing?'分析中…':'生成本集 / 继续'}</button>
@@ -817,7 +814,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
 }
 function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore, accountId }) {
   const analysisJob=useCollabAnalysisJob(project,api,accountId,assets);
-  const syncPanel=<><p className="collab-notice">{analysisJob?.notice||'这里只显示已发布的资产。候选清单先保存在本机，请到「清单核实」检查并发布。'}</p>{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}<AnalysisSyncDetails job={analysisJob}/></>;
+  const syncPanel=<>{analysisJob?.notice&&<p className="collab-notice">{analysisJob.notice}</p>}{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}<AnalysisSyncDetails job={analysisJob}/></>;
   const [category, setCategory] = useState('character');
   const [search, setSearch] = useState('');
   const [showArchived,setShowArchived]=useState(false);
@@ -848,7 +845,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   }, [api, project.id, refresh]);
 
   if (!assets.length) {
-    return <div className="collab-empty"><Box size={30} />{syncPanel}<p>当前尚无资产卡片。已分析的候选清单请在「清单核实」核实并发布，原始结果已保留。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
+    return <div className="collab-empty"><Box size={30} />{syncPanel}<p>暂无资产卡片，请先在「清单核实」发布清单，或手动添加资产。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
   }
 
   return (
@@ -1387,7 +1384,6 @@ export function CollabWorkspace({ state, api, account }) {
         <header>
           <span className="eyebrow">项目协作 · 云端实时同步</span>
           <h1>项目协作</h1>
-          <p>集中管理制作项目，与团队继续协作。</p>
         </header>
         {listError && <div className="collab-error" role="alert">{listError} <button onClick={loadProjects}>重新连接</button></div>}
         <div className="resource-grid collab-project-grid">
@@ -1395,7 +1391,6 @@ export function CollabWorkspace({ state, api, account }) {
             <button className="resource-card resource-add" onClick={() => { setCreateError(''); setDialogOpen(true); }}>
               <div className="resource-icon"><Plus /></div>
               <h3>开启项目</h3>
-              <p>从导演工作台选择剧本项目</p>
             </button>
           )}
           {projects.filter((p) => !p.deleted_at).map((p) => (
