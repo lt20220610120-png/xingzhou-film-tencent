@@ -16,6 +16,11 @@ function fixture(){
  }};const repo=artReviewRepository({connect:async()=>client});return {row,queries,repo};
 }
 const save=(f,data=record(),uid='owner',baseVersion=0)=>f.repo.saveArtReview('p',{episodeNumber:1,data,baseVersion,writeId:crypto.randomUUID()},uid);
+test('roster cards must be valid and scene memberships must refer to the same saved card',()=>{
+ const r=record();r.roster=r.scenes.flatMap(s=>s.items);assert.equal(validateReview(r,episode,1),r);
+ assert.throws(()=>validateReview({...r,roster:[{...r.roster[0],category:'invalid'}]},episode,1),/资产/);
+ assert.throws(()=>validateReview({...r,roster:[r.roster[0]]},episode,1),/名单/);
+});
 test('candidate save creates no cards; publish creates exact approved scene memberships and keeps existing images/edits',async()=>{
  const f=fixture();f.row.assets.push({id:'old',name:'【林清雪-睡衣】',category:'character',description:'人工定稿',images:[{url:'old.png'}],episodes:[2],first_episode:1});
  const saved=await save(f);assert.equal(f.row.assets.length,1);const writeId=crypto.randomUUID(),published=await f.repo.publishArtReview('p',{episodeNumber:1,baseVersion:saved.version,sceneIds:['1-1','1-2'],writeId},'owner');

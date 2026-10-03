@@ -9,6 +9,20 @@ export const reviewName=name=>String(name||'').replace(/^【|】$/g,'');
 export const canonicalReviewName=name=>`【${reviewName(name).trim()}】`;
 const clone=value=>structuredClone(value);
 const identity=()=>crypto.randomUUID();
+export function reviewRoster(record){
+ const excluded=new Set((record.excludedUnassigned||[]).map(reviewAssetKey)),rows=[...(record.roster||[]),...(record.unassigned||[]),...(record.scenes||[]).flatMap(s=>s.items)];
+ const unique=new Map();for(const i of rows)if(!excluded.has(reviewAssetKey(i))&&!unique.has(reviewAssetKey(i)))unique.set(reviewAssetKey(i),i);
+ return [...unique.values()];
+}
+function refreshRoster(record){
+ record.roster=reviewRoster(record);const used=new Set(record.scenes.flatMap(s=>s.items).map(reviewAssetKey));record.unassigned=record.roster.filter(i=>!used.has(reviewAssetKey(i)));return record;
+}
+function mergeCard(old,incoming){
+ if(!old)return clone(incoming);if(!incoming)return clone(old);
+ const alternate=old.ready&&incoming.ready&&old.description!==incoming.description?{description:incoming.description,at:Date.now()}:null;
+ const alternatives=[...(old.alternatives||[]),...(incoming.alternatives||[]),...(alternate?[alternate]:[])].filter((a,i,all)=>a.description!==old.description&&all.findIndex(v=>v.description===a.description)===i);
+ return {...old,...(!old.ready&&incoming.ready?{description:incoming.description,ready:true,warning:incoming.warning||''}:{}),alternatives};
+}
 export function reviewSceneSignature(scene){return JSON.stringify([scene.id,scene.source,scene.items.map(i=>[i.id,i.category,i.name,i.description,i.ready])]);}
 export const isSceneVerified=scene=>Boolean(scene.approval?.signature===reviewSceneSignature(scene)&&scene.items.every(i=>i.ready&&i.description?.trim()));
 export const reviewLedgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(isSceneVerified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
@@ -19,7 +33,7 @@ export function sourceReviewScenes(episode){
  return scenes.map(s=>({id:s.label,title:s.content.split('\n').find(line=>line.trim())||s.label,source:s.content,items:[],removed:[],approval:null}));
 }
 export function newArtReview(episode,genre=''){
- return {schema:1,episodeNumber:episode.episodeNumber,sourceContent:String(episode.content||''),genre,version:0,scenes:sourceReviewScenes(episode),unassigned:[],history:[],published:{},status:'empty',inventory:'',rawOutput:'',dependencies:{}};
+ return {schema:1,episodeNumber:episode.episodeNumber,sourceContent:String(episode.content||''),genre,version:0,scenes:sourceReviewScenes(episode),roster:[],unassigned:[],history:[],published:{},status:'empty',inventory:'',rawOutput:'',dependencies:{}};
 }
 function inventoryItems(inventory,number,available=[]){
  const parsed=parseArtAnalysis(inventory),episode=parsed.episodes.find(e=>e.episode===number);
@@ -49,7 +63,9 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
   next.sourceContent=String(episode.content||'');next.scenes=sourceReviewScenes(episode);
  }
  if(next.inventory||next.rawOutput)next.history.push({at:Date.now(),reason:'新候选',inventory:next.inventory,rawOutput:next.rawOutput});
- const assets=new Map(decoded.items.map(i=>[reviewAssetKey(i),i])),warnings=[...decoded.warnings],used=new Set(),seenScenes=new Set();
+ const excluded=new Set((next.excludedUnassigned||[]).map(reviewAssetKey)),assets=new Map(reviewRoster(next).map(i=>[reviewAssetKey(i),clone(i)])),warnings=[...decoded.warnings],used=new Set(),seenScenes=new Set();
+ for(const item of decoded.items)if(!excluded.has(reviewAssetKey(item)))assets.set(reviewAssetKey(item),mergeCard(assets.get(reviewAssetKey(item)),item));
+ next.roster=[...assets.values()];
  const mapping=new Map();
  for(const row of decoded.mapping){
   const id=String(row.sceneId||row.id||'');
@@ -67,31 +83,49 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
   const removedNames=new Set(s.removed.map(r=>reviewAssetKey(r.item))),oldApproval=isSceneVerified(s);
   if(!oldApproval){
    let items=incoming.filter(i=>!removedNames.has(reviewAssetKey(i)));
-   for(const pinned of s.items.filter(i=>i.manual)){
+   for(const pinned of s.items){
     const generated=items.find(i=>reviewAssetKey(i)===reviewAssetKey(pinned));
     items=items.filter(i=>i.id!==pinned.id&&reviewAssetKey(i)!==reviewAssetKey(pinned));
-    items.push({...pinned,description:generated?.description||pinned.description,ready:generated?.ready||pinned.ready,warning:generated?.warning||pinned.warning});
+    items.push(mergeCard(pinned,generated||assets.get(reviewAssetKey(pinned))));
    }
    s.items=items;s.approval=null;
   }
-  s.mappingReady=Boolean(row)||oldApproval;
+  s.mappingReady=Boolean(row)||oldApproval||s.mappingReady;
   s.items.forEach(i=>used.add(reviewAssetKey(i)));
  }
- const deleted=new Set([...next.scenes.flatMap(s=>s.removed.map(r=>reviewAssetKey(r.item))),...(next.excludedUnassigned||[]).map(reviewAssetKey)]);
- next.unassigned=decoded.items.filter(i=>!used.has(reviewAssetKey(i))&&!deleted.has(reviewAssetKey(i))).map(clone);
- next.inventory=decoded.inventory;next.rawOutput=rawOutput;next.dependencies=dependencies;next.warnings=[...new Set(warnings)];
+ next.inventory=decoded.inventory||next.inventory;next.rawOutput=rawOutput;next.dependencies=dependencies;next.warnings=[...new Set(warnings)];refreshRoster(next);
  next.status=!decoded.complete?'inventory-pending':next.scenes.every(s=>s.mappingReady)?'generated':'mapping-pending';next.generatedAt=Date.now();next.taskId=taskId;delete next.failure;
  return next;
 }
 export function importLegacyArtReview(episode,{output='',assets=[],genre=''}={}){
  const next=newArtReview(episode,genre),items=inventoryItems(output,episode.episodeNumber,assets);
  const candidates=items.length?items:assets.filter(a=>(a.episodes||[]).map(Number).includes(episode.episodeNumber)).map(a=>({id:`${a.category}:${a.name}`,category:a.category,name:a.name,description:readAssetPrompt(a).content,firstEpisode:a.first_episode||episode.episodeNumber,ready:Boolean(readAssetPrompt(a).content),manual:false}));
- next.inventory=output;next.rawOutput=output;next.unassigned=candidates;next.status=candidates.length?'legacy':'empty';
+ next.inventory=output;next.rawOutput=output;next.roster=candidates;next.unassigned=candidates;next.status=candidates.length?'legacy':'empty';
  if(candidates.length)next.warnings=['历史清单按集保存，需补齐逐场对应。已有卡片和图片继续保留。'];
  return next;
 }
 export function editArtReview(record,action,actor=''){
- const next=clone(record),s=next.scenes.find(s=>s.id===action.sceneId);
+ const next=refreshRoster(clone(record));
+ if(['roster-upsert','assign','roster-remove','roster-undo'].includes(action.type)){
+  const old=next.roster.find(i=>i.id===action.itemId),before=clone(next.roster);
+  if(action.type==='roster-upsert'){
+   const item=action.item;if(!Object.keys(ART_REVIEW_CATEGORIES).includes(item?.category)||!reviewName(item.name).trim())throw Error('请填写资产名称与正确类别');
+   const copy={...item,id:old?.id||identity(),name:canonicalReviewName(item.name),manual:true};
+   if(next.roster.some(i=>i.id!==old?.id&&reviewAssetKey(i)===reviewAssetKey(copy)))throw Error('本集名单已存在同名同状态条目，请直接关联场景');
+   next.roster=next.roster.filter(i=>i.id!==old?.id);next.roster.push(copy);
+   next.unassigned=next.unassigned.filter(i=>i.id!==old?.id);
+   if(old&&reviewAssetKey(old)!==reviewAssetKey(copy))next.excludedUnassigned=[...(next.excludedUnassigned||[]),old];
+   for(const scene of next.scenes)if(scene.items.some(i=>i.id===old?.id)){scene.items=scene.items.map(i=>i.id===old?.id?clone(copy):i);scene.approval=null;}
+   if(action.sceneIds)assignRoster(next,copy,action.sceneIds);
+  }else if(action.type==='assign'){if(!old)throw Error('名单条目已不存在');assignRoster(next,old,action.sceneIds||[]);}
+  else if(action.type==='roster-remove'){
+   if(!old)throw Error('名单条目已不存在');const sceneIds=next.scenes.filter(s=>s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(old))).map(s=>s.id);
+   next.rosterRemoved=[...(next.rosterRemoved||[]),{item:old,sceneIds}];next.roster=next.roster.filter(i=>reviewAssetKey(i)!==reviewAssetKey(old));next.unassigned=next.unassigned.filter(i=>reviewAssetKey(i)!==reviewAssetKey(old));next.excludedUnassigned=[...(next.excludedUnassigned||[]),old];
+   for(const scene of next.scenes)if(sceneIds.includes(scene.id)){scene.items=scene.items.filter(i=>reviewAssetKey(i)!==reviewAssetKey(old));scene.approval=null;}
+  }else{const removed=next.rosterRemoved?.pop();if(removed){next.excludedUnassigned=(next.excludedUnassigned||[]).filter(i=>reviewAssetKey(i)!==reviewAssetKey(removed.item));next.roster.push(removed.item);assignRoster(next,removed.item,removed.sceneIds);}}
+  next.history.push({at:Date.now(),reason:action.type,previous:before});return refreshRoster(next);
+ }
+ const s=next.scenes.find(s=>s.id===action.sceneId);
  if(!s&&action.type!=='approve-episode')throw Error('该场景已不存在，请刷新核对');
  const before=s?clone(s):null;
  if(action.type==='remove'){
@@ -104,7 +138,7 @@ export function editArtReview(record,action,actor=''){
   const old=s.items.find(v=>v.id===action.itemId),copy={...i,id:old?.id||identity(),name:canonicalReviewName(i.name),manual:true};
   if(s.items.some(v=>v.id!==old?.id&&reviewAssetKey(v)===reviewAssetKey(copy)))throw Error('本场已存在同名条目');
   if(old){s.items.splice(s.items.indexOf(old),1,copy);if(reviewAssetKey(old)!==reviewAssetKey(copy))s.removed.push({item:old,index:s.items.length,at:Date.now(),replaced:true});}else s.items.push(copy);
-  s.approval=null;next.unassigned=next.unassigned.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));
+  s.approval=null;next.roster=next.roster.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));next.roster.push(clone(copy));next.unassigned=next.unassigned.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));
  }else if(action.type==='approve'||action.type==='approve-episode'){
   const targets=action.type==='approve-episode'?next.scenes:[s];
   if(next.unassigned.length&&action.type==='approve-episode')throw Error('还有未定位条目，请先安排到场景或移除');
@@ -114,9 +148,28 @@ export function editArtReview(record,action,actor=''){
    target.mappingReady=true;target.approval={signature:reviewSceneSignature(target),at:Date.now(),actor};
   }
  }else if(action.type==='unapprove'){s.approval=null;}else throw Error('不支持的核实操作');
- next.history.push({at:Date.now(),reason:action.type,sceneId:s?.id,previous:before});return next;
+ next.history.push({at:Date.now(),reason:action.type,sceneId:s?.id,previous:before});return refreshRoster(next);
 }
-export function removeUnassignedArtReview(record,itemId){const next=clone(record),item=next.unassigned.find(i=>i.id===itemId);if(!item)throw Error('条目已不存在');next.unassigned=next.unassigned.filter(i=>i.id!==itemId);next.excludedUnassigned=[...(next.excludedUnassigned||[]),item];next.history.push({at:Date.now(),reason:'移除未定位条目',item});return next;}
+function assignRoster(record,item,sceneIds){
+ if(!Array.isArray(sceneIds)||sceneIds.some(id=>!record.scenes.some(s=>s.id===id)))throw Error('请选择本集真实场景');
+ for(const s of record.scenes){const exists=s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(item)),wanted=sceneIds.includes(s.id);if(exists===wanted)continue;
+  if(wanted){s.items.push(clone(item));s.removed=s.removed.filter(r=>reviewAssetKey(r.item)!==reviewAssetKey(item));s.mappingReady=true;}
+  else{s.removed.push({item:s.items.find(i=>reviewAssetKey(i)===reviewAssetKey(item)),at:Date.now()});s.items=s.items.filter(i=>reviewAssetKey(i)!==reviewAssetKey(item));}s.approval=null;
+ }
+}
+export function removeUnassignedArtReview(record,itemId){return editArtReview(record,{type:'roster-remove',itemId});}
+export function decodeReviewJson(raw){
+ let text=String(raw||'').trim();if(text.includes(ART_REVIEW_MAP_MARKER))text=text.split(ART_REVIEW_MAP_MARKER).at(-1).trim();text=text.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
+ try{return JSON.parse(text);}catch{const start=text.indexOf('{'),end=text.lastIndexOf('}');if(start>=0&&end>start)return JSON.parse(text.slice(start,end+1));throw Error('对应信息未完整返回，已保存原稿，请重试自动对应');}
+}
+export function applyArtReviewCard(record,requested,response){
+ const next=refreshRoster(clone(record)),old=next.roster.find(i=>i.id===requested.id&&i.name===requested.name&&i.note===requested.note);
+ if(!old)return next;const data=response.item||response;
+ if(data.category!==old.category||canonicalReviewName(data.name)!==old.name||typeof data.description!=='string'||!data.description.trim())throw Error('信息卡名称、类别或详细描述未完整返回；手工条目已保留');
+ const updated=mergeCard(old,{...old,description:data.description.trim(),ready:true,warning:''});next.roster=next.roster.map(i=>i.id===old.id?updated:i);next.unassigned=next.unassigned.map(i=>i.id===old.id?updated:i);
+ for(const s of next.scenes)if(s.items.some(i=>i.id===old.id)&&!isSceneVerified(s)){s.items=s.items.map(i=>i.id===old.id?clone(updated):i);s.approval=null;}
+ next.history.push({at:Date.now(),reason:'补齐单条信息卡',item:requested,response});delete next.failure;return refreshRoster(next);
+}
 export function artReviewContext(records,episode,{allowUnverified=false}={}){
  const number=episode.episodeNumber,approved=[],unverified=[],dependencies={};
  for(const [n,record]of Object.entries(records).sort(([a],[b])=>Number(a)-Number(b))){
@@ -130,7 +183,7 @@ export function artReviewContext(records,episode,{allowUnverified=false}={}){
 }
 export function buildArtReviewInstruction(episode,record,{mappingOnly=false}={}){
  const locked=record.scenes.filter(s=>s.items.some(i=>i.manual)||isSceneVerified(s)||s.removed.length).map(s=>({sceneId:s.id,preserve:isSceneVerified(s)?s.items:s.items.filter(i=>i.manual),removed:s.removed.map(r=>({category:r.item.category,name:r.item.name})).filter(r=>!s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(r)))}));
- return `【本次输出适配】\n${mappingOnly?'已保存本集完整美术清单，本次只补齐对应表，不重新写清单。':'先按完整 Skill 输出且只输出本集三类美术清单，名称与详细描述都保留。'}\n随后输出独立标记 ${ART_REVIEW_MAP_MARKER}，再输出一个 JSON 对象：{"scenes":[{"sceneId":"${episode.episodeNumber}-1","assets":[{"category":"character","name":"【角色-具体造型】"}]}]}。每个真实场景必须出现且只出现一次，空场景 assets=[]；name 必须逐字引用清单条目。每场只列本场可见的人物具体服装造型、场景、道具；同集多套衣服不得全部挂到每场。仅声音/仅提及的实体保留审计提醒，不分配可见人物。保留原文场次编号，不新增或重编号。不要推理过程，不用代码围栏。\n人工已核实或手工改动具有优先级。锁定名称须逐字保留，删掉的条目不得放回对应场；新增造型补齐客观细节，并沿用正确人物基础形象。当前场服装优先于前集服装候选。\n${JSON.stringify({sceneIds:record.scenes.map(s=>s.id),manualCorrections:locked,excludedUnassigned:(record.excludedUnassigned||[]).map(i=>({category:i.category,name:i.name})),...(mappingOnly?{savedInventory:record.inventory}:{}),untrustedData:{currentEpisode:episode.content}})}`;
+ return `【本次输出适配】\n${mappingOnly?'已保存本集完整美术清单，本次只补齐对应表，不重新写清单。':'先按完整 Skill 输出且只输出本集三类美术清单，名称与详细描述都保留。重新读取只补缺，不覆盖已有信息卡；同名同状态沿用第一次生成，补齐手工条目的详细描述。'}\n随后输出独立标记 ${ART_REVIEW_MAP_MARKER}，再输出一个 JSON 对象：{"scenes":[{"sceneId":"${episode.episodeNumber}-1","assets":[{"category":"character","name":"【角色-具体造型】"}]}]}。每个真实场景必须出现且只出现一次，空场景 assets=[]；name 必须逐字引用清单条目。同一资产可以关联多个场景，不复制名单条目。每场只列本场可见的人物具体服装造型、场景、道具；同集多套衣服不得全部挂到每场。仅声音/仅提及的实体保留审计提醒，不分配可见人物。保留原文场次编号，不新增或重编号。不要推理过程，不用代码围栏。\n人工已核实或手工改动具有优先级。锁定名称须逐字保留，删掉的条目不得放回对应场；新增造型补齐客观细节，并沿用正确人物基础形象。当前场服装优先于前集服装候选。\n${JSON.stringify({sceneIds:record.scenes.map(s=>s.id),savedRoster:reviewRoster(record),manualCorrections:locked,excludedUnassigned:(record.excludedUnassigned||[]).map(i=>({category:i.category,name:i.name})),...(mappingOnly?{savedInventory:record.inventory}:{}),untrustedData:{currentEpisode:episode.content}})}`;
 }
 export function projectPublishedReviewAssets(project,assets){
  const reviews=Object.entries(project.analysis_progress||{}).filter(([,r])=>r.review?.published&&Object.keys(r.review.published).length);

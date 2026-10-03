@@ -27,7 +27,9 @@ function validateReview(data,episode,number){
   }
  };
  for(const s of data.scenes){const origin=scenes.find(v=>v.id===s.id);if(!origin||ids.has(s.id)||s.source!==origin.source)fail('场次编号或原文已改变，请刷新核对',400);ids.add(s.id);checkItems(s.items);if(s.approval&&!verified(s))fail(`场景 ${s.id} 的核实版本与当前条目不同，请重新核实`,400);}
- checkItems(data.unassigned);return data;
+ checkItems(data.unassigned);
+ if(data.roster!==undefined){checkItems(data.roster);const names=new Set(data.roster.map(i=>i.category+'\0'+i.name));if([...data.scenes.flatMap(s=>s.items),...data.unassigned].some(i=>!names.has(i.category+'\0'+i.name)))fail('场景条目必须属于本集资产名单',400);}
+ return data;
 }
 async function lockProject(client,pid,uid){
  if(!uid)return null;

@@ -33,6 +33,37 @@ test('candidate keeps distinct wardrobe per scene; legacy episode membership nev
  const r=candidate();assert.equal(r.status,'generated');assert.deepEqual(r.scenes[0].items.map(i=>i.name),['【林清雪-睡衣】','【卧室】']);assert.deepEqual(r.scenes[1].items.map(i=>i.name),['【林清雪-校服】']);assert.equal(r.unassigned.length,0);
  const legacy=importLegacyArtReview(ep(1),{output:output(1).split('【逐场资产对应表】')[0]});assert.equal(legacy.unassigned.length,3);assert.ok(legacy.scenes.every(s=>s.items.length===0&&!isSceneVerified(s)));
 });
+
+test('episode roster survives assigning the same card to several scenes and scene removal is independent',()=>{
+ let r=importLegacyArtReview(ep(1),{output:output(1).split('【逐场资产对应表】')[0]});
+ const first=r.unassigned[0];r=editArtReview(r,{type:'assign',itemId:first.id,sceneIds:['1-1','1-2']});
+ assert.equal(r.roster.filter(i=>i.name===first.name).length,1);assert.ok(r.scenes.every(s=>s.items.some(i=>i.name===first.name)));
+ r=editArtReview(r,{type:'remove',sceneId:'1-1',itemId:first.id});assert.ok(r.roster.some(i=>i.name===first.name));assert.ok(r.scenes[1].items.some(i=>i.name===first.name));
+ r=editArtReview(r,{type:'assign',itemId:first.id,sceneIds:['1-1','1-2']});assert.ok(r.scenes[0].items.some(i=>i.name===first.name));
+ r=editArtReview(r,{type:'roster-remove',itemId:first.id});assert.ok(!r.scenes.some(s=>s.items.some(i=>i.name===first.name)));r=editArtReview(r,{type:'roster-undo'});assert.ok(r.scenes.every(s=>s.items.some(i=>i.name===first.name)));
+});
+
+test('rereading adds missing cards while preserving first descriptions and keeping alternate prompts',()=>{
+ const original=candidate(),changed=output(1).replace('浅色睡衣','新模型不同睡衣').replace('道具：','道具：\n- 【书包】 蓝色双肩包');
+ const next=applyArtReviewCandidate(original,ep(1),decodeArtReviewOutput(changed,1));
+ assert.equal(next.scenes[0].items[0].description,original.scenes[0].items[0].description);assert.equal(next.roster.filter(i=>i.name==='【林清雪-睡衣】').length,1);
+ assert.ok(next.roster.find(i=>i.name==='【林清雪-睡衣】').alternatives.some(a=>a.description.includes('新模型')));assert.ok(next.roster.some(i=>i.name==='【书包】'));
+ const omitted=applyArtReviewCandidate(next,ep(1),decodeArtReviewOutput(output(1).replace(/- 【林清雪-校服】[^\n]*\n/,''),1));assert.ok(omitted.roster.some(i=>i.name==='【林清雪-校服】'));
+});
+
+test('manual roster addition links scenes and model fills only its pending information card',async()=>{
+ const f=fixture(1);await runArtReviewAnalysis(f.args);
+ await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',sceneIds:['1-1','1-2'],item:{category:'prop',name:'【漏掉的书包】',description:'',ready:false,note:'蓝色双肩包'}}));
+ const added=f.store.snapshot().episodes[1].roster.find(i=>i.name==='【漏掉的书包】');const before=f.store.snapshot().episodes[1].scenes[0].items[0].description;
+ f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:JSON.stringify({item:{category:'prop',name:'【漏掉的书包】',description:'蓝色双肩包，帆布材质，两条肩带'}})};};
+ await runArtReviewAnalysis({...f.args,targetEpisodeNumbers:[1],force:true,focusItem:added});
+ const record=f.store.snapshot().episodes[1];assert.ok(record.scenes.every(s=>s.items.find(i=>i.name===added.name)?.ready));assert.equal(record.scenes[0].items[0].description,before);assert.equal(f.calls.length,2);
+});
+
+test('missing scene map triggers automatic compact mapping after inventory is saved',async()=>{
+ const f=fixture(1);f.api.aiChat=async p=>{f.calls.push(p);assert.ok(f.disk.episodes[1]);return {ok:true,output:f.calls.length===1?output(1).split('【逐场资产对应表】')[0]:output(1).split('【逐场资产对应表】')[1]};};
+ await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,2);assert.equal(f.disk.episodes[1].status,'generated');assert.equal(f.disk.episodes[1].unassigned.length,0);assert.ok(!f.calls[1].messages[0].content.includes(ART_RUNTIME_SKILL));assert.equal(f.publishCalls.length,0);
+});
 test('deletion, undo and renamed manual states survive a later generation',()=>{
  let r=candidate();const id=r.scenes[0].items[0].id;
  r=editArtReview(r,{type:'remove',sceneId:'1-1',itemId:id});let next=applyArtReviewCandidate(r,ep(1),decodeArtReviewOutput(output(1),1));assert.ok(!next.scenes[0].items.some(i=>i.id===id));
