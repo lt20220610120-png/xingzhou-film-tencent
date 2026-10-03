@@ -7,7 +7,7 @@ export const COLLAB_ROLES = { producer: '制片', artist: '美术', collaborator
 
 export const COLLAB_SECTIONS = [
   ['info', '信息读取'],
-  ['art-review', '美术清单核实'],
+  ['art-review', '清单核实'],
   ['art', '美术'],
   ['assets', '资产'],
   ['storyboard', '分镜'],

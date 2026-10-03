@@ -42,7 +42,7 @@ import '../art-workbench.css';
 const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, assets: Box, storyboard: Clapperboard, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
 const analysisJobKey = (accountId,projectId) => `${accountId||'local'}:${projectId}`;
-const artSyncNotice = result => `已保存 ${result.completed} 集候选清单；${result.published} 集已同步云端${result.pending?`；${result.pending} 集待同步（第 ${result.pendingEpisodes.join('、')} 集）`:''}。请到「美术清单核实」逐场核实后发布到美术与资产。`;
+const artSyncNotice = result => `本机已保存 ${result.completed} 集候选清单；${result.published} 集已发布${result.pending?`；${result.pending} 集有本地未发布内容`:''}。请到「清单核实」检查，点击发布后上传到美术与资产。`;
 const fmtTime = (v) => { try { return new Date(v).toLocaleString('zh-CN', { hour12: false }); } catch { return v || '—'; } };
 
 const runAnalysis = args => runArtReviewAnalysis(args);
@@ -91,7 +91,6 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
       onProgress: () => {} });
     job.status = job.cancelled ? 'stopped' : 'completed'; job.taskId = '';
     Object.assign(job,result);job.notice = artSyncNotice(result);job.error=(result.errors||[]).join('\n');
-    await refresh();
   } catch (error) {
     job.taskId = '';
     if (job.cancelled || String(error.message || '').includes('任务已停止')) {
@@ -103,18 +102,6 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   return job;
 }
 
-async function syncPendingArtAnalysis({ project, refresh, api, assets, accountId }) {
-  const key=analysisJobKey(accountId,project.id),job=collabAnalysisJobs.get(key)||{status:'pending'};
-  if(job.syncing||['running','stopping'].includes(job.status))return job;
-  collabAnalysisJobs.set(key,job);
-  try{
-    job.syncing=true;const store=getArtReviewStore({api,projectId:project.id,accountId});await store.load(project,assets);await store.sync();const result=summarizeArtReview(store.snapshot(),project);job.syncing=false;
-    Object.assign(job,result);job.status=result.pending?'pending':'completed';job.notice=artSyncNotice(result);job.error=result.syncErrors.map(e=>`第 ${e.episode} 集：${e.error}`).join('\n');
-    await refresh();
-  }catch(error){job.error=error.message;job.syncing=false;}
-  return job;
-}
-
 function ArtReviewEntry(props){
  const {project,assets,api,accountId,refresh}=props;
  const job=useCollabAnalysisJob(project,api,accountId,assets);
@@ -123,7 +110,7 @@ function ArtReviewEntry(props){
 
 function AnalysisSyncDetails({job}) {
   if(!job?.warnings?.length)return null;
-  return <details className="collab-notice"><summary>同步说明 / 待核对（{job.warnings.length} 项，原始输出仍保留）</summary><ul>{job.warnings.map((warning,index)=><li key={index}>{warning}</li>)}</ul></details>;
+  return <details className="collab-notice"><summary>分析说明 / 待核对（{job.warnings.length} 项，原始输出仍保留）</summary><ul>{job.warnings.map((warning,index)=><li key={index}>{warning}</li>)}</ul></details>;
 }
 
 function ImageLightbox({ image, alt, onClose }) {
@@ -218,10 +205,9 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
           </button>
           {analyzing && <button className="danger" onClick={() => stopAnalysis({ projectId: project.id, api, accountId })}><X size={16} /> 停止分析</button>}
         </div>
-        <button className="secondary art-export-button" onClick={onOpenReview}><ClipboardCheck size={15}/>打开美术清单核实</button>
+        <button className="secondary art-export-button" onClick={onOpenReview}><ClipboardCheck size={15}/>打开清单核实</button>
         <button className="secondary art-export-button" onClick={async()=>{try{const store=getArtReviewStore({api,projectId:project.id,accountId});await store.load(project,assets);const content=Object.values(store.snapshot().episodes).map(r=>r.inventory||r.rawOutput).filter(Boolean).join('\n\n');if(!content){setNotice('暂无已保存的分析结果');return;}await api.saveTxt({name:project.name+'-已保存美术清单',content});}catch(e){setError(e.message);}}}><Download size={15}/>导出已保存清单</button>
         <small className="analysis-checkpoint-note"><Save size={13}/>自动保存进度，中断后可继续。</small>
-        {(analysisJob?.pending>0)&&<button className="secondary" disabled={!canEdit||analyzing||analysisJob.syncing} onClick={() => syncPendingArtAnalysis({ project, refresh, api, assets, accountId })}>{analysisJob.syncing?'同步中…':`同步已保存结果（${analysisJob.pending}）`}</button>}
         </div>
         <div className="art-config-status" aria-live="polite">
         <AnalysisSyncDetails job={analysisJob}/>
@@ -760,7 +746,6 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}
         {analysisJob?.error && <div className="collab-error">{analysisJob.error}</div>}
-        {(analysisJob?.pending>0)&&<button className="secondary collab-pending-sync" disabled={!canEdit||analyzing||analysisJob.syncing} onClick={() => syncPendingArtAnalysis({project,refresh,api,assets,accountId})}>{analysisJob.syncing?'同步中…':`同步已保存结果（${analysisJob.pending}）`}</button>}
         <AnalysisSyncDetails job={analysisJob}/>
         <div className="collab-episode-grid">
         {episodes.map((ep) => {
@@ -773,7 +758,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
             <button key={ep} className="collab-episode-card" onClick={() => { setEpisode(ep); setCategory('character'); setSearch(''); }}>
               <b>第 {ep} 集</b>
               {detail?.title && detail.title !== `第 ${ep} 集` && <span>{detail.title}</span>}
-              <small>{analysisJob?.pendingEpisodes?.includes(ep)?'候选清单待同步':project.analysis_progress?.[ep]?.review?Object.keys(project.analysis_progress[ep].review.published||{}).length?'已发布核实清单':'候选清单待核实':project.analysis_progress?.[ep]?'历史美术已同步':'尚未分析'} · 人物 {chars} · 场景 {scenes} · 道具 {props} · 图片 {imageCount} 张</small>
+              <small>{analysisJob?.pendingEpisodes?.includes(ep)?'候选清单待核实':project.analysis_progress?.[ep]?.review?Object.keys(project.analysis_progress[ep].review.published||{}).length?'已发布核实清单':'候选清单待核实':project.analysis_progress?.[ep]?'历史美术已同步':'尚未分析'} · 人物 {chars} · 场景 {scenes} · 道具 {props} · 图片 {imageCount} 张</small>
             </button>
           );
         })}
@@ -803,7 +788,6 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         <button className="primary" onClick={() => analyzeEpisode(false)} disabled={!canEdit||analyzing||Boolean(episodeIdentityError)}>{analyzing?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {analyzing?'分析中…':'生成本集 / 继续'}</button>
         <button className="secondary collab-force-analysis" onClick={() => setForceConfirmOpen(true)} disabled={!canEdit||analyzing||Boolean(episodeIdentityError)}>重新生成本集美术</button>
         {analyzing&&<button className="danger" onClick={() => stopAnalysis({projectId:project.id,api,accountId})}><X size={14}/> 停止</button>}
-        {(analysisJob?.pending>0)&&<button className="secondary" disabled={!canEdit||analyzing||analysisJob.syncing} onClick={() => syncPendingArtAnalysis({project,refresh,api,assets,accountId})}>{analysisJob.syncing?'同步中…':`同步已保存结果（${analysisJob.pending}）`}</button>}
       </div>
       {analysisError&&<div className="collab-error">{analysisError}</div>}
       {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。旧资产仍可查看，但付费分析已禁用。</div>}
@@ -833,7 +817,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
 }
 function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore, accountId }) {
   const analysisJob=useCollabAnalysisJob(project,api,accountId,assets);
-  const syncPanel=<><p className="collab-notice">{analysisJob?.notice||'这里只显示已同步云端的资产，本机分析完成不代表云端同步完成。'}</p>{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}{analysisJob?.pending>0&&<button className="secondary" disabled={!canEdit||analysisJob.syncing||['running','stopping'].includes(analysisJob.status)} onClick={()=>syncPendingArtAnalysis({project,api,assets,refresh,accountId})}>{analysisJob.syncing?'同步中…':`同步已保存结果（${analysisJob.pending}）`}</button>}<AnalysisSyncDetails job={analysisJob}/></>;
+  const syncPanel=<><p className="collab-notice">{analysisJob?.notice||'这里只显示已发布的资产。候选清单先保存在本机，请到「清单核实」检查并发布。'}</p>{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}<AnalysisSyncDetails job={analysisJob}/></>;
   const [category, setCategory] = useState('character');
   const [search, setSearch] = useState('');
   const [showArchived,setShowArchived]=useState(false);
@@ -864,7 +848,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   }, [api, project.id, refresh]);
 
   if (!assets.length) {
-    return <div className="collab-empty"><Box size={30} />{syncPanel}<p>当前尚无资产卡片。已分析的候选清单请在「美术清单核实」核实并发布，原始结果已保留。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
+    return <div className="collab-empty"><Box size={30} />{syncPanel}<p>当前尚无资产卡片。已分析的候选清单请在「清单核实」核实并发布，原始结果已保留。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
   }
 
   return (
@@ -1245,8 +1229,12 @@ export function CollabWorkspace({ state, api, account }) {
   const [loading, setLoading] = useState(true);
   const [isProducer, setIsProducer] = useState(false);
   const [project, setProject] = useState(null);
+  const currentProjectIdRef = useRef(null);
+  currentProjectIdRef.current = project?.id || null;
   const [assets, setAssets] = useState([]);
   const [section, setSection] = useState('group');
+  const currentSectionRef = useRef(section);
+  currentSectionRef.current = section;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -1314,22 +1302,25 @@ export function CollabWorkspace({ state, api, account }) {
     const work=(async()=>{
     if (!project?.id) return;
     const projectId = project.id;
+    const isCurrentTarget = () => currentProjectIdRef.current === projectId && (options.manual || currentSectionRef.current !== 'art-review');
+    if (!isCurrentTarget()) return;
     const requestId = ++refreshRequestRef.current;
     try {
       let [p, a] = await Promise.all([
         api.collabGetProject({ projectId }),
         api.collabListAssets({ projectId }),
       ]);
+      if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
       p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));
-      if (requestId !== refreshRequestRef.current) return;
+      if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       const normalizedAssets=projectPublishedReviewAssets(p,normalizeArtAssets(a || []));
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, normalizedAssets);
       if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
       return p;
     } catch (error) {
-      if (requestId !== refreshRequestRef.current) return;
+      if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       if (options.manual) setRefreshNotice(`刷新失败：${error.message || '请稍后重试'}，当前编辑内容已保留`);
       if (String(error?.message || '').includes('project_access_denied')) {
         setProject(null);
@@ -1344,10 +1335,10 @@ export function CollabWorkspace({ state, api, account }) {
 
   // 实时刷新：进入项目后轮询云端
   useEffect(() => {
-    if (!project?.id) return;
+    if (!project?.id || section === 'art-review') return;
     const timer = setInterval(refreshProject, 12000);
     return () => clearInterval(timer);
-  }, [project?.id, refreshProject]);
+  }, [project?.id, section, refreshProject]);
 
   const openProject = async (id) => {
     const requestId = ++refreshRequestRef.current;
@@ -1456,7 +1447,7 @@ export function CollabWorkspace({ state, api, account }) {
             </button>
           );
         })}
-        <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : '刷新云端数据'}</button>
+        {section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>本地核实 · 发布时上传</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : '刷新云端数据'}</button>}
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">

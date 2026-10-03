@@ -25,11 +25,12 @@ test('美术全集与空资产状态都保留添加集数及单集分析入口',
   assert.doesNotMatch(art, /if \(!assets\.length\)/);
 });
 
-test('信息页与美术页复用项目级后台分析入口和 pending 同步', () => {
+test('信息页与美术页复用项目级后台分析入口，候选留本地等待显式发布', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
   assert.match(ui, /const collabAnalysisJobs = new Map\(\)/);
   assert.match(ui, /function startCollabArtAnalysis/);
-  assert.match(ui, /function syncPendingArtAnalysis/);
+  assert.doesNotMatch(ui, /function syncPendingArtAnalysis|store\.sync\(/);
+  assert.match(ui, /点击发布后上传/);
   const calls = ui.match(/startCollabArtAnalysis\(\{/g) || [];
   assert.ok(calls.length >= 2, `信息页和美术页应共用入口，实际 ${calls.length} 处`);
 });

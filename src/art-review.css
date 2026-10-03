@@ -1,38 +1,38 @@
 /* White review desk; soft lavender actions and an optional episode summary. */
 .art-review-page,.art-review-dialog,.art-review-assignment {
   --review-purple:#69558f; --review-fill:#f0ebfa; --review-hover:#e6def4; --review-pale:#f6f3fb; --review-line:#e5e7ef; --review-button-line:#ddd3ef;
-  color:#283344; font-family:"Microsoft YaHei","PingFang SC",sans-serif; font-size:13px;
+  color:#202127; font-family:"Microsoft YaHei","PingFang SC",sans-serif; font-size:15px;
 }
 .art-review-page { max-width:1680px; margin:0 auto; }
 .art-review-page button,.art-review-dialog button,.art-review-assignment button {
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   border:1px solid var(--review-button-line); background:var(--review-fill); color:var(--review-purple);
   border-radius:7px; padding:8px 12px; cursor:pointer;
-  font-family:inherit; font-size:13px; line-height:1.4; font-weight:500; white-space:nowrap;
+  font-family:inherit; font-size:14px; line-height:1.4; font-weight:500; white-space:nowrap;
 }
 .art-review-page button:hover:not(:disabled),.art-review-dialog button:hover:not(:disabled),.art-review-assignment button:hover:not(:disabled) { background:var(--review-hover); border-color:#cbbce5; }
 .art-review-page button:disabled,.art-review-dialog button:disabled,.art-review-assignment button:disabled { opacity:.45; cursor:default; }
 .art-review-page button:focus-visible,.art-review-dialog :focus-visible,.art-review-assignment :focus-visible,.art-review-source pre:focus-visible { outline:2px solid #9c8bd1; outline-offset:3px; }
 .art-review-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:2px 0 20px; }
-.art-review-eyebrow { font-size:12px; color:#8c829d; }
+.art-review-eyebrow { font-size:14px; color:#736a81; }
 .art-review-heading h1 { font-size:23px; margin:8px 0; letter-spacing:.2px; }
-.art-review-heading p { color:#8490a0; font-size:13px; margin:0; line-height:1.8; }
+.art-review-heading p { color:#626774; font-size:15px; margin:0; line-height:1.8; }
 .art-review-controls { display:flex; align-items:end; gap:18px; flex-wrap:wrap; padding:18px 20px; border:1px solid var(--review-line); border-radius:12px; background:#fff; }
-.art-review-controls label,.art-review-dialog label { display:flex; flex-direction:column; gap:7px; color:#7b8595; font-size:13px; }
+.art-review-controls label,.art-review-dialog label { display:flex; flex-direction:column; gap:7px; color:#575c69; font-size:15px; }
 .art-review-controls select,.art-review-dialog input:not([type="checkbox"]),.art-review-dialog select,.art-review-dialog textarea { background:#fff; border:1px solid #e0e4ed; border-radius:7px; color:#344054; min-height:38px; padding:8px 10px; font:inherit; outline:none; }
 .art-review-episode-select { display:flex; gap:8px; align-items:end; min-width:0; }
-.art-review-episode-select select { width:210px; }
+.art-review-episode-select select { width:240px; }
 .art-review-episode-select button { height:38px; padding:8px; background:#fff; border-color:var(--review-line); color:#7561bb; }
 .art-review-model { flex:1; min-width:210px; max-width:420px; }
 .art-review-controls-actions { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; }
 .art-review-controls-actions button { min-height:38px; }
-.art-review-overview { display:flex; flex-wrap:wrap; gap:22px; align-items:center; padding:17px 3px; color:#8993a0; font-size:12px; }
-.art-review-overview b { color:#7561bb; font-size:14px; margin:0 3px; }
+.art-review-overview { display:flex; flex-wrap:wrap; gap:22px; align-items:center; padding:17px 3px; color:#626774; font-size:14px; }
+.art-review-overview b { color:#69558f; font-size:16px; margin:0 3px; }
 .art-review-save-state { margin-left:auto; }
-.art-review-message,.art-review-warning { padding:10px 14px; line-height:1.8; border-radius:8px; font-size:12px; white-space:pre-wrap; }
+.art-review-message,.art-review-warning { padding:10px 14px; line-height:1.8; border-radius:8px; font-size:14px; white-space:pre-wrap; }
 .art-review-message { background:#f6f3fb; color:#75638f; }
 .art-review-warning { background:#fff6ed; color:#a76130; }
-.art-review-warning button { margin:5px; font-size:12px; }
+.art-review-warning button { margin:5px; font-size:14px; }
 
 /* Closed by default: scene verification takes precedence over the episode roster. */
 .art-review-roster { background:#fff; border:1px solid var(--review-line); border-radius:12px; margin:10px 0 20px; padding:0 20px; }
@@ -41,66 +41,83 @@
 .art-review-roster>summary:focus-visible { outline:2px solid #9c8bd1; outline-offset:3px; border-radius:7px; }
 .art-review-roster>summary>svg { margin-left:auto; color:#9a8bb3; transition:transform .15s; }
 .art-review-roster[open]>summary>svg { transform:rotate(180deg); }
-.art-review-roster-counts { display:flex; gap:12px; color:#9299a7; font-size:12px; }
+.art-review-roster-counts { display:flex; gap:12px; color:#686a77; font-size:14px; }
 .art-review-roster>header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
-.art-review-roster h2 { font-size:15px; margin:0; }
-.art-review-roster h2 span { color:#7561bb; font-size:13px; }
-.art-review-roster header p { font-size:12px; color:#8490a0; margin:0; line-height:1.8; flex:1; }
+.art-review-roster h2 { font-size:17px; margin:0; }
+.art-review-roster h2 span { color:#7561bb; font-size:15px; }
+.art-review-roster header p { font-size:14px; color:#626774; margin:0; line-height:1.8; flex:1; }
 .art-review-roster header>div:last-child { display:flex; gap:8px; flex-wrap:wrap; }
-.art-review-roster-group { display:grid; grid-template-columns:58px minmax(0,1fr); gap:12px; padding:12px 0; border-top:1px solid #eff0f5; }
-.art-review-roster-group>h3 { display:flex; align-items:baseline; gap:6px; padding-top:11px; margin:0; font-size:13px; color:#655681; font-weight:600; }
-.art-review-roster-group>h3 span { font-weight:400; font-size:11px; color:#9d95ac; }
-.art-review-roster-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr)); align-items:start; gap:8px; min-width:0; }
-.art-review-roster-card { display:grid; gap:7px; padding:8px 10px; border:1px solid #ede9f3; border-radius:7px; background:#fff; min-width:0; }
-.art-review-roster-name { display:flex; align-items:center; gap:6px; min-width:0; height:18px; }
-.art-review-roster-name b { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.art-review-roster-group { display:grid; grid-template-columns:72px minmax(0,1fr); gap:12px; padding:12px 0; border-top:1px solid #eff0f5; }
+.art-review-roster-group>h3 { display:flex; align-items:baseline; gap:6px; padding-top:11px; margin:0; font-size:15px; color:#655681; font-weight:600; }
+.art-review-roster-group>h3 span { font-weight:400; font-size:14px; color:#82748e; }
+.art-review-roster-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr)); align-items:stretch; gap:10px; min-width:0; }
+.art-review-roster-card { display:grid; grid-template-rows:24px 32px; gap:8px; padding:10px; border:1px solid #e4dced; border-radius:8px; background:#fff; box-shadow:0 2px 6px #34244206; min-width:0; }
+.art-review-roster-name { display:flex; align-items:center; gap:6px; min-width:0; height:24px; }
+.art-review-roster-name b { font-size:16px; color:#202127; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .art-review-roster-name .art-review-needs-detail { flex:none; }
-.art-review-roster-actions { display:flex; align-items:center; gap:5px; }
-.art-review-roster-actions button { padding:4px 6px; min-height:26px; font-size:11px; gap:4px; border-radius:5px; }
-.art-review-roster-actions .art-review-icon-button { width:26px; padding:4px; border-color:transparent; background:transparent; color:#9b90aa; }
+.art-review-roster-actions { display:flex; align-items:center; gap:5px; min-width:0; }
+.art-review-roster-actions button { padding:5px 6px; min-height:32px; font-size:14px; gap:4px; border-radius:5px; }
+.art-review-roster-actions .art-review-icon-button { width:28px; flex:none; padding:4px; border-color:transparent; background:transparent; color:#80708f; }
 .art-review-roster-actions .art-review-icon-button:hover:not(:disabled) { background:#f4effb; border-color:transparent; color:#7561bb; }
 
+.art-review-scene-navigation { margin:0 0 18px; padding:16px 18px; border:1px solid var(--review-line); border-radius:12px; background:#fff; }
+.art-review-scene-navigation>header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.art-review-scene-navigation h2 { font-size:16px; margin:0; }
+.art-review-scene-navigation>header>div { display:flex; align-items:center; gap:10px; }
+.art-review-scene-navigation>header span { font-size:14px; color:#62576f; white-space:nowrap; }
+.art-review-scene-navigation>header button { padding:6px; }
+.art-review-scene-navigation-list { display:flex; flex-wrap:wrap; gap:8px; }
+.art-review-page .art-review-scene-navigation-list button { justify-content:start; gap:10px; padding:9px 12px; background:#fff; border-color:#e7e2ee; color:#37323e; }
+.art-review-scene-navigation-list button>b { display:flex; align-items:center; justify-content:center; width:29px; height:29px; flex:none; border-radius:7px; background:#f5f2fa; color:#69558f; font-size:16px; }
+.art-review-scene-navigation-list button>span { display:flex; flex-direction:column; align-items:start; gap:3px; font-size:14px; }
+.art-review-scene-navigation-list button small { font-size:14px; color:#756b83; }
+.art-review-page .art-review-scene-navigation-list button.active { background:#f0ebfa; border-color:#ac98cf; box-shadow:0 0 0 1px #ac98cf; }
+.art-review-scene-navigation-list button.active>b { background:#69558f; color:#fff; }
 .art-review-scene-list { display:flex; flex-direction:column; gap:22px; }
-.art-review-scene { border:1px solid var(--review-line); background:#fff; border-radius:12px; box-shadow:0 3px 12px #34315b05; overflow:hidden; }
+.art-review-scene { border:1px solid var(--review-line); background:#fff; border-radius:12px; box-shadow:0 3px 12px #34315b08; overflow:hidden; }
 .art-review-scene>header { display:flex; justify-content:space-between; gap:18px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--review-line); }
 .art-review-scene>header>div { display:flex; gap:10px; align-items:center; }
-.art-review-scene-id { font-weight:700; color:#5f4d99; font-size:15px; }
-.art-review-status { font-size:11px; color:#939aaa; background:#f5f6f9; border-radius:5px; padding:4px 7px; }
+.art-review-scene-id { font-weight:700; color:#29232f; font-size:17px; }
+.art-review-status { font-size:14px; color:#636776; background:#f5f6f9; border-radius:5px; padding:4px 8px; }
 .art-review-status.approved { color:#766499; background:#f0ebfa; }
-.art-review-scene>header button { font-size:12px; padding:7px 10px; }
+.art-review-scene>header button { font-size:14px; padding:8px 12px; }
 /* Only inventory contributes content height; script text scrolls inside it. */
-.art-review-scene-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); min-height:300px; }
+.art-review-scene-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); min-height:320px; }
 .art-review-source { position:relative; border-right:1px solid var(--review-line); padding:18px 20px; min-width:0; }
-.art-review-scene h3 { font-size:12px; color:#8490a0; margin:0 0 15px; font-weight:500; }
-.art-review-source pre { position:absolute; inset:50px 20px 18px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:14px; line-height:1.95; margin:0; padding-right:10px; color:#344054; }
-.art-review-inventory { padding:18px 20px; min-width:0; }
+.art-review-scene h3 { font-size:15px; color:#535361; margin:0 0 17px; font-weight:600; }
+.art-review-source pre { position:absolute; inset:54px 20px 18px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:18px; line-height:1.95; margin:0; padding-right:10px; color:#202127; }
+.art-review-inventory { padding:18px 20px; min-width:0; background:#fbfaff; }
 .art-review-inventory h3 { display:flex; justify-content:space-between; }
-.art-review-inventory h3 small { font-size:11px; color:#a8afba; }
-.art-review-category { padding-bottom:14px; }
+.art-review-inventory h3 small { font-size:14px; color:#746b80; font-weight:400; }
+.art-review-category { padding-bottom:20px; }
 .art-review-category:last-child { padding-bottom:0; }
-.art-review-category-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-.art-review-category-heading h4 { font-size:13px; margin:0; font-weight:600; color:#606c7e; }
-.art-review-category-heading h4 span { font-weight:400; font-size:11px; color:#aaa3b7; margin-left:8px; }
-.art-review-category-heading button { font-size:11px; padding:4px 7px; }
+.art-review-category-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.art-review-category-heading h4 { display:flex; align-items:center; gap:7px; font-size:15px; margin:0; font-weight:600; color:#39313f; }
+.art-review-category-heading h4>svg { color:#837095; }
+.art-review-category-heading h4 span { font-weight:400; font-size:14px; color:#746880; margin-left:1px; }
+.art-review-category-heading button { font-size:14px; padding:5px 8px; }
 .art-review-category-actions { display:flex; align-items:center; gap:6px; }
-.art-review-item { display:flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid #ebe8f1; border-radius:7px; margin-bottom:7px; min-height:38px; }
-.art-review-item>div { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:7px; min-width:0; }
-.art-review-item b { font-size:13px; font-weight:500; overflow-wrap:anywhere; }
-.art-review-outfit { font-size:11px; background:#f3effb; color:#786598; padding:3px 7px; border-radius:5px; }
-.art-review-needs-detail { font-size:10px; color:#a57948; }
-.art-review-item small { flex-basis:100%; color:#9a899f; font-size:11px; line-height:1.6; }
-.art-review-item button { padding:4px; border:none; background:transparent; color:#a29aaa; }
+.art-review-item { display:flex; align-items:center; gap:8px; padding:14px 12px; border:1px solid #e7e0ef; border-left:3px solid #d9cde9; border-radius:9px; margin-bottom:11px; min-height:64px; background:#fff; box-shadow:0 3px 10px #3424420c; }
+.art-review-item:last-child { margin-bottom:0; }
+.art-review-item[data-category="scene"] { border-left-color:#d1dce8; }
+.art-review-item[data-category="prop"] { border-left-color:#e6dccb; }
+.art-review-item>div { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:8px; min-width:0; }
+.art-review-item b { font-size:18px; color:#202127; font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
+.art-review-outfit { font-size:15px; background:#f3effb; color:#66517f; padding:4px 8px; border-radius:5px; }
+.art-review-needs-detail { font-size:14px; color:#89622e; }
+.art-review-item small { flex-basis:100%; color:#6f6378; font-size:14px; line-height:1.7; }
+.art-review-item button { padding:6px; flex:none; border:none; background:transparent; color:#80708f; }
 .art-review-item button:hover:not(:disabled) { color:#7561bb; background:#f3effb; }
-.art-review-empty { color:#a6adba; font-size:12px; margin:7px 0; }
-.art-review-page .art-review-undo { font-size:11px; border:none; padding:5px 0; background:transparent; color:#7561bb; }
-.art-review-detail-note { color:#a57948; font-size:11px; line-height:1.8; margin-top:8px; }
-.art-review-history { color:#8b91a0; font-size:12px; padding:18px 3px; line-height:1.9; }
+.art-review-empty { color:#747581; font-size:14px; margin:7px 0; }
+.art-review-page .art-review-undo { font-size:14px; border:none; padding:6px 0; background:transparent; color:#7561bb; }
+.art-review-detail-note { color:#89622e; font-size:14px; line-height:1.8; margin-top:8px; }
+.art-review-history { color:#626774; font-size:14px; padding:18px 3px; line-height:1.9; }
 .art-review-history summary { cursor:pointer; }
 .art-review-history ul { padding-left:20px; }
 .art-review-footer { position:sticky; bottom:-24px; z-index:3; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border:1px solid var(--review-line); border-radius:12px; background:#fffffffa; box-shadow:0 -4px 18px #34315b08; padding:12px 76px 12px 18px; margin-top:10px; }
-.art-review-footer>span { display:flex; align-items:center; gap:8px; font-size:12px; color:#80728d; }
+.art-review-footer>span { display:flex; align-items:center; gap:8px; font-size:14px; color:#655871; }
 .art-review-footer>div { display:flex; flex-wrap:wrap; gap:7px; }
-.art-review-footer button { font-size:12px; padding:8px 10px; }
+.art-review-footer button { font-size:14px; padding:8px 10px; }
 .art-review-loading { padding:40px; display:flex; align-items:center; gap:12px; color:#8c829d; }
 
 /* Explicit auto margins restore native centering after the global reset. */
@@ -110,35 +127,36 @@
 .art-review-dialog h2 { font-size:17px; margin:0; }
 .art-review-dialog>header button,.art-review-assignment>header button { padding:4px; background:transparent; color:#8a7aab; border-color:transparent; }
 .art-review-dialog label { margin-bottom:11px; }
-.art-review-dialog p { font-size:12px; line-height:1.8; color:#8590a0; }
+.art-review-dialog p { font-size:14px; line-height:1.8; color:#626774; }
 .art-review-dialog textarea { min-height:64px; resize:vertical; }
 .art-review-dialog-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:end; margin-top:16px; }
-.art-review-dialog-actions button { font-size:12px; }
+.art-review-dialog-actions button { font-size:14px; }
 .art-review-dialog-actions button:first-child { background:#fff; color:#7c6e90; border-color:#e5e7ef; }
 .art-review-dialog .art-review-warning { color:#a76130; }
 .art-review-pick-list { display:flex; flex-direction:column; gap:6px; margin-top:12px; max-height:300px; overflow-y:auto; }
 .art-review-dialog .art-review-pick-list label { display:flex; flex-direction:row; align-items:center; gap:9px; margin:0; padding:9px 10px; border:1px solid #ebe5f2; border-radius:7px; cursor:pointer; color:#344054; }
 .art-review-pick-list label:has(input:checked) { background:var(--review-pale); border-color:#cbbce5; }
-.art-review-dialog .art-review-pick-list input { flex:none; width:14px; height:14px; min-height:0; margin:0; padding:0; accent-color:#8974b5; }
+.art-review-dialog .art-review-pick-list input { flex:none; width:16px; height:16px; min-height:0; margin:0; padding:0; accent-color:#8974b5; }
 .art-review-pick-list label>span { flex:1; overflow-wrap:anywhere; }
-.art-review-pick-list small { color:#a57948; font-size:11px; }
+.art-review-pick-list small { color:#89622e; font-size:14px; }
 .art-review-picker-search { margin-top:12px; }
 .art-review-scene-checks { border:1px solid #e5e7ef; border-radius:8px; display:flex; flex-wrap:wrap; gap:8px; padding:10px; margin:12px 0 6px; max-height:180px; overflow-y:auto; }
-.art-review-scene-checks legend { font-size:12px; color:#8490a0; padding:0 4px; }
-.art-review-dialog .art-review-scene-checks label,.art-review-assignment .art-review-scene-checks label { display:inline-flex; flex-direction:row; align-items:center; gap:6px; padding:5px 8px; margin:0; border-radius:5px; background:#f8f6fc; font-size:12px; cursor:pointer; color:#635282; }
+.art-review-scene-checks legend { font-size:14px; color:#626774; padding:0 4px; }
+.art-review-dialog .art-review-scene-checks label,.art-review-assignment .art-review-scene-checks label { display:inline-flex; flex-direction:row; align-items:center; gap:6px; padding:5px 8px; margin:0; border-radius:5px; background:#f8f6fc; font-size:14px; cursor:pointer; color:#635282; }
 .art-review-dialog .art-review-scene-checks input,.art-review-assignment .art-review-scene-checks input { width:14px; height:14px; min-height:0; padding:0; margin:0; flex:none; accent-color:#7561bb; }
 .art-review-scene-checks label:has(input:checked) { background:#eee8fa; }
 .art-review-assignment { position:fixed; inset:auto; margin:0; width:min(340px,calc(100vw - 24px)); overflow-y:auto; padding:14px; border:1px solid #ddd4ed; border-radius:10px; background:#fff; box-shadow:0 8px 32px #30204424; }
-.art-review-assignment h2 { font-size:13px; line-height:1.5; margin:0; overflow-wrap:anywhere; }
-.art-review-assignment p { font-size:12px; color:#8b819b; margin:0; }
+.art-review-assignment h2 { font-size:16px; line-height:1.5; margin:0; overflow-wrap:anywhere; }
+.art-review-assignment p { font-size:14px; color:#68606f; margin:0; }
+.art-review-assignment .art-review-warning { margin:8px 0; color:#a76130; }
 .art-review-assignment .art-review-scene-checks { margin:10px 0 0; max-height:160px; }
 .art-review-assignment .art-review-dialog-actions { margin-top:12px; }
-.art-review-assignment .art-review-dialog-actions button { padding:6px 9px; font-size:12px; }
+.art-review-assignment .art-review-dialog-actions button { padding:6px 9px; font-size:14px; }
 .art-review-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
 @media(max-width:1200px) {
   .art-review-controls-actions { margin-left:0; }
-  .art-review-episode-select select { width:180px; }
+  .art-review-episode-select select { width:220px; }
   .art-review-scene>header { flex-wrap:wrap; }
   .art-review-controls { gap:14px; }
   .art-review-footer { bottom:-18px; }
@@ -155,4 +173,6 @@
   .art-review-roster-group { grid-template-columns:1fr; gap:8px; }
   .art-review-roster-group>h3 { padding-top:0; }
   .art-review-roster-card { width:100%; }
+  .art-review-scene-navigation { padding:14px; }
+  .art-review-scene-navigation>header { flex-wrap:wrap; }
 }

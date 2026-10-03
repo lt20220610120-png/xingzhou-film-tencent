@@ -1357,7 +1357,7 @@ function App() {
     ['scripts', Library, '剧本库'],
   ];
   const toolsNav = [
-    ['skills', Sparkles, 'Skill 库'],
+    ['skills', Library, 'Skill 库'],
     ['apis', KeyRound, 'API 接口'],
     ['settings', Settings, '设置'],
   ];
@@ -1417,6 +1417,7 @@ function App() {
         {(visitedWorkspaces.director || nav === 'director') && <div className="workspace-preserved" hidden={nav !== 'director'}>
           <DirectorWorkspace
             key={account?.id}
+            active={nav === 'director'}
             accountId={account?.id}
             state={state}
             setState={setState}

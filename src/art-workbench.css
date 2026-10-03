@@ -17,6 +17,7 @@
 .art-final-prompt-modal textarea { min-height: 140px; height: 42vh; flex: 1; resize: none; line-height: 1.8; padding: 14px; }
 
 /* Keep the three archive layouts equally visible in this dialog. */
+.collab-rail .collab-review-local-note { display:flex; align-items:center; gap:7px; margin-top:auto; padding:16px 12px; color:#726484; font-size:14px; line-height:1.6; }
 .modal.collab-art-export-modal { width: min(640px, calc(100vw - 40px)); padding: 24px; background: #fff; }
 .collab-art-export-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .collab-art-export-modal > header > h2 { margin: 0; font-size: 22px; line-height: 1.4; }

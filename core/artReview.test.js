@@ -27,14 +27,14 @@ test('published empty or populated scenes exclude unbound downstream manual card
  return s.load({episodes:[ep(1)],analysis_progress:{1:{review:{...r,version:1}}}},raw).then(()=>assert.ok(!s.snapshot().episodes[1].roster.some(i=>i.name==='【下游手动添加】')));
 });
 function fixture(count=2){
- let disk=null,remote={},calls=[],publishCalls=[],offline=false,loseAck=false;
+ let disk=null,remote={},calls=[],saveCalls=[],publishCalls=[],offline=false,loseAck=false;
  const project={id:crypto.randomUUID(),genre:'现代青春',episodes:Array.from({length:count},(_,i)=>ep(i+1)),analysis_progress:{}};
  const api={artReviewLoadLocal:async()=>structuredClone(disk),artReviewSaveLocal:async({data})=>{disk=structuredClone(data);},analysisLoad:async()=>null,
-  collabArtReviewSave:async p=>{if(offline)throw Error('离线');const old=remote[p.episodeNumber];if(old?.lastWriteId===p.writeId)return structuredClone(old);if((old?.version||0)!==p.baseVersion)throw Error('云端核实冲突');const saved={...structuredClone(p.data),version:p.baseVersion+1,lastWriteId:p.writeId};delete saved.pending;delete saved.writeId;remote[p.episodeNumber]=saved;project.analysis_progress[p.episodeNumber]={review:structuredClone(saved)};if(loseAck){loseAck=false;throw Error('回执丢失');}return saved;},
-  collabArtReviewPublish:async p=>{publishCalls.push(p);const r=remote[p.episodeNumber];if(p.sceneIds.some(id=>!isSceneVerified(r.scenes.find(s=>s.id===id))))throw Error('尚未核实');return {...structuredClone(r),version:r.version+1};},
+  collabArtReviewSave:async p=>{saveCalls.push(p);if(offline)throw Error('离线');const old=remote[p.episodeNumber];if(old?.lastWriteId===p.writeId)return structuredClone(old);if((old?.version||0)!==p.baseVersion)throw Error('云端核实冲突');const saved={...structuredClone(p.data),version:p.baseVersion+1,lastWriteId:p.writeId};delete saved.pending;delete saved.writeId;remote[p.episodeNumber]=saved;project.analysis_progress[p.episodeNumber]={review:structuredClone(saved)};if(loseAck){loseAck=false;throw Error('回执丢失');}return saved;},
+  collabArtReviewPublish:async p=>{publishCalls.push(p);const r=remote[p.episodeNumber];if(r.lastWriteId===p.writeId)return structuredClone(r);if(r.version!==p.baseVersion)throw Error('云端核实冲突');if(p.sceneIds.some(id=>!isSceneVerified(r.scenes.find(s=>s.id===id))))throw Error('尚未核实');const saved={...structuredClone(r),version:r.version+1,lastWriteId:p.writeId};for(const id of p.sceneIds){const s=saved.scenes.find(s=>s.id===id);saved.published[id]={...structuredClone(s),signature:reviewSceneSignature(s)};}remote[p.episodeNumber]=saved;project.analysis_progress[p.episodeNumber]={review:structuredClone(saved)};return saved;},
   aiChat:async p=>{calls.push(p);const n=JSON.parse(p.messages.at(-1).content.split('\n').at(-1)).sceneIds[0].split('-')[0];return {ok:true,output:output(Number(n))};}};
  const store=getArtReviewStore({api,projectId:project.id,accountId:'review-test'});
- return {project,api,store,calls,publishCalls,args:{project,api,genre:project.genre,profile:{id:'selected',model:'selected-model'},accountId:'review-test'},get disk(){return disk;},get remote(){return remote;},set offline(v){offline=v;},set loseAck(v){loseAck=v;}};
+ return {project,api,store,calls,saveCalls,publishCalls,args:{project,api,genre:project.genre,profile:{id:'selected',model:'selected-model'},accountId:'review-test'},get disk(){return disk;},get remote(){return remote;},set offline(v){offline=v;},set loseAck(v){loseAck=v;}};
 }
 test('candidate keeps distinct wardrobe per scene; legacy episode membership never guesses scene mapping',()=>{
  const r=candidate();assert.equal(r.status,'generated');assert.deepEqual(r.scenes[0].items.map(i=>i.name),['【林清雪-睡衣】','【卧室】']);assert.deepEqual(r.scenes[1].items.map(i=>i.name),['【林清雪-校服】']);assert.equal(r.unassigned.length,0);
@@ -144,16 +144,16 @@ test('published scene associations decorate original assets while retaining imag
  const result=projectPublishedReviewAssets({analysis_progress:{1:{review:r}}},[asset])[0];assert.deepEqual(result.sceneIds,['1-1']);assert.equal(result.description,'人工描述');assert.deepEqual(result.images,asset.images);
 });
 test('full extraction uses full Skill, saves all episodes without publishing assets or waiting for approval',async()=>{
- const f=fixture(3);await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,3);assert.equal(f.publishCalls.length,0);assert.equal(Object.keys(f.disk.episodes).length,3);assert.ok(f.calls.every(c=>c.messages[0].content.includes(ART_RUNTIME_SKILL)&&c.profileId==='selected'));
+ const f=fixture(3);await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,3);assert.equal(f.saveCalls.length,0);assert.equal(f.publishCalls.length,0);assert.equal(Object.keys(f.disk.episodes).length,3);assert.ok(f.calls.every(c=>c.messages[0].content.includes(ART_RUNTIME_SKILL)&&c.profileId==='selected'));
  await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,3);
  await f.store.update(1,r=>editArtReview(r,{type:'approve-episode'}));await f.store.publish(1,['1-1','1-2']);assert.equal(f.publishCalls.length,1);
 });
-test('offline edits persist; sync retry and acknowledgement loss never call model again',async()=>{
- const f=fixture(1);await runArtReviewAnalysis(f.args);f.offline=true;await f.store.update(1,r=>editArtReview(r,{type:'remove',sceneId:'1-1',itemId:r.scenes[0].items[0].id}));assert.equal(f.disk.episodes[1].pending,true);await assert.rejects(f.store.publish(1,['1-1']),/离线/);
- f.offline=false;f.loseAck=true;await f.store.sync();assert.equal(f.disk.episodes[1].pending,true);await f.store.sync();assert.equal(f.disk.episodes[1].pending,false);assert.equal(f.calls.length,1);
+test('offline edits persist; local checkpoint retries never upload and publication acknowledgement retries never call model again',async()=>{
+ const f=fixture(1);await runArtReviewAnalysis(f.args);f.offline=true;await f.store.update(1,r=>editArtReview(r,{type:'remove',sceneId:'1-1',itemId:r.scenes[0].items[0].id}));await f.store.update(1,r=>editArtReview(r,{type:'approve',sceneId:'1-1'}));assert.equal(f.disk.episodes[1].pending,true);await f.store.sync();assert.equal(f.saveCalls.length,0);await assert.rejects(f.store.publish(1,['1-1']),/离线/);
+ f.offline=false;f.loseAck=true;await assert.rejects(f.store.publish(1,['1-1']),/回执丢失/);assert.equal(f.disk.episodes[1].pending,true);await f.store.load(f.project);assert.equal(f.disk.episodes[1].pending,true);await f.store.publish(1,['1-1']);assert.equal(f.disk.episodes[1].pending,false);assert.equal(f.calls.length,1);
 });
 test('CAS conflict preserves local draft; explicit cloud choice archives it',async()=>{
- const f=fixture(1);await runArtReviewAnalysis(f.args);f.remote[1].version+=1;f.project.analysis_progress[1].review=structuredClone(f.remote[1]);await f.store.update(1,r=>editArtReview(r,{type:'remove',sceneId:'1-1',itemId:r.scenes[0].items[0].id}));assert.match(f.disk.episodes[1].syncError,/冲突/);assert.equal(f.disk.episodes[1].scenes[0].items.length,1);
+ const f=fixture(1);await runArtReviewAnalysis(f.args);f.remote[1]={...structuredClone(f.disk.episodes[1]),version:1};f.project.analysis_progress[1]={review:structuredClone(f.remote[1])};await f.store.update(1,r=>editArtReview(r,{type:'remove',sceneId:'1-1',itemId:r.scenes[0].items[0].id}));await f.store.update(1,r=>editArtReview(r,{type:'approve',sceneId:'1-1'}));assert.equal(f.disk.episodes[1].syncError,undefined);await assert.rejects(f.store.publish(1,['1-1']),/冲突/);assert.match(f.disk.episodes[1].syncError,/冲突/);assert.equal(f.disk.episodes[1].scenes[0].items.length,1);
  await f.store.useCloud(1,f.project);assert.ok(f.disk.episodes[1].history.some(h=>h.reason.includes('冲突本地版本')&&h.previous.scenes[0].items.length===1));
 });
 test('partial model result is saved and next episodes continue; mapping-only retry reuses inventory',async()=>{

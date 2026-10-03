@@ -836,7 +836,7 @@ function SettingEditor({ project, episode, setState }) {
 /* ================================================================
  * DirectorWorkspace - 主组件
  * ================================================================ */
-export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration }) {
+export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration, active = true }) {
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
   const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
@@ -853,6 +853,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const [newEpisodeContent, setNewEpisodeContent] = useState('');
   const [refreshingCloud, setRefreshingCloud] = useState(false);
   const [cloudRefreshNotice, setCloudRefreshNotice] = useState('');
+  const cloudActiveRef = useRef(active), cloudRequestRef = useRef(0);
+  cloudActiveRef.current = active;
 
   const directorProjects = (state.directorProjects || []).filter((project, index, projects) => projects.findIndex((candidate) => candidate.id === project.id || (project.cloudProjectId && candidate.cloudProjectId === project.cloudProjectId)) === index);
   const directorGroups = state.directorGroups || [];
@@ -877,18 +879,26 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const activeEpisode = selectedProject?.episodes?.find((ep) => ep.id === activePane);
 
   const loadCloudProjects = useCallback(async () => {
+    if (!cloudActiveRef.current) return;
+    const requestId = ++cloudRequestRef.current;
     try {
       const [rows, collaborationRows, producer] = await Promise.all([
         api.directorCollabListProjects(),
         api.collabListProjects?.() || Promise.resolve([]),
         api.collabIsProducer(),
       ]);
+      if (!cloudActiveRef.current || requestId !== cloudRequestRef.current) return;
       setCloudProjects(rows || []);
       setCollaborationProjects((collaborationRows || []).filter((project) => !project.deleted_at));
       setIsProducer(producer);
     } catch { /* 网络短暂失败时保留现有云项目与本地投影 */ }
   }, [api]);
-  React.useEffect(() => { loadCloudProjects(); }, [loadCloudProjects]);
+  React.useEffect(() => {
+    if (!active) return;
+    loadCloudProjects();
+    const timer = setInterval(loadCloudProjects, 12000);
+    return () => { clearInterval(timer); cloudRequestRef.current += 1; };
+  }, [active, loadCloudProjects]);
   React.useEffect(() => { if(quickGeneration?.isCloudSaving())return; setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
   React.useEffect(() => {
     if (!collaborationProjects.length) return;
@@ -904,7 +914,6 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   }, [collaborationProjects]);
   const cloudForProject = (project) => cloudProjects.find((p) => p.id === project.cloudProjectId || p.analysis_output === project.id);
   const changeCollab = async (mode) => { if (!collabTarget) return; if (mode === 'create') { const dp = collabTarget.project; const episodes = dp.episodes || []; const cloud = await api.directorCollabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes }); setState((s) => updateDirectorProject(s, dp.id, { cloudProjectId: cloud.id, cloudRole: 'producer' })); setCollabTarget({ project: { ...dp, cloudProjectId: cloud.id }, cloud: { ...cloud, locked: false } }); } await loadCloudProjects(); };
-  React.useEffect(() => { const timer = setInterval(loadCloudProjects, 12000); return () => clearInterval(timer); }, [loadCloudProjects]);
   const refreshDirectorCloud = async () => {
     if (!selectedProject?.cloudProjectId || refreshingCloud) return;
     setRefreshingCloud(true); setCloudRefreshNotice('');
