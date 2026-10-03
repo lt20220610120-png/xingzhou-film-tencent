@@ -30,10 +30,10 @@
 
 **Interfaces:** reviewRoster(record) 返回去重名单；editArtReview 支持 roster-upsert / assign / roster-remove / roster-undo；runner 支持自动缺失对应补齐和 focusItem。
 
-- [ ] 写并运行失败回归：多场复用、只补缺、自动缺对应、单条补齐、无下游回流。
-- [ ] 实现名单迁移与增量合并、自动对应请求和单条信息补齐；云端验证名单。
-- [ ] Run: node --test core/artReview.test.js cloud-backend/test/art-review.test.cjs electron/art-review-checkpoints.test.cjs。Expected: 全通过。
-- [ ] 提交本任务。
+- [x] 写并运行失败回归：多场复用、只补缺、自动缺对应、单条补齐、无下游回流。
+- [x] 实现名单迁移与增量合并、自动对应请求和单条信息补齐；云端验证名单。
+- [x] Run: node --test core/artReview.test.js cloud-backend/test/art-review.test.cjs electron/art-review-checkpoints.test.cjs。Expected: 全通过。
+- [x] 提交本任务。
 
 ### Task 2: 核实页面
 
@@ -41,10 +41,10 @@
 
 **Interfaces:** 使用 Task 1 的名单、分配与 focusItem；自动补齐只尝试一次，可手动重试。
 
-- [ ] 页面回归先复现“安排后名单消失”与“手动新增要重跑整集”。
-- [ ] 实现持续名单、多选场号、名单添加保存并补齐、只补缺重读、自动启动对应。
-- [ ] Run: npm run build + 真实浏览器模拟接口验收。Expected: 操作成功，无溢出，不付费。
-- [ ] 提交本任务。
+- [x] 页面回归先复现“安排后名单消失”与“手动新增要重跑整集”。
+- [x] 实现持续名单、多选场号、名单添加保存并补齐、只补缺重读、自动启动对应。
+- [x] Run: npm run build + 真实浏览器模拟接口验收。Expected: 操作成功，无溢出，不付费。
+- [x] 提交本任务。
 
 ### Task 3: 场景导出与媒体匹配
 
@@ -52,16 +52,24 @@
 
 **Interfaces:** 导出 layout=scene；导入返回 scenes:{'N-M':refs}；mergeEpisodeMedia(book,incoming,scenes)；bookSharedReferences(book,entry)；项目参考按场景过滤。
 
-- [ ] 写并运行失败测试：导出→导入→当前场附加、跨场共享、手工移除、旧目录兼容、媒体按场过滤。
-- [ ] 实现场景目录往返与各 UI 入口，保留既有条目编辑和手工参考。
-- [ ] Run: node --test electron/image-export.test.cjs electron/episode-media-import.test.cjs core/promptBook.test.js core/automaticReferences.test.js。Expected: 全通过。
-- [ ] 提交本任务。
+- [x] 写并运行失败测试：导出→导入→当前场附加、跨场共享、手工移除、旧目录兼容、媒体按场过滤。
+- [x] 实现场景目录往返与各 UI 入口，保留既有条目编辑和手工参考。
+- [x] Run: node --test electron/image-export.test.cjs electron/episode-media-import.test.cjs core/promptBook.test.js core/automaticReferences.test.js。Expected: 全通过。
+- [x] 提交本任务。
 
 ### Task 4: 发布
 
 **Files:** package.json, package-lock.json, release-notes/2.5.0.md, docs/superpowers/validation/2026-10-04-v250.md
 
-- [ ] 完成规格逐项核对、全量测试与页面操作验证，记录证据。
-- [ ] 云端部署名单验证，制作安装包并运行实际桌面验收。
-- [ ] Run: npm run release；python qa/director-reliability/verify-public-release.py。Expected: 发布成功，公开大小/hash一致。
-- [ ] 提交并推送源码和验证文档。
+- [x] 完成规格逐项核对、全量测试与页面操作验证，记录证据。
+- [x] 云端部署名单验证，制作安装包并运行实际桌面验收。
+- [x] Run: npm run dist + python scripts/publish_release.py（已打包验证后的授权发布路径）；python qa/director-reliability/verify-public-release.py。Expected: 发布成功，公开大小/hash一致。
+- [x] 提交并推送源码和验证文档。
+
+## 执行记录
+
+- Task 1 提交 `5f8aa72`；Task 2 与 Task 3 合并提交 `c0aad06`。
+- 独立代码复核发现 6 项边界问题，对应失败回归已复现；修复提交 `1876b32`，联合回归与页面扩展验收通过。
+- 最终全量 1168 项测试、13 suites 通过，生产构建及实际安装包运行验收通过。
+- 云端已部署；2.5.0 安装包及两个仓库更新清单已发布，公开完整下载的大小与 SHA256 验证一致。
+- 验证详情见 `docs/superpowers/validation/2026-10-04-v250.md`。
