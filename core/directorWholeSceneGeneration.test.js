@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createQuickGenerationController } from './directorQuickGeneration.js';
+import {commitQuickSceneRun} from './directorQuickStore.js';
 
 const baseline = '影像基准=数字电影；镜组=35mm T2.8；采样=24fps 180° EI800；WB=5600K；主光=窗光5600K 方位角90° 仰角45°；补光=墙反射5600K；K:F=2:1；影调=Rec.709 白位90IRE';
 const fastPrompt = (label, { light = baseline, action = '甲按开关，乙看着熄灭的灯。' } = {}) => `${label}
@@ -29,7 +30,7 @@ D01｜${label.endsWith('-1') ? '甲' : '乙'}｜现场对白｜分镜01内说完
 乙：桌旁 → 看着台灯 → 仍在桌旁。`;
 const fullOutput = options => ['1-1-1', '1-1-2'].map(label => fastPrompt(label, options?.[label])).join('\n\n');
 
-function fixture({ records = new Map(), skillOutput = () => fullOutput(), onSave = () => {}, maxQualityAttempts = 2 } = {}) {
+function fixture({ records = new Map(), skillOutput = () => fullOutput(), onSave = () => {}, onAudit=()=>{}, commitToStore=false, maxQualityAttempts = 2 } = {}) {
   const source = '1-1 景：书房 夜 内\n甲：先关灯。\n乙：已经关好了。';
   const episode = { id: 'episode', title: '第1集', kind: 'episode', content: source };
   const project = { id: 'project', style: '真人电影级', aspectRatio: '9:16', episodes: [episode] };
@@ -37,9 +38,11 @@ function fixture({ records = new Map(), skillOutput = () => fullOutput(), onSave
   const profile = { id: 'model', model: 'mock' };
   const request = { accountId: 'account', project, episode, inputText: source, sceneLabel: '1-1', skill, profile, maxDurationSeconds: 30 };
   const calls = [], snapshots = [], progress = [], commits = [];
+  let state={accountId:'account',directorProjects:[project],skills:[skill],apiProfiles:[profile]};
+  const saveToStore=(run,partial)=>{if(!commitToStore)return {applied:true};const result=commitQuickSceneRun(state,run,{partial});state=result.state;return result;};
   const controller = createQuickGenerationController({
     maxQualityAttempts,
-    getContext: () => ({ ...request, permissions: { canGenerate: true } }),
+    getContext: () => ({ ...request,project:state.directorProjects[0],episode:state.directorProjects[0].episodes[0], permissions: { canGenerate: true } }),
     checkpoints: {
       save: async ({ run }) => { records.set(run.id, structuredClone(run)); snapshots.push(structuredClone(run)); onSave(run); },
       list: async () => [...records.values()].map(run => structuredClone(run)),
@@ -47,19 +50,20 @@ function fixture({ records = new Map(), skillOutput = () => fullOutput(), onSave
     },
     executeText: async ({ messages }) => {
       const kind = messages[0].content.includes('核对') ? 'audit' : 'plan'; calls.push({ kind });
+      if(kind==='audit')await onAudit(state);
       return JSON.stringify(kind === 'audit' ? { ok: true, issues: [] } : { segments: [
         { end: { unitId: 'u1' }, timing: { speechSeconds: 30, actionSeconds: 0, overlapSeconds: 0, transitionSeconds: 0 }, startState: '灯亮', endState: '灯灭', boundary: '切乙', visualNotes: [] },
         { end: { unitId: 'u2' }, timing: { speechSeconds: 10, actionSeconds: 0, overlapSeconds: 0, transitionSeconds: 0 }, startState: '灯灭', endState: '灯灭', boundary: 'scene-end', visualNotes: [] },
       ] });
     },
     executeSkill: async payload => { calls.push({ kind: 'skill', payload }); return skillOutput(payload, calls.filter(call => call.kind === 'skill').length); },
-    commitProgress: async run => { progress.push(structuredClone(run)); return { applied: true }; },
-    commitRun: async run => { commits.push(structuredClone(run)); return { applied: true }; },
+    commitProgress: async run => { progress.push(structuredClone(run)); return saveToStore(run,true); },
+    commitRun: async run => { commits.push(structuredClone(run)); return saveToStore(run,false); },
   });
-  return { controller, request, records, calls, snapshots, progress, commits };
+  return { controller, request, records, calls, snapshots, progress, commits,get state(){return state;} };
 }
 
-test('one whole Skill reply is durably checkpointed before independently validating and publishing both cards', async () => {
+test('one whole Skill reply is checkpointed and both cards are published before validating them', async () => {
   const f = fixture();
   const done = await f.controller.start(f.request);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
@@ -72,7 +76,9 @@ test('one whole Skill reply is durably checkpointed before independently validat
   const savedRaw = f.snapshots.find(run => run.wholeSceneResponses?.some(response => response.complete));
   assert.equal(Object.keys(savedRaw.segmentDrafts).length, 0);
   assert.equal(savedRaw.wholeSceneResponses[0].output, fullOutput());
-  assert.equal(f.progress.length, 2);
+  assert.equal(Object.keys(f.progress[0].segmentDrafts).length,2);
+  assert.ok(Object.values(f.progress[0].segmentDrafts).every(draft=>!draft.validated));
+  assert.ok(f.progress.at(-1).segmentDrafts[done.plan.segments[1].id].validated);
   assert.equal(done.sharedBaseline, baseline);
   assert.equal(done.wholeSceneResponses.length, 1);
   assert.equal(f.commits.length, 1);
@@ -100,7 +106,7 @@ test('cached complete bounded retry supersedes earlier partial in its request ch
       if (count === 1) throw Object.assign(new Error('输出被截断'), { partialText: fastPrompt('1-1-1', { action: '甲抬手摸到台灯开关。' }) + '\n\n1-1-2\n【基础设定】\n人物：' });
       return fullOutput();
     },
-    onSave: run => { if (crash && run.wholeSceneResponses?.some(response => response.complete) && !Object.keys(run.segmentDrafts).length) { crash = false; throw new Error('crash-after-retried-full-save'); } },
+    onSave: run => { if (crash && run.wholeSceneResponses?.some(response => response.complete) && (run.processedWholeSceneResponseIndex??-1)<1) { crash = false; throw new Error('crash-after-retried-full-save'); } },
   });
   const interrupted = await before.controller.start(before.request);
   assert.equal(interrupted.phase, 'failed');
@@ -133,27 +139,75 @@ test('wrong numbered second block never silently becomes the expected card and r
   assert.equal(done.segmentDrafts[done.plan.segments[1].id].prompt.label, '1-1-2');
 });
 
-test('inconsistent whole lighting retries within a fixed budget while retaining accepted first card', async () => {
+test('inconsistent whole lighting is displayed with a warning without a paid repair', async () => {
   const f = fixture({ skillOutput: () => fullOutput({ '1-1-2': { light: baseline.replace('EI800', 'EI1600') } }) });
   const failed = await f.controller.start(f.request);
-  assert.equal(failed.phase, 'needs-review');
-  assert.equal(f.calls.filter(call => call.kind === 'skill').length, 2);
-  assert.equal(f.commits.length, 0);
+  assert.equal(failed.phase, 'completed');
+  assert.equal(f.calls.filter(call => call.kind === 'skill').length, 1);
+  assert.equal(f.commits.length, 1);
   const first = failed.segmentDrafts[failed.plan.segments[0].id];
   assert.equal(first.validated, true);
   assert.equal(first.prompt.content, fastPrompt('1-1-1'));
   assert.equal(failed.segmentDrafts[failed.plan.segments[1].id].validated, false);
   assert.ok(failed.wholeSceneIssues.some(issue => issue.code === 'BASELINE_CHANGED'));
-  assert.deepEqual(f.calls.filter(call => call.kind === 'skill')[1].payload.preservedPrompts, [{ label: '1-1-1', content: first.prompt.content }]);
+  assert.ok(failed.auditWarnings.some(issue=>issue.code==='BASELINE_CHANGED'));
+  assert.equal(Object.keys(f.progress[0].segmentDrafts).length,2);
+});
+test('duplicate generated bodies are retained on the right with a numbering warning instead of being hidden',async()=>{
+ const first=fastPrompt('1-1-1'),duplicate=fastPrompt('1-1-1',{action:'甲站在窗旁。'});
+ const f=fixture({commitToStore:true,skillOutput:()=>first+'\n\n'+duplicate+'\n\n'+fastPrompt('1-1-2')});
+ const done=await f.controller.start(f.request);
+ assert.equal(done.phase,'completed',JSON.stringify(done.errors));
+ assert.equal(f.calls.filter(c=>c.kind==='skill').length,1);
+ const cards=f.state.directorProjects[0].episodes[0].prompts;assert.equal(cards.length,2);
+ assert.ok(cards[0].content.includes(first));assert.ok(cards[0].content.includes(duplicate));
+ assert.ok(done.auditWarnings.some(w=>w.code==='INVALID_SCENE_LABEL'));
 });
 
-test('repair preserves accepted local card even when the model unnecessarily rewrites its copy', async () => {
+test('quality review never calls the model to rewrite an existing complete card', async () => {
   const f=fixture({skillOutput:(_payload,count)=>count===1
     ? fullOutput({'1-1-2':{light:baseline.replace('EI800','EI1600')}})
     : fullOutput({'1-1-1':{action:'甲再次看了一眼灯。'}})});
   const done=await f.controller.start(f.request);
   assert.equal(done.phase,'completed',JSON.stringify(done.errors));
   assert.equal(done.segmentDrafts[done.plan.segments[0].id].prompt.content,fastPrompt('1-1-1'));
-  assert.equal(done.segmentDrafts[done.plan.segments[1].id].validated,true);
-  assert.equal(f.calls.filter(call=>call.kind==='skill').length,2);
+  assert.equal(done.segmentDrafts[done.plan.segments[1].id].validated,false);
+  assert.equal(f.calls.filter(call=>call.kind==='skill').length,1);
+});
+
+test('a genuine changed utterance is shown before review and kept with warnings without regeneration',async()=>{
+ const raw=fullOutput().replace('『先关灯。』','『不同的话。』');
+ let audited=false;
+ const f=fixture({skillOutput:()=>raw,commitToStore:true,onAudit:state=>{
+   const cards=state.directorProjects[0].episodes[0].prompts;
+   assert.equal(cards.length,2);assert.ok(cards[0].content.includes('不同的话。'));
+   assert.equal(state.directorProjects[0].promptHistory.length,2);audited=true;
+ }});
+ const done=await f.controller.start(f.request);
+ assert.equal(done.phase,'completed',JSON.stringify(done.errors));
+ assert.equal(f.calls.filter(call=>call.kind==='skill').length,1);
+ assert.equal(Object.keys(f.progress[0].segmentDrafts).length,2);
+ assert.ok(Object.values(f.progress[0].segmentDrafts).every(draft=>draft.validated===false));
+ assert.equal(f.progress[0].segmentDrafts[done.plan.segments[0].id].prompt.content,fastPrompt('1-1-1').replace('『先关灯。』','『不同的话。』'));
+ assert.ok(done.auditWarnings.some(item=>item.code==='DIALOGUE_TEXT_CHANGED'&&item.segmentIndex===1));
+ assert.equal(done.segmentDrafts[done.plan.segments[0].id].validated,false);
+ assert.equal(f.commits.length,1);
+ assert.equal(audited,true);
+ assert.deepEqual(f.state.directorProjects[0].episodes[0].prompts.map(card=>card.sceneAuditStatus),['warning','passed']);
+});
+
+test('both generated cards remain saved while the final review is pending or stopped',async()=>{
+ let release;const pending=new Promise(resolve=>{release=resolve;});let reviewStarted=false;
+ const f=fixture({commitToStore:true,onAudit:async()=>{reviewStarted=true;await pending;}});
+ const task=f.controller.start(f.request);
+ for(let i=0;i<100&&!reviewStarted;i++)await new Promise(resolve=>setTimeout(resolve,2));
+ assert.equal(reviewStarted,true);
+ const run=f.controller.entries()[0];
+ assert.equal(run.phase,'auditing');
+ const cards=f.state.directorProjects[0].episodes[0].prompts;
+ assert.equal(cards.length,2);assert.ok(cards.every(card=>card.sceneAuditStatus==='pending'));
+ await f.controller.stop(run.id);release();await task;
+ assert.equal(f.controller.get(run.id).phase,'paused');
+ assert.deepEqual(f.state.directorProjects[0].episodes[0].prompts.map(card=>card.id),run.promptIds);
+ assert.equal(f.commits.length,0);
 });

@@ -5,6 +5,7 @@ import {buildSceneSourceTape,NONFINAL_DURATION_RATIO,estimateSegmentSeconds} fro
 import {directorSpeechBoundary,completeDialogueNeedsNextClip} from './directorSpeechBoundaries.js';
 import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDirectorDurationLimit} from './directorDurationPolicy.js';
 import {validateDirectorSegmentTiming} from './directorTiming.js';
+import {quickReviewWarnings} from './directorQuickReview.js';
 export {markPromptTimingStale} from './promptTiming.js';
 
 const SHA256_K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
@@ -88,6 +89,8 @@ export async function snapshotMatchesContext(snapshot,context) {
 const fail = (state,message) => ({state,applied:false,conflict:message});
 export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const snapshot=run?.snapshot,plan=run?.plan,ids=run?.promptIds;
+  const advisory=run?.reviewIsAdvisory===true;
+  const statusFor=segment=>quickReviewWarnings(run,segment.index).length?'warning':partial?'pending':'passed';
   if(!snapshot || !run.id || !run.commitKey || !plan?.id || !Array.isArray(plan.segments) || !plan.segments.length || !Array.isArray(ids)
     || ids.length!==plan.segments.length || ids.some(id=>!id) || new Set(ids).size!==ids.length)return fail(state,'自动生成任务或预分配提示词编号不完整');
   if(state.accountId!==snapshot.accountId)return fail(state,'当前账号已变化，不能提交其他账号的任务');
@@ -98,7 +101,10 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(ids.some(id=>tombstones.has(id)))return fail(state,'本次结果已被删除，不能通过恢复重新添加');
   const history=collectDirectorPromptHistory(project),current=episode.prompts || [];
   const belongs=(prompt,i)=>prompt?.generationRunId===run.id && prompt?.segmentId===plan.segments[i].id && prompt?.segmentationPlanId===plan.id;
-  if(ids.every((id,i)=>belongs(current.find(pr=>pr.id===id),i) && belongs(history.find(pr=>pr.id===id),i)) && (partial ? ids.every((id,i)=>current.find(pr=>pr.id===id)?.content===run.segmentDrafts?.[plan.segments[i].id]?.prompt?.content) : ids.every(id=>current.find(pr=>pr.id===id)?.sceneAuditStatus!=='pending')))return {state,applied:true};
+  if(ids.every((id,i)=>belongs(current.find(pr=>pr.id===id),i)&&belongs(history.find(pr=>pr.id===id),i)
+    &&current.find(pr=>pr.id===id)?.content===run.segmentDrafts?.[plan.segments[i].id]?.prompt?.content
+    &&current.find(pr=>pr.id===id)?.sceneAuditStatus===statusFor(plan.segments[i])
+    &&JSON.stringify(current.find(pr=>pr.id===id)?.sceneAuditWarnings||[])===JSON.stringify(quickReviewWarnings(run,i+1))))return {state,applied:true};
   if(ids.some((id,i)=>[history.find(pr=>pr.id===id),current.find(pr=>pr.id===id)].some(pr=>pr&&!belongs(pr,i))))return fail(state,'提示词编号已有不完整或冲突的提交，请核对历史');
   let latest;
   try { latest=snapshotOf({accountId:state.accountId,project,episode,sceneLabel:snapshot.sceneLabel,inputText:directorSceneInput(project,episode,snapshot.sceneLabel),maxDurationSeconds:snapshot.maxDurationSeconds,
@@ -129,14 +135,14 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
       || (!keepPaidCut && i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(durationLimit*NONFINAL_DURATION_RATIO)
         && !completeDialogueNeedsNextClip({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,estimatedSeconds:segment.estimatedSeconds,maxDurationSeconds:durationLimit}))
       || (segment.timing && (!Number.isFinite(timingTotal) || (!compressed && timingTotal!==segment.estimatedSeconds)))
-      || segment.recommendedDurationSeconds!==Math.ceil(segment.estimatedSeconds) || (!partial && !draft?.validated)
-      || (draft?.validated && (draft.prompt?.label!==`${snapshot.sceneLabel}-${i+1}` || !String(draft.prompt?.content || '').trim())))return fail(state,'分段草稿尚未完整校验，不能发布部分结果');
+      || segment.recommendedDurationSeconds!==Math.ceil(segment.estimatedSeconds) || (!partial && (!advisory&&!draft?.validated || advisory&&(!draft?.prompt?.content||draft.generationComplete===false)))
+      || ((draft?.validated||advisory&&draft?.prompt) && (draft.prompt?.label!==`${snapshot.sceneLabel}-${i+1}` || !String(draft.prompt?.content || '').trim())))return fail(state,'分段计划或生成内容不完整，草稿已保留');
     segmentIds.add(segment.id);end=segment.sourceEnd;
   }
   if(end!==plan.sourceText.length)return fail(state,'分段计划未覆盖完整场景');
   if(existingPlan && JSON.stringify(existingPlan)!==JSON.stringify(plan))return fail(state,'同一分段计划编号存在不同内容');
   const timestamp=run.updatedAt || plan.createdAt || new Date().toISOString(),preamble=buildProjectPreamble(project);
-  const prompts=plan.segments.flatMap((segment,i)=>run.segmentDrafts?.[segment.id]?.validated?[{
+  const prompts=plan.segments.flatMap((segment,i)=>(advisory?Boolean(run.segmentDrafts?.[segment.id]?.prompt?.content):run.segmentDrafts?.[segment.id]?.validated)?[{
     id:ids[i],label:run.segmentDrafts[segment.id].prompt.label,content:run.segmentDrafts[segment.id].prompt.content,
     sourceText:[preamble,plan.sceneHeader,plan.sourceText.slice(segment.sourceStart,segment.sourceEnd)].filter(Boolean).join('\n\n'),
     skillId:snapshot.skillId,skillName:state.skills.find(s=>s.id===snapshot.skillId)?.name || '',profileId:snapshot.profileId,
@@ -144,10 +150,10 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
     ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),
-    sceneAuditStatus:partial?'pending':run.auditWarnings?.length?'warning':'passed',
-    ...(run.auditWarnings?.length ? {sceneAuditWarnings:run.auditWarnings.map(item=>({code:item.code,message:item.message,segmentIndex:item.segmentIndex}))} : {}),
+    sceneAuditStatus:statusFor(segment),
+    ...(quickReviewWarnings(run,segment.index).length?{sceneAuditWarnings:quickReviewWarnings(run,segment.index)}:{}),
   }]:[]);
-  if(!prompts.length)return fail(state,'尚无通过逐条核对的结果');
+  if(!prompts.length)return fail(state,'尚无已生成内容');
   if(prompts.some(pr=>current.some(old=>old.id===pr.id&&old.content!==pr.content&&old.durationStatus==='needs-review')))return fail(state,'已生成提示词被手工修改，保留修改并停止覆盖');
   const replacements=new Map(prompts.map(pr=>[pr.id,pr]));
   const merge=existing=>[...existing.map(pr=>replacements.get(pr.id)||pr),...prompts.filter(pr=>!existing.some(old=>old.id===pr.id))];

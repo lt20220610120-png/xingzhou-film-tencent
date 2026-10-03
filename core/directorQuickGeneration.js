@@ -5,6 +5,7 @@ import { buildSegmentationMessages, buildWholeSceneSkillRequest, buildSceneAudit
 import { identifyPromptContract, validateAndRepairGeneratedSegment, splitWholeScenePromptOutput, parseSceneAudit } from './directorPromptValidation.js';
 import { createSceneSnapshot } from './directorQuickStore.js';
 import { effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
+import {quickReviewWarnings} from './directorQuickReview.js';
 
 const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
 export const isQuickRunActive = run => Boolean(run && activePhases.has(run.phase));
@@ -13,7 +14,7 @@ const parseJson = parseStructuredJson;
 const error = (message,code='FAILED') => Object.assign(new Error(message),{code});
 const clone = value => structuredClone(value);
 const snapshotKey = s => JSON.stringify([s.accountId,s.projectId,s.episodeId,s.sceneLabel]);
-const PROCESSING_VERSION = 8;
+const PROCESSING_VERSION = 9;
 const issueMessages = issues => [...new Set((issues || []).map(issue => issue.message || issue.code).filter(Boolean))].join('；');
 const trimmedRange=(sourceText,start,end)=>{
   while(start<end&&/\s/u.test(sourceText[start]))start++;
@@ -58,6 +59,35 @@ export function createQuickGenerationController({getContext,executeText,executeS
     for(const key of ['sourceHash','settingsHash','skillHash','profileHash'])if(latest[key]!==run.snapshot[key])throw error('原文、项目设定、Skill 或模型配置已修改，请重新生成','STALE');
     return context;
   };
+  const publishProgress=async(run,version)=>{
+    if(!commitProgress)return;
+    await assertCurrent(run,version);
+    const result=await commitProgress(clone(run));
+    if(!result?.applied)throw error(result?.conflict||'已生成结果保存失败','STALE');
+    await assertCurrent(run,version);
+  };
+  // Save and show the paid text before quality checks. A later warning must
+  // never remove this work from the right pane or cause a paid rewrite.
+  const stageResponse=async(run,version,response)=>{
+    const labels=run.plan.segments.map(segment=>`${run.snapshot.sceneLabel}-${segment.index}`);
+    const parsed=splitWholeScenePromptOutput({output:response.output,expectedLabels:labels,complete:response.complete!==false,includeIncomplete:true,includeDuplicates:true});
+    let changed=false;
+    for(const segment of run.plan.segments){
+      const matches=parsed.prompts.filter(prompt=>prompt.label===labels[segment.index-1]);if(!matches.length)continue;
+      // Even a duplicate numbered body must remain visible. Keep both bodies
+      // together under the planned card ID and report the numbering problem.
+      const item={label:matches[0].label,content:matches.map(p=>p.content).join('\n\n'),complete:matches.every(p=>p.complete!==false)};
+      const existing=run.segmentDrafts[segment.id];
+      const sameChain=existing?.requestGroupId&&existing.requestGroupId===response.requestGroupId&&existing.responseComplete===false;
+      if(existing?.prompt?.content&&existing.generationComplete!==false&&!sameChain&&(!run.recoveringPaidReplies||existing.validated))continue;
+      run.segmentDrafts[segment.id]={prompt:{label:item.label,content:item.content},rawContent:item.content,
+        validated:false,issues:item.complete===false?[{code:'TRUNCATED_PROMPT',message:'回包未完整，已返回内容先展示，请继续未完成部分'}]:[],
+        generationComplete:item.complete!==false&&Boolean(item.content.split('\n').slice(1).join('\n').trim()),requestGroupId:response.requestGroupId,responseComplete:response.complete!==false};
+      changed=true;
+    }
+    if(changed){await persist(run);await publishProgress(run,version);}
+    return parsed;
+  };
   const request=async(run,version,kind,payload)=>{
     if(run.pauseRequested)throw error('已保存当前进度，任务已暂停','PAUSED');
     await assertCurrent(run,version);
@@ -73,6 +103,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
         run.wholeSceneResponses.push({output:e.partialText,complete:false,planId:run.plan?.id,requestGroupId:payload.requestGroupId,at:new Date().toISOString(),error:e.message});
         run.wholeSceneOutput=e.partialText;
         await persist(run);
+        await stageResponse(run,version,run.wholeSceneResponses.at(-1));
       }
       // Only explicit completion recovery gets a bounded larger-output retry.
       // HTTP failures may already have reached a paid provider, even when they
@@ -101,14 +132,16 @@ export function createQuickGenerationController({getContext,executeText,executeS
     const version=(versions.get(run.id)||0)+1;versions.set(run.id,version);
     try {
       await assertCurrent(run,version);
+      run.reviewIsAdvisory=true;
       const tape=buildSceneSourceTape(run.snapshot.sourceSnapshot);
       const sourceFor=segment=>({text:tape.sourceText.slice(segment.sourceStart,segment.sourceEnd),sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
       // Older failed checkpoints often contain valid paid output rejected by
       // the former cast/OS parser. Recheck it locally before spending again.
       if(run.processingVersion!==PROCESSING_VERSION){
         const recoveringVersion6=run.processingVersion===6;
-        const recoveringVersion7=run.processingVersion===7;
+        const recoveringVersion7=run.processingVersion===7||run.processingVersion===8;
         const recoverPaid=recoveringVersion6||recoveringVersion7;
+        run.recoveringPaidReplies=recoverPaid;
         const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
       run.segmentQualityFailures={};run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];run.auditRepairIndexes=[];run.auditRepairAttempts={};run.auditWarnings=[];run.checks={audited:false,ranges:{}};
         run.planQualityFailures=0;run.planIssues=[];
@@ -236,7 +269,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       let recoveredDraft=false;
       for(const segment of run.plan.segments){
         const draft=run.segmentDrafts[segment.id];
-        if(draft?.validated||!draft?.prompt?.content)continue;
+        if(draft?.validated||!draft?.prompt?.content||draft.generationComplete===false)continue;
         const checked=validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract:recoveryContract,sharedBaseline:run.sharedBaseline});
         if(!checked.ok&&checked.output===draft.prompt.content)continue;
         run.segmentDrafts[segment.id]={...draft,prompt:checked.prompt||{...draft.prompt,content:checked.output},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[],localRepairs:[...new Set([...(draft.localRepairs||[]),...checked.repairs])]};
@@ -248,17 +281,15 @@ export function createQuickGenerationController({getContext,executeText,executeS
         run.phase='generating';await persist(run);
         const context=await assertCurrent(run,version);
         const contract=identifyPromptContract(context.skill);
-        let publishedProgress=false;
-        const publishProgress=async()=>{if(commitProgress){await assertCurrent(run,version);const result=await commitProgress(clone(run));if(!result?.applied)throw error(result?.conflict||'已生成结果保存失败','STALE');await assertCurrent(run,version);publishedProgress=true;}};
         const consumeResponse=async(response,responseIndex)=>{
           const labels=run.plan.segments.map(segment=>`${run.snapshot.sceneLabel}-${segment.index}`);
-          const parsed=splitWholeScenePromptOutput({output:response.output,expectedLabels:labels,complete:response.complete!==false});
+          const parsed=await stageResponse(run,version,response);
           const issues=[...parsed.issues];
           for(const segment of run.plan.segments){
             const label=labels[segment.index-1],item=parsed.prompts.find(prompt=>prompt.label===label);
             if(!item)continue;
             const existing=run.segmentDrafts[segment.id];
-            const checked=validateAndRepairGeneratedSegment({output:item.content,expectedLabel:label,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
+            const checked=validateAndRepairGeneratedSegment({output:existing?.prompt?.content||item.content,expectedLabel:label,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
             if(existing?.validated){
               // The accepted local draft is authoritative. Repair calls still
               // rehearse the whole scene; a model's rewritten copy must neither
@@ -270,11 +301,11 @@ export function createQuickGenerationController({getContext,executeText,executeS
             if(checked.ok&&!run.sharedBaseline&&checked.baseline)run.sharedBaseline=checked.baseline;
             if(!checked.ok)issues.push(...checked.issues.map(issue=>({...issue,segmentIndex:segment.index})));
             await persist(run);
-            if(checked.ok)await publishProgress();
+            await publishProgress(run,version);
           }
           run.wholeSceneIssues=issues;
           run.processedWholeSceneResponseIndex=responseIndex;
-          if(issues.length)run.wholeSceneQualityFailures=(run.wholeSceneQualityFailures||0)+1;
+          if(run.plan.segments.some(segment=>!run.segmentDrafts[segment.id]?.prompt?.content||run.segmentDrafts[segment.id]?.generationComplete===false))run.wholeSceneQualityFailures=(run.wholeSceneQualityFailures||0)+1;
           await persist(run);
         };
         // A complete API response is written before any split/validation/store
@@ -283,7 +314,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
           const response=run.wholeSceneResponses[index];
           // Once the authoritative cards are all recovered, a later cached
           // repair missing labels cannot undo that complete local result.
-          if(run.plan.segments.every(segment=>run.segmentDrafts[segment.id]?.validated)){
+          if(run.plan.segments.every(segment=>run.segmentDrafts[segment.id]?.validated&&run.segmentDrafts[segment.id]?.generationComplete!==false)){
             run.wholeSceneIssues=[];run.processedWholeSceneResponseIndex=index;await persist(run);continue;
           }
           // A bounded completion retry belongs to one paid request chain. If
@@ -294,7 +325,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
           if(response.planId===run.plan.id)await consumeResponse(response,index);
           else{run.processedWholeSceneResponseIndex=index;await persist(run);}
         }
-        const finished=()=>run.plan.segments.every(segment=>run.segmentDrafts[segment.id]?.validated)&&!(run.wholeSceneIssues||[]).length;
+        delete run.recoveringPaidReplies;
+        const finished=()=>run.plan.segments.every(segment=>run.segmentDrafts[segment.id]?.prompt?.content&&run.segmentDrafts[segment.id]?.generationComplete!==false);
         while(!finished()&&(run.wholeSceneQualityFailures||0)<maxQualityAttempts){
           const validationIssues=[...(run.wholeSceneIssues||[]),...run.plan.segments.flatMap(segment=>(run.segmentDrafts[segment.id]?.issues||[]).map(issue=>({...issue,segmentIndex:segment.index})))];
           const built=buildWholeSceneSkillRequest({snapshot:run.snapshot,tape,plan:run.plan,sharedBaseline:run.sharedBaseline,drafts:run.segmentDrafts,validationIssues,repairAttempt:run.wholeSceneQualityFailures||0});
@@ -306,9 +338,9 @@ export function createQuickGenerationController({getContext,executeText,executeS
           run.wholeSceneOutput=output;await persist(run);
           await consumeResponse(run.wholeSceneResponses.at(-1),run.wholeSceneResponses.length-1);
         }
-        if(!finished())throw error(issueMessages(run.wholeSceneIssues)||'整场提示词尚未完整通过核对','NEEDS_REVIEW');
-        // Re-publish recovered validated cards without changing their IDs.
-        if(!publishedProgress)await publishProgress();
+        if(!finished())throw error(issueMessages(run.wholeSceneIssues)||'整场尚未返回全部提示词，已有内容已展示到右侧','NEEDS_REVIEW');
+        run.auditWarnings=quickReviewWarnings({...run,auditWarnings:[]});
+        await publishProgress(run,version);
         run.phase='auditing';await persist(run);
         let auditIssue=null;
         for(const range of auditRanges(run)){
@@ -322,30 +354,12 @@ export function createQuickGenerationController({getContext,executeText,executeS
             output=await request(run,version,'audit',{messages:[...messages,{role:'user',content:`请修正核对输出格式或证据，不改变核对范围。只返回完整JSON：${JSON.stringify(result.issues)}`}],profileId:run.snapshot.profileId});
             result=parseSceneAudit(output,{plan:run.plan,range});
           }
-          if(!result.ok){auditIssue=result.issues;run.lastAuditOutput=output;break;}
+          if(!result.ok){auditIssue=[...(auditIssue||[]),...result.issues];run.lastAuditOutput=output;continue;}
           run.checks.ranges[rangeKey]=true;await persist(run);
         }
         if(auditIssue){
-          const index=Math.min(...auditIssue.map(i=>Number(i.segmentIndex)).filter(i=>Number.isInteger(i)&&i>0));
-          run.auditRepairAttempts||={};
-          for(const item of run.auditRepairIndexes||[])run.auditRepairAttempts[item]=Math.max(1,run.auditRepairAttempts[item]||0);
-          if(!Number.isFinite(index)||(run.auditRepairIndexes||[]).length>=2){
-            // Local structural/source checks have already passed. Preserve the
-            // generated cards and publish them with a visible audit warning
-            // after two bounded semantic repair rounds instead of forcing a
-            // user into an endless paid retry loop.
-            run.auditWarnings=auditIssue;run.checks.audited=true;run.checks.ranges={};await persist(run);break;
-          }
-          run.auditRepairAttempts[index]=(run.auditRepairAttempts[index]||0)+1;
-          run.auditRepairIndexes.push(index);run.checks.ranges={};
-          for(const segment of run.plan.segments.slice(index-1)){
-            const existing=run.segmentDrafts[segment.id];
-            if(existing?.prompt?.content)run.previousDrafts=[...(run.previousDrafts||[]),clone(existing)];
-            run.segmentDrafts[segment.id]={...existing,validated:false,issues:segment.index===index?auditIssue:[]};
-            run.segmentQualityFailures[segment.id]=0;
-          }
-          run.wholeSceneQualityFailures=0;run.wholeSceneIssues=auditIssue;
-          if(index===1)run.sharedBaseline='';await persist(run);continue;
+          run.auditWarnings=quickReviewWarnings({...run,auditWarnings:[...run.auditWarnings,...auditIssue]});
+          await persist(run);
         }
         run.checks.audited=true;await persist(run);
       }
@@ -380,7 +394,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       const snapshot=await createSceneSnapshot(sceneRequest);
       if([...runs.values()].some(r=>isQuickRunActive(r)&&snapshotKey(r.snapshot)===snapshotKey(snapshot)))throw error('当前场景正在生成','BUSY');
       const id=runId||uid();if(runs.has(id))throw error('任务编号已存在','BUSY');
-      const run={id,kind:'scene',...(batchId?{batchId}:{}),snapshot,phase:'planning',createdAt:new Date().toISOString(),revision:0,processingVersion:PROCESSING_VERSION,plan:null,segmentDrafts:{},segmentQualityFailures:{},sharedBaseline:'',checks:{audited:false,ranges:{}},errors:[],promptIds:[],auditRepairIndexes:[]};
+      const run={id,kind:'scene',...(batchId?{batchId}:{}),snapshot,phase:'planning',createdAt:new Date().toISOString(),revision:0,processingVersion:PROCESSING_VERSION,reviewIsAdvisory:true,plan:null,segmentDrafts:{},segmentQualityFailures:{},sharedBaseline:'',checks:{audited:false,ranges:{}},errors:[],promptIds:[],auditRepairIndexes:[]};
       runs.set(run.id,run);
       const initialVersion=versions.get(run.id)||0;
       await persist(run);

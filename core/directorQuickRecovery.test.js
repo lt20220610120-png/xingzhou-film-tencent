@@ -58,8 +58,10 @@ test('partial whole-scene results are saved before repair fails and resume prese
     throw new Error('网络中断');
   }});
   const stopped=await f.controller.start(f.request);
-  assert.equal(stopped.phase,'failed');assert.equal(progress.length,1);
-  assert.equal(Object.values(progress[0].segmentDrafts).filter(d=>d.validated).length,1);
+  assert.equal(stopped.phase,'failed');
+  assert.equal(Object.values(progress[0].segmentDrafts).filter(d=>d.prompt?.content).length,1);
+  assert.equal(Object.values(progress[0].segmentDrafts).filter(d=>d.validated).length,0);
+  assert.equal(Object.values(progress.at(-1).segmentDrafts).filter(d=>d.validated).length,1);
   const first=stopped.plan.segments[0],accepted=structuredClone(stopped.segmentDrafts[first.id].prompt);
   assert.equal(stopped.wholeSceneResponses[0].output,accepted.content);
   fail=false;const done=await f.controller.resume(stopped.id);
@@ -110,7 +112,10 @@ test('underfilled model beats are packed and committed without another paid plan
   assert.equal(run.phase,'completed');assert.equal(run.plan.segments.length,1);
   assert.equal(f.calls.filter(c=>c.type==='plan').length,1);
   assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
-  assert.equal(progress.length,1,JSON.stringify(progress.map(item=>({phase:item.phase,attempts:item.wholeSceneAttempts,drafts:Object.keys(item.segmentDrafts)}))));assert.equal(run.planPacking.originalSegmentCount,2);
+  assert.equal(Object.keys(progress[0].segmentDrafts).length,1);
+  assert.equal(Object.values(progress[0].segmentDrafts)[0].validated,false);
+  assert.equal(Object.values(progress.at(-1).segmentDrafts)[0].validated,true);
+  assert.equal(run.planPacking.originalSegmentCount,2);
 });
 
 test('planning repair receives the previous candidate and preserves rejected evidence',async()=>{
@@ -242,13 +247,13 @@ test('changed source or account while waiting prevents committing any late respo
   }
 });
 
-test('semantic repair has a separate budget from rejected output and completes with an honest warning', async () => {
+test('semantic review annotates existing outputs once without paid quality regeneration', async () => {
   let first = true;
   const fixture = makeFixture({skillHook:async call=>{if(call.label==='1-1-1'&&first){first=false;return '缺失编号';}}, textHook: async call => call.type === 'audit' ? JSON.stringify({ ok: false, issues: [{ code: 'STATE_RESET', segmentIndex: 1, message: '灯状态需要复核', evidence: { sourceQuote: '灯关了' } }] }) : undefined });
   const run = await fixture.controller.start(fixture.request);
   assert.equal(run.phase, 'completed');
   assert.equal(run.auditWarnings[0].code, 'STATE_RESET');
   assert.equal(fixture.commits.length, 1);
-  assert.equal(fixture.calls.filter(call => call.type === 'audit').length, 3);
-  assert.equal(fixture.calls.filter(call => call.type === 'skill' && call.label === '1-1-1').length, 4);
+  assert.equal(fixture.calls.filter(call => call.type === 'audit').length, 1);
+  assert.equal(fixture.calls.filter(call => call.type === 'skill' && call.label === '1-1-1').length, 2);
 });

@@ -242,3 +242,19 @@ test('a longer known actor in a spoken vocative is not mistaken for the shorter 
   ]);
   assert.deepEqual(unmarkedDirectorActionRanges(source), []);
 });
+
+test('unmarked abrupt physical actions do not become the previous actors dialogue', () => {
+  const source='人：弗兰克、东区马仔乙\n东区马仔乙（不满）：西区那群混蛋肯定会找茬。\n弗兰克一把抓住东区马仔乙的衣领。\n弗兰克（狠声）：找茬也不许停！';
+  assert.deepEqual(parseDirectorDialogues(source).map(row=>row.speech), ['西区那群混蛋肯定会找茬。','找茬也不许停！']);
+  assert.equal(unmarkedDirectorActionRanges(source).length,1);
+  assert.equal(parseDirectorDialogues('人：甲、弗兰克\n甲：『我看到了。\n弗兰克一把抓住衣领。』').length,1);
+});
+
+test('compact screen statistics and quoted comments remain visual while the actor speaks and thinks', () => {
+  const source='人：魏今朝△魏今朝看着手机，屏幕上的数字正在跳动：【第一条视频：播放量220万！粉丝数：12.5万！】△评论区弹幕刷屏：“这是电影特效吗？”、“上帝！”魏今朝（看着手机，狂喜）：卧槽！视频真爆了！魏今朝 OS（眼神微凝）：他们该坐不住了吧。';
+  assert.deepEqual(plain(parseDirectorDialogues(source)),[
+    {speaker:'魏今朝',mode:null,speech:'卧槽！视频真爆了！'},
+    {speaker:'魏今朝',mode:'内心VO',speech:'他们该坐不住了吧。'},
+  ]);
+  for(const row of parseDirectorDialogues(source))assert.equal(source.slice(row.speechStart,row.speechEnd),row.speech);
+});

@@ -194,7 +194,7 @@ test('version 4 unfinished 30-plus-short-tail plan upgrades to the authorized si
   const paid = structuredClone(f.state.directorProjects[0].episodes[0].prompts[0]);
   await f.controller.restore(); const done = await f.controller.resume(legacy.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 8);
+  assert.equal(done.processingVersion, 9);
   assert.equal(done.plan.segments.length, 1);
   assert.equal(done.plan.segments[0].recommendedDurationSeconds, 30);
   assert.equal(done.plan.segments[0].naturalEstimatedSeconds, 32.5);
@@ -238,7 +238,7 @@ test('version 4 interrupted 15-second plan cannot reuse a half-sentence boundary
   f.records.set(run.id, run);
   await f.controller.restore(); const done = await f.controller.resume(run.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 8);
+  assert.equal(done.processingVersion, 9);
   assert.equal(done.plan.segments.length, 2);
   assert.equal(done.plan.segments[0].sourceEnd, tape.units[0].end);
   assert.equal(tape.sourceText.slice(done.plan.segments[1].sourceStart, done.plan.segments[1].sourceEnd), `乙：${finalSpeech}`);

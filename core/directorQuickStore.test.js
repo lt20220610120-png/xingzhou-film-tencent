@@ -63,6 +63,26 @@ test('audit warning still commits locally valid prompts with a visible status',a
  assert.equal(result.state.directorProjects[0].episodes[1].prompts[0].sceneAuditStatus,'warning');
  assert.equal(result.state.directorProjects[0].episodes[1].prompts[0].sceneAuditWarnings[0].code,'STATE_RESET');
 });
+test('advisory review publishes every generated card first and retains actual quality warnings after audit',async()=>{
+ const {state,run}=await fixture();
+ run.reviewIsAdvisory=true;run.checks.audited=false;
+ run.segmentDrafts.seg1.validated=false;
+ run.segmentDrafts.seg1.issues=[{code:'DIALOGUE_TEXT_CHANGED',message:'原话需要核对',evidence:{expected:['原话'],actual:['不同的话']}}];
+ const staged=commitQuickSceneRun(state,run,{partial:true});
+ assert.equal(staged.applied,true);
+ assert.equal(staged.state.directorProjects[0].episodes[1].prompts.length,2);
+ assert.equal(staged.state.directorProjects[0].episodes[1].prompts[0].content,'提示词1');
+ run.checks.audited=true;
+ const final=commitQuickSceneRun(staged.state,run);
+ assert.equal(final.applied,true);
+ const cards=final.state.directorProjects[0].episodes[1].prompts;
+ assert.equal(cards[0].sceneAuditStatus,'warning');assert.equal(cards[1].sceneAuditStatus,'passed');
+ assert.equal(cards[0].sceneAuditWarnings[0].code,'DIALOGUE_TEXT_CHANGED');
+ assert.equal(final.state.directorProjects[0].promptHistory.length,2);
+ assert.equal(commitQuickSceneRun(final.state,run).state,final.state);
+ const removed=deleteDirectorPromptsEverywhere(final.state,'p',['prompt1']);
+ assert.equal(commitQuickSceneRun(removed,run,{partial:true}).applied,false);
+});
 test('commit rejects missing/stale/locked targets, invalid drafts and tombstones without orphan history',async()=>{
  const {state,run}=await fixture();
  const variants=[{...state,accountId:'other'},{...state,directorProjects:[]},{...state,directorProjects:[{...state.directorProjects[0],episodes:[]}]},{...state,skills:[]},{...state,apiProfiles:[]},{...state,directorProjects:[{...state.directorProjects[0],cloudLocked:true}]},{...state,directorProjects:[{...state.directorProjects[0],episodes:state.directorProjects[0].episodes.map(e=>e.id==='e'?{...e,quickSceneEdits:{'1-1':'new text'}}:e)}]}];
@@ -72,6 +92,20 @@ test('commit rejects missing/stale/locked targets, invalid drafts and tombstones
  const done=commitQuickSceneRun(state,run).state,deleted=deleteDirectorPromptsEverywhere(done,'p',['prompt1']);
  assert.equal(commitQuickSceneRun(deleted,run).applied,false);assert.equal(deleted.directorProjects[0].promptHistory.length,1);
  assert.equal(commitQuickSceneRun(state,{...run,plan:{...run.plan,sourceText:'甲关门。乙微笑。'}}).applied,false);
+});
+test('advisory quality never weakens account, permission, source or manual-edit protection',async()=>{
+ const {state,run}=await fixture();run.reviewIsAdvisory=true;
+ run.segmentDrafts.seg1.validated=false;
+ for(const current of [{...state,accountId:'other'},
+  {...state,directorProjects:[{...state.directorProjects[0],cloudLocked:true}]},
+  {...state,directorProjects:[{...state.directorProjects[0],episodes:state.directorProjects[0].episodes.map(ep=>ep.id==='e'?{...ep,quickSceneEdits:{'1-1':'改过的原文'}}:ep)}]}]){
+  const result=commitQuickSceneRun(current,run,{partial:true});assert.equal(result.applied,false);assert.equal(result.state,current);
+ }
+ const staged=commitQuickSceneRun(state,run,{partial:true});assert.equal(staged.applied,true);
+ const edited=structuredClone(staged.state);
+ const card=edited.directorProjects[0].episodes[1].prompts[0];card.content='用户手工修改';card.durationStatus='needs-review';
+ assert.equal(commitQuickSceneRun(edited,run,{partial:true}).applied,false);
+ assert.equal(card.content,'用户手工修改');
 });
 test('real controller commits 30+10 with preallocated IDs from one whole-scene Skill response',async()=>{
  const fixtureValue=await fixture();let state=fixtureValue.state;const calls=[],files=new Map();

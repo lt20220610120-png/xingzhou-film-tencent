@@ -12,7 +12,7 @@ const quotePairs = new Map([['“', '”'], ['『', '』'], ['「', '」'], ['�
 // Imported scripts also use plain third-person action lines. Only a known
 // actor followed by an observable action/state can end a spoken continuation;
 // mentioning that actor in a vocative ("魏今朝，你…") remains dialogue.
-const NARRATIVE_AFTER_ACTOR = /^(?:[\t ]*)(?:(?:正在|已经|仍然|仍旧|仍|正|立刻|随后|缓缓|轻轻|猛地|突然|悄悄|慢慢|快步|抢着|下意识|不由得|转而|再次|一边)*)(?:抬|低头|低下|抬头|直起|起身|缓步|停|嗤笑|冷笑|沉默|开口|转|回头|侧|站|坐|蹲|躺|走|跑|迈|退|绕|靠|凑|俯|仰|弯|伸|收|放|拿|取|递|接|抓|攥|握|扣|拍|点|摸|揉|擦|拎|掏|脱|穿|捡|扶|压|推|拉|抱|扯|咬|吞|嚼|皱|看|望|瞥|盯|瞪|闭|睁|摇|笑|哭|叹|呼|吸|屏|打量|整理|把|将|用|手上|手中|脸上|脸色|眼神|目光|嘴唇|喉结|肩膀|身体|身形|双手|的(?:手|目光|眼神|脸|嘴|肩|身|胸|呼吸))/u;
+const NARRATIVE_AFTER_ACTOR = /^(?:[\t ]*)(?:(?:正在|已经|仍然|仍旧|仍|正|立刻|随后|缓缓|轻轻|猛地|猛然|用力|奋力|迅速|突然|悄悄|慢慢|快步|抢着|下意识|不由得|转而|再次|一边|一把|一手|一拳|一脚)*)(?:抬|低头|低下|抬头|直起|起身|缓步|停|嗤笑|冷笑|沉默|开口|转|回头|侧|站|坐|蹲|躺|走|跑|迈|退|绕|靠|凑|俯|仰|弯|伸|收|放|拿|取|递|接|抓|攥|握|扣|拍|点|摸|揉|擦|拎|掏|脱|穿|捡|扶|压|推|拉|抱|扯|咬|吞|嚼|皱|看|望|瞥|盯|瞪|闭|睁|摇|笑|哭|叹|呼|吸|屏|打量|整理|把|将|用|手上|手中|脸上|脸色|眼神|目光|嘴唇|喉结|肩膀|身体|身形|双手|的(?:手|目光|眼神|脸|嘴|肩|身|胸|呼吸))/u;
 // Only a bounded performance annotation may be detached from a known cast
 // name. An exact longer cast name always wins, even if it ends with these words.
 const UNPARENTHESIZED_DIRECTION = /^(?:皱(?:起)?眉|冷笑(?:一声)?|嗤笑(?:一声)?|低声|高声|大声|轻声|冷声|急声|沉声|怒吼|喊道|说道|问道|笑道)$/u;
@@ -116,14 +116,21 @@ export const parseDirectorDialogues = source => {
     const trimmed = line.trim();
     if (!trimmed) { lineStart += line.length + 1; continue; }
     const candidates = [...line.matchAll(SPEAKER_HEADER)].map(match => ({ match, ...parseHeader(match[1], castSpeakers) }))
-      .filter(candidate => !METADATA_LABELS.has(candidate.speaker) && (!SPEECH_FIELD_LABEL.test(candidate.speaker) || castSpeakers.has(candidate.speaker)) && !/^\s*[△Δ▲]\s*$/u.test(line.slice(0, candidate.match.index)) && !insideQuoted(text, lineStart + candidate.match.index));
+      .filter(candidate => {
+        const prefix=line.slice(0,candidate.match.index),actionPrefix=prefix.slice(Math.max(prefix.lastIndexOf('△'),prefix.lastIndexOf('Δ'),prefix.lastIndexOf('▲')));
+        const insideDisplay=prefix.lastIndexOf('【')>prefix.lastIndexOf('】');
+        // A colon in a marked visual description/display is not a speaking
+        // actor. Explicit cast headers can resume speech after quoted comments.
+        const visualMetadata=/[△Δ▲]/u.test(prefix)&&!castSpeakers.has(candidate.speaker)&&(/^[\t ]*【/u.test(line.slice(candidate.match.index+candidate.match[0].length))||!/(?:[。！？!?，,；;]|…+|\.{3,})[”』」’"]?[\t ]*$/u.test(actionPrefix));
+        return !insideDisplay&&!visualMetadata&&!METADATA_LABELS.has(candidate.speaker)&&(!SPEECH_FIELD_LABEL.test(candidate.speaker)||castSpeakers.has(candidate.speaker))&&!/^\s*[△Δ▲]\s*$/u.test(prefix)&&!insideQuoted(text,lineStart+candidate.match.index);
+      });
     // "答案：…" inside a speech is prose, not a new actor. Inline changes are
     // accepted after a completed utterance, matching ordinary script notation.
     // A cast list can omit a small speaking part such as a nurse or policeman.
     // Preserve the original inline-speaker support after a full stop; reject
     // prose field categories above, not every actor absent from the cast list.
     const speakers = candidates.filter((candidate, index) => index === 0 || /(?:[。！？!?]|…+|\.{3,})[\t ]*$/u.test(line.slice(0, candidate.match.index)));
-    const explicitInlineSpeaker = speakers.length && /[△Δ▲]/u.test(line.slice(0, speakers[0].match.index)) && /(?:[。！？!?，,；;]|…+|\.{3,})[\t ]*$/u.test(line.slice(0, speakers[0].match.index));
+    const explicitInlineSpeaker = speakers.length && /[△Δ▲]/u.test(line.slice(0, speakers[0].match.index)) && (castSpeakers.has(speakers[0].speaker)||/(?:[。！？!?，,；;]|…+|\.{3,})[”』」’"]?[\t ]*$/u.test(line.slice(0, speakers[0].match.index)));
     if (speakers.length && (!ACTION_START.test(trimmed) || explicitInlineSpeaker)) {
       active = null;
       speakers.forEach((candidate, index) => {

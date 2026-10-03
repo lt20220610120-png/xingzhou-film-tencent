@@ -39,7 +39,7 @@ export const buildWholeSceneSkillRequest = ({ snapshot, tape, plan, sharedBaseli
     label: expectedLabels[index], recommendedDurationSeconds: segment.recommendedDurationSeconds,
     ...(segment.durationCompression ? { naturalEstimatedSeconds: segment.naturalEstimatedSeconds, durationCompression: segment.durationCompression } : {}),
   }));
-  const preservedPrompts = plan.segments.flatMap((segment, index) => drafts[segment.id]?.validated
+  const preservedPrompts = plan.segments.flatMap((segment, index) => drafts[segment.id]?.prompt?.content&&drafts[segment.id]?.generationComplete!==false
     ? [{ label: expectedLabels[index], content: drafts[segment.id].prompt.content }] : []);
   const existingDrafts = plan.segments.flatMap((segment, index) => drafts[segment.id]?.prompt?.content
     ? [{ label: expectedLabels[index], validated: Boolean(drafts[segment.id].validated), content: drafts[segment.id].prompt.content, issues: drafts[segment.id].issues || [] }] : []);

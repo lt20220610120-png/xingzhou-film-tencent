@@ -5,9 +5,20 @@ export const updateSceneVision = (episode, sceneLabel, content) => ({
   sceneVisions: { ...(episode?.sceneVisions || {}), [sceneLabel]: content },
 });
 
-export const promptsForScene = (prompts, sceneLabel) => (prompts || []).filter((item) =>
-  item.sceneLabel === sceneLabel || (!item.sceneLabel && item.label?.startsWith(`${sceneLabel}-`))
-);
+export const promptsForScene = (prompts, sceneLabel) => {
+  const items=(prompts||[]).filter(item=>item.sceneLabel===sceneLabel||(!item.sceneLabel&&item.label?.startsWith(`${sceneLabel}-`)));
+  // Recovery can append clip 1 after an already-saved clip 2. Group only the
+  // same automatic run; leave separate batches and manual work in their order.
+  const groups=new Map(),seen=new Set();
+  for(const item of items)if(item.segmentationMode==='auto'&&item.generationRunId){
+    const group=groups.get(item.generationRunId)||[];group.push(item);groups.set(item.generationRunId,group);
+  }
+  for(const group of groups.values())group.sort((a,b)=>Number(a.label?.split('-').at(-1))-Number(b.label?.split('-').at(-1)));
+  return items.flatMap(item=>{
+    if(item.segmentationMode!=='auto'||!groups.has(item.generationRunId))return [item];
+    if(seen.has(item.generationRunId))return [];seen.add(item.generationRunId);return groups.get(item.generationRunId);
+  });
+};
 
 // Older creative records have no mode field, but keep the original input heading.
 // Never infer mode from generated/edited output or the episode's current tab.

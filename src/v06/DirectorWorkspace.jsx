@@ -193,7 +193,7 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
           )}
         </div>
       </div>
-      {prompt.sceneAuditStatus==='warning'&&<details className="quick-run-warning"><summary>查看整场核对提醒</summary>{(prompt.sceneAuditWarnings||[]).map((item,i)=><p key={i}>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>)}</details>}
+      {prompt.sceneAuditStatus==='warning'&&<details className="quick-run-warning"><summary>查看核对提醒 · 提示词已保留</summary>{(prompt.sceneAuditWarnings||[]).map((item,i)=><div key={i}><p>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>{Array.isArray(item.evidence?.expected)&&Array.isArray(item.evidence?.actual)&&<div className="prompt-review-comparison"><small>原文台词</small><pre>{item.evidence.expected.join('\n')}</pre><small>生成台词</small><pre>{item.evidence.actual.join('\n')}</pre></div>}</div>)}</details>}
       {editing ? (
         <textarea className="prompt-edit-textarea" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`编辑提示词 ${prompt.label}`} />
       ) : (
@@ -702,7 +702,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 <p>选择 Skill 并运行，生成的提示词会出现在这里。</p>
               </div>
             )}
-            <div className="quick-prompts-info"><small>{scenePrompts.length?`已保存 ${scenePrompts.length} 条提示词 · 切换场景后可继续查看。`:'通过核对的提示词会自动保存在此处。'}</small></div>
+            <div className="quick-prompts-info"><small>{scenePrompts.length?`已保存 ${scenePrompts.length} 条提示词 · 切换场景后可继续查看。`:'生成的提示词会先保存并展示在此处，核对结果另作提醒。'}</small></div>
           </section>
         </div>
       )}

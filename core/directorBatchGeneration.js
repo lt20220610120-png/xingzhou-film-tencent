@@ -101,7 +101,7 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
     if(disposed||batch.phase!=='running')try{await sceneController[batch.phase==='pausing'?'pauseAfterRequest':'stop'](target.sceneRunId);}catch(error){recordError(batch,{message:error.message||'场景任务停止失败',sceneLabel:target.sceneLabel,code:error.code||'STOP_FAILED'});}
     const result=await task;
     if(result.phase==='completed'){
-     target.status='completed';target.warningCount=result.auditWarnings?.length||0;target.reason=target.warningCount?`已保存，有 ${target.warningCount} 项衔接提醒`:'';
+     target.status='completed';target.warningCount=result.auditWarnings?.length||0;target.reason=target.warningCount?`已保存，有 ${target.warningCount} 项核对提醒`:'';
     }else{
      target.status=result.phase==='stale'?'stale':result.phase==='paused'?'paused':'failed';target.reason=result.errors?.[0]?.message||'任务已暂停';
      target.errorCode=result.errors?.[0]?.code||result.phase;
