@@ -20,7 +20,9 @@ async function exportImagesToFolder({images,dir,layout='flat',fetchImage}){
    try{
     const bytes=await fetchImage(image);
     const ids=[...new Set((image.sceneIds||[]).filter(id=>/^\d+-\d+$/.test(id)&&id.split('-').every(n=>Number.isSafeInteger(Number(n))&&Number(n)>0)))];
-    const folders=layout==='scene'?ids.length?ids.map(id=>path.join(`第${Number(id.split('-')[0])}集`,`场景${id}`)):(unbound++,episodeFolders(image).map(folder=>path.join(folder,'未关联素材'))):layout==='episode'?episodeFolders(image):[''];
+    const boundEpisodes=new Set(ids.map(id=>`第${Number(id.split('-')[0])}集`)),unboundFolders=episodeFolders(image).filter(folder=>!boundEpisodes.has(folder));
+    if(layout==='scene'&&(unboundFolders.length||!ids.length))unbound++;
+    const folders=layout==='scene'?[...ids.map(id=>path.join(`第${Number(id.split('-')[0])}集`,`场景${id}`)),...unboundFolders.map(folder=>path.join(folder,'未关联素材'))]:layout==='episode'?episodeFolders(image):[''];
     for(const folder of folders.length?folders:['未分集']){
      const targetDir=folder?path.join(dir,folder):dir;
      await fs.mkdir(targetDir,{recursive:true});

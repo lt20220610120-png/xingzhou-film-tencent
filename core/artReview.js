@@ -56,7 +56,7 @@ export function decodeArtReviewOutput(raw,number,available=[]){
  const complete=['人物','场景','道具'].every(cat=>new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?${cat}[：:]\\s*(?:\\n|$)`).test(inventory))&&parseArtAnalysis(inventory).episodes.some(e=>e.episode===number);
  return {inventory,items,mapping,warnings,complete};
 }
-export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',taskId='',dependencies={}}={}){
+export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',taskId='',dependencies={},requestRoster}={}){
  const next=clone(record||newArtReview(episode));
  if(next.sourceContent!==String(episode.content||'')){
   next.history.push({at:Date.now(),reason:'正文变更',sourceContent:next.sourceContent,inventory:next.inventory,scenes:clone(next.scenes)});
@@ -64,10 +64,12 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
  }
  if(next.inventory||next.rawOutput)next.history.push({at:Date.now(),reason:'新候选',inventory:next.inventory,rawOutput:next.rawOutput});
  const excluded=new Set((next.excludedUnassigned||[]).map(reviewAssetKey)),assets=new Map(reviewRoster(next).map(i=>[reviewAssetKey(i),clone(i)])),warnings=[...decoded.warnings],used=new Set(),seenScenes=new Set();
- for(const item of decoded.items)if(!excluded.has(reviewAssetKey(item)))assets.set(reviewAssetKey(item),mergeCard(assets.get(reviewAssetKey(item)),item));
+ const editStamp=i=>JSON.stringify(i?[i.id,i.name,i.category,i.description,i.note,i.ready,i.manual,i.manualSceneIds]:null),requested=requestRoster?new Map(requestRoster.map(i=>[reviewAssetKey(i),i])):null;
+ for(const item of decoded.items)if(!excluded.has(reviewAssetKey(item))){const key=reviewAssetKey(item),old=assets.get(key);if(requested&&old?.manual&&editStamp(old)!==editStamp(requested.get(key)))continue;assets.set(key,mergeCard(old,item));}
  next.roster=[...assets.values()];
  const mapping=new Map();
  for(const row of decoded.mapping){
+  if(!row||typeof row!=='object'||Array.isArray(row)){warnings.push('对应表包含无效场景条目，已保留有效清单');continue;}
   const id=String(row.sceneId||row.id||'');
   if(!next.scenes.some(s=>s.id===id)||seenScenes.has(id)){warnings.push(`对应表中的场景 ${id||'未编号'} 不存在或重复，已保留原稿供核实`);continue;}
   seenScenes.add(id);mapping.set(id,row);
@@ -75,6 +77,7 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
  for(const s of next.scenes){
   const row=mapping.get(s.id),incoming=[];let validMapping=Boolean(row)&&Array.isArray(row.assets);
   for(const ref of Array.isArray(row?.assets)?row.assets:[]){
+   if(typeof ref!=='string'&&(!ref||typeof ref!=='object'||typeof ref.name!=='string'||!ART_REVIEW_CATEGORIES[ref.category])){validMapping=false;warnings.push(`场景 ${s.id} 的资产引用格式无效，需补齐对应`);continue;}
    const key=typeof ref==='string'?[...assets.keys()].find(k=>k.endsWith('\u0000'+canonicalReviewName(ref))):`${ref.category}\u0000${canonicalReviewName(ref.name)}`;
    const item=assets.get(key);
    if(item&&!incoming.some(i=>reviewAssetKey(i)===key))incoming.push(clone(item));else if(!item&&!excluded.has(key)){validMapping=false;warnings.push(`场景 ${s.id} 引用了清单中不存在的条目 ${typeof ref==='string'?ref:ref.name||''}`);}
@@ -111,7 +114,9 @@ export function editArtReview(record,action,actor=''){
   if(action.type==='roster-upsert'){
    const item=action.item;if(!Object.keys(ART_REVIEW_CATEGORIES).includes(item?.category)||!reviewName(item.name).trim())throw Error('请填写资产名称与正确类别');
    const copy={...item,id:old?.id||identity(),name:canonicalReviewName(item.name),manual:true};
+   if(action.sceneIds&&(action.sceneIds.length||Array.isArray(old?.manualSceneIds)||action.pinSceneSelection))copy.manualSceneIds=[...action.sceneIds];
    if(next.roster.some(i=>i.id!==old?.id&&reviewAssetKey(i)===reviewAssetKey(copy)))throw Error('本集名单已存在同名同状态条目，请直接关联场景');
+   next.excludedUnassigned=(next.excludedUnassigned||[]).filter(i=>reviewAssetKey(i)!==reviewAssetKey(copy));next.rosterRemoved=(next.rosterRemoved||[]).filter(r=>reviewAssetKey(r.item)!==reviewAssetKey(copy));
    next.roster=next.roster.filter(i=>i.id!==old?.id);next.roster.push(copy);
    next.unassigned=next.unassigned.filter(i=>i.id!==old?.id);
    if(old&&reviewAssetKey(old)!==reviewAssetKey(copy))next.excludedUnassigned=[...(next.excludedUnassigned||[]),old];

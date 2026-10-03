@@ -50,11 +50,16 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
   importing.current=true;setBusy(true);setError('');setNotice('');
   try{
    const allRefs=b=>[...Object.values(b.episodeMedia||{}).flat(),...Object.values(b.sceneMedia||{}).flat(),...Object.values(b.drafts||{}).flatMap(d=>d.extraReferences||[])];
+   const localRefs=[];
+   for(let index=0;index<localStorage.length;index++){
+    const key=localStorage.key(index);if(key!=='xz-generation-drafts'&&!key?.startsWith('xz-shot-draft:'))continue;
+    const data=JSON.parse(localStorage.getItem(key)||'{}');localRefs.push(...(key==='xz-generation-drafts'?Object.values(data||{}).flatMap(d=>d?.references||[]):data?.value?.references||[]));
+   }
+   const jobs=await api.generationList?.()||[];
    const generationWorkflow={...clearPromptBook(workflow,book.id),updatedAt:new Date().toISOString()};
    await api.saveState?.({...state,generationWorkflow});
    setState(current=>({...current,generationWorkflow:{...clearPromptBook(current.generationWorkflow||{},book.id),updatedAt:generationWorkflow.updatedAt}}));
-   const jobs=await api.generationList?.().catch(()=>[])||[];
-   const retainedPaths=[...books.filter(b=>b.id!==book.id).flatMap(allRefs),...jobs.flatMap(job=>job.references||[])].map(r=>r.filePath).filter(Boolean);
+   const retainedPaths=[...books.filter(b=>b.id!==book.id).flatMap(allRefs),...jobs.flatMap(job=>job.references||[]),...localRefs].map(r=>r.filePath).filter(Boolean);
    try{await api.generationDeleteBookMedia?.({paths:allRefs(book).map(r=>r.filePath).filter(Boolean),retainedPaths});
     setNotice('当前提示词项目与素材已清除，可导入新项目。');
    }catch(e){setNotice('当前提示词项目已清除，但部分本地素材文件未能删除。');}

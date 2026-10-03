@@ -75,6 +75,15 @@ test('malformed or unknown scene assets remain pending and trigger automatic map
  const f=fixture(1);f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:f.calls.length===1?output(1).split('【逐场资产对应表】')[0]+'【逐场资产对应表】\n'+JSON.stringify({scenes:[{sceneId:'1-1',assets:[{category:'character',name:'【不存在的角色】'}]},{sceneId:'1-2'}]}):output(1).split('【逐场资产对应表】')[1]};};
  await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,2);assert.equal(f.disk.episodes[1].status,'generated');assert.equal(f.disk.episodes[1].unassigned.length,0);
 });
+test('null mapping rows and asset references preserve inventory and trigger automatic repair',async()=>{
+ const f=fixture(1);f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:f.calls.length===1?output(1).split('【逐场资产对应表】')[0]+'【逐场资产对应表】\n'+JSON.stringify({scenes:[null,{sceneId:'1-1',assets:[null]},{sceneId:'1-2',assets:42}]}):output(1).split('【逐场资产对应表】')[1]};};
+ const result=await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,2);assert.equal(f.disk.episodes[1].status,'generated');assert.equal(result.errors.length,0);assert.ok(reviewRoster(f.disk.episodes[1]).length);
+});
+test('full inventory request cannot fulfill a newer manual note using stale returned details',async()=>{
+ const f=fixture(1);await runArtReviewAnalysis(f.args);const old=reviewRoster(f.disk.episodes[1])[0],original=f.api.aiChat;
+ f.api.aiChat=async p=>{await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',itemId:old.id,sceneIds:['1-1'],item:{...old,note:'必须改为红色睡衣',ready:false}}));return original(p);};
+ await runArtReviewAnalysis({...f.args,force:true});const saved=reviewRoster(f.disk.episodes[1]).find(i=>i.id===old.id);assert.equal(saved.note,'必须改为红色睡衣');assert.equal(saved.ready,false);
+});
 test('adding a roster-only card fills details and locates it without manual scene assignment',async()=>{
  const f=fixture(1);await runArtReviewAnalysis(f.args);
  await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',item:{category:'prop',name:'【台灯】',description:'',ready:false,note:'床头白色台灯'}}));
@@ -89,6 +98,21 @@ test('explicit remapping of a generated episode uses compact roster context and 
  f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:JSON.stringify({scenes:[{sceneId:'1-1',assets:[item]},{sceneId:'1-2',assets:[item]}]})};};
  await runArtReviewAnalysis({...f.args,mapOnly:true});
  assert.equal(f.calls.length,2);assert.ok(!f.calls[1].messages[0].content.includes(ART_RUNTIME_SKILL));assert.ok(!f.disk.episodes[1].scenes[1].items.some(i=>i.id===item.id));
+});
+test('editor scene selections are pinned while an unassigned new card remains eligible for automatic location',()=>{
+ let r=editArtReview(candidate(),{type:'roster-upsert',sceneIds:['1-1'],item:{category:'prop',name:'【台灯】',description:'台灯',ready:true}});
+ r=applyArtReviewCandidate(r,ep(1),{inventory:r.inventory,items:reviewRoster(r),mapping:r.scenes.map(s=>({sceneId:s.id,assets:reviewRoster(r)})),warnings:[],complete:true});
+ assert.ok(r.scenes[0].items.some(i=>i.name==='【台灯】'));assert.ok(!r.scenes[1].items.some(i=>i.name==='【台灯】'));
+ let blank=editArtReview(candidate(),{type:'roster-upsert',sceneIds:[],item:{category:'prop',name:'【台灯】',description:'',ready:false}});assert.equal(reviewRoster(blank).find(i=>i.name==='【台灯】').manualSceneIds,undefined);
+ r=editArtReview(r,{type:'roster-upsert',itemId:reviewRoster(r).find(i=>i.name==='【台灯】').id,sceneIds:[],item:{category:'prop',name:'【台灯】',description:'台灯',ready:true}});
+ r=applyArtReviewCandidate(r,ep(1),{inventory:r.inventory,items:reviewRoster(r),mapping:r.scenes.map(s=>({sceneId:s.id,assets:reviewRoster(r)})),warnings:[],complete:true});assert.ok(!r.scenes.some(s=>s.items.some(i=>i.name==='【台灯】')));
+});
+test('explicit readdition or renaming back restores a globally removed name without reviving it from model output',()=>{
+ let r=candidate(),old=reviewRoster(r)[0];r=editArtReview(r,{type:'roster-remove',itemId:old.id});
+ r=applyArtReviewCandidate(r,ep(1),decodeArtReviewOutput(output(1),1));assert.ok(!reviewRoster(r).some(i=>i.name===old.name));
+ r=editArtReview(r,{type:'roster-upsert',item:{...old,id:undefined},sceneIds:['1-1']});assert.ok(reviewRoster(r).some(i=>i.name===old.name));assert.ok(r.scenes[0].items.every(i=>reviewRoster(r).some(v=>v.name===i.name)));
+ let restored=reviewRoster(r).find(i=>i.name===old.name);r=editArtReview(r,{type:'roster-upsert',itemId:restored.id,item:{...restored,name:'【新名字】'},sceneIds:['1-1']});
+ restored=reviewRoster(r).find(i=>i.name==='【新名字】');r=editArtReview(r,{type:'roster-upsert',itemId:restored.id,item:{...restored,name:old.name},sceneIds:['1-1']});assert.ok(reviewRoster(r).some(i=>i.name===old.name));
 });
 test('deletion, undo and renamed manual states survive a later generation',()=>{
  let r=candidate();const id=r.scenes[0].items[0].id;

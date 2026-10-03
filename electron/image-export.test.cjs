@@ -20,3 +20,8 @@ test('whole-drama export can group by episode or combine all images without dupl
  const flat=await exportImagesToFolder({images,dir:path.join(root,'汇总'),layout:'flat',fetchImage});
  assert.equal(flat.count,2);assert.equal((await fs.readdir(path.join(root,'汇总'))).length,2);
 });
+test('partially reviewed reusable assets retain unbound episode copies in scene export',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-partial-export-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));let downloads=0;
+ const result=await exportImagesToFolder({images:[{assetName:'共享睡衣',episodes:[1,2],sceneIds:['1-1']}],dir:root,layout:'scene',fetchImage:async()=>{downloads++;return Buffer.from('image');}});
+ assert.equal(downloads,1);assert.equal(result.unbound,1);assert.equal((await fs.readdir(path.join(root,'第2集','未关联素材'))).length,1);assert.equal((await fs.readdir(path.join(root,'第1集','场景1-1'))).length,1);
+});

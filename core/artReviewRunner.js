@@ -29,7 +29,7 @@ export async function runArtReviewAnalysis({project,genre,profile,api,job={},onP
    if(focusItem){await store.update(n,r=>({...applyArtReviewCard(r,focusItem,decodeReviewJson(raw)),generation:{...r.generation,status:'saved'}}));job.taskId='';onProgress?.();continue;}
    const available=context.available;
    const decoded=decodeArtReviewOutput(mappingOnly?`${current.inventory}\n${raw.includes('【逐场资产对应表】')?raw:'【逐场资产对应表】\n'+raw}`:raw,n,available);
-   await store.update(n,r=>({...applyArtReviewCandidate(r,episode,{...decoded,complete:mappingOnly||decoded.complete},{rawOutput:raw,taskId:job.taskId,dependencies:context.dependencies}),genre,generation:{...r.generation,status:'saved'}}));
+   await store.update(n,r=>({...applyArtReviewCandidate(r,episode,{...decoded,complete:mappingOnly||decoded.complete},{rawOutput:raw,taskId:job.taskId,dependencies:context.dependencies,requestRoster:reviewRoster(current)}),genre,generation:{...r.generation,status:'saved'}}));
    if(result?.ok!==false&&(decoded.complete||mappingOnly)){
     const missing=store.snapshot().episodes[n].scenes.filter(s=>!s.mappingReady).map(s=>s.id);
     for(let offset=0;offset<missing.length&&!job.cancelled;offset+=8){
