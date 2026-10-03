@@ -15,6 +15,22 @@
 .art-final-prompt-modal h2 { font-size:20px; margin: 0; }
 .art-final-prompt-modal p { font-size:14px; color: #616c8f; }
 .art-final-prompt-modal textarea { min-height: 140px; height: 42vh; flex: 1; resize: none; line-height: 1.8; padding: 14px; }
+
+/* Keep the three archive layouts equally visible in this dialog. */
+.modal.collab-art-export-modal { width: min(640px, calc(100vw - 40px)); padding: 24px; background: #fff; }
+.collab-art-export-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.collab-art-export-modal > header > h2 { margin: 0; font-size: 22px; line-height: 1.4; }
+.collab-art-export-modal > header > button { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; padding: 0; }
+.collab-art-export-modal > p { margin: 16px 0 20px; color: #687087; font-size: 14px; line-height: 1.75; }
+.collab-art-export-modal .collab-art-export-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.collab-art-export-modal .collab-art-export-option { display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; height: 48px; min-height: 48px; padding: 10px 8px; border: 1px solid #e0d6f2; border-radius: 8px; background: #f0ebfb; color: #59468a; box-shadow: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.collab-art-export-modal .collab-art-export-option:hover:not(:disabled) { background: #e8e0f7; border-color: #d0c2eb; color: #4f3c80; box-shadow: none; }
+.collab-art-export-modal button:focus-visible { outline: 2px solid #8c78b7; outline-offset: 2px; }
+@media (max-width: 500px) {
+  .modal.collab-art-export-modal { padding: 16px; }
+  .collab-art-export-modal .collab-art-export-options { gap: 6px; }
+  .collab-art-export-modal .collab-art-export-option { padding: 10px 4px; font-size: 12px; }
+}
 .collab-art.art-workbench {
   --art-line: #d3d9ed;
   --art-ink: #242a3c;

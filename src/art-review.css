@@ -1,16 +1,16 @@
-/* White review desk; purple actions, compact casting / location / prop lists. */
+/* White review desk; soft lavender actions and an optional episode summary. */
 .art-review-page,.art-review-dialog,.art-review-assignment {
-  --review-purple:#7561bb; --review-hover:#6551aa; --review-pale:#f0ebfa; --review-line:#e5e7ef;
+  --review-purple:#69558f; --review-fill:#f0ebfa; --review-hover:#e6def4; --review-pale:#f6f3fb; --review-line:#e5e7ef; --review-button-line:#ddd3ef;
   color:#283344; font-family:"Microsoft YaHei","PingFang SC",sans-serif; font-size:13px;
 }
 .art-review-page { max-width:1680px; margin:0 auto; }
 .art-review-page button,.art-review-dialog button,.art-review-assignment button {
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
-  border:1px solid var(--review-purple); background:var(--review-purple); color:#fff;
+  border:1px solid var(--review-button-line); background:var(--review-fill); color:var(--review-purple);
   border-radius:7px; padding:8px 12px; cursor:pointer;
   font-family:inherit; font-size:13px; line-height:1.4; font-weight:500; white-space:nowrap;
 }
-.art-review-page button:hover:not(:disabled),.art-review-dialog button:hover:not(:disabled),.art-review-assignment button:hover:not(:disabled) { background:var(--review-hover); border-color:var(--review-hover); }
+.art-review-page button:hover:not(:disabled),.art-review-dialog button:hover:not(:disabled),.art-review-assignment button:hover:not(:disabled) { background:var(--review-hover); border-color:#cbbce5; }
 .art-review-page button:disabled,.art-review-dialog button:disabled,.art-review-assignment button:disabled { opacity:.45; cursor:default; }
 .art-review-page button:focus-visible,.art-review-dialog :focus-visible,.art-review-assignment :focus-visible,.art-review-source pre:focus-visible { outline:2px solid #9c8bd1; outline-offset:3px; }
 .art-review-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:2px 0 20px; }
@@ -34,24 +34,29 @@
 .art-review-warning { background:#fff6ed; color:#a76130; }
 .art-review-warning button { margin:5px; font-size:12px; }
 
-/* One horizontal band per category; rows take only the space they need. */
-.art-review-roster { background:#fff; border:1px solid var(--review-line); border-radius:12px; margin:16px 0 22px; padding:18px 20px 8px; }
+/* Closed by default: scene verification takes precedence over the episode roster. */
+.art-review-roster { background:#fff; border:1px solid var(--review-line); border-radius:12px; margin:10px 0 20px; padding:0 20px; }
+.art-review-roster>summary { display:flex; align-items:center; gap:16px; padding:16px 0; cursor:pointer; list-style:none; }
+.art-review-roster>summary::-webkit-details-marker { display:none; }
+.art-review-roster>summary:focus-visible { outline:2px solid #9c8bd1; outline-offset:3px; border-radius:7px; }
+.art-review-roster>summary>svg { margin-left:auto; color:#9a8bb3; transition:transform .15s; }
+.art-review-roster[open]>summary>svg { transform:rotate(180deg); }
+.art-review-roster-counts { display:flex; gap:12px; color:#9299a7; font-size:12px; }
 .art-review-roster>header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
-.art-review-roster h2 { font-size:16px; margin:0 0 5px; }
+.art-review-roster h2 { font-size:15px; margin:0; }
 .art-review-roster h2 span { color:#7561bb; font-size:13px; }
-.art-review-roster header p { font-size:12px; color:#8490a0; margin:0; line-height:1.8; }
+.art-review-roster header p { font-size:12px; color:#8490a0; margin:0; line-height:1.8; flex:1; }
 .art-review-roster header>div:last-child { display:flex; gap:8px; flex-wrap:wrap; }
 .art-review-roster-group { display:grid; grid-template-columns:58px minmax(0,1fr); gap:12px; padding:12px 0; border-top:1px solid #eff0f5; }
 .art-review-roster-group>h3 { display:flex; align-items:baseline; gap:6px; padding-top:11px; margin:0; font-size:13px; color:#655681; font-weight:600; }
 .art-review-roster-group>h3 span { font-weight:400; font-size:11px; color:#9d95ac; }
-.art-review-roster-list { display:flex; flex-wrap:wrap; align-items:start; gap:8px; min-width:0; }
-.art-review-roster-card { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:7px 9px; border:1px solid #e9e5f2; border-radius:8px; background:#fff; max-width:100%; }
-.art-review-roster-name { display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-width:0; }
-.art-review-roster-name b { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
-.art-review-roster-links { color:#8c849a; font-size:11px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.art-review-roster-links.unbound { color:#a57948; }
-.art-review-roster-actions { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
-.art-review-roster-actions button { padding:5px 7px; min-height:28px; font-size:12px; gap:4px; border-radius:5px; }
+.art-review-roster-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr)); align-items:start; gap:8px; min-width:0; }
+.art-review-roster-card { display:grid; gap:7px; padding:8px 10px; border:1px solid #ede9f3; border-radius:7px; background:#fff; min-width:0; }
+.art-review-roster-name { display:flex; align-items:center; gap:6px; min-width:0; height:18px; }
+.art-review-roster-name b { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.art-review-roster-name .art-review-needs-detail { flex:none; }
+.art-review-roster-actions { display:flex; align-items:center; gap:5px; }
+.art-review-roster-actions button { padding:4px 6px; min-height:26px; font-size:11px; gap:4px; border-radius:5px; }
 .art-review-roster-actions .art-review-icon-button { width:26px; padding:4px; border-color:transparent; background:transparent; color:#9b90aa; }
 .art-review-roster-actions .art-review-icon-button:hover:not(:disabled) { background:#f4effb; border-color:transparent; color:#7561bb; }
 
@@ -77,6 +82,7 @@
 .art-review-category-heading h4 { font-size:13px; margin:0; font-weight:600; color:#606c7e; }
 .art-review-category-heading h4 span { font-weight:400; font-size:11px; color:#aaa3b7; margin-left:8px; }
 .art-review-category-heading button { font-size:11px; padding:4px 7px; }
+.art-review-category-actions { display:flex; align-items:center; gap:6px; }
 .art-review-item { display:flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid #ebe8f1; border-radius:7px; margin-bottom:7px; min-height:38px; }
 .art-review-item>div { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:7px; min-width:0; }
 .art-review-item b { font-size:13px; font-weight:500; overflow-wrap:anywhere; }
@@ -110,6 +116,13 @@
 .art-review-dialog-actions button { font-size:12px; }
 .art-review-dialog-actions button:first-child { background:#fff; color:#7c6e90; border-color:#e5e7ef; }
 .art-review-dialog .art-review-warning { color:#a76130; }
+.art-review-pick-list { display:flex; flex-direction:column; gap:6px; margin-top:12px; max-height:300px; overflow-y:auto; }
+.art-review-dialog .art-review-pick-list label { display:flex; flex-direction:row; align-items:center; gap:9px; margin:0; padding:9px 10px; border:1px solid #ebe5f2; border-radius:7px; cursor:pointer; color:#344054; }
+.art-review-pick-list label:has(input:checked) { background:var(--review-pale); border-color:#cbbce5; }
+.art-review-dialog .art-review-pick-list input { flex:none; width:14px; height:14px; min-height:0; margin:0; padding:0; accent-color:#8974b5; }
+.art-review-pick-list label>span { flex:1; overflow-wrap:anywhere; }
+.art-review-pick-list small { color:#a57948; font-size:11px; }
+.art-review-picker-search { margin-top:12px; }
 .art-review-scene-checks { border:1px solid #e5e7ef; border-radius:8px; display:flex; flex-wrap:wrap; gap:8px; padding:10px; margin:12px 0 6px; max-height:180px; overflow-y:auto; }
 .art-review-scene-checks legend { font-size:12px; color:#8490a0; padding:0 4px; }
 .art-review-dialog .art-review-scene-checks label,.art-review-assignment .art-review-scene-checks label { display:inline-flex; flex-direction:row; align-items:center; gap:6px; padding:5px 8px; margin:0; border-radius:5px; background:#f8f6fc; font-size:12px; cursor:pointer; color:#635282; }
@@ -137,7 +150,8 @@
   .art-review-heading h1 { font-size:20px; }
   .art-review-scene>header>div { flex-wrap:wrap; }
   .art-review-model { min-width:180px; }
-  .art-review-roster { padding:14px; }
+  .art-review-roster { padding:0 14px; }
+  .art-review-roster>summary { flex-wrap:wrap; gap:10px; }
   .art-review-roster-group { grid-template-columns:1fr; gap:8px; }
   .art-review-roster-group>h3 { padding-top:0; }
   .art-review-roster-card { width:100%; }

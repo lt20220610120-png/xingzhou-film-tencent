@@ -744,7 +744,18 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
     return (
       <div className="collab-art-overview">
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
-        {exportChoiceOpen&&createPortal(<div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}><div className="modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式"><header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header><p>选择整理方式后，再选电脑上的保存位置。按场景导出为「第N集 / 场景N-M」，共享图片进入每个关联场景；未关联图片单独保留。</p><div className="modal-actions"><button className="secondary" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button><button className="secondary" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button><button className="primary" onClick={()=>exportImages(projectImages,`${project.name}-按场景美术图片`,'scene')}>按场景整理导出</button></div></div></div>,document.body)}
+        {exportChoiceOpen&&createPortal(
+          <div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}>
+            <div className="modal collab-art-export-modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式">
+              <header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header>
+              <p>选择整理方式后，再选电脑上的保存位置。按场景导出为「第N集 / 场景N-M」，共享图片进入每个关联场景；未关联图片单独保留。</p>
+              <div className="modal-actions collab-art-export-options">
+                <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button>
+                <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button>
+                <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按场景美术图片`,'scene')}>按场景整理导出</button>
+              </div>
+            </div>
+          </div>,document.body)}
         <p className="collab-art-isolation-hint">新增分集只进入当前协作项目，不反向同步到导演工作台；既有分集美术和图片不会重新生成。</p>
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}

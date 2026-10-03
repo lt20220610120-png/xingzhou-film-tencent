@@ -144,6 +144,15 @@ export function editArtReview(record,action,actor=''){
   if(s.items.some(v=>v.id!==old?.id&&reviewAssetKey(v)===reviewAssetKey(copy)))throw Error('本场已存在同名条目');
   if(old){s.items.splice(s.items.indexOf(old),1,copy);if(reviewAssetKey(old)!==reviewAssetKey(copy))s.removed.push({item:old,index:s.items.length,at:Date.now(),replaced:true});}else s.items.push(copy);
   s.approval=null;next.roster=next.roster.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));next.roster.push(clone(copy));next.unassigned=next.unassigned.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));
+ }else if(action.type==='add-existing'){
+  if(!ART_REVIEW_CATEGORIES[action.category]||!Array.isArray(action.itemIds)||!action.itemIds.length)throw Error('请选择本集同类清单条目');
+  const selected=[...new Set(action.itemIds)].map(id=>next.roster.find(i=>i.id===id));
+  if(selected.some(i=>!i||i.category!==action.category))throw Error('条目已不存在或类别不符，请重新选择');
+  for(const item of selected){
+   const linked=next.scenes.filter(scene=>scene.items.some(i=>reviewAssetKey(i)===reviewAssetKey(item))).map(scene=>scene.id);
+   if(linked.includes(s.id))continue;
+   item.manualSceneIds=[...linked,s.id];assignRoster(next,item,item.manualSceneIds);
+  }
  }else if(action.type==='approve'||action.type==='approve-episode'){
   const targets=action.type==='approve-episode'?next.scenes:[s];
   if(next.unassigned.length&&action.type==='approve-episode')throw Error('还有未定位条目，请先安排到场景或移除');
