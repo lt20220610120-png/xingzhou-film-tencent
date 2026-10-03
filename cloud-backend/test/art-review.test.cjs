@@ -45,6 +45,20 @@ test('direct repository calls enforce membership, project locks, deletion and di
  const f=fixture();assert.equal(await save(f,record(),'stranger'),null);assert.ok(await save(f,record(),'artist'));
  f.row.genre+='\n[PROJECT_LOCKED]';await assert.rejects(save(f,record(),'owner',1),e=>e.status===423);f.row.genre='[COLLAB_PROJECT]\n[RECYCLE_UNTIL:2099-01-01]';await assert.rejects(save(f,record(),'owner',1),e=>e.status===410);f.row.genre='[DIRECTOR_PROJECT]';assert.equal(await save(f,record(),'owner',1),null);
 });
+
+test('confirmed list with missing detail can publish; completed detail fills the placeholder without changing its ID',async()=>{
+ const f=fixture(),r=record();r.scenes[0].items[0].description='';r.scenes[0].items[0].ready=false;r.scenes[0].approval={signature:signature(r.scenes[0])};
+ let saved=await save(f,r);saved=await f.repo.publishArtReview('p',{episodeNumber:1,baseVersion:saved.version,sceneIds:['1-1'],writeId:crypto.randomUUID()},'owner');
+ assert.equal(f.row.assets.length,1);const id=f.row.assets[0].id;assert.equal(f.row.assets[0].description,'');
+ saved.scenes[0].items[0].description='正确的完整基础外貌与睡衣造型';saved.scenes[0].items[0].ready=true;saved.scenes[0].approval={signature:signature(saved.scenes[0])};
+ saved=await save(f,saved,'owner',saved.version);await f.repo.publishArtReview('p',{episodeNumber:1,baseVersion:saved.version,sceneIds:['1-1'],writeId:crypto.randomUUID()},'owner');
+ assert.equal(f.row.assets[0].id,id);assert.equal(f.row.assets[0].description,'正确的完整基础外貌与睡衣造型');
+});
+test('explicit voice-only explanation remains in review without creating a fictitious visual card',async()=>{
+ const f=fixture(),r=record();r.scenes[0].items[0]={...r.scenes[0].items[0],ready:false,description:'',detailStatus:'nonvisual'};r.scenes[0].approval={signature:signature(r.scenes[0])};
+ const saved=await save(f,r);const published=await f.repo.publishArtReview('p',{episodeNumber:1,baseVersion:saved.version,sceneIds:['1-1','1-2'],writeId:crypto.randomUUID()},'owner');
+ assert.equal(f.row.assets.length,1);assert.equal(f.row.assets[0].name,'【林清雪-校服】');assert.equal(published.published['1-1'].items[0].detailStatus,'nonvisual');
+});
 test('gateway blocks non-art members and fails closed while lock state is unknown',async()=>{
  for(const action of ['art-review-save','art-review-publish']){
   let calls=0;const repo={getProject:async()=>({id:'p',owner_id:'owner',genre:'[COLLAB_PROJECT]'}),isProjectLocked:async()=>false,findMembership:async()=>({role:'collaborator'}),saveArtReview:async()=>{calls++},publishArtReview:async()=>{calls++}};

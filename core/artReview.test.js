@@ -129,7 +129,7 @@ test('approved scenes remain frozen during new background candidate; actual edit
 test('truncated mapping keeps complete inventory and unassigned entries; unassigned deletions stay deleted',()=>{
  let r=applyArtReviewCandidate(newArtReview(ep(1)),ep(1),decodeArtReviewOutput(output(1).split('【逐场资产对应表】')[0]+'【逐场资产对应表】\n{"scenes":',1));assert.equal(r.status,'mapping-pending');assert.equal(r.unassigned.length,3);
  r=removeUnassignedArtReview(r,r.unassigned[0].id);r=applyArtReviewCandidate(r,ep(1),decodeArtReviewOutput(r.inventory,1));assert.equal(r.unassigned.length,2);assert.match(buildArtReviewInstruction(ep(1),r),/excludedUnassigned/);
- assert.throws(()=>editArtReview(r,{type:'approve-episode'}),/未定位/);
+ assert.throws(()=>editArtReview(r,{type:'approve-episode'}),/尚未分析/);
 });
 test('only approved prior inventory and relevant detail are sent for one-episode correction',()=>{
  let first=editArtReview(candidate(),{type:'approve-episode'});first.scenes[0].items.push(item('【不相关人物-常服】'));first=editArtReview(first,{type:'approve',sceneId:'1-1'});

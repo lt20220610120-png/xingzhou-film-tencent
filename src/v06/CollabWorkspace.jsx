@@ -51,7 +51,7 @@ const stopAnalysis = async ({ projectId, api, accountId }) => {
   const job = collabAnalysisJobs.get(analysisJobKey(accountId,projectId));
   if (!job || job.status !== 'running') return;
   job.cancelled = true; job.status = 'stopping'; job.notice = '正在停止分析…';
-  if (job.taskId) await api.cancelAiTask?.({ taskId: job.taskId });
+  await Promise.allSettled([...new Set([job.taskId,...(job.taskIds||[])].filter(Boolean))].map(taskId=>api.cancelAiTask?.({taskId})));
 };
 
 function useCollabAnalysisJob(project,api,accountId,assets=[]) {
@@ -74,7 +74,7 @@ function useCollabAnalysisJob(project,api,accountId,assets=[]) {
   return collabAnalysisJobs.get(key);
 }
 
-async function startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, targetEpisodeNumbers, force = false, mapOnly = false, focusItem, accountId }) {
+async function startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, targetEpisodeNumbers, force = false, mapOnly = false, focusItem, detailsOnly = false, accountId }) {
   const key=analysisJobKey(accountId,project.id);
   if (['running', 'stopping'].includes(collabAnalysisJobs.get(key)?.status)||collabAnalysisJobs.get(key)?.syncing) return collabAnalysisJobs.get(key);
   if (!profile) throw new Error('请选择一个已配置的大语言模型');
@@ -87,7 +87,7 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   collabAnalysisJobs.set(key, job);
   try {
     const result = await runAnalysis({ project, genre, profile, api, job,
-      targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, accountId,
+      targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, detailsOnly, accountId,
       onProgress: () => {} });
     job.status = job.cancelled ? 'stopped' : 'completed'; job.taskId = '';
     Object.assign(job,result);job.notice = artSyncNotice(result);job.error=(result.errors||[]).join('\n');
@@ -105,7 +105,7 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
 function ArtReviewEntry(props){
  const {project,assets,api,accountId,refresh}=props;
  const job=useCollabAnalysisJob(project,api,accountId,assets);
- return <ArtReviewSection {...props} analysisJob={job} onStop={()=>stopAnalysis({projectId:project.id,api,accountId})} onAnalyze={({profile,episodeNumber,force,mapOnly,focusItem})=>startCollabArtAnalysis({project,assets,genre:project.genre,profile,api,refresh,accountId,targetEpisodeNumbers:[episodeNumber],force,mapOnly,focusItem})}/>;
+ return <ArtReviewSection {...props} analysisJob={job} onStop={()=>stopAnalysis({projectId:project.id,api,accountId})} onAnalyze={({profile,episodeNumber,force,mapOnly,focusItem,detailsOnly})=>startCollabArtAnalysis({project,assets,genre:project.genre,profile,api,refresh,accountId,targetEpisodeNumbers:episodeNumber?[episodeNumber]:undefined,force,mapOnly,focusItem,detailsOnly})}/>;
 }
 
 function AnalysisSyncDetails({job}) {

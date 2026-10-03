@@ -1,8 +1,8 @@
 const {numberedEpisodes,ensureCollabDomain}=require('./collab-episodes.cjs');
 const {mergePublicationOutput}=require('./analysis-publication.cjs');
 const fail=(message,status=409)=>{throw Object.assign(Error(message),{status});};
-const signature=s=>JSON.stringify([s.id,s.source,s.items.map(i=>[i.id,i.category,i.name,i.description,i.ready])]);
-const verified=s=>Boolean(s.approval?.signature===signature(s)&&s.items.every(i=>i.ready&&i.description?.trim()));
+const signature=s=>JSON.stringify([s.id,s.source,s.items.map(i=>[i.id,i.category,i.name,i.description,i.ready,...(i.detailStatus?[i.detailStatus]:[])])]);
+const verified=s=>Boolean(s.approval?.signature===signature(s));
 const ledgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(verified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
 function sourceScenes(content,number){
  const source=String(content||'').replace(/\r\n?/g,'\n').trim(),lines=source.split('\n'),starts=[];
@@ -40,7 +40,7 @@ async function lockProject(client,pid,uid){
 }
 const getEpisode=(row,number)=>{const match=numberedEpisodes(row.episodes).find(e=>e.number===number);if(!match)fail('本集不存在，请刷新核对');return match.episode;};
 const reviewedOutput=(record,number)=>{
- const entries=new Map();Object.values(record.published||{}).forEach(s=>s.items.forEach(i=>entries.set(i.category+'\0'+i.name,i)));
+ const entries=new Map();Object.values(record.published||{}).forEach(s=>s.items.filter(i=>i.detailStatus!=='nonvisual').forEach(i=>entries.set(i.category+'\0'+i.name,i)));
  return `### 第${number}集\n`+Object.entries({character:'人物',scene:'场景',prop:'道具'}).map(([key,title])=>`${title}：\n${[...entries.values()].filter(i=>i.category===key).map(i=>`- ${i.name} ${i.description}`).join('\n')||'- 无'}`).join('\n');
 };
 function artReviewRepository(pool){
@@ -64,7 +64,7 @@ function artReviewRepository(pool){
     for(const id of p.sceneIds){const s=next.scenes.find(s=>s.id===id);if(!s||!verified(s))fail(`场景 ${id} 尚未核实或细节待补齐`,400);next.published[id]={id:s.id,source:s.source,items:structuredClone(s.items),signature:signature(s),at:Date.now(),actor:uid};}
     const full=next.scenes.every(s=>next.published[s.id]?.signature===signature(s));
     if(full){const ids=new Set(next.scenes.map(s=>s.id));for(const id of Object.keys(next.published))if(!ids.has(id))delete next.published[id];}
-    const entries=new Map();Object.values(next.published).forEach(s=>s.items.forEach(i=>{if(entries.has(i.name)&&entries.get(i.name).category!==i.category)fail(`资产 ${i.name} 类别相互矛盾`,400);entries.set(i.name,i);}));
+    const entries=new Map();Object.values(next.published).forEach(s=>s.items.filter(i=>i.detailStatus!=='nonvisual').forEach(i=>{if(entries.has(i.name)&&entries.get(i.name).category!==i.category)fail(`资产 ${i.name} 类别相互矛盾`,400);entries.set(i.name,i);}));
     for(const item of entries.values()){
      const existing=(await client.query('select * from collab_assets where project_id=$1 and name=$2',[pid,item.name])).rows[0];
      if(existing&&existing.category!==item.category)fail(`资产 ${item.name} 已存在于其他类别，请先改名核对`,400);

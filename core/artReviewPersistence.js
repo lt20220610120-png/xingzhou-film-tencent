@@ -7,17 +7,19 @@ const hasLocalDraft=record=>Boolean(record?.pending||record&&record.status!=='em
 export function getArtReviewStore({api,projectId,accountId=''}){
  const key=`${accountId}:${projectId}`;
  if(stores.has(key))return stores.get(key);
- let ledger={episodes:{}},loaded=false,episodes=[],chain=Promise.resolve();const listeners=new Set();
+ let ledger={episodes:{}},loaded=false,episodes=[],chain=Promise.resolve(),cloudChain=Promise.resolve();const listeners=new Set();
  const notify=()=>listeners.forEach(fn=>{try{fn();}catch{}});
  const enqueue=fn=>{const promise=chain.then(fn);chain=promise.catch(()=>{});return promise;};
+ const enqueueCloud=fn=>{const promise=cloudChain.then(fn);cloudChain=promise.catch(()=>{});return promise;};
+ const patchRecord=(number,reduce)=>enqueue(()=>persistRecord(number,reduce(structuredClone(ledger.episodes[number]))));
  // Do not expose an edit or cloud acknowledgement until its local checkpoint succeeds.
  const persist=async next=>{await api.artReviewSaveLocal({projectId,data:structuredClone(next)});ledger=next;notify();};
  const persistRecord=async(number,record)=>{const next=structuredClone(ledger);next.episodes[number]=record;await persist(next);return record;};
- const publishFailure=async(number,error)=>{await persistRecord(number,{...ledger.episodes[number],syncError:String(error.message||error)});throw error;};
+ const publishFailure=async(number,error)=>{await patchRecord(number,r=>({...r,syncError:String(error.message||error)}));throw error;};
  const alreadyUploaded=record=>Boolean(!record.pending&&(record.version||0)>0||record.writeId&&record.uploadedWriteId===record.writeId);
  const remoteData=record=>{const data=structuredClone(record);for(const key of ['pending','writeId','syncError','publishRequest','uploadedWriteId','cloudReceipt'])delete data[key];return data;};
- const acknowledge=async(number,receipt,saved)=>{
-  const current=ledger.episodes[number],unchanged=current.writeId===receipt.draftWriteId;
+ const acknowledge=(number,receipt,saved)=>patchRecord(number,current=>{
+  const unchanged=current.writeId===receipt.draftWriteId;
   // Recover only the cloud version and publication metadata. A newer local draft
   // keeps its descriptions, approvals, generation result and new write ID.
   const next={...current,version:saved.version,lastWriteId:saved.lastWriteId,published:structuredClone(saved.published||{}),managedAssetNames:structuredClone(saved.managedAssetNames||[]),updatedAt:saved.updatedAt,updatedBy:saved.updatedBy};
@@ -27,8 +29,8 @@ export function getArtReviewStore({api,projectId,accountId=''}){
    delete next.publishRequest;delete next.uploadedWriteId;
    if(unchanged){next.pending=false;delete next.writeId;}
   }
-  return persistRecord(number,next);
- };
+  return next;
+ });
  const resolveReceipt=async number=>{
   const current=ledger.episodes[number],receipt=current.cloudReceipt;if(!receipt)return current;
   let saved;
@@ -38,15 +40,18 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  };
  // This helper is called only by explicit publication, including its approved
  // prior-episode dependencies. Uploading a dependency does not publish its assets.
- const uploadForPublish=async number=>{
-  let r=await resolveReceipt(number);if(alreadyUploaded(r))return r;
-  if(!r.writeId)r=await persistRecord(number,{...r,writeId:crypto.randomUUID()});
+ const uploadForPublish=async(number,snapshot)=>{
+  const recovered=await resolveReceipt(number);
+  let r={...structuredClone(snapshot),version:recovered.version};
+  if(recovered.writeId===r.writeId&&alreadyUploaded(recovered)||!r.pending&&alreadyUploaded(r))return r;
+  if(!r.writeId){r.writeId=crypto.randomUUID();await patchRecord(number,current=>current.writeId?current:{...current,writeId:r.writeId});}
   const receipt={kind:'save',draftWriteId:r.writeId,params:{episodeNumber:Number(number),baseVersion:r.version||0,writeId:r.writeId,data:remoteData(r)}};
-  r=await persistRecord(number,{...r,cloudReceipt:receipt});
+  await patchRecord(number,current=>({...current,cloudReceipt:receipt}));
   let saved;
   try{saved=await api.collabArtReviewSave({projectId,...receipt.params});}
   catch(error){return publishFailure(number,error);}
-  return acknowledge(number,receipt,saved);
+  await acknowledge(number,receipt,saved);
+  return {...r,version:saved.version,uploadedWriteId:r.writeId};
  };
  const publicationDependencies=number=>{
   const dependencies=new Set();
@@ -86,36 +91,56 @@ export function getArtReviewStore({api,projectId,accountId=''}){
    if(current.cloudReceipt)next.cloudReceipt=structuredClone(current.cloudReceipt);
    return persistRecord(number,next);
   });},
+  // A bulk approval uses one atomic disk write, not one full ledger write per scene.
+  updateMany(changes){return enqueue(async()=>{
+   const next=structuredClone(ledger),results=[];
+   for(const {number,reduce}of changes){
+    const current=next.episodes[number];if(!current)continue;
+    const r=reduce(structuredClone(current));r.version=current.version||0;r.pending=true;r.writeId=crypto.randomUUID();delete r.syncError;delete r.publishRequest;delete r.uploadedWriteId;
+    if(current.cloudReceipt)r.cloudReceipt=structuredClone(current.cloudReceipt);next.episodes[number]=r;results.push(r);
+   }
+   await persist(next);return results;
+  });},
   // Compatibility for old callers: retrying a local checkpoint never uploads it.
   sync(){return enqueue(async()=>{await persist(structuredClone(ledger));return ledger;});},
-  publish(number,sceneIds){return enqueue(async()=>{
-   let r=ledger.episodes[number];if(!r)throw Error('请先读取本集核实清单');
+  publish(number,sceneIds){
+   // Freeze the exact approved content requested by the user in the local lane.
+   const capture=enqueue(()=>{
+   const r=ledger.episodes[number];if(!r)throw Error('请先读取本集核实清单');
    if(!Array.isArray(sceneIds)||!sceneIds.length||new Set(sceneIds).size!==sceneIds.length)throw Error('请选择已核实场景');
    for(const id of sceneIds){const scene=r.scenes.find(s=>s.id===id);if(!scene||!isSceneVerified(scene))throw Error(`场景 ${id} 尚未核实或细节待补齐`);}
-   const dependencies=publicationDependencies(number);
+   const dependencies=publicationDependencies(number);return {snapshot:structuredClone(r),dependencies:dependencies.map(prior=>({number:prior,snapshot:structuredClone(ledger.episodes[prior])}))};
+   });
+   capture.catch(()=>{}); // The cloud lane may still be handling an earlier request.
+   return enqueueCloud(async()=>{
+   const captured=await capture;let r=captured.snapshot;
    const ids=[...sceneIds].sort();
-   r=await resolveReceipt(number);
+   const recovered=await resolveReceipt(number);
+   r={...r,version:recovered.version,published:recovered.published};
+   if(recovered.writeId===r.writeId){r.publishRequest=recovered.publishRequest;r.uploadedWriteId=recovered.uploadedWriteId;r.pending=recovered.pending;}
+   if(!recovered.pending&&r.scenes.every(s=>reviewSceneSignature(s)===reviewSceneSignature(recovered.scenes.find(v=>v.id===s.id)))){r.pending=false;delete r.writeId;delete r.publishRequest;delete r.uploadedWriteId;}
    if(!r.pending&&ids.every(id=>r.published?.[id]?.signature===reviewSceneSignature(r.scenes.find(s=>s.id===id))))return r;
    let request=r.publishRequest;
    if(!request||JSON.stringify(request.sceneIds)!==JSON.stringify(ids)){
     request={writeId:crypto.randomUUID(),sceneIds:ids,...(alreadyUploaded(r)?{uploadedVersion:r.version}:{})};
-    r=await persistRecord(number,{...r,writeId:r.writeId||crypto.randomUUID(),publishRequest:request});
+    r={...r,writeId:r.writeId||crypto.randomUUID(),publishRequest:request};
+    await patchRecord(number,current=>({...current,...(!current.writeId?{writeId:r.writeId}:{}),publishRequest:request}));
    }
-   for(const prior of dependencies)await uploadForPublish(prior);
-   if(request.uploadedVersion===undefined){r=await uploadForPublish(number);request={...request,uploadedVersion:r.version};r=await persistRecord(number,{...r,publishRequest:request});}
+   for(const prior of captured.dependencies)await uploadForPublish(prior.number,prior.snapshot);
+   if(request.uploadedVersion===undefined){r=await uploadForPublish(number,r);request={...request,uploadedVersion:r.version};await patchRecord(number,current=>({...current,publishRequest:request}));}
    const receipt={kind:'publish',draftWriteId:r.writeId,params:{episodeNumber:Number(number),baseVersion:request.uploadedVersion,sceneIds:ids,writeId:request.writeId}};
-   await persistRecord(number,{...r,pending:true,cloudReceipt:receipt});
+   await patchRecord(number,current=>({...current,pending:true,cloudReceipt:receipt}));
    let saved;
    try{saved=await api.collabArtReviewPublish({projectId,...receipt.params});}
    catch(error){return publishFailure(number,error);}
    return acknowledge(number,receipt,saved);
   });},
-  useCloud(number,project){return enqueue(async()=>{
+  useCloud(number,project){return enqueueCloud(()=>enqueue(async()=>{
    const remote=project.analysis_progress?.[number]?.review;if(!remote)throw Error('云端尚无本集核实清单');
    const old=ledger.episodes[number],record={...structuredClone(remote),pending:false,history:[...(remote.history||[]),{reason:'保留同步冲突本地版本',at:Date.now(),previous:structuredClone(old)}]};
    delete record.writeId;delete record.syncError;delete record.publishRequest;delete record.uploadedWriteId;delete record.cloudReceipt;
    await persistRecord(number,record);return ledger;
-  });},
+  }));},
  };
  stores.set(key,store);return store;
 }

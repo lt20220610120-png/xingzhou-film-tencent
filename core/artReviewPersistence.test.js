@@ -257,3 +257,27 @@ test('uploaded or partial reviews are not counted as fully published episodes',(
  ledger.episodes[1].published['1-2']={...r.scenes[1],signature:reviewSceneSignature(r.scenes[1])};assert.equal(summarizeArtReview(ledger).published,1);
  ledger.episodes[1].pending=true;assert.equal(summarizeArtReview(ledger).published,0);assert.equal(summarizeArtReview(ledger).pending,1);
 });
+
+function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
+for(const phase of ['save','publish'])test(`local review stays responsive during slow cloud ${phase}; newer draft survives acknowledgement`,async()=>{
+ const f=fixture({count:2});await f.store.load(f.project);await f.store.update(1,()=>approved(1));await f.store.update(2,()=>generated(2));
+ const method=phase==='save'?'collabArtReviewSave':'collabArtReviewPublish',original=f.api[method],started=deferred(),release=deferred();
+ f.api[method]=async p=>{started.resolve();await release.promise;return original(p);};
+ const before=structuredClone(f.store.snapshot().episodes[1]),publishing=f.store.publish(1,['1-1','1-2']);await started.promise;
+ try{
+  await Promise.race([f.store.update(1,r=>editArtReview(revise(r,'并发审阅后的蓝色台灯'),{type:'approve-episode'})),new Promise((_,reject)=>setTimeout(()=>reject(Error('local edit blocked by cloud')),500))]);
+  await f.store.updateMany([{number:2,reduce:r=>editArtReview(r,{type:'approve-episode'})}]);
+  assert.equal(f.disk.episodes[1].scenes[0].items[0].description,'并发审阅后的蓝色台灯');assert.ok(f.disk.episodes[2].scenes.every(s=>s.approval));
+ }finally{release.resolve();}
+ await publishing;
+ assert.equal(f.disk.episodes[1].pending,true);assert.equal(f.disk.episodes[1].scenes[0].items[0].description,'并发审阅后的蓝色台灯');
+ assert.equal(f.disk.episodes[1].published['1-1'].items[0].description,before.scenes[0].items[0].description);
+ await f.store.publish(1,['1-1','1-2']);assert.equal(f.disk.episodes[1].pending,false);
+});
+test('bulk local approval is atomic and preserves all drafts when the disk fails',async()=>{
+ const f=fixture({count:2});await f.store.load(f.project);for(const n of [1,2])await f.store.update(n,()=>generated(n));
+ const before=structuredClone(f.disk),writes=f.localWrites.length;f.failLocal=()=>true;
+ const changes=[1,2].map(number=>({number,reduce:r=>editArtReview(r,{type:'approve-episode'})}));
+ await assert.rejects(f.store.updateMany(changes),/本地资料写入失败/);assert.deepEqual(f.store.snapshot(),before);
+ f.failLocal=null;await f.store.updateMany(changes);assert.equal(f.localWrites.length,writes+2);assert.ok([1,2].every(n=>f.disk.episodes[n].scenes.every(s=>s.approval)));assert.equal(f.saveCalls.length,0);
+});

@@ -21,10 +21,12 @@ function mergeCard(old,incoming){
  if(!old)return clone(incoming);if(!incoming)return clone(old);
  const alternate=old.ready&&incoming.ready&&old.description!==incoming.description?{description:incoming.description,at:Date.now()}:null;
  const alternatives=[...(old.alternatives||[]),...(incoming.alternatives||[]),...(alternate?[alternate]:[])].filter((a,i,all)=>a.description!==old.description&&all.findIndex(v=>v.description===a.description)===i);
- return {...old,...(!old.ready&&incoming.ready?{description:incoming.description,ready:true,warning:incoming.warning||''}:{}),alternatives};
+ return {...old,...((!old.ready||!old.description?.trim())&&incoming.ready?{description:incoming.description,ready:true,warning:incoming.warning||''}:{}),alternatives};
 }
-export function reviewSceneSignature(scene){return JSON.stringify([scene.id,scene.source,scene.items.map(i=>[i.id,i.category,i.name,i.description,i.ready])]);}
-export const isSceneVerified=scene=>Boolean(scene.approval?.signature===reviewSceneSignature(scene)&&scene.items.every(i=>i.ready&&i.description?.trim()));
+export function reviewSceneSignature(scene){return JSON.stringify([scene.id,scene.source,scene.items.map(i=>[i.id,i.category,i.name,i.description,i.ready,...(i.detailStatus?[i.detailStatus]:[])])]);}
+// Human approval confirms the scene's list. Detail generation is a separate step.
+export const isSceneVerified=scene=>Boolean(scene?.approval?.signature===reviewSceneSignature(scene));
+export const needsArtReviewDetails=item=>item.detailStatus!=='nonvisual'&&(!item.ready||!item.description?.trim());
 export const reviewLedgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(isSceneVerified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
 export const isReviewCurrent=(record,episode)=>record?.sourceContent===String(episode?.content||'');
 export function sourceReviewScenes(episode){
@@ -92,6 +94,10 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
     items.push(mergeCard(pinned,generated||assets.get(reviewAssetKey(pinned))));
    }
    s.items=items;s.approval=null;
+  }else{
+   // Fill descriptions for existing approved names without adding/removing actors.
+   s.items=s.items.map(i=>needsArtReviewDetails(i)?mergeCard(i,assets.get(reviewAssetKey(i))):i);
+   s.approval={...s.approval,signature:reviewSceneSignature(s)};
   }
   s.mappingReady=validMapping||oldApproval||s.mappingReady;
   s.items.forEach(i=>used.add(reviewAssetKey(i)));
@@ -155,10 +161,8 @@ export function editArtReview(record,action,actor=''){
   }
  }else if(action.type==='approve'||action.type==='approve-episode'){
   const targets=action.type==='approve-episode'?next.scenes:[s];
-  if(next.unassigned.length&&action.type==='approve-episode')throw Error('还有未定位条目，请先安排到场景或移除');
   for(const target of targets){
    if(!target.mappingReady&&!target.items.length)throw Error(`场景 ${target.id} 尚未分析或对应表未完成，请先分析或手工补充条目`);
-   if(target.items.some(i=>!i.ready||!i.description?.trim()))throw Error(`场景 ${target.id} 有条目待补齐细节，请按修改重新生成本集`);
    target.mappingReady=true;target.approval={signature:reviewSceneSignature(target),at:Date.now(),actor};
   }
  }else if(action.type==='unapprove'){s.approval=null;}else throw Error('不支持的核实操作');
@@ -180,8 +184,8 @@ export function applyArtReviewCard(record,requested,response){
  const next=refreshRoster(clone(record)),old=next.roster.find(i=>i.id===requested.id&&i.name===requested.name&&i.note===requested.note);
  if(!old)return next;const data=response.item||response;
  if(data.category!==old.category||canonicalReviewName(data.name)!==old.name||typeof data.description!=='string'||!data.description.trim())throw Error('信息卡名称、类别或详细描述未完整返回；手工条目已保留');
- const updated=mergeCard(old,{...old,description:data.description.trim(),ready:true,warning:''});next.roster=next.roster.map(i=>i.id===old.id?updated:i);next.unassigned=next.unassigned.map(i=>i.id===old.id?updated:i);
- for(const s of next.scenes)if(s.items.some(i=>i.id===old.id)&&!isSceneVerified(s)){s.items=s.items.map(i=>i.id===old.id?clone(updated):i);s.approval=null;}
+ const updated=mergeCard(old,{...old,description:data.description.trim(),ready:true,warning:''});delete updated.detailStatus;next.roster=next.roster.map(i=>i.id===old.id?updated:i);next.unassigned=next.unassigned.map(i=>i.id===old.id?updated:i);
+ for(const s of next.scenes)if(s.items.some(i=>i.id===old.id)){const approved=isSceneVerified(s);s.items=s.items.map(i=>i.id===old.id?clone(updated):i);s.approval=approved?{...s.approval,signature:reviewSceneSignature(s)}:null;}
  if(!next.scenes.some(s=>s.items.some(i=>i.id===old.id))&&!Array.isArray(old.manualSceneIds)&&Array.isArray(response.sceneIds)){
   const ids=response.sceneIds.map(String);if(ids.some(id=>!next.scenes.some(s=>s.id===id)))throw Error('信息卡返回了不存在的场景；已保留手工条目，请重试');
   assignRoster(next,updated,ids);
