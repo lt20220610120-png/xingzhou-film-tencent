@@ -7,6 +7,7 @@ export const COLLAB_ROLES = { producer: '制片', artist: '美术', collaborator
 
 export const COLLAB_SECTIONS = [
   ['info', '信息读取'],
+  ['art-review', '美术清单核实'],
   ['art', '美术'],
   ['assets', '资产'],
   ['storyboard', '分镜'],
@@ -16,10 +17,10 @@ export const COLLAB_SECTIONS = [
 ];
 
 const ROLE_SECTIONS = {
-  producer: ['info', 'art', 'assets', 'storyboard', 'invite', 'stats', 'group'],
-  artist: ['info', 'art', 'assets', 'group'],
+  producer: ['info', 'art-review', 'art', 'assets', 'storyboard', 'invite', 'stats', 'group'],
+  artist: ['info', 'art-review', 'art', 'assets', 'group'],
   collaborator: ['storyboard', 'group'],
-  artist_collaborator: ['info', 'art', 'assets', 'storyboard', 'group'],
+  artist_collaborator: ['info', 'art-review', 'art', 'assets', 'storyboard', 'group'],
 };
 
 export const sectionsForRole = (role) => ROLE_SECTIONS[role] || ['group'];

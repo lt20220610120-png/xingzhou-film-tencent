@@ -34,7 +34,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   }
   const next={...current.current,value,dirty:true};current.current=next;setDraft(next);localStorage.setItem(storageKey,JSON.stringify(next));
  };
- const referenceCandidates=useMemo(()=>projectReferenceCandidates(assets,media,project.id,epNumber),[assets,media,project.id,epNumber]);
+ const referenceCandidates=useMemo(()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene),[assets,media,project.id,epNumber,scene]);
  const cloudChanged=draft.dirty&&(shot.content!==draft.base.content||JSON.stringify(shot.generationConfig)!==JSON.stringify(draft.base.generationConfig));
  const resolveRefs=refs=>refreshAssetReferences(refs,assets,project.id).map(ref=>{
   const asset=assets.find(a=>a.id===ref.assetId),image=asset?.images?.find(i=>i.id===ref.id),file=media.find(m=>m.id===ref.id);

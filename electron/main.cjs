@@ -131,6 +131,11 @@ ipcMain.handle('ai-chat',async(_,payload)=>{
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');
 ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
 ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
+const artReviewStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','art-review-checkpoints');
+ipcMain.handle('art-review-load-local',(_,p)=>artReviewStore().load(p));
+ipcMain.handle('art-review-save-local',(_,p)=>artReviewStore().save(p));
+ipcMain.handle('collab-art-review-save',(_,p)=>collabService.saveArtReview(p));
+ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview(p));
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
 ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config));

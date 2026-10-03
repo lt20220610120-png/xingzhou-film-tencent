@@ -42,7 +42,7 @@ function analysisRepository(pool){return {
    const progress={...(row.analysis_progress||{})},old=progress[n];
    if(old?.output===p.output&&old.fingerprint===p.fingerprint){await client.query('COMMIT');return row;}
    if((old?.output||'')!==(p.baseOutput||''))fail('本集已有其他分析结果，已保留你的本地进度，请刷新核对');
-   progress[n]={fingerprint:p.fingerprint,output:p.output,updatedAt:new Date().toISOString()};
+   progress[n]={...old,fingerprint:p.fingerprint,output:p.output,updatedAt:new Date().toISOString()};
    // Add missing assets and merge episode membership. Preserve all manual edits,
    // IDs and image relationships, including assets from previous analyses.
    for(const item of assets){

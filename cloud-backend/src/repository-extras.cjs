@@ -37,6 +37,7 @@ function extendRepository(pool) {
 
   return {
     ...require('./analysis-repository.cjs').analysisRepository(pool),
+    ...require('./art-review-repository.cjs').artReviewRepository(pool),
     findReadableDirectorSource: (source, uid) => readableDirector(pool.query.bind(pool), source, uid),
     async createDirectorProject(p, uid, ownerName) {
       const genre = publicGenre(p.genre) + '\n' + DIRECTOR_SENTINEL;

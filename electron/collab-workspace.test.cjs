@@ -61,7 +61,7 @@ test('CollabWorkspace：身份权限过滤与七个功能区', () => {
 
 test('collabStore：权限矩阵符合产品设定', async () => {
   const store = await import('../core/collabStore.js');
-  assert.deepEqual(store.sectionsForRole('artist'), ['info', 'art', 'assets', 'group']);
+  assert.deepEqual(store.sectionsForRole('artist'), ['info', 'art-review', 'art', 'assets', 'group']);
   assert.deepEqual(store.sectionsForRole('collaborator'), ['storyboard', 'group']);
 });
 

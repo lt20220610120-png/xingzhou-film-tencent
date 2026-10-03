@@ -1,5 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
+ artReviewLoadLocal:p=>ipcRenderer.invoke('art-review-load-local',p),artReviewSaveLocal:p=>ipcRenderer.invoke('art-review-save-local',p),collabArtReviewSave:p=>ipcRenderer.invoke('collab-art-review-save',p),collabArtReviewPublish:p=>ipcRenderer.invoke('collab-art-review-publish',p),
  workBuddyStatus:()=>ipcRenderer.invoke('workbuddy-status'),workBuddySelectRoot:()=>ipcRenderer.invoke('workbuddy-select-root'),
  workBuddyOpen:p=>ipcRenderer.invoke('workbuddy-open',p),workBuddyResume:p=>ipcRenderer.invoke('workbuddy-resume',p),workBuddySetBounds:p=>ipcRenderer.invoke('workbuddy-bounds',p),workBuddyClose:()=>ipcRenderer.invoke('workbuddy-close'),
  workBuddyCheckUpdate:()=>ipcRenderer.invoke('workbuddy-check-update'),workBuddyUpdate:()=>ipcRenderer.invoke('workbuddy-update'),workBuddyUpdateState:()=>ipcRenderer.invoke('workbuddy-update-state'),

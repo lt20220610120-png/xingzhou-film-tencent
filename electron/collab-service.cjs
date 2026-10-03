@@ -57,6 +57,8 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     isProducer: () => call('producer-status').then(r => r.isProducer === true),
     adminSetProducer: (p) => call('admin-set-producer', p),
     publishAnalysis:p=>call('analysis-publish',{...p,ackOnly:true}),
+    saveArtReview:p=>call('art-review-save',p),
+    publishArtReview:p=>call('art-review-publish',p),
     appendEpisode:p=>call('art-episode-append',p),
     patchStoryboard: p => call('storyboard-patch',p),
     createProject: (p) => call('project-create', p), listProjects: () => call('project-list', {summary:true}), getProject: (p) => call('project-get', p), updateProject: (p) => call('project-update', p), linkDirector: (p) => call('project-link-director', p), setProjectLocked: (p) => call('project-lock', p), deleteProject: (p) => call('project-delete', p), restoreProject: (p) => call('project-restore', p),

@@ -62,7 +62,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'producer-status') return ok({ isProducer: producer });
 
   const COLLAB_ACTIONS = ['project-get','project-update','project-delete','project-restore','project-lock','project-link-director','stats-get',
-    'art-episode-append','analysis-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
+    'art-episode-append','analysis-publish','art-review-save','art-review-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
   if(projectId&&COLLAB_ACTIONS.includes(action)) {
@@ -73,7 +73,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   // Ordinary writes fail closed. Restore may reactivate a recycled project;
   // project-lock may unlock a live one, but cannot mutate a recycled one.
   const WRITE_ACTIONS = ['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
-    'project-update','project-delete','project-link-director','art-episode-append','analysis-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
+    'project-update','project-delete','project-link-director','art-episode-append','analysis-publish','art-review-save','art-review-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
   if (WRITE_ACTIONS.includes(action)) {
     if (!projectId) return DENY;
     const row = collabRow || await repo.getProject(projectId,user.id);
@@ -125,6 +125,11 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     if(!['producer','artist','artist_collaborator'].includes(await roleOf(projectId,user,repo)))return DENY;
     try{const saved=await repo.publishAnalysis(projectId,payload,user.id);return saved?ok(payload.ackOnly?{id:saved.id,updated_at:saved.updated_at,fingerprint:payload.fingerprint}:await attachRole(saved,user,repo)):DENY;}
     catch(e){if(e.status)return {status:e.status,body:{error:e.message}};throw e;}
+  }
+  if (action === 'art-review-save'||action === 'art-review-publish'){
+    if(!['producer','artist','artist_collaborator'].includes(await roleOf(projectId,user,repo)))return DENY;
+    try{const saved=await (action==='art-review-save'?repo.saveArtReview(projectId,payload,user.id):repo.publishArtReview(projectId,payload,user.id));return saved?ok(saved):DENY;}
+    catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
   }
   if (action === 'storyboard-patch') {
     if(await repo.isProjectLocked(projectId))return LOCKED;

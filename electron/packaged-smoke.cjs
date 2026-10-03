@@ -49,7 +49,16 @@ module.exports = function configurePackagedSmoke(app) {
         const image=await win.webContents.executeJavaScript(`new Promise(resolve=>{const img=new Image();img.onload=()=>resolve({loaded:true,width:img.naturalWidth});img.onerror=()=>resolve({loaded:false});img.src=${JSON.stringify(files[0])};})`);
         report.localMedia={results,image};
         report.workBuddy.bridge = await win.webContents.executeJavaScript('typeof window.xingzhou?.workBuddyOpen === "function" && typeof window.xingzhou?.onWorkBuddyState === "function"');
-        finish(report.docxImport && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        report.artReview = await win.webContents.executeJavaScript(`(async () => {
+          const api = window.xingzhou;
+          const bridge = ['artReviewLoadLocal','artReviewSaveLocal','collabArtReviewSave','collabArtReviewPublish'].every(name => typeof api?.[name] === 'function');
+          if (!bridge) return {bridge, localRoundTrip:false};
+          const projectId = 'packaged-art-review-smoke';
+          await api.artReviewSaveLocal({projectId,data:{episodes:{1:{state:'睡衣',pending:true}}}});
+          const restored = await api.artReviewLoadLocal({projectId});
+          return {bridge,localRoundTrip:restored?.episodes?.[1]?.state === '睡衣' && restored.episodes[1].pending === true};
+        })()`);
+        finish(report.docxImport && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

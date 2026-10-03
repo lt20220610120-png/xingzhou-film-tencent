@@ -146,8 +146,8 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
  return {...value,prompt,references,autoReferenceOrder:after,autoReferenceSignature:signature(references)};
 }
 
-export function projectReferenceCandidates(assets,media,projectId,episode) {
- const belongs=asset=>!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
+export function projectReferenceCandidates(assets,media,projectId,episode,scene) {
+ const belongs=asset=>scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
  return [
   ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,filename:i.filename,category:a.category}))),
   ...(media||[]).filter(m=>Number(m.episode)===Number(episode)).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
