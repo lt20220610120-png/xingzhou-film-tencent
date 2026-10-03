@@ -1,6 +1,7 @@
 import { validateDirectorSegmentTiming } from './directorTiming.js';
 import { directorSpeechBoundary, completeDialogueNeedsNextClip } from './directorSpeechBoundaries.js';
-import { validWholeSceneCompression } from './directorDurationPolicy.js';
+import { validWholeSceneCompression, effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
+import { isDirectorQuotedAt } from './directorDialogue.js';
 
 /** Source offsets are UTF-16 half-open offsets in sourceText, never in the user's original draft. */
 export const NONFINAL_DURATION_RATIO = 0.85;
@@ -10,10 +11,7 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 const meaningfulState = value => (typeof value === 'string' && Boolean(value.trim())) || (object(value) && Object.keys(value).length > 0);
 const issue = (code, message, segmentIndex, evidence) => ({ code, message, ...(segmentIndex ? { segmentIndex } : {}), ...(evidence !== undefined ? { evidence } : {}) });
 
-export const assertDurationLimit = value => {
-  if (!Number.isInteger(value) || value < 1 || value > 30) throw new Error('最高视频时长必须为 1～30 的整数秒');
-  return value;
-};
+export const assertDurationLimit = effectiveDirectorDurationLimit;
 
 export const parseStructuredJson = output => {
   if (object(output)) return output;
@@ -47,6 +45,7 @@ export const buildSceneSourceTape = inputText => {
     const line = raw.replace(/\n$/, '');
     const row = { originalStart: offsets[cursor], originalEnd: offsets[cursor + raw.length] };
     if (MARKER.test(line)) removed.push({ ...row, kind: 'marker' });
+    else if (/^[\t ]*(?:<!--|-->)[\t ]*$/u.test(line) && !isDirectorQuotedAt(normalized, cursor)) removed.push({ ...row, kind: 'format-marker' });
     else if (!firstContentSeen && HEADER.test(line)) {
       sceneHeader = line.trim();
       removed.push({ ...row, kind: 'header' });
@@ -115,7 +114,8 @@ export const estimateSegmentSeconds = timing => {
 
 export const validateScenePlan = (candidate, { tape, maxDurationSeconds, groundedTiming = false } = {}) => {
   const issues = [];
-  try { assertDurationLimit(maxDurationSeconds); } catch (error) { return { ok: false, issues: [issue('INVALID_DURATION_LIMIT', error.message)] }; }
+  let durationLimit;
+  try { durationLimit = assertDurationLimit(maxDurationSeconds); } catch (error) { return { ok: false, issues: [issue('INVALID_DURATION_LIMIT', error.message)] }; }
   let parsed;
   try { parsed = parseStructuredJson(candidate); } catch (error) { return { ok: false, issues: [issue('INVALID_JSON', `分段计划 JSON 无效：${error.message}`)] }; }
   if (!tape?.sourceText || !Array.isArray(tape.units) || !tape.units.length) return { ok: false, issues: [issue('EMPTY_SOURCE', '当前场景没有可分段正文')] };
@@ -138,7 +138,7 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds, grounde
     }
     if (sourceEnd <= sourceStart) issues.push(issue('ANCHOR_ORDER', '片段结束锚点必须严格递增，不能产生重复或空段', segmentIndex, segment.end));
     if (!isLegal(sourceEnd)) issues.push(issue('INVALID_BOUNDARY', '不能在 Unicode 字符或词语内部切分', segmentIndex, segment.end));
-    const speechBoundary = directorSpeechBoundary({ sourceText: tape.sourceText, sourceEnd, maxDurationSeconds });
+    const speechBoundary = directorSpeechBoundary({ sourceText: tape.sourceText, sourceEnd, maxDurationSeconds: durationLimit });
     if (!speechBoundary.ok) issues.push(issue('INCOMPLETE_DIALOGUE_BOUNDARY', '短的单次讲话必须整句留在同一条；仅超出单条上限的长讲话可在完整句号、问号或叹号后切分，不能截断半句话', segmentIndex, { ...speechBoundary, sourceEnd }));
     if (sourceEnd > sourceStart && !tape.sourceText.slice(sourceStart, sourceEnd).replace(/[\s\p{P}]/gu, '')) issues.push(issue('EMPTY_SEGMENT', '片段不能只有空白或标点，必须保留可表演的原文内容', segmentIndex));
     let estimatedSeconds;
@@ -151,10 +151,10 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds, grounde
     const naturalEstimatedSeconds = estimatedSeconds;
     if (compression) estimatedSeconds = 30;
     const recommendedDurationSeconds = Math.ceil(estimatedSeconds);
-    if (estimatedSeconds > maxDurationSeconds || recommendedDurationSeconds > maxDurationSeconds) issues.push(issue('DURATION_EXCEEDED', '片段超出最高时长，必须重分段而非截短建议秒数', segmentIndex, { estimatedSeconds, maxDurationSeconds }));
-    const completeDialoguePriority = arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds)
-      && completeDialogueNeedsNextClip({ sourceText: tape.sourceText, sourceEnd, estimatedSeconds, maxDurationSeconds });
-    if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds) && !completeDialoguePriority) issues.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分；完整台词优先，不能为凑满截断一句话', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * maxDurationSeconds) }));
+    if (estimatedSeconds > durationLimit || recommendedDurationSeconds > durationLimit) issues.push(issue('DURATION_EXCEEDED', '片段超出最高时长，必须重分段而非截短建议秒数', segmentIndex, { estimatedSeconds, maxDurationSeconds: durationLimit }));
+    const completeDialoguePriority = arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * durationLimit)
+      && completeDialogueNeedsNextClip({ sourceText: tape.sourceText, sourceEnd, estimatedSeconds, maxDurationSeconds: durationLimit });
+    if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * durationLimit) && !completeDialoguePriority) issues.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分；完整台词优先，不能为凑满截断一句话', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * durationLimit) }));
     if (!meaningfulState(segment.startState) || !meaningfulState(segment.endState)) issues.push(issue('INVALID_SEGMENT_STATE', '每段必须提供非空的起点与终点状态', segmentIndex));
     if (!meaningfulState(segment.boundary) || !Array.isArray(segment.visualNotes)) issues.push(issue('INVALID_SEGMENT_SCHEMA', '每段必须提供非空 boundary 和 visualNotes 数组', segmentIndex));
     segments.push({

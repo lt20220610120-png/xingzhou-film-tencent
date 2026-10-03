@@ -64,7 +64,11 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
   recordError(batch,{message:error.message,code:error.code||'FAILED'});
   batch.phase='pausing';
   if(!interruptions.has(batch.id)){
-   const task=(async()=>{await persist(batch);await signalChildren(batch,'stop');})().finally(()=>interruptions.delete(batch.id));
+   // A throttled request was rejected before forwarding, but another scene
+   // may already be paid and streaming. Stop admitting new work while letting
+   // those replies checkpoint before pause; account/config faults still stop.
+   const method=error.code==='RATE_LIMITED'?'pauseAfterRequest':'stop';
+   const task=(async()=>{await persist(batch);await signalChildren(batch,method);})().finally(()=>interruptions.delete(batch.id));
    interruptions.set(batch.id,task);
   }
   await interruptions.get(batch.id);
@@ -102,14 +106,14 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
      target.status=result.phase==='stale'?'stale':result.phase==='paused'?'paused':'failed';target.reason=result.errors?.[0]?.message||'任务已暂停';
      target.errorCode=result.errors?.[0]?.code||result.phase;
      if(batch.phase!=='cancelled'&&batch.phase!=='pausing')recordError(batch,{message:target.reason,sceneLabel:target.sceneLabel,code:target.errorCode});
-     if(target.errorCode==='ACCOUNT_CHANGED')await interruptForFault(batch,fault(target.reason,target.errorCode));
+     if(['ACCOUNT_CHANGED','RATE_LIMITED'].includes(target.errorCode))await interruptForFault(batch,fault(target.reason,target.errorCode));
     }
     await persist(batch);
   }catch(error){
    target.status=['ACCOUNT_CHANGED','STALE_CONFIGURATION'].includes(error.code)?'paused':'failed';target.reason=error.message||'场景生成失败';target.errorCode=error.code||'FAILED';
    if(batch.phase!=='cancelled'){
     recordError(batch,{message:target.reason,sceneLabel:target.sceneLabel,code:target.errorCode});
-    if(['ACCOUNT_CHANGED','STALE_CONFIGURATION'].includes(error.code))await interruptForFault(batch,error);
+    if(['ACCOUNT_CHANGED','STALE_CONFIGURATION','RATE_LIMITED'].includes(error.code))await interruptForFault(batch,error);
    }
    try{await persist(batch);}catch{emit();}
   }
@@ -156,6 +160,7 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
    if(executions.has(id))return executions.get(id);
    if(['completed','cancelled'].includes(batch.phase))return clone(batch);
    if([...batches.values()].some(other=>other.id!==id&&isDirectorBatchActive(other)&&other.snapshot.projectId===batch.snapshot.projectId&&other.snapshot.accountId===batch.snapshot.accountId))throw fault('这个项目已有整本生成任务，请先暂停或结束','BUSY');
+   batch.errorHistory=[...(batch.errorHistory||[]),...batch.errors.map(entry=>({...entry,previousAttemptAt:new Date().toISOString()}))];
    batch.phase='running';batch.errors=[];await persist(batch);return schedule(batch);
   },
   async pause(id){

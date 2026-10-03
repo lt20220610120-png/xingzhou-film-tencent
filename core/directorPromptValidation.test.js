@@ -4,6 +4,28 @@ import { identifyPromptContract, validateGeneratedSegment, validateAndRepairGene
 
 const baseline = '影像基准=数字电影；镜组=35mm T2.8；采样=24fps 180° EI800；WB=5600K；主光=窗光5600K 方位角90° 仰角45°；补光=墙反射5600K；K:F=2:1；影调=Rec.709 白位90IRE';
 
+test('local narrative repair never deletes an unquoted actor-action continuation of unfinished speech', () => {
+  const speech = '我跟你解释过，\n魏今朝把钥匙拿走了，所以我才进不了门。';
+  const source = `人：甲、魏今朝\n甲：${speech}`;
+  const output = prompt({speech});
+  const checked = validateAndRepairGeneratedSegment({output, source, expectedLabel:'1-1-1', contract:'fast-v8'});
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(checked.output, output);
+  assert.deepEqual(checked.repairs, []);
+});
+
+test('legacy narrative copied into speech is removed only with exact original line and complete spoken identity', () => {
+  const source = '人：甲、乙\n甲：我来关灯。\n乙抬手推开门。';
+  const output = prompt({ speech: '我来关灯。\n乙抬手推开门。' }).replace('表演与动作：', '表演与动作：乙抬手推开门；');
+  const checked = validateAndRepairGeneratedSegment({ output, source, expectedLabel: '1-1-1', contract: 'fast-v8' });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.match(checked.output, /『我来关灯。』/);
+  assert.match(checked.output, /表演与动作：乙抬手推开门；/);
+  for (const invalid of [output.replace('我来关灯。', '我去关灯。'), output.replace('D01｜甲｜', 'D01｜乙｜'), output.replaceAll('乙抬手推开门。', '乙缓缓离开。')]) {
+    assert.equal(validateAndRepairGeneratedSegment({ output: invalid, source, expectedLabel: '1-1-1', contract: 'fast-v8' }).ok, false);
+  }
+});
+
 test('whole-scene splitter maps exact canonical and legacy bracket IDs without renumbering an invalid reply', () => {
   const expectedLabels = ['2-1-1', '2-1-2'];
   const canonical = splitWholeScenePromptOutput({ output: '```text\n## 2-1-1\n第一条。\n\n**2-1-2**\n第二条。\n```', expectedLabels });

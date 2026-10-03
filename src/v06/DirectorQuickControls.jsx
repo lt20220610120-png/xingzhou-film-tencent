@@ -7,7 +7,7 @@ export function DirectorQuickControls({settings,onSettingsChange}) {
       <option value="manual">人工分段</option><option value="auto">自动分段</option>
     </select></label>
     <label>最高视频时长<select aria-label="最高视频时长" disabled={settings.segmentationMode!=='auto'} value={settings.maxDurationSeconds} onChange={e=>onSettingsChange({...settings,maxDurationSeconds:Number(e.target.value)})}>
-      {Array.from({length:30},(_,i)=>i+1).map(n=><option key={n} value={n}>{n} 秒</option>)}
+      {Array.from({length:36},(_,i)=>i).map(n=><option key={n} value={n}>{n===0?'0 · 自动估算（最高35秒）':`${n} 秒`}</option>)}
     </select></label>
   </div>;
 }

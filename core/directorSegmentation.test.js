@@ -7,10 +7,22 @@ const candidateSegment = (unitId, seconds, extra = {}) => ({
   startState: { continuity: '继承原文起态' }, endState: { continuity: '本段原文终态' }, boundary: { type: 'speaker-change', evidence: '甲收句，乙接话' }, visualNotes: [], ...extra,
 });
 
-test('highest duration only accepts integers 1 through 30', () => {
-  for (const value of [0, 31, 1.5, NaN, Infinity, '30', null]) assert.throws(() => assertDurationLimit(value), /1.*30/);
+test('standalone imported comment delimiters are mapped formatting while quoted speech stays literal', () => {
+  const source = '1-1 景：房间\r\n<!--\r\n甲：好。\r\n-->\r\n';
+  const tape = buildSceneSourceTape(source);
+  assert.equal(tape.sourceText, '甲：好。');
+  assert.equal(tape.sourceSnapshot, source);
+  assert.equal(tape.sourceMap.filter(row => row.kind === 'format-marker').length, 2);
+  const literal = '甲：“\n-->\n”';
+  assert.equal(buildSceneSourceTape(literal).sourceText, literal);
+});
+
+test('highest duration accepts automatic zero and explicit integers 1 through 35', () => {
+  for (const value of [-1, 36, 1.5, NaN, Infinity, '30', null]) assert.throws(() => assertDurationLimit(value), /0.*35/);
+  assert.equal(assertDurationLimit(0), 35);
   assert.equal(assertDurationLimit(1), 1);
   assert.equal(assertDurationLimit(30), 30);
+  assert.equal(assertDurationLimit(35), 35);
 });
 
 test('source removes only standalone numeric controls and separately maps scene header', () => {

@@ -1,6 +1,6 @@
-import { parseDirectorDialogues, countDialogueCharacters } from './directorDialogue.js';
+import { parseDirectorDialogues, countDialogueCharacters, unmarkedDirectorActionRanges } from './directorDialogue.js';
 import { describeDirectorActionTiming, estimateDirectorActionTimeline, DIRECTOR_ACTION_TIMING_REFERENCE } from './directorActionTiming.js';
-import { wholeSceneCompression } from './directorDurationPolicy.js';
+import { wholeSceneCompression, effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
 
 export const DIRECTOR_SPEECH_CHARACTERS_PER_SECOND = 4;
 const slowRate = 3;
@@ -12,9 +12,13 @@ const finite = value => typeof value === 'number' && Number.isFinite(value) && v
 export const extractDirectorVisualBeats = sourceText => {
   const source = String(sourceText || '');
   const beats = [];
-  for (const match of source.matchAll(/[△Δ]([^\n△Δ]+)/g)) {
-    const contentStart = match.index + 1;
-    const content = match[1];
+  const ranges = [
+    ...[...source.matchAll(/[△Δ▲]([^\n△Δ▲]+)/g)].map(match => ({ start: match.index + 1, end: match.index + match[0].length })),
+    ...unmarkedDirectorActionRanges(source),
+  ].sort((a, b) => a.start - b.start);
+  for (const range of ranges) {
+    const contentStart = range.start;
+    const content = source.slice(range.start, range.end);
     for (const sentence of content.matchAll(/[^。！？!?；;]+[。！？!?；;]*/g)) {
       const sourceQuote = sentence[0].trim();
       if (!sourceQuote) continue;
@@ -87,7 +91,7 @@ export const validateDirectorSegmentTiming = ({ sourceText, sourceStart, sourceE
   // Allow only arithmetic/rounding variation, never an assumed speed of 6–8
   // Chinese characters per second to fit long original dialogue into a clip.
   const minimum = facts.speechSecondsAt4;
-  const capacitySeconds = wholeSceneCompression && maxDurationSeconds === 30 && sourceStart === 0 && sourceEnd === sourceText.length ? 35 : maxDurationSeconds;
+  const capacitySeconds = wholeSceneCompression && maxDurationSeconds === 30 && sourceStart === 0 && sourceEnd === sourceText.length ? 35 : maxDurationSeconds === 0 ? effectiveDirectorDurationLimit(maxDurationSeconds) : maxDurationSeconds;
   if (minimum > capacitySeconds + 0.25) issue('SPEECH_CAPACITY_EXCEEDED', '原文可听台词按4字/秒已超过最高时长，需要在完整句子的边界继续细分，不能吞字或删除台词', { speechCharacterCount: facts.speechCharacterCount, speechSecondsAt4: minimum, maxDurationSeconds });
   if (finite(timing?.speechSeconds) && timing.speechSeconds + 0.5 < minimum) issue('SPEECH_TIMING_UNDERESTIMATED', '对白、内心OS及可听VO必须按原文口播字数计时；当前计划少计了语音时长', { claimedSpeechSeconds: timing.speechSeconds, speechCharacterCount: facts.speechCharacterCount, speechSecondsAt4: minimum });
   if (finite(timing?.speechSeconds) && timing.speechSeconds > facts.speechSecondsAt3 + 2) issue('SPEECH_TIMING_INFLATED', '不能把少量台词虚报为整条语音时长来凑满上限；按3~4字/秒重估，真实独立动作另计', { claimedSpeechSeconds: timing.speechSeconds, speechCharacterCount: facts.speechCharacterCount, speechSecondsAt3: facts.speechSecondsAt3 });
@@ -141,7 +145,7 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
   // one compact scene into a thirty-second clip plus a sliver.
   if (parsed.segments.length > 1 && sourceStart === tape.sourceText.length && Number.isInteger(maxDurationSeconds)) {
     const whole = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, maxDurationSeconds });
-    const mergeLimit = maxDurationSeconds === 30 ? 35 : maxDurationSeconds;
+    const mergeLimit = maxDurationSeconds === 30 ? 35 : effectiveDirectorDurationLimit(maxDurationSeconds);
     if (!whole.actionTimeline.unknownBeatCount && whole.quickPerformanceSeconds > 0 && whole.quickPerformanceSeconds <= mergeLimit) {
       const first = parsed.segments[0], last = parsed.segments.at(-1);
       parsed.segments = [{ ...last, startState: first.startState, timing: { speechSeconds: whole.speechSecondsAt4, actionSeconds: whole.actionTimeline.actionSeconds, overlapSeconds: whole.actionTimeline.overlapSeconds, transitionSeconds: 0 }, visualNotes: parsed.segments.flatMap(segment => segment.visualNotes || []), timingFacts: whole }];

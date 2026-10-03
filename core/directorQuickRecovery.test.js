@@ -87,6 +87,16 @@ test('ambiguous timeout is not automatically billed again',async()=>{
   assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
 });
 
+test('HTTP gateway failures never automatically repeat a possibly forwarded request, with or without partial paid text', async () => {
+  for (const status of [502, 503, 504]) for (const partialText of ['', '已付费的部分正文']) {
+    const f=makeFixture({skillHook:async()=>{throw Object.assign(new Error(`HTTP ${status}`), {partialText});}});
+    const run=await f.controller.start(f.request);
+    assert.equal(run.phase,'failed');
+    assert.equal(f.calls.filter(call=>call.type==='skill').length,1);
+    if(partialText)assert.equal(run.wholeSceneResponses[0].output,partialText);
+  }
+});
+
 test('grounded short scene is one real short segment rather than an inflated 30-second clip',async()=>{
   const f=makeFixture({groundedTiming:true,textHook:async call=>call.type==='plan'?JSON.stringify({segments:[{end:{unitId:'u2'},timing:{speechSeconds:30,actionSeconds:7,overlapSeconds:0,transitionSeconds:0},startState:'灯亮',endState:'灯灭',boundary:'scene-end',visualNotes:[]}]}):undefined});
   const run=await f.controller.start(f.request);assert.equal(run.phase,'completed');

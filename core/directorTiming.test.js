@@ -6,6 +6,16 @@ import { buildSceneTimingFacts, getDirectorSegmentTimingFacts, recalibrateSceneP
 const segment = (unitId, seconds, extra = {}) => ({ end: { unitId }, timing: { speechSeconds: seconds, actionSeconds: 0, overlapSeconds: 0, transitionSeconds: 0 }, startState: '原文起态', endState: '原文终态', boundary: { type: 'speaker-change', evidence: '原文换话' }, visualNotes: [], ...extra });
 const speech = count => '好'.repeat(count);
 
+test('unmarked actor actions retain the same visual timing as marked actions without becoming speech', () => {
+  const plain = '人：甲、乙\n乙：好。\n甲抬手推开门，转身走进屋。';
+  const marked = plain.replace('甲抬手', '△甲抬手');
+  const a = getDirectorSegmentTimingFacts({ sourceText: plain }), b = getDirectorSegmentTimingFacts({ sourceText: marked });
+  assert.equal(a.speechCharacterCount, 1);
+  assert.equal(a.actionCues.length, b.actionCues.length);
+  for (const field of ['actionSeconds', 'overlapSeconds', 'unknownBeatCount']) assert.equal(a.actionTimeline[field], b.actionTimeline[field]);
+  assert.equal(extractDirectorVisualBeats('甲：“\n甲抬手推开门。\n”').length, 0);
+});
+
 test('forty seconds of real spoken source remains thirty plus ten and short whole scene remains ten', () => {
   const tape = buildSceneSourceTape(`1-1 景：办公室 日 内\n甲：${speech(120)}。\n乙：${speech(40)}。`);
   const result = validateScenePlan({ segments: [segment(tape.units[0].id, 30), segment(tape.units[1].id, 10)] }, { tape, maxDurationSeconds: 30, groundedTiming: true });

@@ -146,3 +146,14 @@ test('inconsistent whole lighting retries within a fixed budget while retaining 
   assert.ok(failed.wholeSceneIssues.some(issue => issue.code === 'BASELINE_CHANGED'));
   assert.deepEqual(f.calls.filter(call => call.kind === 'skill')[1].payload.preservedPrompts, [{ label: '1-1-1', content: first.prompt.content }]);
 });
+
+test('repair preserves accepted local card even when the model unnecessarily rewrites its copy', async () => {
+  const f=fixture({skillOutput:(_payload,count)=>count===1
+    ? fullOutput({'1-1-2':{light:baseline.replace('EI800','EI1600')}})
+    : fullOutput({'1-1-1':{action:'甲再次看了一眼灯。'}})});
+  const done=await f.controller.start(f.request);
+  assert.equal(done.phase,'completed',JSON.stringify(done.errors));
+  assert.equal(done.segmentDrafts[done.plan.segments[0].id].prompt.content,fastPrompt('1-1-1'));
+  assert.equal(done.segmentDrafts[done.plan.segments[1].id].validated,true);
+  assert.equal(f.calls.filter(call=>call.kind==='skill').length,2);
+});

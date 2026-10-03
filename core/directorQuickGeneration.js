@@ -1,9 +1,10 @@
 import { buildSceneSourceTape, validateScenePlan, parseStructuredJson } from './directorSegmentation.js';
-import { recalibrateScenePlanTimings } from './directorTiming.js';
+import { recalibrateScenePlanTimings, getDirectorSegmentTimingFacts } from './directorTiming.js';
 import { packScenePlan } from './directorPlanPacking.js';
 import { buildSegmentationMessages, buildWholeSceneSkillRequest, buildSceneAuditMessages } from './directorSegmentationMessages.js';
 import { identifyPromptContract, validateAndRepairGeneratedSegment, splitWholeScenePromptOutput, parseSceneAudit } from './directorPromptValidation.js';
 import { createSceneSnapshot } from './directorQuickStore.js';
+import { effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
 
 const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
 export const isQuickRunActive = run => Boolean(run && activePhases.has(run.phase));
@@ -12,7 +13,28 @@ const parseJson = parseStructuredJson;
 const error = (message,code='FAILED') => Object.assign(new Error(message),{code});
 const clone = value => structuredClone(value);
 const snapshotKey = s => JSON.stringify([s.accountId,s.projectId,s.episodeId,s.sceneLabel]);
-const PROCESSING_VERSION = 6;
+const PROCESSING_VERSION = 7;
+const issueMessages = issues => [...new Set((issues || []).map(issue => issue.message || issue.code).filter(Boolean))].join('；');
+const trimmedRange=(sourceText,start,end)=>{
+  while(start<end&&/\s/u.test(sourceText[start]))start++;
+  while(end>start&&/\s/u.test(sourceText[end-1]))end--;
+  return {sourceStart:start,sourceEnd:end};
+};
+// Old plan offsets refer to its canonical text before harmless import markers
+// were removed. Map those positions to the new tape; repeated lines must retain
+// their own paid performances instead of borrowing the first equal string.
+const reusablePaidRanges=(run,tape)=>{
+  const oldText=run.plan.sourceText,oldTape=buildSceneSourceTape(oldText);
+  if(oldTape.sourceText!==tape.sourceText)return [];
+  return run.plan.segments.flatMap(segment=>{
+    const draft=run.segmentDrafts[segment.id];if(!draft?.prompt?.content)return [];
+    const rows=oldTape.sourceMap.filter(row=>row.kind==='text'&&row.originalStart<segment.sourceEnd&&row.originalEnd>segment.sourceStart);
+    if(!rows.length)return [];
+    const mapped=(row,offset)=>row.sourceStart+oldText.slice(row.originalStart,Math.max(row.originalStart,Math.min(offset,row.originalEnd))).replace(/\r\n?/gu,'\n').length;
+    const range=trimmedRange(tape.sourceText,mapped(rows[0],segment.sourceStart),mapped(rows.at(-1),segment.sourceEnd));
+    return [{...range,source:tape.sourceText.slice(range.sourceStart,range.sourceEnd),output:draft.prompt.content}];
+  });
+};
 
 /** A scene transaction: no React closures or credentials belong in its checkpoint. */
 export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,commitProgress=null,groundedTiming=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
@@ -52,9 +74,11 @@ export function createQuickGenerationController({getContext,executeText,executeS
         run.wholeSceneOutput=e.partialText;
         await persist(run);
       }
-      // Retry only explicit completion/capacity or transient service failures,
-      // never an ambiguous timeout/cancellation that may already be billed.
-      const retryable=/输出被截断|只返回了推理过程|没有返回模型正文|HTTP (?:429|502|503|504)/i.test(e.message||'');
+      // Only explicit completion recovery gets a bounded larger-output retry.
+      // HTTP failures may already have reached a paid provider, even when they
+      // return no partial body. The verified pre-forward 429 is handled below
+      // the IPC boundary by the gateway admission scheduler.
+      const retryable=/输出被截断|只返回了推理过程|没有返回模型正文/i.test(e.message||'');
       if(!retryable||payload.recoveryAttempt)throw e;
       run.recoveries||=[];run.recoveries.push({kind,message:e.message,partialText:e.partialText||'',at:new Date().toISOString()});
       run.retryMessage='接口未完整返回，正在自动重试本次未完成请求';await persist(run);
@@ -82,6 +106,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       // Older failed checkpoints often contain valid paid output rejected by
       // the former cast/OS parser. Recheck it locally before spending again.
       if(run.processingVersion!==PROCESSING_VERSION){
+        const recoveringVersion6=run.processingVersion===6;
         const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
       run.segmentQualityFailures={};run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];run.auditRepairIndexes=[];run.auditRepairAttempts={};run.auditWarnings=[];run.checks={audited:false,ranges:{}};
         run.planQualityFailures=0;run.planIssues=[];
@@ -93,9 +118,22 @@ export function createQuickGenerationController({getContext,executeText,executeS
           const calibrated=recalibrateScenePlanTimings(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds}).candidate;
           const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
           const checked=validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true});
+          const paidPartition=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:false});
+          const completePaidDrafts=recoveringVersion6&&run.plan.sourceText===tape.sourceText&&paidPartition.ok&&run.plan.segments.every(segment=>{
+            const draft=run.segmentDrafts[segment.id];
+            const speech=getDirectorSegmentTimingFacts({sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
+            const capacity=segment.durationCompression?35:effectiveDirectorDurationLimit(run.snapshot.maxDurationSeconds);
+            return speech.speechSecondsAt4<=capacity+0.25&&draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok;
+          });
           const partitionChanged=checked.ok&&(checked.plan.segments.length!==run.plan.segments.length||checked.plan.segments.some((segment,index)=>segment.sourceStart!==run.plan.segments[index].sourceStart||segment.sourceEnd!==run.plan.segments[index].sourceEnd));
           const compressionChanged=checked.ok&&checked.plan.segments.some((segment,index)=>JSON.stringify(segment.durationCompression||null)!==JSON.stringify(run.plan.segments[index]?.durationCompression||null));
-          if(!checked.ok||partitionChanged||compressionChanged){
+          if(completePaidDrafts){
+            // v2.4.15 paid plans already have complete legal speech boundaries.
+            // Re-estimating shorter actions cannot justify regenerating every
+            // paid clip. New scenes still receive the new timing/packing rules.
+            run.recoveredPaidPartition=true;
+          }else if(!checked.ok||partitionChanged||compressionChanged||run.plan.sourceText!==tape.sourceText){
+            if(recoveringVersion6)run.reusablePaidClips=reusablePaidRanges(run,tape);
             run.previousDrafts=[...(run.previousDrafts||[]),...Object.values(run.segmentDrafts).filter(d=>d.prompt?.content)];
             // A partially published plan is immutable. A new source partition
             // needs fresh plan/prompt IDs while preserving its paid history.
@@ -103,7 +141,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             run.previousPlans=[...(run.previousPlans||[]),clone(run.plan)];
             run.previousWholeSceneResponses=[...(run.previousWholeSceneResponses||[]),...(run.wholeSceneResponses||[])];
             run.wholeSceneResponses=[];run.wholeSceneOutput='';run.processedWholeSceneResponseIndex=-1;run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];
-            run.previousPlan=run.plan;run.plan=null;run.segmentDrafts={};run.promptIds=[];run.sharedBaseline='';run.lastPlanningOutput='';
+            run.previousPlan=run.plan;run.plan=null;run.segmentDrafts={};run.promptIds=[];run.sharedBaseline='';run.lastPlanningOutput=recoveringVersion6&&checked.ok?JSON.stringify(packed.candidate):'';
           }else{
             const published=context.episode.quickScenePlans?.find(plan=>plan.id===run.plan.id);
             // New timing facts alone cannot rewrite a plan already referenced
@@ -119,6 +157,11 @@ export function createQuickGenerationController({getContext,executeText,executeS
           if(checked.ok&&!baseline&&checked.baseline)baseline=checked.baseline;
         }
         run.sharedBaseline=baseline||run.sharedBaseline;run.processingVersion=PROCESSING_VERSION;await persist(run);
+        if(recoveringVersion6&&!run.plan&&!run.lastPlanningOutput&&run.previousPlanningCandidate){
+          const calibrated=recalibrateScenePlanTimings(run.previousPlanningCandidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds}).candidate;
+          const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+          if(validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true}).ok){run.lastPlanningOutput=JSON.stringify(packed.candidate);await persist(run);}
+        }
       }
       if(!run.plan){
         let issues=run.planIssues||[];
@@ -151,7 +194,28 @@ export function createQuickGenerationController({getContext,executeText,executeS
             segments:validated.plan.segments.map((s,i)=>({...s,id:`${run.nextPlanId||run.id}-segment-${i+1}`,index:i+1}))};
           run.promptIds=run.plan.segments.map(()=>uid());run.commitKey=run.id;run.lastPlanningOutput='';await persist(run);break;
         }
-        if(!run.plan)throw error(issues.map(i=>i.message||i.code).join('；')||'分段计划未通过时长与原文核对','NEEDS_REVIEW');
+        if(!run.plan)throw error(issueMessages(issues)||'分段计划未通过时长与原文核对','NEEDS_REVIEW');
+      }
+      // When only import formatting/provenance changes, recover exact matching
+      // paid ranges under the new immutable plan. Merged or otherwise changed
+      // ranges still require whole-scene direction through the original Skill.
+      if(run.reusablePaidClips?.length){
+        const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
+        for(const segment of run.plan.segments){
+          if(run.segmentDrafts[segment.id]?.validated)continue;
+          const source=sourceFor(segment),label=`${run.snapshot.sceneLabel}-${segment.index}`;
+          const range=trimmedRange(tape.sourceText,segment.sourceStart,segment.sourceEnd);
+          const cachedIndex=run.reusablePaidClips.findIndex(clip=>clip.sourceStart===range.sourceStart&&clip.sourceEnd===range.sourceEnd&&clip.source===tape.sourceText.slice(range.sourceStart,range.sourceEnd));
+          const cached=run.reusablePaidClips[cachedIndex];
+          if(!cached)continue;
+          const output=cached.output.replace(/^\d+-\d+-\d+(?=\s*\n)/u,label);
+          const checked=validateAndRepairGeneratedSegment({output,expectedLabel:label,source,contract,sharedBaseline:run.sharedBaseline});
+          if(!checked.ok)continue;
+          run.segmentDrafts[segment.id]={prompt:checked.prompt,validated:true,issues:[],baseline:checked.baseline||'',localRepairs:checked.repairs,recoveredPaidText:true};
+          run.reusablePaidClips.splice(cachedIndex,1);
+          if(!run.sharedBaseline&&checked.baseline)run.sharedBaseline=checked.baseline;
+        }
+        run.reusablePaidClips=[];await persist(run);
       }
       // An interrupted run from this same processing version can already have
       // paid text that needs only deterministic formatting repairs introduced
@@ -186,7 +250,9 @@ export function createQuickGenerationController({getContext,executeText,executeS
             const existing=run.segmentDrafts[segment.id];
             const checked=validateAndRepairGeneratedSegment({output:item.content,expectedLabel:label,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline});
             if(existing?.validated){
-              if(!checked.ok||checked.prompt.content!==existing.prompt.content)issues.push({code:'ACCEPTED_PROMPT_CHANGED',segmentIndex:segment.index,message:`已通过的 ${label} 正文必须原样保留，不重复改写`});
+              // The accepted local draft is authoritative. Repair calls still
+              // rehearse the whole scene; a model's rewritten copy must neither
+              // replace this card nor block a correct repair of another card.
               continue;
             }
             run.currentSegmentIndex=segment.index;
@@ -225,7 +291,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
           run.wholeSceneOutput=output;await persist(run);
           await consumeResponse(run.wholeSceneResponses.at(-1),run.wholeSceneResponses.length-1);
         }
-        if(!finished())throw error((run.wholeSceneIssues||[]).map(issue=>issue.message||issue.code).join('；')||'整场提示词尚未完整通过核对','NEEDS_REVIEW');
+        if(!finished())throw error(issueMessages(run.wholeSceneIssues)||'整场提示词尚未完整通过核对','NEEDS_REVIEW');
         // Re-publish recovered validated cards without changing their IDs.
         if(!publishedProgress)await publishProgress();
         run.phase='auditing';await persist(run);

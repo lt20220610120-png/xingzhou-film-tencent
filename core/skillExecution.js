@@ -57,7 +57,7 @@ export const createSkillExecution = async ({
     messages,
     ...options,
   });
-  if (response && typeof response === 'object' && response.ok === false) throw Object.assign(new Error(String(response.error || '模型请求失败')), { partialText: String(response.partialText || '') });
+  if (response && typeof response === 'object' && response.ok === false) throw Object.assign(new Error(String(response.error || '模型请求失败')), { code: String(response.code || 'FAILED'), partialText: String(response.partialText || '') });
   const output = response && typeof response === 'object' && response.ok === true ? response.output : response;
   if (output !== null && output !== undefined && typeof output !== 'string') throw Object.assign(new Error('模型返回格式异常，未收到完整正文'), { partialText: String(response?.partialText || '') });
   return {

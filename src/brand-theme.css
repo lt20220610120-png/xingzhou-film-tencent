@@ -15,6 +15,8 @@
   --brand-line-strong:#c9bde6;
   --brand-focus:#8974bf;
   --brand-shadow:0 3px 16px #45346108;
+  --brand-panel-shadow:0 2px 8px #2430440b,0 8px 22px #24304405;
+  --studio-font:'Microsoft YaHei','PingFang SC','Segoe UI',sans-serif;
   --paper:var(--brand-canvas);
   --surface:var(--brand-surface);
   --surface-2:var(--brand-subtle);
@@ -38,7 +40,8 @@
   --ocean-foam:var(--brand-canvas);
   --ocean-violet:var(--brand-accent);
 }
-body,.app { background:var(--brand-canvas); color:var(--brand-ink); }
+body,.app { background:var(--brand-canvas); color:var(--brand-ink); font-family:var(--studio-font); }
+.app :is(h1,h2,h3,h4),.logo strong,.rail-project strong,.rail-index,.editor-head input { font-family:var(--studio-font); }
 ::selection { background:var(--brand-selected); color:var(--brand-ink); }
 * { scrollbar-color:#c8d1df transparent; }
 ::-webkit-scrollbar-thumb { background:#c8d1df; border-radius:8px; }
@@ -69,31 +72,38 @@ input::placeholder,textarea::placeholder { color:#8390a3; }
 .project-card,.resource-card,.settings-card,.prompt-card,.skill-card,.api-card,.canvas-card { border-color:var(--brand-line)!important; box-shadow:var(--brand-shadow)!important; }
 .project-card:hover,.resource-card:hover,.skill-card:hover,.api-card:hover { border-color:var(--brand-line-strong)!important; box-shadow:0 6px 20px #4534610c!important; }
 .card-cover,.resource-icon,.api-connection-icon,.project-card-symbol,.empty-icon { background:var(--brand-selected); color:var(--brand-text); border-color:var(--brand-line); }
-.project-group-toolbar,.director-group-toolbar,.creative-scene-rail,.quick-generation-controls,.creative-generation-controls,.project-toolbar,.skill-runner { background:var(--brand-subtle); border-color:var(--brand-line); }
+.project-group-toolbar,.director-group-toolbar,.project-toolbar,.skill-runner { background:var(--brand-subtle); border-color:var(--brand-line); }
+.creative-scene-rail,.quick-generation-controls,.creative-generation-controls { background:#fff; border-color:var(--brand-line); }
+.director-stage :is(.creative-scene-rail,.creative-generation-controls,.creative-script-panel,.creative-vision-panel,.creative-prompt-results) { box-shadow:var(--brand-panel-shadow); }
 .mode-switch,.seg,.source-tabs,.api-library-tabs,.collab-cat-tabs { background:var(--brand-subtle); border-color:var(--brand-line); }
 .mode-switch button,.seg button,.api-library-tabs button,.collab-cat-tabs button { color:var(--brand-muted); }
 .mode-switch button.active,.seg button.active,.api-library-tabs button.active,.collab-cat-tabs button.active { color:var(--brand-text); background:var(--brand-selected); box-shadow:none; }
 .api-library-tabs button span { background:var(--brand-selected); color:var(--brand-text); }
 .project-style-bar { background:#fff; border-color:var(--brand-line); }
 .style-chip.active { background:var(--brand-selected); color:var(--brand-text); border-color:var(--brand-line-strong); box-shadow:none; }
-.creative-scene-rail>button.active,.quick-scene-rail>button.active { background:var(--brand-subtle); color:var(--brand-text); border-color:var(--brand-line-strong); }
-.quick-generation-controls,.creative-generation-controls { box-shadow:none; }
+.creative-scene-rail>button,.quick-scene-rail>button { background:#fff; border:1px solid var(--brand-line); border-radius:10px; box-shadow:0 2px 6px #24304408; }
+.creative-scene-rail>button:hover,.quick-scene-rail>button:hover { border-color:var(--brand-line-strong); }
+.creative-scene-rail>button.active,.quick-scene-rail>button.active { background:var(--brand-selected); color:var(--brand-text); border-color:var(--brand-line-strong); box-shadow:0 2px 6px #4534610b; }
+.quick-generation-controls { box-shadow:none; }
 .quick-scene-card-head,.quick-scene-prompts,.creative-script-panel,.creative-vision-panel,.creative-prompt-results { border-color:var(--brand-line); }
 .quick-scene-label,.scene-item-label,.quick-scene-item.active .scene-item-label { color:var(--brand-text); }
 .quick-scene-label { background:var(--brand-selected); }
 .prompt-card header b,.prompt-id,.prompt-number,.prompt-label { color:var(--brand-text); }
-.prompt-locator button,.prompt-locator>button { color:var(--brand-text); background:var(--brand-subtle); border-color:var(--brand-line-strong); }
-.prompt-locator button.active,.prompt-locator button:hover { color:var(--brand-text); background:var(--brand-selected); border-color:var(--brand-focus); }
+.prompt-locator button { width:28px; height:28px; padding:0; border:1px solid #acd8df; border-radius:50%; color:#08758b; background:#edf9fb; }
+.prompt-locator button.active,.prompt-locator button:hover { color:#fff; background:#087d94; border-color:#087d94; }
+.director-stage .prompt-select-wrapper.selected { border-color:var(--brand-line-strong); background:var(--brand-selected); }
+.director-stage .prompt-select-wrapper.selected .prompt-card { background:var(--brand-selected)!important; border-color:var(--brand-line-strong)!important; }
+.director-stage .prompt-select-check { color:var(--brand-text); }
 .quick-auto-progress,.quick-manual-replies,.quick-source-tabs { background:#ffffff; border-color:var(--brand-line); }
 .quick-source-tabs button.active { background:var(--brand-selected); color:var(--brand-text); }
 .director-config-rack .style-chip:hover:not(.active),.art-analysis-info .style-chip:hover:not(.active) { background:var(--brand-subtle); color:var(--brand-text); }
 .director-stage .director-config-rack .style-chip.active,.director-workspace-toolbar .mode-switch button.active,.art-analysis-info .style-chip.active { background:var(--brand-selected); color:var(--brand-text); border-color:var(--brand-line-strong); box-shadow:none; }
-.director-stage .director-scene-strip .quick-scene-item.active { background:var(--brand-subtle); color:var(--brand-text); border-color:var(--brand-line-strong); box-shadow:inset 3px 0 var(--brand-accent); }
+.director-stage .director-scene-strip .quick-scene-item.active { background:var(--brand-selected); color:var(--brand-text); border-color:var(--brand-line-strong); box-shadow:inset 3px 0 var(--brand-accent),0 2px 6px #4534610b; }
 .director-stage .director-batch-settings>button { background:var(--brand-selected); color:var(--brand-text); border-color:var(--brand-line-strong); }
 .director-stage .director-batch-settings>button:hover:not(:disabled) { background:var(--brand-selected-hover); }
 .director-stage :is(.director-workspace-toolbar,.director-config-rack,.director-batch-panel,.director-scene-strip) :is(button,select):focus-visible { outline-color:var(--brand-focus); }
 .collab-info.art-analysis-info { --art-ink:var(--brand-ink); --art-accent:var(--brand-accent); --art-border:var(--brand-line); --art-muted:var(--brand-muted); }
-.art-analysis-info .collab-info-side { background:var(--brand-subtle); }
+.art-analysis-info .collab-info-side { background:#fff; box-shadow:var(--brand-panel-shadow); }
 .art-analysis-info .collab-analyze-btn:hover:not(:disabled) { background:var(--brand-accent-hover); border-color:var(--brand-accent-hover); }
 .art-analysis-info .collab-notice { color:var(--brand-muted); background:var(--brand-selected); border-color:var(--brand-line); }
 .art-analysis-info :is(button,select,textarea):focus-visible { outline-color:var(--brand-focus); }
@@ -158,44 +168,17 @@ input::placeholder,textarea::placeholder { color:#8390a3; }
 .director-cloud-row p,.director-cloud-manager>header p { color:var(--brand-muted); }
 @media(prefers-reduced-motion:reduce) { .studio-role { transition:none; } }
 
-/* White reading surfaces and restrained violet interactive accents. */
-:root { --studio-font:'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif; }
-.sidebar>button.active { background:linear-gradient(100deg,#e2daf5,#eee9fa); }
-.primary,button.primary,.auth-submit,.invite-maker button {
-  background:linear-gradient(110deg,#705bbd,#7965b9);
-  border-color:#7965bd;
-}
-.primary:hover:not(:disabled),button.primary:hover:not(:disabled),.auth-submit:hover:not(:disabled) {
-  background:linear-gradient(110deg,#634eab,#7b67bf);
-}
-.director-workspace-toolbar .mode-switch { background:#f0f2f7; }
-.director-stage .director-config-rack .style-chip.active,
-.director-workspace-toolbar .mode-switch button.active,
-.art-analysis-info .style-chip.active,
-.generation-workspace .generation-tabs button.active,
-.admin-workspace-tabs button.active,.prompt-book-entries button.active {
-  background:linear-gradient(110deg,#e9e2f8,#f6f3fc);
-  color:var(--brand-text);
-  border-color:var(--brand-line-strong);
-}
-.director-stage .director-scene-strip .quick-scene-item { background:#fff; }
-.director-stage .director-scene-strip .quick-scene-item.active {
-  background:linear-gradient(110deg,#f0eafa 0%,#fff 85%);
-  box-shadow:inset 3px 0 #9782ce;
-}
-.director-stage .director-batch-settings>button {
-  background:linear-gradient(110deg,#f0eafa,#fff);
-}
-.director-stage .quick-generation-controls,.creative-generation-controls { background:#f0f2f7; }
-.director-stage .quick-auto-progress,.quick-manual-replies { background:#fafbfd; }
+/* Pure white reading paper; duration and numbered locators retain their task colors. */
 .mode-skill-picker.compact,.mode-skill-picker.compact select { color:var(--brand-muted); }
 .skill-file-count,.skill-type-badge { background:#f0ecfa; color:var(--brand-text); }
 .quick-scene-card-head .scene-label,.quick-scene-card-head .quick-scene-label,.scene-card-badge {
   background:#f0ebfa; color:var(--brand-text);
 }
-.prompt-card header>b,.prompt-card .prompt-id,.prompt-card .prompt-label { color:var(--brand-text); }
-.prompt-duration:not(.needs-review) { background:#f2eefb; color:var(--brand-text); border-color:#e5ddf4; }
-.quick-scene-textarea,.prompt-content,.master-editor,.big-editor,.collab-info-script>textarea { color:var(--brand-ink); background:#fff; }
+.prompt-duration:not(.needs-review) { background:#e6f5ef; color:#207466; border-color:#cfe7df; }
+.quick-plan-timing span { background:#edf9fb; color:#08758b; }
+.quick-scene-textarea,.prompt-content,.prompt-card textarea,.master-editor,.big-editor,.setting-editor>textarea,.creative-script-panel textarea,.creative-vision-panel textarea,.collab-info-script>textarea {
+  color:var(--brand-ink); background:#fff; font-family:var(--studio-font);
+}
 .sidebar-account,.account-trigger { color:#536079; }
 .generation-workspace>header small,.prompt-book-media-details { color:var(--brand-muted); }
 .prompt-book-media-details span { border-color:var(--brand-line); }

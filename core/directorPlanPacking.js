@@ -1,4 +1,4 @@
-import { validateScenePlan } from './directorSegmentation.js';
+import { validateScenePlan, assertDurationLimit } from './directorSegmentation.js';
 import { getDirectorSegmentTimingFacts } from './directorTiming.js';
 import { directorSpeechBoundary } from './directorSpeechBoundaries.js';
 
@@ -14,6 +14,7 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   const unchanged = { candidate, changed: false };
   const initial = validateScenePlan(candidate, { tape, maxDurationSeconds, groundedTiming: true });
   if (initial.ok || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED', 'INCOMPLETE_DIALOGUE_BOUNDARY'].includes(i.code) || (i.code === 'INVALID_TIMING' && i.message === '片段估计时长必须大于零'))) return unchanged;
+  const durationLimit = assertDurationLimit(maxDurationSeconds);
   const events = [], spans = [];
   let start = 0;
   for (const segment of candidate.segments) {
@@ -56,7 +57,7 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   // Closing punctuation belongs to the preceding words. A lexical boundary
   // just before "！" is legal to Segmenter but cannot form a new performance.
   const options=[...boundaries].filter(end=>end>0&&wordEnds.has(end)&&(end===tape.sourceText.length||! /^[\p{P}\p{S}]/u.test(tape.sourceText.slice(end)))
-    && directorSpeechBoundary({sourceText:tape.sourceText,sourceEnd:end,maxDurationSeconds}).ok).sort((a,b)=>a-b);
+    && directorSpeechBoundary({sourceText:tape.sourceText,sourceEnd:end,maxDurationSeconds:durationLimit}).ok).sort((a,b)=>a-b);
   const cumulative=new Map(); let cursor=0; const sum={speechSeconds:0,actionSeconds:0,transitionSeconds:0};
   cumulative.set(0,{...sum});
   for(const end of options){
@@ -68,13 +69,13 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   const cuts=[];start=0;
   while(start<tape.sourceText.length){
     const remaining=totalFor(start,tape.sourceText.length);
-    if(remaining>0&&remaining<=maxDurationSeconds){cuts.push(tape.sourceText.length);break;}
-    const possible=options.filter(end=>end>start&&end<tape.sourceText.length&&totalFor(start,end)>0&&totalFor(start,end)<=maxDurationSeconds);
+    if(remaining>0&&remaining<=durationLimit){cuts.push(tape.sourceText.length);break;}
+    const possible=options.filter(end=>end>start&&end<tape.sourceText.length&&totalFor(start,end)>0&&totalFor(start,end)<=durationLimit);
     if(!possible.length)return unchanged;
     // Prefer the latest complete turn/action. Completeness outranks the fill
     // ratio; the validator permits short clips only when the next full turn
     // cannot fit, so this cannot manufacture arbitrary five-second clips.
-    const natural=possible.filter(end=>totalFor(start,end)>=maxDurationSeconds-2&&(/[。！？!?；;\n]\s*$/.test(tape.sourceText.slice(start,end))||spans.some(s=>s.end===end)));
+    const natural=possible.filter(end=>totalFor(start,end)>=durationLimit-2&&(/[。！？!?；;\n]\s*$/.test(tape.sourceText.slice(start,end))||spans.some(s=>s.end===end)));
     const end=(natural.length?natural:possible).at(-1);cuts.push(end);start=end;
   }
   const stateAt = offset => {

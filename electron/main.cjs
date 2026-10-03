@@ -125,7 +125,7 @@ ipcMain.handle('ai-chat',async(_,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
  try{const output=await requestText({...payload,signal:controller.signal},{onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
- catch(error){if(payload.resultEnvelope)return {ok:false,error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
+ catch(error){if(payload.resultEnvelope)return {ok:false,code:error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
  finally{if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');

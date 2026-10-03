@@ -77,7 +77,7 @@ test('all three clips finish and publish when the third has mixed OS and sound-r
   assert.deepEqual(f.calls, ['plan', 'whole-scene', 'audit']);
   assert.equal(f.progress.length, 3);
   assert.equal(f.commits.length, 1);
-  assert.equal(run.processingVersion, 6);
+  assert.equal(run.processingVersion, 7);
   const third = run.segmentDrafts[run.plan.segments[2].id];
   assert.equal(third.validated, true);
   assert.deepEqual(third.localRepairs, ['DIALOGUE_MODE_CHANGED', 'MISSING_DIALOGUE_CONTINUATION']);
@@ -126,7 +126,7 @@ test('same-version rejected paid draft repairs shot percentages locally without 
   await restored.controller.restore();
   const done = await restored.controller.resume(saved.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 6);
+  assert.equal(done.processingVersion, 7);
   assert.deepEqual(restored.calls, ['audit']);
   assert.deepEqual(done.plan, complete.plan);
   assert.deepEqual(done.promptIds, complete.promptIds);

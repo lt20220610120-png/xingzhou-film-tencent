@@ -4,14 +4,14 @@ import {createDirectorBatchPlan,createDirectorBatchController} from './directorB
 import {createQuickGenerationController} from './directorQuickGeneration.js';
 import {commitQuickSceneRun,directorSceneInput} from './directorQuickStore.js';
 
-function fixture(){
+function fixture({skillHook}={}){
  let state={accountId:'a',skills:[{id:'s',name:'generic',content:'生成编号提示词'}],apiProfiles:[{id:'m',model:'mock',apiKey:'must-not-persist'}],directorProjects:[{id:'p',name:'测试全剧',style:'真人电影集',aspectRatio:'9:16',episodes:[
  {id:'setting',kind:'setting',title:'设定和小传',content:'背景'},
  {id:'e1',title:'第1集',content:'1-1 景：房间 夜 内\n甲：我来关灯。\n1-2 景：走廊 夜 内\n乙：我先走了。'},
  {id:'e2',title:'第2集',content:''},
  {id:'e3',title:'第3集',content:'3-1 景：房间 日 内\n甲：我回来了。'},
  ]}]};
- const records=new Map(),calls=[];let failScene='',waitRequest=null,waitAllRequests=null,activeSkills=0,maxActiveSkills=0;
+ const records=new Map(),calls=[];let failScene='',failCode='',waitRequest=null,waitAllRequests=null,activeSkills=0,maxActiveSkills=0;
  const checkpoints={save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>structuredClone(records.get(runId)),list:async()=>[...records.values()].map(x=>structuredClone(x))};
  const getContext=target=>{const project=state.directorProjects.find(p=>p.id===target.projectId),episode=project.episodes.find(e=>e.id===target.episodeId);return {accountId:state.accountId,project,episode,inputText:directorSceneInput(project,episode,target.sceneLabel),skill:state.skills[0],profile:state.apiProfiles[0],permissions:{canGenerate:true}};};
  const makeScene=()=>createQuickGenerationController({getContext,checkpoints,groundedTiming:true,executeText:async payload=>{
@@ -24,15 +24,56 @@ function fixture(){
    try{
     if(waitAllRequests)await waitAllRequests;
     if(waitRequest){const pending=waitRequest;waitRequest=null;await pending;}
-    if(failScene===payload.snapshot.sceneLabel)throw new Error('模拟断网');
+    const override=await skillHook?.(payload);if(override!==undefined)return override;
+    if(failScene===payload.snapshot.sceneLabel)throw Object.assign(new Error('模拟断网'),{code:failCode||'FAILED'});
     return payload.expectedLabels.map(label=>`${label}\n正常镜头与原台词。`).join('\n\n');
    }finally{activeSkills--;}
  },commitRun:async run=>{const result=commitQuickSceneRun(state,run);state=result.state;return result;}});
  const scene=makeScene();
  const deps={sceneController:scene,checkpoints,getContext};
  const batch=createDirectorBatchController(deps);
- return {batch,scene,deps,records,calls,makeScene,get state(){return state;},get maxActiveSkills(){return maxActiveSkills;},setFailure:label=>{failScene=label;},waitOn:promise=>{waitRequest=promise;},waitAllOn:promise=>{waitAllRequests=promise;},changeAccount:()=>{state.accountId='other';},plan:opts=>createDirectorBatchPlan({accountId:state.accountId,project:state.directorProjects[0],skill:state.skills[0],profile:state.apiProfiles[0],maxDurationSeconds:30,...opts})};
+ return {batch,scene,deps,records,calls,makeScene,get state(){return state;},get maxActiveSkills(){return maxActiveSkills;},setFailure:(label,code='')=>{failScene=label;failCode=code;},waitOn:promise=>{waitRequest=promise;},waitAllOn:promise=>{waitAllRequests=promise;},changeAccount:()=>{state.accountId='other';},plan:opts=>createDirectorBatchPlan({accountId:state.accountId,project:state.directorProjects[0],skill:state.skills[0],profile:state.apiProfiles[0],maxDurationSeconds:30,...opts})};
 }
+
+test('exhausted gateway throttling pauses remaining work and resume preserves interruption history', async () => {
+ const f=fixture();f.setFailure('1-1','RATE_LIMITED');
+ const paused=await f.batch.start(await f.plan({concurrency:1}));
+ assert.equal(paused.phase,'paused');
+ assert.equal(paused.targets[1].status,'pending');
+ assert.equal(f.calls.some(call=>call.scene==='1-2'),false);
+ f.setFailure('');const done=await f.batch.resume(paused.id);
+ assert.equal(done.phase,'completed');
+ assert.equal(done.errors.length,0);
+ assert.ok(done.errorHistory.some(entry=>entry.code==='RATE_LIMITED'&&entry.sceneLabel==='1-1'));
+});
+
+test('one scene exhausting its gateway allowance drains other paid concurrent replies before pausing', async () => {
+ for(const partial of [false,true]){
+  let rejectRate,settleOther,hold=true;
+  const paid='1-2-1\n已付费的另一场正文。';
+  const f=fixture({skillHook:async payload=>{
+   if(!hold)return;
+   if(payload.snapshot.sceneLabel==='1-1')return new Promise((_,reject)=>{rejectRate=reject;});
+   if(payload.snapshot.sceneLabel==='1-2')return new Promise((resolve,reject)=>{settleOther=()=>partial?reject(Object.assign(new Error('输出被截断'),{partialText:paid})):resolve(paid);});
+  }});
+  const task=f.batch.start(await f.plan({concurrency:2}));
+  await until(()=>rejectRate&&settleOther);
+  rejectRate(Object.assign(new Error('号池限流等待耗尽'),{code:'RATE_LIMITED'}));
+  await until(()=>f.batch.entries()[0].phase==='pausing');
+  settleOther();const paused=await task;
+  assert.equal(paused.phase,'paused');
+  assert.equal(paused.targets[2].status,'pending');
+  const other=f.scene.get(paused.targets[1].sceneRunId);
+  assert.equal(other.wholeSceneResponses[0]?.output,paid,'a different scene must retain its billed response while rate-limited work pauses');
+  assert.equal(other.wholeSceneResponses[0].complete,!partial);
+  assert.equal(f.calls.filter(call=>call.kind==='skill'&&call.scene==='1-2').length,1);
+  if(!partial){
+   hold=false;const done=await f.batch.resume(paused.id);
+   assert.equal(done.phase,'completed');
+   assert.equal(f.calls.filter(call=>call.kind==='skill'&&call.scene==='1-2').length,1,'complete paid reply must not be generated again on continuation');
+  }
+ }
+});
 
 async function until(predicate){for(let i=0;i<300&&!predicate();i++)await new Promise(resolve=>setTimeout(resolve,2));assert.ok(predicate(),'expected asynchronous work to reach its checkpoint');}
 

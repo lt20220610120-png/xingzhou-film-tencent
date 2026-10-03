@@ -127,7 +127,16 @@ async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgre
     }else raw=await response.text();
     if (!response.ok) {
       let data; try { data = JSON.parse(raw); } catch {}
-      throw new Error(data?.error?.message || `接口请求失败（HTTP ${response.status}），请检查地址、协议和模型权限。`);
+      const retryAfter = response.headers?.get?.('retry-after');
+      let retryAfterMs;
+      if (retryAfter != null && retryAfter.trim()) {
+        const seconds = Number(retryAfter);
+        const milliseconds = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
+        if (Number.isFinite(milliseconds)) retryAfterMs = Math.max(0, milliseconds);
+      }
+      throw Object.assign(new Error(data?.error?.message || `接口请求失败（HTTP ${response.status}），请检查地址、协议和模型权限。`), {
+        httpStatus: response.status, providerCode: data?.error?.code, providerType: data?.error?.type, retryAfterMs,
+      });
     }
     return parseResponse(raw);
   } catch (error) {

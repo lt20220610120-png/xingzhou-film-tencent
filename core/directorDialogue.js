@@ -9,6 +9,10 @@ const CAST_HEADER = /^(?:人|人物|角色|出场人物|出场角色)[\t ]*[：:
 // cast entries still take precedence when a real actor has such a name.
 const SPEECH_FIELD_LABEL = /(?:任务|奖励|条件|后果|结果|目标|提示|原因|说明|状态|时间|地点|属性|声望|等级|进度|数量|答案|指令|限制|建议|名称|编号|要求|内容|规则|密码|别名)$/u;
 const quotePairs = new Map([['“', '”'], ['『', '』'], ['「', '」'], ['‘', '’'], ['"', '"']]);
+// Imported scripts also use plain third-person action lines. Only a known
+// actor followed by an observable action/state can end a spoken continuation;
+// mentioning that actor in a vocative ("魏今朝，你…") remains dialogue.
+const NARRATIVE_AFTER_ACTOR = /^(?:[\t ]*)(?:(?:正在|已经|仍然|仍旧|仍|正|立刻|随后|缓缓|轻轻|猛地|突然|悄悄|慢慢|下意识|不由得|转而|再次|一边)*)(?:抬|低头|低下|抬头|直起|缓步|停|嗤笑|转|回头|侧|站|坐|蹲|躺|走|跑|迈|退|绕|靠|凑|俯|仰|弯|伸|收|放|拿|取|递|接|抓|攥|握|扣|拍|点|摸|揉|擦|拎|掏|脱|穿|捡|扶|压|推|拉|抱|扯|咬|吞|嚼|皱|看|望|瞥|盯|瞪|闭|睁|摇|笑|哭|叹|呼|吸|屏|打量|整理|把|将|用|手上|手中|脸上|脸色|眼神|目光|嘴唇|喉结|肩膀|身体|身形|双手|的(?:手|目光|眼神|脸|嘴|肩|身|胸|呼吸))/u;
 
 const insideQuoted = (text, end) => {
   const stack = [];
@@ -18,6 +22,7 @@ const insideQuoted = (text, end) => {
   }
   return stack.length > 0;
 };
+export const isDirectorQuotedAt = insideQuoted;
 
 export const normalizeDialogueMode = mode => {
   const text = String(mode || '').replace(/\s+/gu, '');
@@ -62,6 +67,30 @@ const literalRange = (source, start, end) => {
   return { start, end };
 };
 
+const knownActorNames = text => new Set([
+  ...text.split('\n').flatMap(line => (line.trim().match(CAST_HEADER)?.[1] || '').split(/[、,，;；]/u).map(name => parseHeader(name.trim()).speaker)),
+  ...text.split('\n').flatMap(line => [...line.matchAll(SPEAKER_HEADER)].filter(match => !line.slice(0, match.index).trim() && !ACTION_START.test(line.trim())).map(match => parseHeader(match[1]).speaker)),
+].filter(name => name && !METADATA_LABELS.has(name) && !SPEECH_FIELD_LABEL.test(name)));
+const unmarkedAction = (line, actors) => [...actors].some(actor => line.startsWith(actor) && NARRATIVE_AFTER_ACTOR.test(line.slice(actor.length)));
+// A wrapped utterance may itself describe somebody's action. Without an
+// explicit action marker, only a completed sentence permits that new boundary.
+const unfinishedSpeech = active => active && !/[。！？!?…\.]\s*[”』」’"]?\s*$/u.test(active.speech);
+
+export const unmarkedDirectorActionRanges = source => {
+  const text=String(source || ''),actors=knownActorNames(text),ranges=[];
+  const spokenRanges=parseDirectorDialogues(text).flatMap(row=>row.ranges);
+  let offset=0;
+  for(const line of text.split('\n')){
+    const trimmed=line.trim();
+    if(trimmed && unmarkedAction(trimmed,actors) && !insideQuoted(text,offset) && !spokenRanges.some(range=>range.start<offset+line.length&&range.end>offset)){
+      const start=offset+line.indexOf(trimmed);
+      ranges.push({start,end:start+trimmed.length});
+    }
+    offset+=line.length+1;
+  }
+  return ranges;
+};
+
 export const parseDirectorDialogues = source => {
   const text = typeof source === 'string' ? source : String(source?.text || '');
   const castSpeakers = new Set(text.split('\n').flatMap(line => {
@@ -70,6 +99,7 @@ export const parseDirectorDialogues = source => {
     return names.split(/[、,，;；]/u).map(name => parseHeader(name.trim()).speaker).filter(Boolean);
   }));
   const dialogues = [];
+  const actors=knownActorNames(text);
   let active = null;
   let lineStart = 0;
   for (const line of text.split('\n')) {
@@ -96,7 +126,7 @@ export const parseDirectorDialogues = source => {
         dialogues.push(row);
         active = action < 0 ? row : null;
       });
-    } else if (ACTION_START.test(trimmed)) {
+    } else if (ACTION_START.test(trimmed) || (!insideQuoted(text,lineStart) && ((unmarkedAction(trimmed,actors) && !unfinishedSpeech(active)) || /^(?:<!--|-->|```(?:\w+)?)\s*$/u.test(trimmed)))) {
       active = null;
     } else if (active) {
       const range = literalRange(text, lineStart, lineStart + line.length);

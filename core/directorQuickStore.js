@@ -3,7 +3,7 @@ import {parseDirectorScenes,parseMasterScript} from './scriptImport.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
 import {buildSceneSourceTape,NONFINAL_DURATION_RATIO,estimateSegmentSeconds} from './directorSegmentation.js';
 import {directorSpeechBoundary,completeDialogueNeedsNextClip} from './directorSpeechBoundaries.js';
-import {validWholeSceneCompression} from './directorDurationPolicy.js';
+import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDirectorDurationLimit} from './directorDurationPolicy.js';
 import {validateDirectorSegmentTiming} from './directorTiming.js';
 export {markPromptTimingStale} from './promptTiming.js';
 
@@ -62,7 +62,7 @@ export function directorSettingsHash({project,episode,maxDurationSeconds}) {
 
 function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationSeconds,skill,profile}) {
   if(!accountId || !project?.id || !episode?.id || !sceneLabel || !skill?.id || !profile?.id)throw new Error('场景目标、账号、Skill 或模型配置已不存在');
-  if(!Number.isInteger(maxDurationSeconds) || maxDurationSeconds<1 || maxDurationSeconds>30)throw new Error('最高视频时长必须是1～30的整数秒');
+  assertDirectorDurationSelection(maxDurationSeconds);
   if(inputText == null)throw new Error('场景原文已不存在');
   const sourceSnapshot=String(inputText),style=project.style || '',aspectRatio=project.aspectRatio || '',settingText=directorSettingText(project),rulesVersion=1;
   return {
@@ -110,18 +110,19 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(typeof plan.sourceText!=='string' || typeof plan.sceneHeader!=='string')return fail(state,'分段原文带不完整');
   const tape=buildSceneSourceTape(snapshot.sourceSnapshot);
   if(plan.sourceText!==tape.sourceText || plan.sceneHeader!==tape.sceneHeader)return fail(state,'分段正文与固定原文不匹配，不能发布改写后的计划');
+  const durationLimit=effectiveDirectorDurationLimit(snapshot.maxDurationSeconds);
   const segmentIds=new Set();let end=0;
   for(const [i,segment] of plan.segments.entries()){
     const draft=run.segmentDrafts?.[segment.id];
     const timingTotal=segment.timing?(()=>{try{return estimateSegmentSeconds(segment.timing);}catch{return NaN;}})():segment.estimatedSeconds;
     const compressed=validWholeSceneCompression(segment,{maxDurationSeconds:snapshot.maxDurationSeconds,sourceLength:plan.sourceText.length,segmentCount:plan.segments.length,naturalEstimatedSeconds:timingTotal});
-    if(!directorSpeechBoundary({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,maxDurationSeconds:snapshot.maxDurationSeconds}).ok)return fail(state,'分段计划截断了完整台词，草稿保留，请重新划分');
+    if(!directorSpeechBoundary({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,maxDurationSeconds:durationLimit}).ok)return fail(state,'分段计划截断了完整台词，草稿保留，请重新划分');
     if((segment.durationCompression||segment.naturalEstimatedSeconds!==undefined)&&!compressed)return fail(state,'整场压缩时长标记不符合30秒目标与30～35秒自然估时限制');
     if(compressed&&!validateDirectorSegmentTiming({sourceText:plan.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd,timing:segment.timing,maxDurationSeconds:snapshot.maxDurationSeconds,segmentIndex:i+1,wholeSceneCompression:true}).ok)return fail(state,'整场压缩仍须保留全部口播原字和自然估时，不能低报台词时长');
     if(!segment.id || segmentIds.has(segment.id) || segment.index!==i+1 || segment.sourceStart!==end || !Number.isInteger(segment.sourceEnd) || segment.sourceEnd<=end || segment.sourceEnd>plan.sourceText.length
-      || !(segment.estimatedSeconds>0) || !Number.isFinite(segment.estimatedSeconds) || segment.estimatedSeconds>snapshot.maxDurationSeconds
-      || (i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(snapshot.maxDurationSeconds*NONFINAL_DURATION_RATIO)
-        && !completeDialogueNeedsNextClip({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,estimatedSeconds:segment.estimatedSeconds,maxDurationSeconds:snapshot.maxDurationSeconds}))
+      || !(segment.estimatedSeconds>0) || !Number.isFinite(segment.estimatedSeconds) || segment.estimatedSeconds>durationLimit
+      || (i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(durationLimit*NONFINAL_DURATION_RATIO)
+        && !completeDialogueNeedsNextClip({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,estimatedSeconds:segment.estimatedSeconds,maxDurationSeconds:durationLimit}))
       || (segment.timing && (!Number.isFinite(timingTotal) || (!compressed && timingTotal!==segment.estimatedSeconds)))
       || segment.recommendedDurationSeconds!==Math.ceil(segment.estimatedSeconds) || (!partial && !draft?.validated)
       || (draft?.validated && (draft.prompt?.label!==`${snapshot.sceneLabel}-${i+1}` || !String(draft.prompt?.content || '').trim())))return fail(state,'分段草稿尚未完整校验，不能发布部分结果');

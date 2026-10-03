@@ -85,6 +85,51 @@ test('same-partition legacy resume keeps the published plan immutable and commit
   assert.equal(project.promptHistory.length, 2);
 });
 
+test('version 6 complete paid drafts retain a legal published partition after dialogue parsing improves', async () => {
+  const source = `1-1 景：屋内 日 内\n甲：${'甲'.repeat(80)}。\n乙：${'乙'.repeat(40)}。`;
+  const f = fixture(source, null), legacy = await seedPartial(f, source, [30, 10]);
+  legacy.processingVersion = 6;
+  legacy.segmentDrafts[legacy.plan.segments[1].id] = { prompt: { label: '1-1-2', content: '1-1-2\n已付费保存的后一条。' }, validated: false };
+  f.records.set(legacy.id, structuredClone(legacy));
+  await f.controller.restore();const done = await f.controller.resume(legacy.id);
+  assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
+  assert.deepEqual(f.calls, ['audit']);
+  assert.deepEqual(done.plan, legacy.plan);
+  assert.deepEqual(done.promptIds, legacy.promptIds);
+  assert.equal(f.state.directorProjects[0].episodes[0].prompts.length, 2);
+});
+
+test('version 6 format-marker recovery reuses matching paid speech with fresh plan provenance', async () => {
+  const source = '1-1 景：房间 日 内\n甲：好。\n-->';
+  const f = fixture(source, null), legacy = await seedPartial(f, source, [2]);
+  legacy.processingVersion = 6;
+  legacy.plan.sourceText += '\n-->';
+  f.records.set(legacy.id, structuredClone(legacy));
+  await f.controller.restore();const done = await f.controller.resume(legacy.id);
+  assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
+  assert.deepEqual(f.calls, ['audit']);
+  assert.notEqual(done.plan.id, legacy.plan.id);
+  assert.equal(done.segmentDrafts[done.plan.segments[0].id].prompt.content, legacy.segmentDrafts[legacy.plan.segments[0].id].prompt.content);
+  assert.ok(f.state.directorProjects[0].episodes[0].prompts.some(prompt => prompt.id === 'paid-1'));
+});
+
+test('format-marker migration preserves different paid performances at repeated source positions', async () => {
+  const source = `1-1 景：屋内 日 内\n甲：${'甲'.repeat(120)}。\n乙：${'乙'.repeat(120)}。\n甲：${'甲'.repeat(120)}。\n-->`;
+  const f=fixture(source,null),legacy=await seedPartial(f,source,[30,30,30]);
+  legacy.processingVersion=6;
+  legacy.plan.sourceText+='\n-->';
+  const outputs=['原场景第一处，甲站在门边。','原场景第二处，乙站在窗边。','原场景第三处，甲已经走到桌边。'];
+  legacy.plan.segments.forEach((segment,index)=>{
+    legacy.segmentDrafts[segment.id]={prompt:{label:`1-1-${index+1}`,content:`1-1-${index+1}\n${outputs[index]}`},validated:false};
+  });
+  f.records.set(legacy.id,structuredClone(legacy));
+  await f.controller.restore();const done=await f.controller.resume(legacy.id);
+  assert.equal(done.phase,'completed',JSON.stringify(done.errors));
+  assert.deepEqual(f.calls,['audit']);
+  assert.equal(done.plan.segments.length,3);
+  done.plan.segments.forEach((segment,index)=>assert.equal(done.segmentDrafts[segment.id].prompt.content,`1-1-${index+1}\n${outputs[index]}`));
+});
+
 test('a shorter legacy scene gets a fresh merged plan ID while preserving its previous paid card and plan history', async () => {
   const source = `1-1 景：屋内 日 内\n甲：${'甲'.repeat(40)}。\n乙：${'乙'.repeat(40)}。`;
   const tape = buildSceneSourceTape(source);
@@ -115,7 +160,7 @@ test('version 4 unfinished 30-plus-short-tail plan upgrades to the authorized si
   const paid = structuredClone(f.state.directorProjects[0].episodes[0].prompts[0]);
   await f.controller.restore(); const done = await f.controller.resume(legacy.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 6);
+  assert.equal(done.processingVersion, 7);
   assert.equal(done.plan.segments.length, 1);
   assert.equal(done.plan.segments[0].recommendedDurationSeconds, 30);
   assert.equal(done.plan.segments[0].naturalEstimatedSeconds, 32.5);
@@ -159,7 +204,7 @@ test('version 4 interrupted 15-second plan cannot reuse a half-sentence boundary
   f.records.set(run.id, run);
   await f.controller.restore(); const done = await f.controller.resume(run.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 6);
+  assert.equal(done.processingVersion, 7);
   assert.equal(done.plan.segments.length, 2);
   assert.equal(done.plan.segments[0].sourceEnd, tape.units[0].end);
   assert.equal(tape.sourceText.slice(done.plan.segments[1].sourceStart, done.plan.segments[1].sourceEnd), `乙：${finalSpeech}`);

@@ -15,6 +15,8 @@
   align-self:stretch;
   border-color:var(--brand-line)!important;
   border-radius:12px;
+  background:#fff;
+  box-shadow:var(--brand-panel-shadow);
 }
 .director-stage .quick-scene-card {
   height:100%;
@@ -130,7 +132,7 @@
 }
 .director-batch-settings button { min-height:36px; }
 
-/* A single art-configuration rack, rather than a stack of unrelated cards. */
+/* Art settings and script reading use separate white cards. */
 .collab-info.art-analysis-info {
   --art-ink:var(--brand-ink);
   --art-accent:var(--brand-accent);
@@ -147,8 +149,8 @@
   gap:0;
   border:1px solid var(--art-border);
   border-radius:12px;
-  background:var(--brand-subtle);
-  box-shadow:none;
+  background:#fff;
+  box-shadow:var(--brand-panel-shadow);
   color:var(--art-ink);
   overflow:auto;
   scrollbar-gutter:stable;
@@ -172,14 +174,14 @@
   padding:8px 4px;
   min-height:36px;
   border:1px solid var(--art-border);
-  border-radius:7px;
+  border-radius:999px;
   color:var(--art-muted);
   background:#fff;
   font-size:12px;
   white-space:nowrap;
   box-shadow:none;
 }
-.art-analysis-info .style-chip.active { color:#fff; background:var(--art-accent); border-color:var(--art-accent); box-shadow:none; }
+.art-analysis-info .style-chip.active { color:var(--brand-text); background:var(--brand-selected); border-color:var(--brand-line-strong); box-shadow:none; }
 .art-analysis-info .collab-genre-input {
   display:block;
   width:100%;
@@ -233,7 +235,7 @@
 .art-analysis-info .collab-notice summary { cursor:pointer; }
 .art-analysis-info .collab-notice ul { margin:8px 0 0; padding-left:16px; }
 .art-analysis-info .collab-error { margin:8px 0 0; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
-.art-analysis-info .collab-info-script { border:1px solid var(--art-border); border-radius:12px; background:#fff; overflow:hidden; }
+.art-analysis-info .collab-info-script { border:1px solid var(--art-border); border-radius:12px; background:#fff; box-shadow:var(--brand-panel-shadow); overflow:hidden; }
 .art-analysis-info .collab-info-script>.collab-panel-title { flex:0 0 auto; padding:14px 18px; margin:0; border-bottom:1px solid var(--art-border); font-size:14px; min-height:65px; flex-wrap:wrap; }
 .art-analysis-info .art-script-edit-status { color:var(--art-muted); font-size:11px; font-weight:400; margin-left:3px; }
 .art-analysis-info .collab-save-script { min-height:35px; padding:7px 11px; border:1px solid var(--art-border); border-radius:7px; font-size:12px; background:#fff; color:var(--art-accent); }
@@ -313,8 +315,8 @@
   box-shadow:none;
 }
 .director-workspace-toolbar .mode-switch button.active {
-  color:#fff;
-  background:var(--brand-accent);
+  color:var(--brand-text);
+  background:var(--brand-selected);
   box-shadow:none;
 }
 .director-workspace-toolbar .editor-head-actions {
@@ -375,6 +377,7 @@
   border:1px solid var(--brand-line);
   border-radius:10px;
   background:#fff;
+  box-shadow:var(--brand-panel-shadow);
 }
 .director-config-rack .window-model-select {
   gap:7px;
@@ -408,7 +411,7 @@
 }
 .director-config-rack .style-bar-label { grid-column:1/-1; gap:5px; color:var(--brand-muted); font-size:12px; font-weight:400; line-height:18px; }
 .director-config-rack .style-bar-label svg { color:var(--brand-muted); width:14px; height:14px; }
-.director-config-rack .style-bar-group { display:flex; align-items:center; flex-wrap:nowrap; gap:0; min-width:0; }
+.director-config-rack .style-bar-group { display:flex; align-items:center; flex-wrap:wrap; gap:7px; min-width:0; }
 .director-config-rack .style-bar-group>span { margin-right:8px; flex:0 0 auto; font-size:11px; color:var(--brand-muted); }
 .director-stage .director-config-rack .style-chip {
   min-width:0;
@@ -417,7 +420,7 @@
   margin:0;
   padding:0 11px;
   border:1px solid var(--brand-line);
-  border-radius:0;
+  border-radius:999px;
   background:#fff;
   color:var(--brand-muted);
   font-size:12px;
@@ -426,12 +429,9 @@
   white-space:nowrap;
   box-shadow:none;
 }
-.director-config-rack .style-chip+.style-chip { border-left:0; }
-.director-config-rack .style-chip:nth-child(2) { border-radius:7px 0 0 7px; }
-.director-config-rack .style-chip:last-child { border-radius:0 7px 7px 0; }
-.director-stage .director-config-rack .style-chip.active { background:var(--brand-accent); border-color:var(--brand-accent); color:#fff; box-shadow:none; }
+.director-stage .director-config-rack .style-chip.active { background:var(--brand-selected); border-color:var(--brand-line-strong); color:var(--brand-text); box-shadow:none; }
 .director-config-rack .style-bar-hint { grid-column:1/-1; width:auto; margin:0; color:var(--brand-muted); font-size:11px; line-height:1.45; }
-.director-stage .director-batch-panel { padding:12px 16px; border:1px solid var(--brand-line); border-radius:10px; background:#fff; }
+.director-stage .director-batch-panel { padding:12px 16px; border:1px solid var(--brand-line); border-radius:10px; background:#fff; box-shadow:var(--brand-panel-shadow); }
 .director-stage .director-batch-panel>.director-batch-heading { gap:14px; flex-wrap:wrap; }
 .director-batch-purpose { flex:1 1 200px; min-width:0; }
 .director-batch-purpose strong { font-size:14px; color:var(--brand-ink); }
@@ -468,9 +468,10 @@
   background:#fff;
   color:var(--brand-ink);
   text-align:left;
-  box-shadow:none;
+  box-shadow:0 2px 6px #24304408;
 }
-.director-stage .director-scene-strip .quick-scene-item.active { background:var(--brand-subtle); border-color:var(--brand-line-strong); color:var(--brand-text); box-shadow:inset 3px 0 var(--brand-accent); }
+.director-stage .director-scene-strip .quick-scene-item:hover { border-color:var(--brand-line-strong); }
+.director-stage .director-scene-strip .quick-scene-item.active { background:var(--brand-selected); border-color:var(--brand-line-strong); color:var(--brand-text); box-shadow:inset 3px 0 var(--brand-accent),0 2px 6px #4534610b; }
 .director-scene-strip .scene-item-label { font-size:13px; margin-bottom:5px; }
 .director-scene-strip .quick-scene-item small { color:var(--brand-muted); white-space:nowrap; font-size:11px; line-height:1.5; overflow:hidden; text-overflow:ellipsis; }
 .director-stage :is(.director-workspace-toolbar,.director-config-rack,.director-batch-panel,.director-scene-strip) :is(button,select):focus-visible { outline:2px solid var(--brand-accent); outline-offset:3px; }

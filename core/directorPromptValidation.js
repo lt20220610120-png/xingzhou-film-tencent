@@ -1,5 +1,5 @@
 import { parseStructuredJson } from './directorSegmentation.js';
-import { sourceDialogues, normalizeDialogueText, normalizeDialogueMode } from './directorDialogue.js';
+import { sourceDialogues, normalizeDialogueText, normalizeDialogueMode, unmarkedDirectorActionRanges } from './directorDialogue.js';
 
 const SECTIONS = ['基础设定', '整体视听', '连续台词', '画面内容', '人物起止与运动轨迹'];
 const SHOT_FIELDS = ['景别', '机位', '运镜', '表演与动作', '光影', '声音'];
@@ -74,7 +74,7 @@ const dialogueDeclarations = block => {
     // collect every explicitly named shot as well so continuation checks cover
     // the actual local shots.
     for (const match of reference.matchAll(/分镜\s*(\d+)/gu)) refs.add(Number(match[1]));
-    declarations.push({ number: parsed.number, speaker: parsed.speaker.trim(), mode: parsed.mode.trim(), speech, refs: [...refs], referencePrefix: parsed.referencePrefix });
+    declarations.push({ number: parsed.number, speaker: parsed.speaker.trim(), mode: parsed.mode.trim(), speech, literal: parsed.literal, opening: parsed.opening, closing: parsed.closing, refs: [...refs], referencePrefix: parsed.referencePrefix });
   }
   return { declarations, invalid };
 };
@@ -225,6 +225,7 @@ export const validateAndRepairGeneratedSegment = options => {
   let checked = validateGeneratedSegment(options);
   const repairs = [];
   for (const [code, repair] of [
+    ['DIALOGUE_TEXT_CHANGED', repairGeneratedNarrativeInDialogue],
     ['DIALOGUE_MODE_CHANGED', repairGeneratedDialogueModes],
     ['MISSING_DIALOGUE_CONTINUATION', repairGeneratedDialogueContinuations],
     ['INVALID_SHOT_WEIGHTS', repairGeneratedShotWeights],
@@ -237,6 +238,33 @@ export const validateAndRepairGeneratedSegment = options => {
     checked = validateGeneratedSegment({ ...options, output });
   }
   return { ...checked, output, repairs };
+};
+
+// A legacy parser included plain third-person action lines in spoken ranges.
+// Remove only exact, newline-separated source action lines, and only when all
+// remaining words and speaker assignments match the original in full. Visual
+// staging remains untouched and is still checked in the scene semantic audit.
+export const repairGeneratedNarrativeInDialogue = ({ output, source = '' }) => {
+  if (typeof output !== 'string') return output;
+  const fullSource = typeof source === 'string' ? source : source?.sourceText || source?.text || '';
+  const rangeStart = typeof source === 'object' ? source.sourceStart ?? 0 : 0;
+  const rangeEnd = typeof source === 'object' ? source.sourceEnd ?? fullSource.length : fullSource.length;
+  const actions = new Set(unmarkedDirectorActionRanges(fullSource).filter(range => range.start >= rangeStart && range.end <= rangeEnd).map(range => fullSource.slice(range.start, range.end)));
+  if (!actions.size) return output;
+  const start = output.indexOf('【连续台词】'), end = output.indexOf('【画面内容】', start);
+  if (start < 0 || end <= start) return output;
+  const block = output.slice(start, end), parsed = dialogueDeclarations(block.slice('【连续台词】'.length));
+  if (parsed.invalid.length || parsed.declarations.some((row, index) => row.number !== index + 1)) return output;
+  const repaired = parsed.declarations.map(row => ({ ...row, speech: row.speech.split('\n').filter((line, index) => index === 0 || !actions.has(line.trim())).join('\n') }));
+  const assigned = rows => rows.flatMap(row => [...normalizeDialogueText(row.speech)].map(character => ({ character, speaker: compact(row.speaker) })));
+  const original = assigned(sourceDialogues(source)), actual = assigned(repaired);
+  if (!original.length || original.length !== actual.length || !original.every((row, index) => row.character === actual[index].character && row.speaker === actual[index].speaker)) return output;
+  const byNumber = new Map(repaired.map(row => [row.number, row]));
+  const replacement = block.replace(/^D\s*(\d+)\s*[｜|][\s\S]*?(?=^D\s*\d+\s*[｜|]|(?![\s\S]))/gmu, (chunk, number) => {
+    const row = byNumber.get(Number(number));
+    return row ? chunk.replace(row.literal, `${row.opening}${row.speech}${row.closing}`) : chunk;
+  });
+  return output.slice(0, start) + replacement + output.slice(end);
 };
 
 export const repairGeneratedShotWeights = ({ output }) => {

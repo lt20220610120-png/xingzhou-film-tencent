@@ -1,3 +1,12 @@
+export const assertDirectorDurationSelection = value => {
+  if (!Number.isInteger(value) || value < 0 || value > 35) throw new Error('最高视频时长必须为 0～35 的整数秒，0 表示自动估算（单条最高35秒）');
+  return value;
+};
+
+export const effectiveDirectorDurationLimit = value => assertDirectorDurationSelection(value) === 0 ? 35 : value;
+
+export const normalizeDirectorDurationSelection = (value, fallback = 30) => Number.isInteger(value) && value >= 0 && value <= 35 ? value : fallback;
+
 // Explicit user-authorized editorial exception, not a general higher cap.
 // Keep natural timing intact so a 33-second rehearsal is never represented as
 // a natural 30-second performance. The requested video target remains 30.

@@ -285,7 +285,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const currentVision = currentScene ? getSceneVision(episode, currentScene) : '';
   const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-quick-settings:${accountId}:${project.id}`,JSON.stringify({segmentationMode:'manual',maxDurationSeconds:30}));
   let quickSettings;try{quickSettings=JSON.parse(settingsJson);}catch{quickSettings={};}
-  quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=1&&quickSettings.maxDurationSeconds<=30?quickSettings.maxDurationSeconds:30};
+  quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=0&&quickSettings.maxDurationSeconds<=35?quickSettings.maxDurationSeconds:30};
   const [sourceView,setSourceView]=useState('source');
   const manualOutputKey = sceneLabel => `xz-director-manual-output:${accountId}:${project.id}:${episode.id}:${sceneLabel}`;
   const [manualOutputRevision,setManualOutputRevision]=useState(0);

@@ -1,8 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDirectorDialogues, sourceDialogues, countDialogueCharacters, normalizeDialogueText, normalizeDialogueMode } from './directorDialogue.js';
+import { parseDirectorDialogues, sourceDialogues, countDialogueCharacters, normalizeDialogueText, normalizeDialogueMode, unmarkedDirectorActionRanges } from './directorDialogue.js';
 
 const plain = rows => rows.map(({ speaker, speech, mode }) => ({ speaker, speech, mode }));
+
+test('unquoted unfinished speech retains an actor-action continuation in both dialogue and timing facts', () => {
+  for (const opening of ['我跟你解释过，', '我已经说过', '理由是：']) {
+    const source = `人：甲、魏今朝\n甲：${opening}\n魏今朝把钥匙拿走了，所以我才进不了门。`;
+    assert.deepEqual(plain(parseDirectorDialogues(source)), [{speaker:'甲', mode:null, speech:`${opening}\n魏今朝把钥匙拿走了，所以我才进不了门。`}]);
+    assert.deepEqual(unmarkedDirectorActionRanges(source), []);
+  }
+});
+
+test('plain actor movements and reactions do not append to the preceding speech', () => {
+  for (const action of ['直起身，看了眼制服。', '缓步绕到对方面前。', '低下头，不敢回答。', '停在门边，回过头。', '嗤笑一声，敲了敲桌子。']) {
+    assert.deepEqual(parseDirectorDialogues(`人：甲、乙\n乙：好。\n甲${action}`).map(row => row.speech), ['好。']);
+  }
+});
 
 test('cast and scene metadata never become spoken text', () => {
   const source = '1-1 景：楼道 清晨 内\n人：林甲、陈乙、系统\n人物：林甲、陈乙\n△陈乙走进楼道。\n林甲（低声）：钥匙在这里。\n△陈乙伸手接过。';
@@ -119,4 +133,28 @@ test('a minor inline speaking role omitted from the cast list remains a real act
     { speaker: '护士', speech: '换药了。', mode: null },
     { speaker: '乙', speech: '好的。', mode: null },
   ]);
+});
+
+test('unmarked actor actions stop dialogue without becoming speech or losing genuine continuation', () => {
+  const source = '人：魏今朝、怀亚特\n怀亚特：又有人抢地盘？\n怀亚特咬了一口烤肠，朝远处扬扬下巴。\n魏今朝：我知道。\n魏今朝抬手扣住对方下巴。\n怀亚特：听好了，\n魏今朝，你先别走。';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [
+    { speaker: '怀亚特', speech: '又有人抢地盘？', mode: null },
+    { speaker: '魏今朝', speech: '我知道。', mode: null },
+    { speaker: '怀亚特', speech: '听好了，\n魏今朝，你先别走。', mode: null },
+  ]);
+  assert.equal(sourceDialogues({sourceText:source,sourceStart:source.indexOf('怀亚特咬'),sourceEnd:source.indexOf('\n魏今朝：')}).length,0);
+});
+
+test('comment delimiters and unmarked actions by a minor speaking actor never extend prior speech', () => {
+  const source = '林甲：到了。\n护士：等等。\n护士抬手整理衣袖。\n林甲 OS：我先出去。\n-->\n';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [
+    { speaker:'林甲',speech:'到了。',mode:null },
+    { speaker:'护士',speech:'等等。',mode:null },
+    { speaker:'林甲',speech:'我先出去。',mode:'内心VO' },
+  ]);
+});
+
+test('quoted multiline dialogue describing a known actor action remains spoken text', () => {
+  const source='人：甲、魏今朝\n甲：『我看见了，\n魏今朝抬手把门关上。』';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [{speaker:'甲',mode:null,speech:'『我看见了，\n魏今朝抬手把门关上。』'}]);
 });
