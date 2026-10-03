@@ -22,7 +22,7 @@ import {
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble, displayProjectStyle
 } from '../../core/projectStore.js';
 import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterSetting } from '../../core/scriptImport.js';
-import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
+import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, buildWholeSceneSubmission, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
@@ -396,7 +396,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       const sourceText = preamble ? `${preamble}\n\n${inputText}` : inputText;
       // 括号划分提交时段；整场一次预演与一次输出，不拆成独立请求。
       const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId,
-        input: `${sourceText}\n\n【整场提交说明】\n请先通读以上整场戏并完成覆盖所有括号的导演预演，再一次输出全部 ${tasks.length} 条提示词。括号是提交边界，不是重新构想场景的起点。规范编号按原括号对应：${tasks.map(task=>task.label).join('、')}。同场光影基调逐字复用，人物、道具、声音和末首镜连续。`,
+        input: buildWholeSceneSubmission({ sourceText, expectedLabels: tasks.map(task => task.label) }),
         assistantRole: '行舟影视导演提示词助手', requestOptions: {maxOutputTokens:32768} });
       // Keep the paid whole-scene reply even when its numbering needs review.
       const replyKey=manualOutputKey(sceneLabel);

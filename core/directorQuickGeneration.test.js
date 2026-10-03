@@ -80,3 +80,31 @@ test('stopped or account-switched request cannot commit late output',async()=>{
   assert.equal(f.commits.length,0);
   assert.notEqual(f.controller.get(run.id).phase,'completed');
 });
+
+test('compact imported scene submits its full body and both original voices through one whole-scene request', async () => {
+  const inputText='41-2 景：地下室 夜 内人：甲、系统△甲翻开证件。△证件写着名字：林青。甲（嘀咕）：找到了，先收起来。△甲取出手机。甲 OS（盘算）：明天再去看看。';
+  const episode={id:'episode',content:inputText},project={id:'project',episodes:[episode]},skill={id:'skill',content:'生成完整编号提示词'},profile={id:'profile',model:'mock'};
+  const context={accountId:'account',project,episode,skill,profile,inputText,sceneLabel:'41-2',maxDurationSeconds:32};
+  const calls=[],records=new Map();
+  const controller=createQuickGenerationController({groundedTiming:true,getContext:()=>context,
+    checkpoints:{save:async({run})=>records.set(run.id,structuredClone(run)),list:async()=>[...records.values()]},
+    executeText:async({messages})=>{
+      if(messages[0].content.includes('核对'))return '{"ok":true,"issues":[]}';
+      calls.push('plan');
+      const units=JSON.parse(messages[1].content.split('【原文单元与锚点 · JSON 事实资料】\n')[1]);
+      assert.equal(units.map(unit=>unit.text).join(''),inputText.slice(inputText.indexOf('人：')));
+      return JSON.stringify({segments:[{end:{unitId:units.at(-1).id},timing:{speechSeconds:5,actionSeconds:3,overlapSeconds:1,transitionSeconds:0},startState:'证件在手',endState:'取出手机',boundary:'scene-end',visualNotes:[]}]});
+    },
+    executeSkill:async request=>{
+      calls.push('skill');assert.deepEqual(request.expectedLabels,['41-2-1']);
+      assert.ok(request.input.includes('找到了，先收起来。'));assert.ok(request.input.includes('明天再去看看。'));
+      assert.equal(request.beforeUserMessages.length,0);
+      assert.ok(request.input.includes('甲（嘀咕）：找到了，先收起来。'));
+      assert.ok(request.input.includes('甲 OS（盘算）：明天再去看看。'));
+      assert.ok(!request.input.includes('originalDialogues'));
+      return '41-2-1\n完整演出，先收证件，再取手机。';
+    },commitRun:async()=>({applied:true})});
+  const result=await controller.start(context);
+  assert.equal(result.phase,'completed',JSON.stringify(result.errors));
+  assert.deepEqual(calls,['plan','skill']);assert.equal(Object.values(result.segmentDrafts).filter(d=>d.validated).length,1);
+});

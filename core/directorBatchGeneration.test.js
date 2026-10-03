@@ -112,7 +112,8 @@ test('all-scene parallel mode starts every scene before any paid response finish
  assert.deepEqual(f.batch.entries()[0].currentSceneLabels,['1-1','1-2','3-1']);
  for(const call of f.calls.filter(call=>call.kind==='skill')){
   assert.deepEqual(call.expectedLabels,[`${call.scene}-1`]);
-  assert.match(call.input,/（1）/);
+  assert.doesNotMatch(call.input,/^（1）$/m);
+  assert.match(call.input,/没有括号时整场只输出一条/);
  }
  assert.equal(f.state.directorProjects[0].episodes[1].prompts,undefined);
  release();assert.equal((await task).phase,'completed');

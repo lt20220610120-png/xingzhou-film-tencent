@@ -158,3 +158,87 @@ test('quoted multiline dialogue describing a known actor action remains spoken t
   const source='人：甲、魏今朝\n甲：『我看见了，\n魏今朝抬手把门关上。』';
   assert.deepEqual(plain(parseDirectorDialogues(source)), [{speaker:'甲',mode:null,speech:'『我看见了，\n魏今朝抬手把门关上。』'}]);
 });
+
+test('complete speech stops before unmarked movement, silence and speaking reactions', () => {
+  for (const action of [
+    '弗兰克猛地起身，椅子在地毯上拖出刺耳声响。',
+    '弗兰克沉默片刻，端起酒杯又放下。',
+    '亨利快步走到门边，手刚碰上门把，门外忽然传来魏今朝的声音。',
+    '西区马仔乙抢着开口。',
+    '弗兰克冷笑一声。',
+  ]) {
+    const source = `人：弗兰克、亨利、西区马仔乙、魏今朝\n亨利：我知道了。\n${action}\n弗兰克：继续。`;
+    assert.deepEqual(parseDirectorDialogues(source).map(row => row.speech), ['我知道了。', '继续。']);
+    assert.deepEqual(unmarkedDirectorActionRanges(source), [{ start: source.indexOf(action), end: source.indexOf(action) + action.length }]);
+    assert.deepEqual(sourceDialogues({ sourceText: source, sourceStart: source.indexOf(action), sourceEnd: source.indexOf(action) + action.length }), []);
+  }
+});
+
+test('quoted or unfinished utterances preserve the same narrative-looking words', () => {
+  for (const source of [
+    '人：亨利、弗兰克\n亨利：『我亲眼看见。\n弗兰克冷笑一声。』',
+    '人：亨利、弗兰克\n亨利：我亲眼看见，\n弗兰克猛地起身，椅子在地毯上拖出刺耳声响。',
+  ]) {
+    const rows = parseDirectorDialogues(source);
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0].speech.includes('\n弗兰克'));
+    assert.deepEqual(unmarkedDirectorActionRanges(source), []);
+  }
+});
+
+test('inline speaker after Chinese or ASCII ellipsis has independent speech and literal header offsets', () => {
+  for (const punctuation of ['……', '...']) {
+    const source = `人：弗兰克、魏今朝\n弗兰克：先生，他绝对会找麻烦${punctuation}魏今朝（冷笑，拔出袖中剑）：地盘？我来看看。`;
+    const rows = parseDirectorDialogues(source);
+    assert.deepEqual(plain(rows), [
+      { speaker: '弗兰克', mode: null, speech: `先生，他绝对会找麻烦${punctuation}` },
+      { speaker: '魏今朝', mode: null, speech: '地盘？我来看看。' },
+    ]);
+    assert.equal(source.slice(rows[1].headerStart, rows[1].headerEnd), '魏今朝（冷笑，拔出袖中剑）：');
+    for (const row of rows) assert.equal(source.slice(row.speechStart, row.speechEnd), row.speech);
+  }
+  assert.deepEqual(plain(parseDirectorDialogues('甲：他说：“等等……魏今朝：别过来。”名字：老王。')), [
+    { speaker: '甲', mode: null, speech: '他说：“等等……魏今朝：别过来。”名字：老王。' },
+  ]);
+});
+
+test('unparenthesized performance direction resolves a known cast actor without shortening real longer names', () => {
+  const source = '人：巴恩斯、巴恩斯皱眉、巴恩斯的手下\n巴恩斯冷笑：格里芬·瑞文？\n巴恩斯皱眉：不是我。\n巴恩斯的手下：先生。';
+  const rows = parseDirectorDialogues(source);
+  assert.deepEqual(plain(rows), [
+    { speaker: '巴恩斯', mode: null, speech: '格里芬·瑞文？' },
+    { speaker: '巴恩斯皱眉', mode: null, speech: '不是我。' },
+    { speaker: '巴恩斯的手下', mode: null, speech: '先生。' },
+  ]);
+  assert.equal(source.slice(rows[0].headerStart, rows[0].headerEnd), '巴恩斯冷笑：');
+  assert.deepEqual(plain(parseDirectorDialogues('人：巴恩斯\n巴恩斯皱眉：格里芬·瑞文？')), [
+    { speaker: '巴恩斯', mode: null, speech: '格里芬·瑞文？' },
+  ]);
+});
+
+test('compact scene keeps cast, action metadata and marked actions outside inline speech', () => {
+  const source = '人：魏今朝、系统△魏今朝看着名册，名字：格里芬·瑞文。魏今朝（嘀咕）：原话。△魏今朝收起名册。魏今朝 OS（盘算）：另一句原话。';
+  const rows = parseDirectorDialogues(source);
+  assert.deepEqual(plain(rows), [
+    { speaker: '魏今朝', mode: null, speech: '原话。' },
+    { speaker: '魏今朝', mode: '内心VO', speech: '另一句原话。' },
+  ]);
+  assert.equal(source.slice(rows[0].headerStart, rows[0].headerEnd), '魏今朝（嘀咕）：');
+  assert.equal(source.slice(rows[1].headerStart, rows[1].headerEnd), '魏今朝 OS（盘算）：');
+  for (const row of rows) assert.equal(source.slice(row.speechStart, row.speechEnd), row.speech);
+});
+
+test('a quoted continuation containing another speaker header remains one utterance', () => {
+  const source = '人：亨利、魏今朝\n亨利：『我听见了。\n魏今朝：别过来……\n然后门就关上了。』';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [
+    { speaker: '亨利', mode: null, speech: '『我听见了。\n魏今朝：别过来……\n然后门就关上了。』' },
+  ]);
+});
+
+test('a longer known actor in a spoken vocative is not mistaken for the shorter actor action', () => {
+  const source = '人：甲、魏今朝、魏今朝的手下\n甲：听着。\n魏今朝的手下，你先别走。';
+  assert.deepEqual(plain(parseDirectorDialogues(source)), [
+    { speaker: '甲', mode: null, speech: '听着。\n魏今朝的手下，你先别走。' },
+  ]);
+  assert.deepEqual(unmarkedDirectorActionRanges(source), []);
+});

@@ -45,6 +45,16 @@ test('partial commit saves only accepted prompts then final audit promotes the s
  assert.equal(done.state.directorProjects[0].promptHistory.length,2);
  const deleted=deleteDirectorPromptsEverywhere(first.state,'p',['prompt1']);assert.equal(commitQuickSceneRun(deleted,run).applied,false);
 });
+
+test('paid-partition recovery cannot excuse an underfilled new or altered plan',async()=>{
+ const {state,run}=await fixture();
+ run.recoveredPaidPartition=true;
+ run.plan.segments[0].estimatedSeconds=5;run.plan.segments[0].recommendedDurationSeconds=5;
+ assert.equal(commitQuickSceneRun(state,run).applied,false);
+ state.directorProjects[0].episodes[1].quickScenePlans=[structuredClone(run.plan)];
+ run.plan.segments[0].estimatedSeconds=6;run.plan.segments[0].recommendedDurationSeconds=6;
+ assert.equal(commitQuickSceneRun(state,run).applied,false);
+});
 test('audit warning still commits locally valid prompts with a visible status',async()=>{
  const {state,run}=await fixture();
  const warningRun={...run,checks:{audited:true},auditWarnings:[{code:'STATE_RESET',segmentIndex:1,message:'灯状态需要复核'}]};

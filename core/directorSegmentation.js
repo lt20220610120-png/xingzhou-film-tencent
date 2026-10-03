@@ -47,8 +47,13 @@ export const buildSceneSourceTape = inputText => {
     if (MARKER.test(line)) removed.push({ ...row, kind: 'marker' });
     else if (/^[\t ]*(?:<!--|-->)[\t ]*$/u.test(line) && !isDirectorQuotedAt(normalized, cursor)) removed.push({ ...row, kind: 'format-marker' });
     else if (!firstContentSeen && HEADER.test(line)) {
-      sceneHeader = line.trim();
-      removed.push({ ...row, kind: 'header' });
+      // Rich-text imports can collapse the heading, cast and performances
+      // onto one line. Only remove the heading prefix, never the whole scene.
+      const bodyStart = line.search(/(?:出场人物|出场角色|人物|角色|人)[\t ]*[：:]|[△Δ▲]/u);
+      const headerEnd = bodyStart >= 0 ? bodyStart : raw.length;
+      sceneHeader = line.slice(0, headerEnd).trim();
+      removed.push({ originalStart: row.originalStart, originalEnd: offsets[cursor + headerEnd], kind: 'header' });
+      if (bodyStart >= 0) kept.push({ raw: raw.slice(bodyStart), normalizedStart: cursor + bodyStart, originalStart: offsets[cursor + bodyStart], originalEnd: row.originalEnd });
       firstContentSeen = true;
     } else {
       kept.push({ raw, normalizedStart: cursor, ...row });

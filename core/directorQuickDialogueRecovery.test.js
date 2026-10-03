@@ -77,7 +77,7 @@ test('all three clips finish and publish when the third has mixed OS and sound-r
   assert.deepEqual(f.calls, ['plan', 'whole-scene', 'audit']);
   assert.equal(f.progress.length, 3);
   assert.equal(f.commits.length, 1);
-  assert.equal(run.processingVersion, 7);
+  assert.equal(run.processingVersion, 8);
   const third = run.segmentDrafts[run.plan.segments[2].id];
   assert.equal(third.validated, true);
   assert.deepEqual(third.localRepairs, ['DIALOGUE_MODE_CHANGED', 'MISSING_DIALOGUE_CONTINUATION']);
@@ -126,11 +126,30 @@ test('same-version rejected paid draft repairs shot percentages locally without 
   await restored.controller.restore();
   const done = await restored.controller.resume(saved.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 7);
+  assert.equal(done.processingVersion, 8);
   assert.deepEqual(restored.calls, ['audit']);
   assert.deepEqual(done.plan, complete.plan);
   assert.deepEqual(done.promptIds, complete.promptIds);
   assert.equal(Object.values(done.segmentDrafts).filter(draft => draft.validated).length, 3);
   assert.ok(done.segmentDrafts[thirdId].localRepairs.includes('INVALID_SHOT_WEIGHTS'));
   assert.equal(restored.progress.length, 1);
+});
+
+test('parser upgrade recovers an earlier complete paid response when the last repair corrupted dialogue', async () => {
+  const before = fixture(), complete = await before.controller.start(before.request);
+  const saved = structuredClone(complete), thirdId = saved.plan.segments[2].id;
+  saved.processingVersion = 7;
+  saved.phase = 'needs-review'; saved.checks = { audited: false, ranges: {} };
+  saved.segmentDrafts[thirdId].prompt.content = saved.segmentDrafts[thirdId].prompt.content.replace('我搜到项链了。', '我拿到钱了。');
+  saved.segmentDrafts[thirdId].validated = false;
+  saved.segmentDrafts[thirdId].issues = [{ code: 'DIALOGUE_TEXT_CHANGED' }];
+  saved.wholeSceneIssues = [{ code: 'DIALOGUE_TEXT_CHANGED' }];
+  saved.wholeSceneResponses.push({output:complete.segmentDrafts[complete.plan.segments[0].id].prompt.content,complete:true,planId:saved.plan.id,requestGroupId:'later-incomplete-repair'});
+  saved.processedWholeSceneResponseIndex=saved.wholeSceneResponses.length-1;
+  const restored = fixture(); restored.records.set(saved.id, saved);
+  await restored.controller.restore(); const done = await restored.controller.resume(saved.id);
+  assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
+  assert.deepEqual(restored.calls, ['audit']);
+  assert.deepEqual(done.promptIds, complete.promptIds);
+  assert.equal(done.segmentDrafts[thirdId].prompt.content, complete.segmentDrafts[thirdId].prompt.content);
 });

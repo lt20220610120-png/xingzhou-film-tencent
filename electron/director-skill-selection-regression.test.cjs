@@ -17,7 +17,7 @@ test('人工快速模式把完整场景一次提交Skill，按用户括号核对
  const s=source();
  assert.match(s,/buildNumberedSceneTasks\(inputText, sceneLabel\)/);
  assert.doesNotMatch(s,/Promise\.allSettled\(tasks\.map\(/);
- assert.match(s,/input: `\$\{sourceText\}/);
+ assert.match(s,/input: buildWholeSceneSubmission\(\{ sourceText, expectedLabels: tasks\.map/);
  assert.match(s,/parsed\.length !== tasks\.length/);
  assert.match(s,/part\.label!==label/);
 });

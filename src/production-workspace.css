@@ -1,6 +1,7 @@
 /* Configuration racks and paired reading panes share a restrained studio palette. */
 .director-stage .quick-mode-container {
   --director-pane-height:clamp(570px,76vh,820px);
+  --director-script-height:calc(var(--director-pane-height) - 112px);
   grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
   min-height:0!important;
   align-items:stretch;
@@ -8,8 +9,8 @@
 .director-stage .quick-mode-container>.quick-scene-editor,
 .director-stage .quick-mode-container>.quick-scene-prompts {
   box-sizing:border-box;
-  height:var(--director-pane-height);
-  min-height:0;
+  height:auto;
+  min-height:var(--director-pane-height);
   max-height:none;
   overflow:hidden;
   align-self:stretch;
@@ -19,7 +20,7 @@
   box-shadow:var(--brand-panel-shadow);
 }
 .director-stage .quick-scene-card {
-  height:100%;
+  flex:1 1 auto;
   min-height:0;
   overflow:hidden;
   display:flex;
@@ -31,25 +32,25 @@
   border-color:var(--brand-line);
 }
 .director-stage .quick-auto-progress {
-  flex:0 1 auto;
-  min-height:0;
-  max-height:230px;
-  overflow:auto;
+  flex:0 0 auto;
+  max-height:none;
+  overflow:visible;
   padding:10px 16px;
   scrollbar-gutter:stable;
 }
 .director-stage .quick-manual-replies {
-  flex:0 1 auto;
-  min-height:0;
-  max-height:230px;
-  overflow:auto;
+  flex:0 0 auto;
+  max-height:none;
+  overflow:visible;
   margin:0;
   padding:10px 16px;
 }
 .director-stage .quick-scene-textarea {
-  flex:1 1 0;
-  height:auto;
-  min-height:160px!important;
+  /* Progress and expanded drafts add page height without shrinking the script. */
+  flex:0 0 var(--director-script-height);
+  height:var(--director-script-height);
+  min-height:var(--director-script-height)!important;
+  box-sizing:border-box;
   padding:16px;
   line-height:1.85;
   border-radius:0!important;
@@ -69,6 +70,8 @@
   line-height:1.5;
 }
 .director-stage .quick-scene-prompts {
+  /* The left editor sets the shared grid row height; results scroll inside it. */
+  contain:size;
   display:flex;
   flex-direction:column;
   padding:0!important;

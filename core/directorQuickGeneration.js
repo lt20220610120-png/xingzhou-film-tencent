@@ -13,7 +13,7 @@ const parseJson = parseStructuredJson;
 const error = (message,code='FAILED') => Object.assign(new Error(message),{code});
 const clone = value => structuredClone(value);
 const snapshotKey = s => JSON.stringify([s.accountId,s.projectId,s.episodeId,s.sceneLabel]);
-const PROCESSING_VERSION = 7;
+const PROCESSING_VERSION = 8;
 const issueMessages = issues => [...new Set((issues || []).map(issue => issue.message || issue.code).filter(Boolean))].join('；');
 const trimmedRange=(sourceText,start,end)=>{
   while(start<end&&/\s/u.test(sourceText[start]))start++;
@@ -107,6 +107,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
       // the former cast/OS parser. Recheck it locally before spending again.
       if(run.processingVersion!==PROCESSING_VERSION){
         const recoveringVersion6=run.processingVersion===6;
+        const recoveringVersion7=run.processingVersion===7;
+        const recoverPaid=recoveringVersion6||recoveringVersion7;
         const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
       run.segmentQualityFailures={};run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];run.auditRepairIndexes=[];run.auditRepairAttempts={};run.auditWarnings=[];run.checks={audited:false,ranges:{}};
         run.planQualityFailures=0;run.planIssues=[];
@@ -119,21 +121,25 @@ export function createQuickGenerationController({getContext,executeText,executeS
           const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
           const checked=validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true});
           const paidPartition=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:false});
-          const completePaidDrafts=recoveringVersion6&&run.plan.sourceText===tape.sourceText&&paidPartition.ok&&run.plan.segments.every(segment=>{
+          // An underfilled but otherwise legal saved clip is a packing
+          // preference, not a reason to throw away an existing paid partition.
+          const publishedPaidPlan=context.episode.quickScenePlans?.find(plan=>plan.id===run.plan.id);
+          const legalPaidPartition=paidPartition.ok||(recoveringVersion7&&publishedPaidPlan&&JSON.stringify(publishedPaidPlan)===JSON.stringify(run.plan)&&paidPartition.issues.every(issue=>issue.code==='UNDERFILLED_SEGMENT'));
+          const completePaidDrafts=recoverPaid&&run.plan.sourceText===tape.sourceText&&legalPaidPartition&&run.plan.segments.every(segment=>{
             const draft=run.segmentDrafts[segment.id];
             const speech=getDirectorSegmentTimingFacts({sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
             const capacity=segment.durationCompression?35:effectiveDirectorDurationLimit(run.snapshot.maxDurationSeconds);
-            return speech.speechSecondsAt4<=capacity+0.25&&draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok;
+            return speech.speechSecondsAt4<=capacity+0.25&&(recoveringVersion7||(draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok));
           });
           const partitionChanged=checked.ok&&(checked.plan.segments.length!==run.plan.segments.length||checked.plan.segments.some((segment,index)=>segment.sourceStart!==run.plan.segments[index].sourceStart||segment.sourceEnd!==run.plan.segments[index].sourceEnd));
           const compressionChanged=checked.ok&&checked.plan.segments.some((segment,index)=>JSON.stringify(segment.durationCompression||null)!==JSON.stringify(run.plan.segments[index]?.durationCompression||null));
           if(completePaidDrafts){
-            // v2.4.15 paid plans already have complete legal speech boundaries.
+            // Recent paid plans already have complete legal speech boundaries.
             // Re-estimating shorter actions cannot justify regenerating every
             // paid clip. New scenes still receive the new timing/packing rules.
             run.recoveredPaidPartition=true;
           }else if(!checked.ok||partitionChanged||compressionChanged||run.plan.sourceText!==tape.sourceText){
-            if(recoveringVersion6)run.reusablePaidClips=reusablePaidRanges(run,tape);
+            if(recoverPaid)run.reusablePaidClips=reusablePaidRanges(run,tape);
             run.previousDrafts=[...(run.previousDrafts||[]),...Object.values(run.segmentDrafts).filter(d=>d.prompt?.content)];
             // A partially published plan is immutable. A new source partition
             // needs fresh plan/prompt IDs while preserving its paid history.
@@ -141,7 +147,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             run.previousPlans=[...(run.previousPlans||[]),clone(run.plan)];
             run.previousWholeSceneResponses=[...(run.previousWholeSceneResponses||[]),...(run.wholeSceneResponses||[])];
             run.wholeSceneResponses=[];run.wholeSceneOutput='';run.processedWholeSceneResponseIndex=-1;run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];
-            run.previousPlan=run.plan;run.plan=null;run.segmentDrafts={};run.promptIds=[];run.sharedBaseline='';run.lastPlanningOutput=recoveringVersion6&&checked.ok?JSON.stringify(packed.candidate):'';
+            run.previousPlan=run.plan;run.plan=null;run.segmentDrafts={};run.promptIds=[];run.sharedBaseline='';run.lastPlanningOutput=recoverPaid&&checked.ok?JSON.stringify(packed.candidate):'';
           }else{
             const published=context.episode.quickScenePlans?.find(plan=>plan.id===run.plan.id);
             // New timing facts alone cannot rewrite a plan already referenced
@@ -156,8 +162,12 @@ export function createQuickGenerationController({getContext,executeText,executeS
           run.segmentDrafts[segment.id]={...draft,prompt:checked.prompt||{...draft.prompt,content:checked.output},baseline:checked.baseline||'',validated:checked.ok,issues:checked.issues||[],localRepairs:checked.repairs};
           if(checked.ok&&!baseline&&checked.baseline)baseline=checked.baseline;
         }
+        // A previous repair may have copied the old parser's mistaken dialogue
+        // into its latest draft. Revisit paid replies under the corrected
+        // source contract, retaining already accepted local cards and IDs.
+        if(recoveringVersion7&&run.plan)run.processedWholeSceneResponseIndex=-1;
         run.sharedBaseline=baseline||run.sharedBaseline;run.processingVersion=PROCESSING_VERSION;await persist(run);
-        if(recoveringVersion6&&!run.plan&&!run.lastPlanningOutput&&run.previousPlanningCandidate){
+        if(recoverPaid&&!run.plan&&!run.lastPlanningOutput&&run.previousPlanningCandidate){
           const calibrated=recalibrateScenePlanTimings(run.previousPlanningCandidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds}).candidate;
           const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
           if(validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true}).ok){run.lastPlanningOutput=JSON.stringify(packed.candidate);await persist(run);}
@@ -271,6 +281,11 @@ export function createQuickGenerationController({getContext,executeText,executeS
         // work. A crash here can consume that paid response on resume locally.
         for(let index=(run.processedWholeSceneResponseIndex??-1)+1;index<(run.wholeSceneResponses||[]).length;index++){
           const response=run.wholeSceneResponses[index];
+          // Once the authoritative cards are all recovered, a later cached
+          // repair missing labels cannot undo that complete local result.
+          if(run.plan.segments.every(segment=>run.segmentDrafts[segment.id]?.validated)){
+            run.wholeSceneIssues=[];run.processedWholeSceneResponseIndex=index;await persist(run);continue;
+          }
           // A bounded completion retry belongs to one paid request chain. If
           // its full reply is already cached, do not first lock an earlier
           // truncated draft as accepted text after a crash/restart.

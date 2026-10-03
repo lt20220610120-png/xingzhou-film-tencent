@@ -111,6 +111,11 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const tape=buildSceneSourceTape(snapshot.sourceSnapshot);
   if(plan.sourceText!==tape.sourceText || plan.sceneHeader!==tape.sceneHeader)return fail(state,'分段正文与固定原文不匹配，不能发布改写后的计划');
   const durationLimit=effectiveDirectorDurationLimit(snapshot.maxDurationSeconds);
+  const existingPlan=(episode.quickScenePlans || []).find(p=>p.id===plan.id);
+  // Parser upgrades may lower speech estimates and invalidate only a former
+  // early-cut preference. An identical, already-published paid plan can keep
+  // that cut; new/altered plans must still satisfy the packing rules below.
+  const keepPaidCut=run.recoveredPaidPartition&&existingPlan&&JSON.stringify(existingPlan)===JSON.stringify(plan);
   const segmentIds=new Set();let end=0;
   for(const [i,segment] of plan.segments.entries()){
     const draft=run.segmentDrafts?.[segment.id];
@@ -121,7 +126,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     if(compressed&&!validateDirectorSegmentTiming({sourceText:plan.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd,timing:segment.timing,maxDurationSeconds:snapshot.maxDurationSeconds,segmentIndex:i+1,wholeSceneCompression:true}).ok)return fail(state,'整场压缩仍须保留全部口播原字和自然估时，不能低报台词时长');
     if(!segment.id || segmentIds.has(segment.id) || segment.index!==i+1 || segment.sourceStart!==end || !Number.isInteger(segment.sourceEnd) || segment.sourceEnd<=end || segment.sourceEnd>plan.sourceText.length
       || !(segment.estimatedSeconds>0) || !Number.isFinite(segment.estimatedSeconds) || segment.estimatedSeconds>durationLimit
-      || (i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(durationLimit*NONFINAL_DURATION_RATIO)
+      || (!keepPaidCut && i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(durationLimit*NONFINAL_DURATION_RATIO)
         && !completeDialogueNeedsNextClip({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,estimatedSeconds:segment.estimatedSeconds,maxDurationSeconds:durationLimit}))
       || (segment.timing && (!Number.isFinite(timingTotal) || (!compressed && timingTotal!==segment.estimatedSeconds)))
       || segment.recommendedDurationSeconds!==Math.ceil(segment.estimatedSeconds) || (!partial && !draft?.validated)
@@ -129,7 +134,6 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     segmentIds.add(segment.id);end=segment.sourceEnd;
   }
   if(end!==plan.sourceText.length)return fail(state,'分段计划未覆盖完整场景');
-  const existingPlan=(episode.quickScenePlans || []).find(p=>p.id===plan.id);
   if(existingPlan && JSON.stringify(existingPlan)!==JSON.stringify(plan))return fail(state,'同一分段计划编号存在不同内容');
   const timestamp=run.updatedAt || plan.createdAt || new Date().toISOString(),preamble=buildProjectPreamble(project);
   const prompts=plan.segments.flatMap((segment,i)=>run.segmentDrafts?.[segment.id]?.validated?[{

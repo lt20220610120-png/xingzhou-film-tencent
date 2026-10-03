@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildSceneSourceTape, validateScenePlan } from './directorSegmentation.js';
 import { buildSegmentationMessages, buildWholeSceneSkillRequest, buildSceneAuditMessages } from './directorSegmentationMessages.js';
 import { executeSkillWithAi } from './skillExecution.js';
+import { buildWholeSceneSubmission } from './directorCreative.js';
 
 const tape = buildSceneSourceTape('1-1 景：书房 夜 内\n甲：灯已经关了。\n乙：我听见了。');
 const snapshot = { sceneLabel: '1-1', style: '真人电影集', aspectRatio: '9:16', maxDurationSeconds: 30, settingText: '甲乙都在书房；灯是旧台灯。' };
@@ -40,7 +41,9 @@ test('whole-scene Skill receives every bracket and complete attachments with fix
   assert.match(request.input, /甲：灯已经关了/);
   assert.match(request.input, /乙：我听见了/);
   const reference = request.beforeUserMessages.map(message => message.content).join('\n');
-  for (const text of ['只读', '前条完整正文', 'EI800', 'off', 'MISSING_SCENE_PROMPT', '原样保留', '预演所有括号', '一次输出全部提示词', '"recommendedDurationSeconds":10']) assert.ok(reference.includes(text), text);
+  for (const text of ['只读', '前条完整正文', 'EI800', 'MISSING_SCENE_PROMPT', '原样保留']) assert.ok(reference.includes(text), text);
+  for (const text of ['整场', '一次输出全部', '"recommendedDurationSeconds":10']) assert.ok(request.input.includes(text), text);
+  for (const text of ['originalDialogues', 'startState', 'endState', 'visualNotes', 'segments', 'capacityIssue']) assert.ok(!request.input.includes(text) && !reference.includes(text), text);
   assert.ok(!reference.includes('只输出下一条'));
   assert.equal(request.maxOutputTokens, 16384);
   const skill = { id: 's', name: 'name-with-v8', content: '主文件完整内容', files: Array.from({ length: 5 }, (_, index) => ({ path: `references/${index}.md`, content: `FILE-${index}-FULL` })) };
@@ -69,19 +72,20 @@ test('partial audit window does not repeatedly send distant entire scene or outp
   assert.ok(input.includes('第二段'));
 });
 
-test('Skill and audit receive the exact original system announcement with field labels and voice modes', () => {
+test('Skill reads exact original voices directly; parser tables remain exclusive to verification', () => {
   const source = '1-1 景：书房 夜 内\n人：系统、甲\n系统 VO：发现目标。主线任务：找到钥匙。完成奖励：声望三百，属性点零点五。\n甲 OS：先开门。';
   const scene = buildSceneSourceTape(source);
   const segment = { id: 'segment', index: 1, sourceStart: 0, sourceEnd: scene.sourceText.length, recommendedDurationSeconds: 30 };
   const currentPlan = { segments: [segment] };
   const request = buildWholeSceneSkillRequest({ snapshot, tape: scene, plan: currentPlan });
-  const reference = request.beforeUserMessages[0].content;
-  const table = JSON.parse(reference.match(/【整场规划与原文连续台词表[^\n]*\n([^\n]+)/)[1]).records[0].originalDialogues;
-  assert.deepEqual(table, [
+  const table = [
     { speaker: '系统', mode: '场外声音', speech: '发现目标。主线任务：找到钥匙。完成奖励：声望三百，属性点零点五。' },
     { speaker: '甲', mode: '内心VO', speech: '先开门。' },
-  ]);
-  assert.match(reference, /不能把三百、零点五改写为300、0.5/);
+  ];
+  assert.equal(request.beforeUserMessages.length, 0);
+  assert.ok(request.input.includes(scene.sourceText));
+  assert.ok(!request.input.includes('originalDialogues'));
+  assert.ok(!/^[（(]\d+[）)]$/m.test(request.input), 'single short scene uses the same unmarked submission as manual mode');
   const audit = buildSceneAuditMessages({ snapshot, tape: scene, plan: currentPlan, prompts: [{ label: '1-1-1', content: '正文' }] });
   assert.ok(audit.at(-1).content.includes(JSON.stringify(table)));
 });
@@ -91,13 +95,20 @@ test('a compressed whole scene preserves natural timing while Skill and audit us
     durationCompression: { version: 1, kind: 'whole-scene-30-second-fast-pace', targetDurationSeconds: 30, naturalEstimatedSeconds: 33, paceFactor: 1.1 } };
   const compressedPlan = { segments: [segment] };
   const request = buildWholeSceneSkillRequest({ snapshot, tape, plan: compressedPlan });
-  const reference = request.beforeUserMessages[0].content;
+  const reference = request.input;
   assert.match(reference, /"naturalEstimatedSeconds":33/);
   assert.match(reference, /"targetDurationSeconds":30/);
   assert.match(reference, /保留所有台词/);
   const audit = buildSceneAuditMessages({ snapshot, tape, plan: compressedPlan, prompts: [{ label: '1-1-1', content: '正文' }] });
   assert.match(audit.at(-1).content, /不能仅因自然估时大于30秒判失败/);
   assert.ok(audit.at(-1).content.includes('"naturalEstimatedSeconds":33'));
+});
+
+test('auto numbered submission matches manual generation input apart from its duration recommendation', () => {
+  const numbered = `${tape.sceneHeader}\n（1）\n${tape.sourceText.slice(plan.segments[0].sourceStart, plan.segments[0].sourceEnd).trim()}\n\n（2）\n${tape.sourceText.slice(plan.segments[1].sourceStart, plan.segments[1].sourceEnd).trim()}`;
+  const request = buildWholeSceneSkillRequest({ snapshot: { ...snapshot, settingText: '' }, tape, plan });
+  const manualInput = buildWholeSceneSubmission({ sourceText: numbered, expectedLabels: request.expectedLabels });
+  assert.ok(request.input.includes(manualInput), 'both routes give the Skill identical complete numbered scene and submission instructions');
 });
 
 test('whole-scene output budget matches the provider ceiling without trimming source or Skill attachments', () => {

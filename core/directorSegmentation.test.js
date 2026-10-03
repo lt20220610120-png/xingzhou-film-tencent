@@ -7,6 +7,21 @@ const candidateSegment = (unitId, seconds, extra = {}) => ({
   startState: { continuity: '继承原文起态' }, endState: { continuity: '本段原文终态' }, boundary: { type: 'speaker-change', evidence: '甲收句，乙接话' }, visualNotes: [], ...extra,
 });
 
+test('compact scene heading removes only its prefix and preserves the same-line cast and body offsets', () => {
+  for (const body of ['人：甲、系统△甲翻开证件。甲（低声）：找到了。', '△甲推门。甲：进来。']) {
+    const heading = '41-2 景：地下室 夜 内';
+    const source = `\uFEFF${heading}${body}\r\n乙：好。`;
+    const tape = buildSceneSourceTape(source);
+    assert.equal(tape.sceneHeader, heading);
+    assert.equal(tape.sourceText, `${body}\n乙：好。`);
+    assert.equal(tape.units.map(unit => unit.text).join(''), tape.sourceText);
+    assert.equal(tape.sourceSnapshot, source);
+    for (const row of tape.sourceMap.filter(row => row.kind === 'text')) {
+      assert.equal(source.slice(row.originalStart, row.originalEnd).replace(/\r\n?/g, '\n'), tape.sourceText.slice(row.sourceStart, row.sourceEnd));
+    }
+  }
+});
+
 test('standalone imported comment delimiters are mapped formatting while quoted speech stays literal', () => {
   const source = '1-1 景：房间\r\n<!--\r\n甲：好。\r\n-->\r\n';
   const tape = buildSceneSourceTape(source);
