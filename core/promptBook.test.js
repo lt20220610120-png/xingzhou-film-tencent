@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parsePromptBook,bookOutline,entryValue,saveEntryValue,mergeEpisodeMedia,referencePolicy,clearPromptBook} from './promptBook.js';
+test('scene-scoped media and per-entry removal survive reimport while old episode roots still share',()=>{
+ let book=parsePromptBook('【1-1-1】第一场【1-1-2】第一场第二条【1-2-1】第二场','场景书','scene-book');const shared={id:'same',kind:'image',name:'睡衣'},other={id:'other',kind:'image',name:'校服'};
+ book=mergeEpisodeMedia(book,{1:[{id:'root',kind:'audio'}]},{'1-1':[shared],'1-2':[shared,other]});
+ assert.deepEqual(entryValue(book,book.entries[0]).references.map(i=>i.id),['root','same']);assert.deepEqual(entryValue(book,book.entries[2]).references.map(i=>i.id),['root','same','other']);
+ const current=entryValue(book,book.entries[0]);book=saveEntryValue(book,book.entries[0].id,{...current,references:current.references.filter(r=>r.id!=='same')},current);book=mergeEpisodeMedia(book,{},{'1-1':[shared]});
+ assert.deepEqual(entryValue(book,book.entries[0]).references.map(i=>i.id),['root']);assert.equal(entryValue(book,book.entries[1]).references.length,2);assert.equal(book.sceneMedia['1-1'].length,1);
+});
 import {mergePersistedState} from './projectStore.js';
 
 test('only bracketed triplets split blocks; gaps and duplicate occurrence order survive',()=>{

@@ -74,7 +74,7 @@ function useCollabAnalysisJob(project,api,accountId,assets=[]) {
   return collabAnalysisJobs.get(key);
 }
 
-async function startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, targetEpisodeNumbers, force = false, accountId }) {
+async function startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, targetEpisodeNumbers, force = false, mapOnly = false, focusItem, accountId }) {
   const key=analysisJobKey(accountId,project.id);
   if (['running', 'stopping'].includes(collabAnalysisJobs.get(key)?.status)||collabAnalysisJobs.get(key)?.syncing) return collabAnalysisJobs.get(key);
   if (!profile) throw new Error('请选择一个已配置的大语言模型');
@@ -87,7 +87,7 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   collabAnalysisJobs.set(key, job);
   try {
     const result = await runAnalysis({ project, genre, profile, api, job,
-      targetEpisodeNumbers, existingAssets: assets, force, accountId,
+      targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, accountId,
       onProgress: () => {} });
     job.status = job.cancelled ? 'stopped' : 'completed'; job.taskId = '';
     Object.assign(job,result);job.notice = artSyncNotice(result);job.error=(result.errors||[]).join('\n');
@@ -118,7 +118,7 @@ async function syncPendingArtAnalysis({ project, refresh, api, assets, accountId
 function ArtReviewEntry(props){
  const {project,assets,api,accountId,refresh}=props;
  const job=useCollabAnalysisJob(project,api,accountId,assets);
- return <ArtReviewSection {...props} analysisJob={job} onStop={()=>stopAnalysis({projectId:project.id,api,accountId})} onAnalyze={({profile,episodeNumber,force})=>startCollabArtAnalysis({project,assets,genre:project.genre,profile,api,refresh,accountId,targetEpisodeNumbers:[episodeNumber],force})}/>;
+ return <ArtReviewSection {...props} analysisJob={job} onStop={()=>stopAnalysis({projectId:project.id,api,accountId})} onAnalyze={({profile,episodeNumber,force,mapOnly,focusItem})=>startCollabArtAnalysis({project,assets,genre:project.genre,profile,api,refresh,accountId,targetEpisodeNumbers:[episodeNumber],force,mapOnly,focusItem})}/>;
 }
 
 function AnalysisSyncDetails({job}) {
@@ -511,6 +511,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
         <textarea aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
+        {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings">
           <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.customized ? '已自定义' : '自动识别 · 可修改'}</small></div>
           <details className="art-prefix-editor"><summary>编辑前置 <span>{promptSettings.mode === 'group' ? '同图多人，各有不同' : promptSettings.prefix ? '查看并调整构图与画风要求' : '无额外前置'}</span></summary><textarea aria-label="生图前置" value={promptSettings.prefix} readOnly={!canEdit || modifying} onChange={event => editSettings({ prefix: event.target.value })} onBlur={() => save().catch(() => {})} placeholder="可自由填写，也可清空。不会再自动追加隐藏前置。" /><button type="button" className="ghost" disabled={!canEdit || modifying} onClick={() => changePromptMode(promptSettings.mode)}>恢复当前画风默认前置</button></details>
@@ -676,7 +677,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const sequentialEpisodes=scriptEpisodes.every((item,index)=>item.episodeNumber===index+1)?Array.from({ length: scriptEpisodeCount }, (_, index) => index + 1):[];
   const episodes=[...new Set([...scriptEpisodes.map(item=>item.episodeNumber),...sequentialEpisodes,...episodeNumbersFromAssets(assets)])].sort((a,b)=>a-b);
   const episodeDetails=new Map(scriptEpisodes.map(item=>[item.episodeNumber,item]));
-  const imagesForAssets = (rows) => rows.flatMap((item) => uniqueAssetImages(item.images?.length ? item.images : item.image_url ? [{id:'legacy',url:item.image_url}] : []).map((image) => ({ ...image, projectId:project.id, assetId:item.id, assetName: item.name, episodes:item.episodes||[], first_episode:item.first_episode })));
+  const imagesForAssets = (rows) => rows.flatMap((item) => uniqueAssetImages(item.images?.length ? item.images : item.image_url ? [{id:'legacy',url:item.image_url}] : []).map((image) => ({ ...image, projectId:project.id, assetId:item.id, assetName: item.name, episodes:item.episodes||[], first_episode:item.first_episode,sceneIds:item.sceneIds||[] })));
   const projectImages = imagesForAssets(assets);
   const exportImages = async (images, folderName, layout='flat') => { setExportChoiceOpen(false);setExportError('');setExporting(true); try { await api.collabExportImages({ archive: true, folderName, images,layout }); } catch (e) { setExportError(`导出失败：${e.message}`); }finally{setExporting(false);} };
   const analyzeEpisode=async(force=false)=>{
@@ -743,7 +744,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
     return (
       <div className="collab-art-overview">
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
-        {exportChoiceOpen&&createPortal(<div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}><div className="modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式"><header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header><p>选择整理方式后，再选电脑上的保存位置。</p><div className="modal-actions"><button className="secondary" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button><button className="primary" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button></div></div></div>,document.body)}
+        {exportChoiceOpen&&createPortal(<div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}><div className="modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式"><header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header><p>选择整理方式后，再选电脑上的保存位置。按场景导出为「第N集 / 场景N-M」，共享图片进入每个关联场景；未关联图片单独保留。</p><div className="modal-actions"><button className="secondary" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button><button className="secondary" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button><button className="primary" onClick={()=>exportImages(projectImages,`${project.name}-按场景美术图片`,'scene')}>按场景整理导出</button></div></div></div>,document.body)}
         <p className="collab-art-isolation-hint">新增分集只进入当前协作项目，不反向同步到导演工作台；既有分集美术和图片不会重新生成。</p>
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}

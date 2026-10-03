@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {matchBasicReferences, removeGenerationReference, projectReferenceCandidates, selectionAfterPromptEdit} from './automaticReferences.js';
 import {entryValue, mergeEpisodeMedia, parsePromptBook, saveEntryValue} from './promptBook.js';
+test('project upload media respects exact scene while legacy episode media remains shared',()=>{
+ const media=[{id:'one',episode:1,scene:'1-1',kind:'image'},{id:'two',episode:1,scene:'1-2',kind:'image'},{id:'legacy',episode:1,kind:'audio'},{id:'numeric',episode:1,scene:2,kind:'video'}];
+ assert.deepEqual(projectReferenceCandidates([],media,'p',1,'1-1').map(i=>i.id),['one','legacy']);assert.deepEqual(projectReferenceCandidates([],media,'p',1,'1-2').map(i=>i.id),['two','legacy','numeric']);
+});
 
 const image=(id,name)=>({id,name,kind:'image',filePath:`C:/media/${id}.png`});
 const audio=(id,name)=>({id,name,kind:'audio',filePath:`C:/media/${id}.wav`});

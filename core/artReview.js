@@ -73,16 +73,16 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
   seenScenes.add(id);mapping.set(id,row);
  }
  for(const s of next.scenes){
-  const row=mapping.get(s.id),incoming=[];
-  for(const ref of row?.assets||[]){
+  const row=mapping.get(s.id),incoming=[];let validMapping=Boolean(row)&&Array.isArray(row.assets);
+  for(const ref of Array.isArray(row?.assets)?row.assets:[]){
    const key=typeof ref==='string'?[...assets.keys()].find(k=>k.endsWith('\u0000'+canonicalReviewName(ref))):`${ref.category}\u0000${canonicalReviewName(ref.name)}`;
    const item=assets.get(key);
-   if(item&&!incoming.some(i=>reviewAssetKey(i)===key))incoming.push(clone(item));else if(!item)warnings.push(`场景 ${s.id} 引用了清单中不存在的条目 ${typeof ref==='string'?ref:ref.name||''}`);
+   if(item&&!incoming.some(i=>reviewAssetKey(i)===key))incoming.push(clone(item));else if(!item&&!excluded.has(key)){validMapping=false;warnings.push(`场景 ${s.id} 引用了清单中不存在的条目 ${typeof ref==='string'?ref:ref.name||''}`);}
   }
   // Human approval and explicit deletions take priority over a later background candidate.
   const removedNames=new Set(s.removed.map(r=>reviewAssetKey(r.item))),oldApproval=isSceneVerified(s);
   if(!oldApproval){
-   let items=incoming.filter(i=>!removedNames.has(reviewAssetKey(i)));
+   let items=incoming.filter(i=>!removedNames.has(reviewAssetKey(i))&&(!Array.isArray(i.manualSceneIds)||i.manualSceneIds.includes(s.id)));
    for(const pinned of s.items){
     const generated=items.find(i=>reviewAssetKey(i)===reviewAssetKey(pinned));
     items=items.filter(i=>i.id!==pinned.id&&reviewAssetKey(i)!==reviewAssetKey(pinned));
@@ -90,7 +90,7 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
    }
    s.items=items;s.approval=null;
   }
-  s.mappingReady=Boolean(row)||oldApproval||s.mappingReady;
+  s.mappingReady=validMapping||oldApproval||s.mappingReady;
   s.items.forEach(i=>used.add(reviewAssetKey(i)));
  }
  next.inventory=decoded.inventory||next.inventory;next.rawOutput=rawOutput;next.dependencies=dependencies;next.warnings=[...new Set(warnings)];refreshRoster(next);
@@ -117,7 +117,7 @@ export function editArtReview(record,action,actor=''){
    if(old&&reviewAssetKey(old)!==reviewAssetKey(copy))next.excludedUnassigned=[...(next.excludedUnassigned||[]),old];
    for(const scene of next.scenes)if(scene.items.some(i=>i.id===old?.id)){scene.items=scene.items.map(i=>i.id===old?.id?clone(copy):i);scene.approval=null;}
    if(action.sceneIds)assignRoster(next,copy,action.sceneIds);
-  }else if(action.type==='assign'){if(!old)throw Error('名单条目已不存在');assignRoster(next,old,action.sceneIds||[]);}
+  }else if(action.type==='assign'){if(!old)throw Error('名单条目已不存在');old.manualSceneIds=action.sceneIds||[];assignRoster(next,old,old.manualSceneIds);for(const s of next.scenes)s.items=s.items.map(i=>i.id===old.id?clone(old):i);}
   else if(action.type==='roster-remove'){
    if(!old)throw Error('名单条目已不存在');const sceneIds=next.scenes.filter(s=>s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(old))).map(s=>s.id);
    next.rosterRemoved=[...(next.rosterRemoved||[]),{item:old,sceneIds}];next.roster=next.roster.filter(i=>reviewAssetKey(i)!==reviewAssetKey(old));next.unassigned=next.unassigned.filter(i=>reviewAssetKey(i)!==reviewAssetKey(old));next.excludedUnassigned=[...(next.excludedUnassigned||[]),old];
@@ -168,6 +168,10 @@ export function applyArtReviewCard(record,requested,response){
  if(data.category!==old.category||canonicalReviewName(data.name)!==old.name||typeof data.description!=='string'||!data.description.trim())throw Error('信息卡名称、类别或详细描述未完整返回；手工条目已保留');
  const updated=mergeCard(old,{...old,description:data.description.trim(),ready:true,warning:''});next.roster=next.roster.map(i=>i.id===old.id?updated:i);next.unassigned=next.unassigned.map(i=>i.id===old.id?updated:i);
  for(const s of next.scenes)if(s.items.some(i=>i.id===old.id)&&!isSceneVerified(s)){s.items=s.items.map(i=>i.id===old.id?clone(updated):i);s.approval=null;}
+ if(!next.scenes.some(s=>s.items.some(i=>i.id===old.id))&&!Array.isArray(old.manualSceneIds)&&Array.isArray(response.sceneIds)){
+  const ids=response.sceneIds.map(String);if(ids.some(id=>!next.scenes.some(s=>s.id===id)))throw Error('信息卡返回了不存在的场景；已保留手工条目，请重试');
+  assignRoster(next,updated,ids);
+ }
  next.history.push({at:Date.now(),reason:'补齐单条信息卡',item:requested,response});delete next.failure;return refreshRoster(next);
 }
 export function artReviewContext(records,episode,{allowUnverified=false}={}){
@@ -188,5 +192,12 @@ export function buildArtReviewInstruction(episode,record,{mappingOnly=false}={})
 export function projectPublishedReviewAssets(project,assets){
  const reviews=Object.entries(project.analysis_progress||{}).filter(([,r])=>r.review?.published&&Object.keys(r.review.published).length);
  if(!reviews.length)return assets;
- return assets.map(a=>{const sceneIds=reviews.flatMap(([,r])=>Object.values(r.review.published).filter(s=>s.items.some(i=>i.category===a.category&&i.name===a.name)).map(s=>s.id)),managed=sceneIds.length||reviews.some(([,r])=>r.review.managedAssetNames?.includes(a.name));if(!managed)return a;const legacyEpisodes=(a.episodes||[]).map(Number).filter(n=>!reviews.some(([ep])=>Number(ep)===n)),legacySceneIds=reviews.filter(([ep])=>(a.episodes||[]).map(Number).includes(Number(ep))).flatMap(([,r])=>r.review.scenes.filter(s=>!r.review.published[s.id]).map(s=>s.id));return {...a,sceneIds:[...new Set(sceneIds)],legacyEpisodes,legacySceneIds};});
+ const reviewedSceneIds=reviews.flatMap(([,r])=>Object.keys(r.review.published));
+ return assets.map(a=>{
+  const sceneIds=reviews.flatMap(([,r])=>Object.values(r.review.published).filter(s=>s.items.some(i=>i.category===a.category&&i.name===a.name)).map(s=>s.id)),managed=sceneIds.length||reviews.some(([,r])=>r.review.managedAssetNames?.includes(a.name));
+  if(!managed)return {...a,reviewedSceneIds};
+  const legacyEpisodes=(a.episodes||[]).map(Number).filter(n=>!reviews.some(([ep])=>Number(ep)===n)),legacySceneIds=reviews.filter(([ep])=>(a.episodes||[]).map(Number).includes(Number(ep))).flatMap(([,r])=>r.review.scenes.filter(s=>!r.review.published[s.id]).map(s=>s.id));
+  const versions=reviews.flatMap(([,r])=>reviewRoster(r.review).filter(i=>i.category===a.category&&i.name===a.name).flatMap(i=>[{description:i.description},...(i.alternatives||[])])),reviewPromptAlternatives=[...new Map(versions.filter(i=>i.description).map(i=>[i.description,i])).values()];
+  return {...a,sceneIds:[...new Set(sceneIds)],legacyEpisodes,legacySceneIds,reviewedSceneIds,reviewPromptAlternatives:reviewPromptAlternatives.length>1?reviewPromptAlternatives:[]};
+ });
 }

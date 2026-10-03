@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {applyArtReviewCandidate,artReviewContext,buildArtReviewInstruction,decodeArtReviewOutput,editArtReview,importLegacyArtReview,isSceneVerified,newArtReview,projectPublishedReviewAssets,removeUnassignedArtReview,reviewSceneSignature} from './artReview.js';
+import {applyArtReviewCandidate,artReviewContext,buildArtReviewInstruction,decodeArtReviewOutput,editArtReview,importLegacyArtReview,isSceneVerified,newArtReview,projectPublishedReviewAssets,removeUnassignedArtReview,reviewSceneSignature,reviewRoster} from './artReview.js';
 import {getArtReviewStore} from './artReviewPersistence.js';
 import {runArtReviewAnalysis} from './artReviewRunner.js';
 import {ART_RUNTIME_SKILL} from './collabArtSkill.js';
@@ -18,6 +18,13 @@ test('client and backend preserve the same source scene boundaries; unanalyzed s
 test('automatic references use published scene bindings and exclude detached states; manual legacy cards remain usable',()=>{
  const assets=[{id:'sleep',name:'【林清雪-睡衣】',category:'character',episodes:[1],sceneIds:['1-1'],image_url:'sleep.png'},{id:'uniform',name:'【林清雪-校服】',category:'character',episodes:[1],sceneIds:['1-2'],image_url:'uniform.png'},{id:'removed',name:'【林清雪-旧衣】',category:'character',episodes:[],sceneIds:[],image_url:'old.png'},{id:'manual',name:'【台灯】',category:'prop',episodes:[1],image_url:'lamp.png'}];
  assert.deepEqual(projectReferenceCandidates(assets,[],'p',1,'1-1').map(a=>a.assetId),['sleep','manual']);assert.deepEqual(projectReferenceCandidates(assets,[],'p',1,'1-2').map(a=>a.assetId),['uniform','manual']);
+});
+test('published empty or populated scenes exclude unbound downstream manual cards from automatic references',()=>{
+ let r=editArtReview(candidate(),{type:'approve-episode'});r.published=Object.fromEntries(r.scenes.map(s=>[s.id,{...s,signature:reviewSceneSignature(s)}]));
+ const raw=[{id:'sleep',name:'【林清雪-睡衣】',category:'character',episodes:[1],image_url:'sleep.png'},{id:'manual',name:'【下游手动添加】',category:'prop',episodes:[1],image_url:'manual.png'}];
+ const assets=projectPublishedReviewAssets({analysis_progress:{1:{review:r}}},raw);assert.deepEqual(projectReferenceCandidates(assets,[],'p',1,'1-1').map(a=>a.assetId),['sleep']);
+ const s=getArtReviewStore({api:{artReviewLoadLocal:async()=>null,artReviewSaveLocal:async()=>{},analysisLoad:async()=>null},projectId:crypto.randomUUID()});
+ return s.load({episodes:[ep(1)],analysis_progress:{1:{review:{...r,version:1}}}},raw).then(()=>assert.ok(!s.snapshot().episodes[1].roster.some(i=>i.name==='【下游手动添加】')));
 });
 function fixture(count=2){
  let disk=null,remote={},calls=[],publishCalls=[],offline=false,loseAck=false;
@@ -63,6 +70,25 @@ test('manual roster addition links scenes and model fills only its pending infor
 test('missing scene map triggers automatic compact mapping after inventory is saved',async()=>{
  const f=fixture(1);f.api.aiChat=async p=>{f.calls.push(p);assert.ok(f.disk.episodes[1]);return {ok:true,output:f.calls.length===1?output(1).split('【逐场资产对应表】')[0]:output(1).split('【逐场资产对应表】')[1]};};
  await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,2);assert.equal(f.disk.episodes[1].status,'generated');assert.equal(f.disk.episodes[1].unassigned.length,0);assert.ok(!f.calls[1].messages[0].content.includes(ART_RUNTIME_SKILL));assert.equal(f.publishCalls.length,0);
+});
+test('malformed or unknown scene assets remain pending and trigger automatic mapping repair',async()=>{
+ const f=fixture(1);f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:f.calls.length===1?output(1).split('【逐场资产对应表】')[0]+'【逐场资产对应表】\n'+JSON.stringify({scenes:[{sceneId:'1-1',assets:[{category:'character',name:'【不存在的角色】'}]},{sceneId:'1-2'}]}):output(1).split('【逐场资产对应表】')[1]};};
+ await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,2);assert.equal(f.disk.episodes[1].status,'generated');assert.equal(f.disk.episodes[1].unassigned.length,0);
+});
+test('adding a roster-only card fills details and locates it without manual scene assignment',async()=>{
+ const f=fixture(1);await runArtReviewAnalysis(f.args);
+ await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',item:{category:'prop',name:'【台灯】',description:'',ready:false,note:'床头白色台灯'}}));
+ const added=reviewRoster(f.store.snapshot().episodes[1]).find(i=>i.name==='【台灯】');
+ f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:JSON.stringify({item:{category:'prop',name:added.name,description:'白色台灯，圆形灯罩，床头摆放'},sceneIds:['1-1']})};};
+ await runArtReviewAnalysis({...f.args,force:true,focusItem:added});
+ assert.ok(f.disk.episodes[1].scenes[0].items.some(i=>i.name===added.name&&i.ready));assert.ok(!f.disk.episodes[1].scenes[1].items.some(i=>i.name===added.name));
+});
+test('explicit remapping of a generated episode uses compact roster context and preserves manual scene selection',async()=>{
+ const f=fixture(1);await runArtReviewAnalysis(f.args);
+ const item=reviewRoster(f.disk.episodes[1])[0];await f.store.update(1,r=>editArtReview(r,{type:'assign',itemId:item.id,sceneIds:['1-1']}));
+ f.api.aiChat=async p=>{f.calls.push(p);return {ok:true,output:JSON.stringify({scenes:[{sceneId:'1-1',assets:[item]},{sceneId:'1-2',assets:[item]}]})};};
+ await runArtReviewAnalysis({...f.args,mapOnly:true});
+ assert.equal(f.calls.length,2);assert.ok(!f.calls[1].messages[0].content.includes(ART_RUNTIME_SKILL));assert.ok(!f.disk.episodes[1].scenes[1].items.some(i=>i.id===item.id));
 });
 test('deletion, undo and renamed manual states survive a later generation',()=>{
  let r=candidate();const id=r.scenes[0].items[0].id;

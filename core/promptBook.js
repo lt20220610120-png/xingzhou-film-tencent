@@ -25,17 +25,18 @@ export function bookOutline(book){
  return [...episodes].sort((a,b)=>a[0]-b[0]).map(([number,scenes])=>({number,scenes:[...scenes].sort((a,b)=>a[0]-b[0]).map(([number,entries])=>({number,entries}))}));
 }
 
+export function bookSharedReferences(book,entry){return [...new Map([...(book.episodeMedia?.[entry.episode]||[]),...(book.sceneMedia?.[`${entry.episode}-${entry.scene}`]||[])].map(r=>[r.id,r])).values()];}
 export function entryValue(book,entry){
  const draft=book.drafts?.[entry.id]||{};
  const {excludedIds=[],overrides={},extraReferences=[],...settings}=draft;
- const shared=(book.episodeMedia?.[entry.episode]||[]).filter(r=>!excludedIds.includes(r.id)).map(r=>({...r,...overrides[r.id]}));
- const excludedShared=(book.episodeMedia?.[entry.episode]||[]).filter(r=>excludedIds.includes(r.id)).map(generationReferenceKey);
+ const shared=bookSharedReferences(book,entry).filter(r=>!excludedIds.includes(r.id)).map(r=>({...r,...overrides[r.id]}));
+ const excludedShared=bookSharedReferences(book,entry).filter(r=>excludedIds.includes(r.id)).map(generationReferenceKey);
  return {prompt:entry.prompt,...book.settings,...settings,autoReferenceExclusions:[...new Set([...(settings.autoReferenceExclusions||[]),...excludedShared])],references:[...shared,...extraReferences]};
 }
 
 export function saveEntryValue(book,entryId,value,previousValue){
  const entry=book.entries.find(e=>e.id===entryId);if(!entry)return book;
- const shared=book.episodeMedia?.[entry.episode]||[],sharedIds=new Set(shared.map(r=>r.id));
+ const shared=bookSharedReferences(book,entry),sharedIds=new Set(shared.map(r=>r.id));
  const {references=[],...settings}=value;
  const ids=new Set(references.map(r=>r.id));
  const previousIds=new Set((previousValue||entryValue(book,entry)).references.map(r=>r.id));
@@ -49,13 +50,14 @@ export function saveEntryValue(book,entryId,value,previousValue){
  return {...book,entries,settings:{...book.settings,...preferences},drafts:{...book.drafts,[entryId]:draft}};
 }
 
-export function mergeEpisodeMedia(book,incoming){
+export function mergeEpisodeMedia(book,incoming,scenes={}){
  const episodeMedia={...book.episodeMedia};
  for(const [episode,refs] of Object.entries(incoming)){
   const old=episodeMedia[episode]||[],ids=new Set(old.map(r=>r.id));
   episodeMedia[episode]=[...old,...refs.filter(r=>{if(ids.has(r.id))return false;ids.add(r.id);return true;})];
  }
- return {...book,episodeMedia};
+ const sceneMedia={...book.sceneMedia};for(const [id,refs]of Object.entries(scenes)){const old=sceneMedia[id]||[],keys=new Set(old.map(r=>r.id));sceneMedia[id]=[...old,...refs.filter(r=>{if(keys.has(r.id))return false;keys.add(r.id);return true;})];}
+ return {...book,episodeMedia,sceneMedia};
 }
 
 export function clearPromptBook(workflow,bookId){

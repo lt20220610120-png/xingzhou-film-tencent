@@ -22,7 +22,12 @@ async function hashFile(filePath){
  const hash=crypto.createHash('sha256');for await(const chunk of fs.createReadStream(filePath))hash.update(chunk);return hash.digest('hex');
 }
 
-async function collectFolder(root,destination,files,warnings,depth=0){
+function sceneNumber(name,episode){
+ const normalized=name.normalize('NFKC').trim(),pair=normalized.match(/^(?:场景\s*)?(\d+)\s*[-－]\s*(\d+)(?:\s|$)/),single=normalized.match(/^场景\s*(\d+)$/)||normalized.match(/^第\s*(\d+)\s*场$/);
+ if(pair){if(Number(pair[1])!==Number(episode))return false;return Number(pair[2])>0?`${Number(episode)}-${Number(pair[2])}`:false;}
+ return single&&Number(single[1])>0?`${Number(episode)}-${Number(single[1])}`:null;
+}
+async function collectFolder(root,destination,files,warnings,depth=0,scope={}){
  if(depth>32)throw new Error('素材目录层级超过 32 层，请整理后重新导入。');
  const entries=await fs.promises.readdir(root,{withFileTypes:true});
  entries.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN',{numeric:true}));
@@ -30,11 +35,15 @@ async function collectFolder(root,destination,files,warnings,depth=0){
   const filePath=path.join(root,entry.name);
   if(path.resolve(filePath).toLowerCase()===destination.toLowerCase())continue;
   if(entry.isSymbolicLink()){warnings.add('已跳过符号链接');continue;}
-  if(entry.isDirectory())await collectFolder(filePath,destination,files,warnings,depth+1);
+  if(entry.isDirectory()){
+   if(entry.name.includes('未关联')){warnings.add(`未关联素材未自动挂载：${entry.name}`);continue;}
+   const sceneId=sceneNumber(entry.name,scope.episode);if(sceneId===false){warnings.add(`场景目录与集号不符，已跳过：${entry.name}`);continue;}
+   await collectFolder(filePath,destination,files,warnings,depth+1,{...scope,sceneId:sceneId||scope.sceneId});
+  }
   else if(entry.isFile()){
    const ext=path.extname(entry.name).toLowerCase();
    const kind=Object.keys(EXTENSIONS).find(k=>EXTENSIONS[k].includes(ext));
-   if(kind){files.push({filePath,name:entry.name,ext,kind});if(files.length>10000)throw new Error('单次导入最多 10000 个素材，请按集分批导入。');}
+   if(kind){files.push({filePath,name:entry.name,ext,kind,...(scope.sceneId?{sceneId:scope.sceneId}:{})});if(files.length>10000)throw new Error('单次导入最多 10000 个素材，请按集分批导入。');}
   }
  }
 }
@@ -59,26 +68,26 @@ async function importEpisodeMedia({dialog,destDir,mode='episode',episode}){
  }
  // Discover everything before copying so malformed/deep folders never partially attach.
  const planned=new Map();
- for(const [number,folders] of groups){const files=[];for(const folder of folders)await collectFolder(folder,destination,files,warnings);planned.set(number,files);}
+ for(const [number,folders] of groups){const files=[];for(const folder of folders){const sceneId=sceneNumber(path.basename(folder),number);if(sceneId===false){warnings.add(`场景目录与集号不符，已跳过：${path.basename(folder)}`);continue;}await collectFolder(folder,destination,files,warnings,0,{episode:number,sceneId});}planned.set(number,files);}
  return saveGroups(planned,destination,warnings);
 }
 
 async function saveGroups(planned,destination,warnings=new Set()){
  await fs.promises.mkdir(destination,{recursive:true});
- const episodes={};let count=0;
+ const episodes={},scenes={};let count=0;
  for(const [number,files] of planned){
   const refs=[],seen=new Set();
   for(const file of files){
    const hash=await hashFile(file.filePath),id=`folder-${hash}-${file.ext.slice(1)}`;
-   if(seen.has(id))continue;seen.add(id);
+   const membership=`${file.sceneId||number}:${id}`;if(seen.has(membership))continue;seen.add(membership);
    const target=path.join(destination,`${hash}${file.ext}`);
    // Content-addressed files are shared across prompts and repeated imports.
    try{await fs.promises.copyFile(file.filePath,target,fs.constants.COPYFILE_EXCL);}catch(error){if(error.code!=='EEXIST')throw error;}
-   refs.push({id,filePath:target,name:file.name,kind:file.kind});count++;
+   const ref={id,filePath:target,name:file.name,kind:file.kind};if(file.sceneId)(scenes[file.sceneId]||=[]).push(ref);else refs.push(ref);count++;
   }
   episodes[number]=refs;
  }
- return {episodes,count,warnings:[...warnings]};
+ return {episodes,scenes,count,warnings:[...warnings]};
 }
 
 async function importEpisodeFiles({dialog,destDir,episode,kind}){

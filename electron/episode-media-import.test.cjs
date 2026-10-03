@@ -30,6 +30,13 @@ test('individual image audio and video files attach to the chosen episode and su
   assert.deepEqual(await importEpisodeFiles({dialog,destDir,kind,episode:2}),result);
  }
 });
+test('numeric episode roots stay shared and conflicting scene folders never leak into references',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-numeric-scene-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const source=path.join(root,'source');for(const name of ['1','1/场景1-2','1/场景2-3','1/未关联素材'])await fs.mkdir(path.join(source,name),{recursive:true});
+ for(const name of ['1/shared.png','1/场景1-2/scoped.png','1/场景2-3/wrong.png','1/未关联素材/unbound.png'])await fs.writeFile(path.join(source,name),name);
+ const result=await importEpisodeMedia({dialog:{showOpenDialog:async()=>({filePaths:[source]})},destDir:path.join(root,'dest'),mode:'series'});
+ assert.deepEqual(result.episodes[1].map(r=>r.name),['shared.png']);assert.deepEqual(Object.keys(result.scenes),['1-2']);assert.equal(result.count,2);assert.ok(result.warnings.some(s=>s.includes('集号不符')));assert.ok(result.warnings.some(s=>s.includes('未关联')));
+});
 test('clearing one book deletes only unshared imported files inside the prompt media directory',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-book-clear-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const dir=path.join(root,'整本提示词素材');await fs.mkdir(dir);

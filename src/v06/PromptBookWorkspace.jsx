@@ -1,6 +1,6 @@
 import React,{useRef,useState} from 'react';
 import {Upload,FolderOpen,Trash2} from 'lucide-react';
-import {parsePromptBook,bookOutline,entryValue,saveEntryValue,mergeEpisodeMedia,clearPromptBook} from '../../core/promptBook.js';
+import {parsePromptBook,bookOutline,entryValue,saveEntryValue,mergeEpisodeMedia,clearPromptBook,bookSharedReferences} from '../../core/promptBook.js';
 import {GenerationComposer} from './GenerationComposer.jsx';
 
 export function PromptBookWorkspace({state,setState,api,onSubmit}){
@@ -30,10 +30,10 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
   try{
    if(!api.generationImportEpisodeMedia)throw new Error('请在最新版桌面软件内导入素材文件夹。');
    const result=await api.generationImportEpisodeMedia({mode,episode:episodeNumber});if(!result)return;
-   updateBook(bookId,b=>mergeEpisodeMedia(b,result.episodes));
+   updateBook(bookId,b=>mergeEpisodeMedia(b,result.episodes,result.scenes));
    const known=new Set(book.entries.map(e=>String(e.episode)));
    const extra=Object.keys(result.episodes).filter(n=>!known.has(n)&&result.episodes[n].length);
-   setNotice([`已读取 ${result.count} 个素材，按集共享并自动去重。`,...result.warnings,extra.length?`第 ${extra.join('、')} 集当前没有提示词，素材已保留。`:''].filter(Boolean).join(' '));
+   setNotice([`已读取 ${result.count} 个素材，按场景挂载并自动去重；旧版集文件夹仍按集共享。`,...result.warnings,extra.length?`第 ${extra.join('、')} 集当前没有提示词，素材已保留。`:''].filter(Boolean).join(' '));
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
  };
  const importFiles=async kind=>{
@@ -49,7 +49,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
   if(!book||importing.current||!window.confirm(`确定清除“${book.name}”的全部提示词、编辑进度和已导入素材吗？生成结果不受影响。`))return;
   importing.current=true;setBusy(true);setError('');setNotice('');
   try{
-   const allRefs=b=>[...Object.values(b.episodeMedia||{}).flat(),...Object.values(b.drafts||{}).flatMap(d=>d.extraReferences||[])];
+   const allRefs=b=>[...Object.values(b.episodeMedia||{}).flat(),...Object.values(b.sceneMedia||{}).flat(),...Object.values(b.drafts||{}).flatMap(d=>d.extraReferences||[])];
    const generationWorkflow={...clearPromptBook(workflow,book.id),updatedAt:new Date().toISOString()};
    await api.saveState?.({...state,generationWorkflow});
    setState(current=>({...current,generationWorkflow:{...clearPromptBook(current.generationWorkflow||{},book.id),updatedAt:generationWorkflow.updatedAt}}));
@@ -60,7 +60,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
    }catch(e){setNotice('当前提示词项目已清除，但部分本地素材文件未能删除。');}
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
  };
- const references=entry?(book.episodeMedia?.[entry.episode]||[]):[];
+ const references=entry?bookSharedReferences(book,entry):[];
  const currentValue=entry?entryValue(book,entry):null;
  return <section className="prompt-book-workspace" aria-label="整本提示词与素材">
   <div className="prompt-book-toolbar"><div><h2>整本提示词与素材</h2><p>上传含【1-1-1】编号的 TXT 或 Word（.docx），按集、场景逐条生成。提示词与素材会保存在本机，直到清除当前项目。</p></div><div className="prompt-book-actions"><button className="secondary" disabled={busy} onClick={importDocument}><Upload size={16}/>{busy?'正在导入…':'上传整本提示词'}</button><button className="danger" disabled={busy||!book} onClick={clearCurrent}><Trash2 size={16}/>清除当前项目</button></div></div>
@@ -72,7 +72,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
     <label>场景<select aria-label="提示词场景" disabled={busy} value={entry.scene} onChange={e=>select(episode.scenes.find(x=>x.number===+e.target.value).entries[0].id)}>{episode.scenes.map(x=><option key={x.number} value={x.number}>场景 {x.number}</option>)}</select></label>
     <div className="prompt-book-entries" aria-label="场景提示词">{scene.entries.map(e=><button key={e.id} aria-pressed={e.id===entry.id} className={e.id===entry.id?'active':''} disabled={busy} onClick={()=>select(e.id)}>{e.label}</button>)}</div>
    </nav>
-   <div className="prompt-book-media"><div><strong>第 {entry.episode} 集素材</strong><small>{references.length?`图片 ${references.filter(r=>r.kind==='image').length} · 视频 ${references.filter(r=>r.kind==='video').length} · 音频 ${references.filter(r=>r.kind==='audio').length}；同集共享，移除只影响当前条目`:'尚未导入素材，可直接编辑提示词并生成'}</small></div><button disabled={busy} onClick={()=>importFolder('episode')}><FolderOpen size={15}/>导入本集文件夹</button><button disabled={busy} onClick={()=>importFolder('series')}><FolderOpen size={15}/>导入整部素材文件夹</button>{references.length>0&&<details className="prompt-book-media-details"><summary>查看本集已挂载素材（{references.length}）</summary><div>{references.map(ref=><span key={ref.id}>{ref.kind==='image'?'图片':ref.kind==='audio'?'音频':'视频'} · {ref.name}</span>)}</div></details>}</div>
+   <div className="prompt-book-media"><div><strong>场景 {entry.episode}-{entry.scene} 素材</strong><small>{references.length?`图片 ${references.filter(r=>r.kind==='image').length} · 视频 ${references.filter(r=>r.kind==='video').length} · 音频 ${references.filter(r=>r.kind==='audio').length}；按场挂载，集级素材共享，移除只影响当前条目`:'尚未导入素材，可直接编辑提示词并生成'}</small></div><button disabled={busy} onClick={()=>importFolder('episode')}><FolderOpen size={15}/>导入本集文件夹</button><button disabled={busy} onClick={()=>importFolder('series')}><FolderOpen size={15}/>导入整部素材文件夹</button>{references.length>0&&<details className="prompt-book-media-details"><summary>查看当前场景已挂载素材（{references.length}）</summary><div>{references.map(ref=><span key={ref.id}>{ref.kind==='image'?'图片':ref.kind==='audio'?'音频':'视频'} · {ref.name}</span>)}</div></details>}</div>
    <div className="prompt-book-current"><strong>正在编辑 {entry.label}</strong>{entry.recommendedDurationSeconds&&<span className="prompt-duration">建议生成时长 {entry.recommendedDurationSeconds} 秒{entry.durationStatus==='needs-review'?' · 时长待复核':''}</span>}<span>文字修改自动保存</span>{!!book.drafts?.[entry.id]?.excludedIds?.length&&<button disabled={busy} onClick={()=>updateBook(book.id,b=>({...b,drafts:{...b.drafts,[entry.id]:{...b.drafts[entry.id],excludedIds:[],autoReferenceExclusions:[],autoReferenceSignature:null}}}))}>恢复本条移除的素材</button>}</div>
    <GenerationComposer key={`${book.id}/${entry.id}`} state={state} api={api} kind="video" value={currentValue} referenceCandidates={references} onChange={value=>updateBook(book.id,b=>saveEntryValue(b,entry.id,value,currentValue))} onSubmit={input=>onSubmit({...input,promptBookId:book.id,promptEntryId:entry.id,promptLabel:entry.label})} onPick={importFiles} disabled={busy} episodeReferences/>
   </>}

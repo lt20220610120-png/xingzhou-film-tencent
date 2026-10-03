@@ -147,9 +147,9 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
 }
 
 export function projectReferenceCandidates(assets,media,projectId,episode,scene) {
- const belongs=asset=>scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
+ const belongs=asset=>scene&&asset.reviewedSceneIds?.includes(scene)?asset.sceneIds?.includes(scene):scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
  return [
   ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,filename:i.filename,category:a.category}))),
-  ...(media||[]).filter(m=>Number(m.episode)===Number(episode)).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
+  ...(media||[]).filter(m=>Number(m.episode)===Number(episode)&&(!scene||!m.scene||String(m.scene)===String(scene)||String(m.scene)===String(scene).split('-').at(-1))).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
  ];
 }
