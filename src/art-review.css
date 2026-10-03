@@ -1,17 +1,144 @@
-.art-review-page{color:#283344;font-family:"Microsoft YaHei","PingFang SC",sans-serif;max-width:1680px;margin:0 auto;--review-purple:#7561bb;--review-pale:#f0ebfa;--review-line:#e5e7ef}
-.art-review-roster{background:#fff;border:1px solid var(--review-line);border-radius:14px;margin:18px 0 24px;padding:20px}.art-review-roster>header{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:16px}.art-review-roster h2{font-size:17px;margin:0 0 6px}.art-review-roster h2 span{color:#7561bb;font-size:14px}.art-review-roster header p{font-size:13px;color:#8490a0;margin:0;line-height:1.8}.art-review-roster header>div:last-child{display:flex;gap:8px}.art-review-roster-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.art-review-roster-card{padding:14px;border:1px solid #e7e1f3;border-radius:10px;background:#fff}.art-review-roster-card>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.art-review-roster-card small{color:#949aa5}.art-review-roster-card b{font-size:14px;overflow-wrap:anywhere}.art-review-roster-card p{font-size:12px;color:#8490a0;margin:10px 0}.art-review-roster-card button{padding:6px 8px;font-size:12px}.art-review-scene-checks{border:1px solid #e5e7ef;border-radius:10px;display:flex;flex-wrap:wrap;gap:12px;padding:12px;margin-top:16px}.art-review-scene-checks legend{font-size:13px;color:#8490a0}.art-review-dialog .art-review-scene-checks label{display:flex;align-items:center;gap:6px;margin:0}.art-review-dialog .art-review-scene-checks input{width:auto;margin:0;accent-color:#7561bb}.art-review-controls-actions{flex-wrap:wrap}
-.art-review-page button,.art-review-dialog button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--review-line,#e5e7ef);background:#fff;color:#635282;border-radius:9px;padding:10px 14px;cursor:pointer;font:inherit;white-space:nowrap}
-.art-review-page button:disabled,.art-review-dialog button:disabled{opacity:.5;cursor:default}.art-review-page button:focus-visible,.art-review-dialog :focus-visible{outline:2px solid #9c8bd1;outline-offset:3px}
-.art-review-page .art-review-accent{background:#f0ebfa;border-color:#ded4f0;color:#6952a4}.art-review-page .art-review-primary,.art-review-dialog .art-review-primary{background:#7561bb;color:white;border-color:#7561bb}.art-review-secondary:hover:not(:disabled){background:#faf8fe!important}
-.art-review-heading{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:2px 0 22px}.art-review-eyebrow{font-size:13px;color:#8c829d}.art-review-heading h1{font-size:23px;margin:8px 0 9px;letter-spacing:.2px}.art-review-heading p,.art-review-unassigned p{color:#8490a0;font-size:13px;margin:0;line-height:1.8}
-.art-review-controls{display:flex;align-items:end;gap:22px;flex-wrap:wrap;padding:20px 22px;border:1px solid var(--review-line);border-radius:14px;background:#fff;box-shadow:0 3px 12px #34315b04}.art-review-controls label,.art-review-dialog label{display:flex;flex-direction:column;gap:9px;color:#8490a0;font-size:13px}.art-review-controls select,.art-review-dialog input,.art-review-dialog select,.art-review-dialog textarea{background:#fff;border:1px solid #e0e4ed;border-radius:9px;color:#344054;min-height:42px;padding:9px 12px;font:inherit;outline:none}.art-review-episode-select{display:flex;gap:9px;align-items:end}.art-review-episode-select select{width:235px}.art-review-episode-select button{height:42px;padding:9px}.art-review-model{flex:1;min-width:220px;max-width:480px}.art-review-controls-actions{display:flex;gap:10px;margin-left:auto}.art-review-controls-actions button{height:42px}
-.art-review-overview{display:flex;flex-wrap:wrap;gap:23px;align-items:center;padding:19px 3px;color:#8993a0;font-size:13px}.art-review-overview b{color:#7561bb;font-size:15px;margin:0 3px}.art-review-save-state{margin-left:auto}.art-review-message,.art-review-warning{padding:12px 16px;line-height:1.8;border-radius:9px;font-size:13px;white-space:pre-wrap}.art-review-message{background:#f6f3fb;color:#75638f}.art-review-warning{background:#fff6ed;color:#a76130}.art-review-warning button{margin:5px;font-size:12px}
-.art-review-unassigned{background:#fff;border:1px solid #e5dfef;padding:20px 22px;border-radius:14px;margin-bottom:24px}.art-review-unassigned h2{font-size:16px;margin:0 0 6px}.art-review-unassigned h2 span{font-size:12px;color:#8e82a6}.art-review-unassigned-list{margin-top:14px;display:flex;gap:9px;flex-wrap:wrap}.art-review-unassigned-list>div{display:flex;align-items:center;gap:9px;border:1px solid #ebe7f1;border-radius:9px;padding:8px 10px;font-size:13px}.art-review-unassigned-list span{color:#9690a0;font-size:11px}.art-review-unassigned-list select{background:#fff;border:1px solid #e4dfed;border-radius:6px;padding:5px;color:#75638f}.art-review-unassigned-list button{padding:5px}
-.art-review-scene-list{display:flex;flex-direction:column;gap:24px}.art-review-scene{border:1px solid var(--review-line);background:#fff;border-radius:14px;box-shadow:0 4px 14px #34315b05;overflow:hidden}.art-review-scene>header{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:16px 21px;border-bottom:1px solid var(--review-line)}.art-review-scene>header>div{display:flex;gap:12px;align-items:center}.art-review-scene-id{font-weight:700;color:#5f4d99;font-size:16px}.art-review-status{font-size:11px;color:#939aaa;background:#f5f6f9;border-radius:5px;padding:5px 8px}.art-review-status.approved{color:#766499;background:#f0ebfa}.art-review-scene>header button{font-size:12px;padding:8px 11px}
-.art-review-scene-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.art-review-source{border-right:1px solid var(--review-line);padding:19px 22px;min-height:340px}.art-review-scene h3{font-size:12px;color:#8490a0;margin:0 0 17px;font-weight:500}.art-review-source pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:14px;line-height:2.1;margin:0;color:#344054}.art-review-inventory{padding:19px 22px}.art-review-inventory h3{display:flex;justify-content:space-between}.art-review-inventory h3 small{font-size:11px;color:#a8afba}.art-review-category{padding-bottom:18px}.art-review-category-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.art-review-category-heading h4{font-size:13px;margin:0;font-weight:600;color:#606c7e}.art-review-category-heading h4 span{font-weight:400;font-size:11px;color:#aaa3b7;margin-left:9px}.art-review-category-heading button{font-size:11px;padding:5px 8px;border:none}
-.art-review-item{display:flex;align-items:center;gap:7px;padding:11px 12px;border:1px solid #ebe8f1;border-radius:8px;margin-bottom:8px;min-height:43px}.art-review-item>div{display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}.art-review-item b{font-size:13px;font-weight:500;overflow-wrap:anywhere}.art-review-outfit{font-size:11px;background:#f3effb;color:#786598;padding:4px 8px;border-radius:5px}.art-review-needs-detail{font-size:10px;color:#a57948}.art-review-item small{flex-basis:100%;color:#9a899f;font-size:11px;line-height:1.6}.art-review-item button{padding:4px;border:none;color:#a29aaa}.art-review-item button:hover{color:#7561bb;background:#f3effb}.art-review-empty{color:#b2b8c2;font-size:12px;margin:8px 0}.art-review-page .art-review-undo{font-size:11px;border:none;padding:5px 0;background:transparent}.art-review-detail-note{color:#a57948;font-size:11px;line-height:1.8}
-.art-review-history{color:#8b91a0;font-size:12px;padding:20px 3px;line-height:1.9}.art-review-history summary{cursor:pointer}.art-review-history ul{padding-left:20px}.art-review-footer{position:sticky;bottom:-24px;z-index:3;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border:1px solid var(--review-line);border-radius:12px;background:#fffffffa;box-shadow:0 -4px 18px #34315b08;padding:14px 18px;margin-top:10px}.art-review-footer>span{display:flex;align-items:center;gap:9px;font-size:12px;color:#80728d}.art-review-footer>div{display:flex;flex-wrap:wrap;gap:8px}.art-review-footer button{font-size:12px;padding:9px 12px}
-.art-review-loading{padding:40px;display:flex;align-items:center;gap:12px;color:#8c829d}.art-review-dialog{border:1px solid #e5dfef;border-radius:16px;box-shadow:0 22px 100px #28213830;background:white;padding:23px 26px;max-width:560px;width:calc(100% - 50px);max-height:85vh;color:#344054;font-family:"Microsoft YaHei","PingFang SC",sans-serif}.art-review-dialog::backdrop{background:#29223735}.art-review-dialog header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.art-review-dialog h2{font-size:18px;margin:0}.art-review-dialog header button{padding:6px;border:none}.art-review-dialog label{margin-bottom:14px}.art-review-dialog p{font-size:13px;line-height:1.9;color:#8590a0}.art-review-dialog textarea{min-height:75px;resize:vertical}.art-review-dialog-actions{display:flex;gap:10px;justify-content:end;margin-top:20px}.art-review-dialog-actions button{font-size:13px}
-.art-review-footer{padding-right:76px}.art-review-item b{font-size:14px}.art-review-dialog .art-review-warning{color:#a76130}
-@media(max-width:1200px){.art-review-controls-actions{margin-left:0}.art-review-episode-select select{width:200px}.art-review-scene>header{flex-wrap:wrap}.art-review-controls{gap:16px}.art-review-footer{bottom:-18px}}
-@media(max-width:800px){.art-review-scene-columns{grid-template-columns:1fr}.art-review-source{border-right:0;border-bottom:1px solid var(--review-line);min-height:0}.art-review-heading{align-items:start;flex-wrap:wrap}.art-review-heading h1{font-size:20px}.art-review-scene>header>div{flex-wrap:wrap}.art-review-model{min-width:180px}}
+/* White review desk; purple actions, compact casting / location / prop lists. */
+.art-review-page,.art-review-dialog,.art-review-assignment {
+  --review-purple:#7561bb; --review-hover:#6551aa; --review-pale:#f0ebfa; --review-line:#e5e7ef;
+  color:#283344; font-family:"Microsoft YaHei","PingFang SC",sans-serif; font-size:13px;
+}
+.art-review-page { max-width:1680px; margin:0 auto; }
+.art-review-page button,.art-review-dialog button,.art-review-assignment button {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  border:1px solid var(--review-purple); background:var(--review-purple); color:#fff;
+  border-radius:7px; padding:8px 12px; cursor:pointer;
+  font-family:inherit; font-size:13px; line-height:1.4; font-weight:500; white-space:nowrap;
+}
+.art-review-page button:hover:not(:disabled),.art-review-dialog button:hover:not(:disabled),.art-review-assignment button:hover:not(:disabled) { background:var(--review-hover); border-color:var(--review-hover); }
+.art-review-page button:disabled,.art-review-dialog button:disabled,.art-review-assignment button:disabled { opacity:.45; cursor:default; }
+.art-review-page button:focus-visible,.art-review-dialog :focus-visible,.art-review-assignment :focus-visible,.art-review-source pre:focus-visible { outline:2px solid #9c8bd1; outline-offset:3px; }
+.art-review-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:2px 0 20px; }
+.art-review-eyebrow { font-size:12px; color:#8c829d; }
+.art-review-heading h1 { font-size:23px; margin:8px 0; letter-spacing:.2px; }
+.art-review-heading p { color:#8490a0; font-size:13px; margin:0; line-height:1.8; }
+.art-review-controls { display:flex; align-items:end; gap:18px; flex-wrap:wrap; padding:18px 20px; border:1px solid var(--review-line); border-radius:12px; background:#fff; }
+.art-review-controls label,.art-review-dialog label { display:flex; flex-direction:column; gap:7px; color:#7b8595; font-size:13px; }
+.art-review-controls select,.art-review-dialog input:not([type="checkbox"]),.art-review-dialog select,.art-review-dialog textarea { background:#fff; border:1px solid #e0e4ed; border-radius:7px; color:#344054; min-height:38px; padding:8px 10px; font:inherit; outline:none; }
+.art-review-episode-select { display:flex; gap:8px; align-items:end; min-width:0; }
+.art-review-episode-select select { width:210px; }
+.art-review-episode-select button { height:38px; padding:8px; background:#fff; border-color:var(--review-line); color:#7561bb; }
+.art-review-model { flex:1; min-width:210px; max-width:420px; }
+.art-review-controls-actions { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.art-review-controls-actions button { min-height:38px; }
+.art-review-overview { display:flex; flex-wrap:wrap; gap:22px; align-items:center; padding:17px 3px; color:#8993a0; font-size:12px; }
+.art-review-overview b { color:#7561bb; font-size:14px; margin:0 3px; }
+.art-review-save-state { margin-left:auto; }
+.art-review-message,.art-review-warning { padding:10px 14px; line-height:1.8; border-radius:8px; font-size:12px; white-space:pre-wrap; }
+.art-review-message { background:#f6f3fb; color:#75638f; }
+.art-review-warning { background:#fff6ed; color:#a76130; }
+.art-review-warning button { margin:5px; font-size:12px; }
+
+/* One horizontal band per category; rows take only the space they need. */
+.art-review-roster { background:#fff; border:1px solid var(--review-line); border-radius:12px; margin:16px 0 22px; padding:18px 20px 8px; }
+.art-review-roster>header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
+.art-review-roster h2 { font-size:16px; margin:0 0 5px; }
+.art-review-roster h2 span { color:#7561bb; font-size:13px; }
+.art-review-roster header p { font-size:12px; color:#8490a0; margin:0; line-height:1.8; }
+.art-review-roster header>div:last-child { display:flex; gap:8px; flex-wrap:wrap; }
+.art-review-roster-group { display:grid; grid-template-columns:58px minmax(0,1fr); gap:12px; padding:12px 0; border-top:1px solid #eff0f5; }
+.art-review-roster-group>h3 { display:flex; align-items:baseline; gap:6px; padding-top:11px; margin:0; font-size:13px; color:#655681; font-weight:600; }
+.art-review-roster-group>h3 span { font-weight:400; font-size:11px; color:#9d95ac; }
+.art-review-roster-list { display:flex; flex-wrap:wrap; align-items:start; gap:8px; min-width:0; }
+.art-review-roster-card { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:7px 9px; border:1px solid #e9e5f2; border-radius:8px; background:#fff; max-width:100%; }
+.art-review-roster-name { display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-width:0; }
+.art-review-roster-name b { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.art-review-roster-links { color:#8c849a; font-size:11px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.art-review-roster-links.unbound { color:#a57948; }
+.art-review-roster-actions { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
+.art-review-roster-actions button { padding:5px 7px; min-height:28px; font-size:12px; gap:4px; border-radius:5px; }
+.art-review-roster-actions .art-review-icon-button { width:26px; padding:4px; border-color:transparent; background:transparent; color:#9b90aa; }
+.art-review-roster-actions .art-review-icon-button:hover:not(:disabled) { background:#f4effb; border-color:transparent; color:#7561bb; }
+
+.art-review-scene-list { display:flex; flex-direction:column; gap:22px; }
+.art-review-scene { border:1px solid var(--review-line); background:#fff; border-radius:12px; box-shadow:0 3px 12px #34315b05; overflow:hidden; }
+.art-review-scene>header { display:flex; justify-content:space-between; gap:18px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--review-line); }
+.art-review-scene>header>div { display:flex; gap:10px; align-items:center; }
+.art-review-scene-id { font-weight:700; color:#5f4d99; font-size:15px; }
+.art-review-status { font-size:11px; color:#939aaa; background:#f5f6f9; border-radius:5px; padding:4px 7px; }
+.art-review-status.approved { color:#766499; background:#f0ebfa; }
+.art-review-scene>header button { font-size:12px; padding:7px 10px; }
+/* Only inventory contributes content height; script text scrolls inside it. */
+.art-review-scene-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); min-height:300px; }
+.art-review-source { position:relative; border-right:1px solid var(--review-line); padding:18px 20px; min-width:0; }
+.art-review-scene h3 { font-size:12px; color:#8490a0; margin:0 0 15px; font-weight:500; }
+.art-review-source pre { position:absolute; inset:50px 20px 18px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:14px; line-height:1.95; margin:0; padding-right:10px; color:#344054; }
+.art-review-inventory { padding:18px 20px; min-width:0; }
+.art-review-inventory h3 { display:flex; justify-content:space-between; }
+.art-review-inventory h3 small { font-size:11px; color:#a8afba; }
+.art-review-category { padding-bottom:14px; }
+.art-review-category:last-child { padding-bottom:0; }
+.art-review-category-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.art-review-category-heading h4 { font-size:13px; margin:0; font-weight:600; color:#606c7e; }
+.art-review-category-heading h4 span { font-weight:400; font-size:11px; color:#aaa3b7; margin-left:8px; }
+.art-review-category-heading button { font-size:11px; padding:4px 7px; }
+.art-review-item { display:flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid #ebe8f1; border-radius:7px; margin-bottom:7px; min-height:38px; }
+.art-review-item>div { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:7px; min-width:0; }
+.art-review-item b { font-size:13px; font-weight:500; overflow-wrap:anywhere; }
+.art-review-outfit { font-size:11px; background:#f3effb; color:#786598; padding:3px 7px; border-radius:5px; }
+.art-review-needs-detail { font-size:10px; color:#a57948; }
+.art-review-item small { flex-basis:100%; color:#9a899f; font-size:11px; line-height:1.6; }
+.art-review-item button { padding:4px; border:none; background:transparent; color:#a29aaa; }
+.art-review-item button:hover:not(:disabled) { color:#7561bb; background:#f3effb; }
+.art-review-empty { color:#a6adba; font-size:12px; margin:7px 0; }
+.art-review-page .art-review-undo { font-size:11px; border:none; padding:5px 0; background:transparent; color:#7561bb; }
+.art-review-detail-note { color:#a57948; font-size:11px; line-height:1.8; margin-top:8px; }
+.art-review-history { color:#8b91a0; font-size:12px; padding:18px 3px; line-height:1.9; }
+.art-review-history summary { cursor:pointer; }
+.art-review-history ul { padding-left:20px; }
+.art-review-footer { position:sticky; bottom:-24px; z-index:3; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border:1px solid var(--review-line); border-radius:12px; background:#fffffffa; box-shadow:0 -4px 18px #34315b08; padding:12px 76px 12px 18px; margin-top:10px; }
+.art-review-footer>span { display:flex; align-items:center; gap:8px; font-size:12px; color:#80728d; }
+.art-review-footer>div { display:flex; flex-wrap:wrap; gap:7px; }
+.art-review-footer button { font-size:12px; padding:8px 10px; }
+.art-review-loading { padding:40px; display:flex; align-items:center; gap:12px; color:#8c829d; }
+
+/* Explicit auto margins restore native centering after the global reset. */
+.art-review-dialog { position:fixed; inset:0; margin:auto; border:1px solid #e5dfef; border-radius:14px; box-shadow:0 22px 100px #28213830; background:#fff; padding:20px 24px; width:min(520px,calc(100vw - 32px)); max-width:none; max-height:calc(100dvh - 40px); overflow-y:auto; }
+.art-review-dialog::backdrop { background:#29223735; }
+.art-review-dialog>header,.art-review-assignment>header { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:14px; }
+.art-review-dialog h2 { font-size:17px; margin:0; }
+.art-review-dialog>header button,.art-review-assignment>header button { padding:4px; background:transparent; color:#8a7aab; border-color:transparent; }
+.art-review-dialog label { margin-bottom:11px; }
+.art-review-dialog p { font-size:12px; line-height:1.8; color:#8590a0; }
+.art-review-dialog textarea { min-height:64px; resize:vertical; }
+.art-review-dialog-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:end; margin-top:16px; }
+.art-review-dialog-actions button { font-size:12px; }
+.art-review-dialog-actions button:first-child { background:#fff; color:#7c6e90; border-color:#e5e7ef; }
+.art-review-dialog .art-review-warning { color:#a76130; }
+.art-review-scene-checks { border:1px solid #e5e7ef; border-radius:8px; display:flex; flex-wrap:wrap; gap:8px; padding:10px; margin:12px 0 6px; max-height:180px; overflow-y:auto; }
+.art-review-scene-checks legend { font-size:12px; color:#8490a0; padding:0 4px; }
+.art-review-dialog .art-review-scene-checks label,.art-review-assignment .art-review-scene-checks label { display:inline-flex; flex-direction:row; align-items:center; gap:6px; padding:5px 8px; margin:0; border-radius:5px; background:#f8f6fc; font-size:12px; cursor:pointer; color:#635282; }
+.art-review-dialog .art-review-scene-checks input,.art-review-assignment .art-review-scene-checks input { width:14px; height:14px; min-height:0; padding:0; margin:0; flex:none; accent-color:#7561bb; }
+.art-review-scene-checks label:has(input:checked) { background:#eee8fa; }
+.art-review-assignment { position:fixed; inset:auto; margin:0; width:min(340px,calc(100vw - 24px)); overflow-y:auto; padding:14px; border:1px solid #ddd4ed; border-radius:10px; background:#fff; box-shadow:0 8px 32px #30204424; }
+.art-review-assignment h2 { font-size:13px; line-height:1.5; margin:0; overflow-wrap:anywhere; }
+.art-review-assignment p { font-size:12px; color:#8b819b; margin:0; }
+.art-review-assignment .art-review-scene-checks { margin:10px 0 0; max-height:160px; }
+.art-review-assignment .art-review-dialog-actions { margin-top:12px; }
+.art-review-assignment .art-review-dialog-actions button { padding:6px 9px; font-size:12px; }
+.art-review-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+@media(max-width:1200px) {
+  .art-review-controls-actions { margin-left:0; }
+  .art-review-episode-select select { width:180px; }
+  .art-review-scene>header { flex-wrap:wrap; }
+  .art-review-controls { gap:14px; }
+  .art-review-footer { bottom:-18px; }
+}
+@media(max-width:800px) {
+  .art-review-scene-columns { grid-template-columns:1fr; }
+  .art-review-source { border-right:0; border-bottom:1px solid var(--review-line); height:280px; }
+  .art-review-heading { align-items:start; flex-wrap:wrap; }
+  .art-review-heading h1 { font-size:20px; }
+  .art-review-scene>header>div { flex-wrap:wrap; }
+  .art-review-model { min-width:180px; }
+  .art-review-roster { padding:14px; }
+  .art-review-roster-group { grid-template-columns:1fr; gap:8px; }
+  .art-review-roster-group>h3 { padding-top:0; }
+  .art-review-roster-card { width:100%; }
+}
