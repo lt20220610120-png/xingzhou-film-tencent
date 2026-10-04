@@ -76,11 +76,13 @@ Files: package.json、package-lock.json、release-notes/2.6.0.md、qa records、
 
 - [x] Fresh independent branch review; fix material findings with regression tests.
 - [x] npm test and npm run build; UI mock flows, director regression, UTF-8/DOCX output.
-- [ ] Commit verified code, npm run release, packaged-runtime verification and public manifest version/URL/size/SHA256 checks.
-- [ ] Report released version and user update entry, material limitations only.
+- [x] Commit verified code, npm run release, packaged-runtime verification and public manifest version/URL/size/SHA256 checks.
+- [x] Report released version and user update entry, material limitations only.
 
 ## Execution ledger
 
 Baseline commit 9392121; feature branch codex/creator-space-v260. Product implementation and publish explicitly authorized. Main controller owns UI/integration and release; independent workers own the domain file pair and the Electron document files; no overlapping edits or worker releases.
 
 2026-10-04 集成完成：人物事件稳定条目、引用验证、因果无环、拆分合并、完整聊天和模型范围、长输入读取、候选分支选择、总稿同源、旧稿恢复及固定收录版本均落实。独立审查指出的运行与资料问题已修并补回归。1312项测试及构建通过，四组页面模拟流程与导演导入通过，未调用付费生成。详见 docs/qa/creator-space-v260.md。下一步提交与打包发布2.6.0。
+
+2026-10-04 发布完成：代码702ce51进入main，2.6.0安装包通过实际启动及中文DOCX回读，1312项测试全部通过。最终包102470988字节，SHA256 88c834ae675793251d1acdf29df73c1c4d3f02dcbc432127d7ef6b197bb25f45。GitHub资产digest与本地安装包一致；updates和tencent两个公开latest.json均为2.6.0，下载HTTP 200。用户可在设置检查更新。验证记录：docs/qa/creator-space-v260.md。

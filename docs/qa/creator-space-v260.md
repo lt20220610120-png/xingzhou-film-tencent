@@ -34,4 +34,16 @@
 
 世界模拟由用户所选模型依据固定约束提出有限分支；尚未接入 MiroFish 外部模拟服务。视频上传记录来源，文字接口仍使用用户提供的转录或反推文本。
 
-安装包运行时与公开更新清单在发布阶段另行验证。
+## 发布验证
+
+`npm run release` 完成。安装包实际启动成功，两个身份入口、本地媒体、导演资料桥接及创作 Word 回读检查通过。源码进入 main，最终安装包包含连续拆解读取最新项目状态的修复。
+
+- 版本：2.6.0。
+- 安装包大小：102470988 字节。
+- SHA256：`88c834ae675793251d1acdf29df73c1c4d3f02dcbc432127d7ef6b197bb25f45`。
+- GitHub Release 资产 digest 与本地文件一致。
+- updates 和 tencent 两个公开 `latest.json` 的版本、URL、大小、SHA256 均通过核对。
+- 公开下载 URL：HTTP 200，Content-Length 一致。
+- 发布页：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.6.0。
+
+验证脚本与原始报告：本机 `qa/verify-creator-release-v260.py`、`qa/public-release-v260.json`、`qa/packaged-smoke-2.6.0-1791114966732/report.json`。
