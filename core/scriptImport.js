@@ -48,7 +48,8 @@ export const parseMasterScript = (text) => {
   const heading = /^\s*(?:第[一二三四五六七八九十百千\d]+[集章节幕部回]|Episode\s+\d+|EP\s*\d+)\s*[:：]?\s*.*$/i;
   const lines = source.split('\n');
   const starts = [];
-  lines.forEach((line, index) => { if (heading.test(line.trim())) starts.push({ index, title: line.trim() }); });
+  const explicit=lines.some(line=>/^【[^】]+】$/.test(line.trim())&&heading.test(line.trim().slice(1,-1)));
+  lines.forEach((line, index) => { const wrapped=line.trim().match(/^【([^】]+)】$/),title=wrapped?wrapped[1]:line.trim(); if ((!explicit||wrapped)&&heading.test(title)) starts.push({ index, title }); });
   if (!starts.length) return { setting: source, episodes: [{ title: '设定和小传', content: source, kind: 'setting' }] };
   const setting = lines.slice(0, starts[0].index).join('\n').trim();
   return {
@@ -59,8 +60,9 @@ export const parseMasterScript = (text) => {
 
 export const replaceMasterSetting = (text, setting) => {
   const source = String(text || '').replaceAll(String.fromCharCode(13, 10), '\n').replaceAll(String.fromCharCode(13), '\n').trim();
-  const heading = /^\s*(?:第[一二三四五六七八九十百千\d]+[集章节幕部回]|Episode\s+\d+|EP\s*\d+)\s*[:：]?\s*.*$/im;
-  const firstEpisode = source.search(heading);
+  const heading = /^\s*(?:【)?(?:第[一二三四五六七八九十百千\d]+[集章节幕部回]|Episode\s+\d+|EP\s*\d+)\s*[:：]?\s*.*$/im;
+  const explicitHeading=/^\s*【(?:第[一二三四五六七八九十百千\d]+[集章节幕部回]|Episode\s+\d+|EP\s*\d+)[^】]*】\s*$/im;
+  const firstEpisode = source.search(explicitHeading.test(source)?explicitHeading:heading);
   const episodeText = firstEpisode >= 0 ? source.slice(firstEpisode).trim() : '';
   return [String(setting || '').trim(), episodeText].filter(Boolean).join('\n\n');
 };
@@ -69,11 +71,12 @@ export const splitFullScript = (text) => {
   if (!text || typeof text !== 'string') return { masterScript: '', detected: false, episodes: [] };
   const patterns = [/^第[一二三四五六七八九十百千\d]+[集章节幕部回]/, /^Episode\s+\d+[:：]?\s*/i, /^\d+[\.、．，,）\)]\s*/, /^[一二三四五六七八九十百千]+[、．\.]\s*/];
   const lines = text.split('\n'); const episodes = []; let currentTitle = ''; let currentContent = [];
+  const explicit=lines.some(line=>/^【(?:第[一二三四五六七八九十百千\d]+[集章节幕部回]|Episode\s+\d+|EP\s*\d+)[^】]*】$/i.test(line.trim()));
   for (const line of lines) {
-    const trimmed = line.trim();
+    const trimmed = line.trim().replace(/^【([^】]+)】$/, '$1');
     if (!trimmed) { if (currentContent.length > 0) currentContent.push(''); continue; }
     let matched = false;
-    for (const pattern of patterns) if (pattern.test(trimmed)) {
+    for (const pattern of patterns) if ((!explicit||/^【[^】]+】$/.test(line.trim()))&&pattern.test(trimmed)) {
       if (currentContent.length > 0) episodes.push({ title: currentTitle || `分集 ${episodes.length + 1}`, content: currentContent.join('\n').trim() });
       currentTitle = trimmed; currentContent = []; matched = true; break;
     }

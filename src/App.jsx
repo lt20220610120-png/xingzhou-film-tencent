@@ -37,6 +37,8 @@ import { FloatingAIButton } from './v06/FloatingAIButton.jsx';
 import { StudioRoleScreen } from './v06/StudioRoleScreen.jsx';
 import { createDirectorPersistence } from '../core/directorPersistence.js';
 import { useDirectorQuickGeneration } from './v06/useDirectorQuickGeneration.js';
+import { CreatorWorkspace } from './creator/CreatorWorkspace.jsx';
+import { recoverCreatorTasks } from '../core/creatorWorkspace.js';
 
 // ========== 常量 ==========
 const STORAGE = 'xingzhou-film-v1';
@@ -1220,8 +1222,12 @@ function App() {
   const canvasFrameRef = useRef(null);
   const [canvasVisited, setCanvasVisited] = useState(false);
   const [visitedWorkspaces, setVisitedWorkspaces] = useState({});
+  const [creatorSaveStatus, setCreatorSaveStatus] = useState({ saved: false });
   useEffect(() => {
-    if (nav === 'director' || nav === 'collab' || nav === 'admin') setVisitedWorkspaces((current) => current[nav] ? current : { ...current, [nav]: true });
+    if (nav === 'director' || nav === 'collab' || nav === 'admin' || ['fruit', 'studio', 'scripts'].includes(nav)) {
+      const key = ['fruit', 'studio', 'scripts'].includes(nav) ? 'creator' : nav;
+      setVisitedWorkspaces((current) => current[key] ? current : { ...current, [key]: true });
+    }
   }, [nav]);
   const initialCanvasRoute = useRef(canvasRoute);
   useEffect(() => { if (nav === 'canvas') setCanvasVisited(true); }, [nav]);
@@ -1230,6 +1236,7 @@ function App() {
   const [registerRole, setRegisterRole] = useState(null);
   const [lockedRole, setLockedRole] = useState(null);
   const [initialized, setInitialized] = useState(false);
+  const [storageLoadError, setStorageLoadError] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
   const [aiAttachment, setAiAttachment] = useState(null);
   const [state, setRenderedState] = useState(() => {
@@ -1268,12 +1275,15 @@ function App() {
   }, []);
 
   // 加载持久化状态
-  useEffect(() => {
-    Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null)]).then(([saved, directorProjects]) => {
-      setState(current => mergePersistedState(current, directorProjects ? { ...(saved || {}), directorProjects } : saved));
+  const loadSavedState = useCallback(async () => {
+    try {
+      const [saved, directorProjects] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null)]);
+      setState(current => recoverCreatorTasks(mergePersistedState(current, directorProjects ? { ...(saved || {}), directorProjects } : saved)));
+      setStorageLoadError('');
       setInitialized(true);
-    }).catch(() => setInitialized(true));
-  }, []);
+    } catch (error) { setInitialized(false); setStorageLoadError(error.message || '本地资料读取失败'); }
+  }, [setState]);
+  useEffect(() => { loadSavedState(); }, [loadSavedState]);
 
   useEffect(() => {
     api.authSession().then((savedAccount) => {
@@ -1294,7 +1304,11 @@ function App() {
     if (!initialized) return;
     // Browser cache quotas must never prevent saving paid output to disk.
     try { localStorage.setItem(STORAGE, JSON.stringify(state)); } catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
-    const timer = setTimeout(() => persistence.enqueue(stateRef.current), 250);
+    setCreatorSaveStatus({ saving: true });
+    const timer = setTimeout(async () => {
+      try { persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({ saved: true }); }
+      catch(error) { setCreatorSaveStatus({ error: error.message }); }
+    }, 250);
     return () => { clearTimeout(timer); };
   }, [state, initialized]);
 
@@ -1336,6 +1350,7 @@ function App() {
   };
 
   if (!authReady) return <div className="app-loading"><BrandLogo /><span>正在读取账号权限…</span></div>;
+  if (storageLoadError) return <div className="render-error-page"><BrandLogo /><h1>本地资料暂时无法读取</h1><p>{storageLoadError}</p><button className="primary" onClick={loadSavedState}>重新读取资料</button></div>;
 
   if (registerRole) {
     return <RegistrationScreen requestedRole={registerRole} onClose={() => setRegisterRole(null)} onRegistered={handleAuthenticated} onLogin={handleAuthenticated} />;
@@ -1402,9 +1417,7 @@ function App() {
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
-        {nav === 'fruit' && <FruitLibrary state={state} setState={setState} api={api} />}
-        {nav === 'studio' && <ScriptStudio state={state} setState={setState} api={api} />}
-        {nav === 'scripts' && <ScriptLibrary state={state} setState={setState} />}
+        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={['fruit','studio','scripts'].includes(nav) ? nav : 'studio'} state={state} setState={setState} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
         {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} />}

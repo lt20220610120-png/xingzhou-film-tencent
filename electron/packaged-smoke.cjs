@@ -30,6 +30,11 @@ module.exports = function configurePackagedSmoke(app) {
         const buffer = await zip.generateAsync({type:'nodebuffer'});
         const result = await require('mammoth').extractRawText({buffer});
         report.docxImport = result.value.trim() === '行舟安装包验证';
+        const creatorContent = '第17集\n17-1 旧书店 日 内\n人物：林舟\n△归还旧包。\n林舟：记忆仍在。';
+        const creatorBuffer = require('./creator-documents.cjs').buildCreatorDocument({name:'创作终稿',content:creatorContent,format:'docx'});
+        const creatorRoundTrip = await require('mammoth').extractRawText({buffer:creatorBuffer});
+        report.creatorWorkspace = {docxRoundTrip:creatorRoundTrip.value.replace(/\n\n/g,'\n').trim() === creatorContent,
+          bridge:await win.webContents.executeJavaScript("['saveCreatorDocument','importCreatorVideo','loadState','saveState'].every(name=>typeof window.xingzhou?.[name]==='function')")};
         const helper = fs.readFileSync(path.join(__dirname, 'workbuddy-archive.py'), 'utf8');
         report.workBuddy = { helperBundled: helper.includes('def extract(') && helper.includes('sqlite3') && helper.includes('--inspect-data'), modulesLoad: typeof require('./workbuddy-panel.cjs').createWorkBuddyPanel === 'function' && typeof require('./workbuddy-service.cjs').createWorkBuddyService === 'function' && typeof require('./workbuddy-update.cjs').createWorkBuddyUpdater === 'function' };
         for (let attempt=0;attempt<30;attempt++) {
@@ -58,7 +63,7 @@ module.exports = function configurePackagedSmoke(app) {
           const restored = await api.artReviewLoadLocal({projectId});
           return {bridge,localRoundTrip:restored?.episodes?.[1]?.state === '睡衣' && restored.episodes[1].pending === true};
         })()`);
-        finish(report.docxImport && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

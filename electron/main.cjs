@@ -8,6 +8,7 @@ const fs = require('fs');
 const isPackagedSmoke = require('./packaged-smoke.cjs')(app);
 const { pathToFileURL } = require('url');
 const mammoth = require('mammoth');
+const { saveCreatorDocument, importCreatorVideo, loadCreatorStateWithBackup } = require('./creator-documents.cjs');
 const { downloadInstaller } = require('./update-service.cjs');
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
 const { requestText, testTextConnection } = require('./text-provider.cjs');
@@ -73,10 +74,24 @@ process.on('uncaughtException',(error)=>appendStartupLog(`uncaughtException ${er
 process.on('unhandledRejection',(error)=>appendStartupLog(`unhandledRejection ${error?.stack||error}`));
 function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false}});mainWindow=win;win.on('close',event=>{if(workBuddyPanel?.isUpdating())event.preventDefault();});win.on('closed',()=>{if(mainWindow===win){mainWindow=null;workBuddyPanel?.revoke();}});win.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)workBuddyPanel?.revoke();});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
 ipcMain.handle('save-txt',async(_,{name,content})=>{const r=await dialog.showSaveDialog({defaultPath:`${name}.txt`,filters:[{name:'TXT 剧本文档',extensions:['txt']}]});if(r.canceled)return null;fs.writeFileSync(r.filePath,'\ufeff'+content,'utf8');return r.filePath});
+ipcMain.handle('save-creator-document', (_, payload) => saveCreatorDocument(payload, { dialog, window: mainWindow }));
+ipcMain.handle('import-creator-video', () => importCreatorVideo({ dialog, window: mainWindow }));
 ipcMain.handle('save-txt-batch',async(_,{folderName,files})=>{const r=await dialog.showOpenDialog({title:'选择导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;const safe=(s)=>String(s||'导出').replace(/[\\/:*?"<>|]/g,'_').slice(0,120);const dir=ensureDir(path.join(r.filePaths[0],safe(folderName)));for(const f of files||[]){fs.writeFileSync(path.join(dir,`${safe(f.name)}.txt`),'\ufeff'+(f.content||''),'utf8')}return dir});
 ipcMain.handle('storage-info',()=>storageInfo());
-ipcMain.handle('load-state',()=>readJson(dataFile(),null));
-ipcMain.handle('save-state',(_,state)=>{ensureDir(getDataDir());fs.writeFileSync(dataFile(),JSON.stringify(state,null,2),'utf8');return storageInfo()});
+const stateBackupLoads = new Map();
+function loadPersistedState() {
+ const file = dataFile();
+ const pending = loadCreatorStateWithBackup(file);
+ // Retain failures to block automatic writes until the renderer successfully reloads.
+ stateBackupLoads.set(file, pending);
+ return pending;
+}
+ipcMain.handle('load-state',()=>loadPersistedState());
+ipcMain.handle('save-state',async(_,state)=>{
+ ensureDir(getDataDir());const file=dataFile();
+ await (stateBackupLoads.get(file)||loadPersistedState());
+ fs.writeFileSync(file,JSON.stringify(state,null,2),'utf8');return storageInfo();
+});
 ipcMain.handle('load-director-projects',()=>{const file=directorProjectsFile();const data=readJson(file,null);if(Array.isArray(data))return data;const backup=readJson(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
 ipcMain.handle('save-director-projects',(_,projects)=>{ensureDir(directorProjectsDir());const file=directorProjectsFile();const next=projects||[];const prev=readJson(file,null);if(Array.isArray(prev)&&prev.length&&next.length<prev.length){try{fs.writeFileSync(file.replace(/\.json$/,'.backup.json'),JSON.stringify(prev,null,2),'utf8')}catch{}}fs.writeFileSync(file,JSON.stringify(next,null,2),'utf8');return file});
 function assertDirectorQuickSender(event) {

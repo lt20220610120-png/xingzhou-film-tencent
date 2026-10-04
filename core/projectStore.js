@@ -4,6 +4,7 @@
 // ============================================================
 
 import {markPromptTimingStale,formatPromptTimingMetadata} from './promptTiming.js';
+import { normalizeCreatorProject } from './creatorWorkspace.js';
 
 // ---------- 工具函数 ----------
 let _uidCounter = 0;
@@ -67,6 +68,8 @@ export const normalizeState = (partial) => {
   const customIds = new Set(customGroups.map((group) => group.id));
   return {
     ...merged,
+    fruitProjects: merged.fruitProjects.filter(Boolean).map(project => normalizeCreatorProject(project, 'fruit')),
+    scriptProjects: merged.scriptProjects.filter(Boolean).map(project => normalizeCreatorProject(project, 'script')),
     directorGroups: [...DIRECTOR_FIXED_GROUPS.map((group) => ({ ...group })), ...customGroups],
     directorProjects: merged.directorProjects.filter(Boolean).map((project) => ({ ...project, groupId: directorGroupId(project, customIds) })),
   };
