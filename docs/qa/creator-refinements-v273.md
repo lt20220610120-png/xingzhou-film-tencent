@@ -28,4 +28,6 @@
 
 - 安装包运行时验证通过：双身份入口、TXT/Word 往返、IP 下限与章节映射、成稿快照、两组内置 Skill 文件、Gemini IPC 与模块、WorkBuddy、项目美术资料及本地媒体均正常，错误列表为空。
 - 安装包大小 102,570,456 字节，SHA256 `af53696e3b5badc547a3d0c9c1316efb7d4bbc3a381ed740568a0b680ceea8f3`。
-- 公开发布与清单校验尚待完成。
+- 已公开发布 `v2.7.3`；源码提交 `a1dd43b`。更新仓库与软件源码仓库的公开 `latest.json` 均为 `2.7.3`，版本、安装包地址、大小和 SHA256 一致。
+- GitHub 资产摘要与本地一致。公开下载返回 HTTP 200，实际完整下载 102,570,456 字节后计算 SHA256，与两处清单及本地安装包一致。
+- 发布地址：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.7.3
