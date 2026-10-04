@@ -1367,7 +1367,7 @@ function App() {
 
   // 导航配置
   const creatorNav = [
-    ['fruit', BookOpen, '果子库'],
+    ['fruit', BookOpen, '成品库'],
     ['studio', PenLine, '创作剧本'],
     ['scripts', Library, '剧本库'],
   ];

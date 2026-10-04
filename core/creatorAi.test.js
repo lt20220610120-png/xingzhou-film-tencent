@@ -7,9 +7,9 @@ test('generation context includes adopted constraints but not unadopted branches
  const text=buildCreatorContext(project,{kind:'script',target:{episodeId:'e'}});
  assert.match(text,/已确认规则/);assert.match(text,/固定结局/);assert.doesNotMatch(text,/尚未采用结局|已弃用身份/);
 });
-test('model options expand discovered models without mutating profiles',()=>{
+test('model options use configured profiles only with the API default first',()=>{
  const profiles=[{id:'a',name:'接口',model:'m1',models:['m1','m2']}];
- assert.deepEqual(creatorModelOptions(profiles).map(x=>x.model),['m1','m2']);assert.equal(profiles[0].model,'m1');
+ assert.deepEqual(creatorModelOptions(profiles).map(x=>x.model),['m1']);assert.equal(creatorModelOptions([...profiles,{id:'b',model:'default'}],'b')[0].model,'default');assert.equal(profiles[0].model,'m1');
 });
 test('task executes complete Skill files and binds main input to current episode',async()=>{
  let request; const result=await runCreatorTask({api:{aiChat:async p=>(request=p,{ok:true,output:'新剧本'})},state:{skills:[{id:'s',name:'规则',content:'主规则',files:[{path:'refs/a.md',content:'完整附属规则'}]}]},project,kind:'script',target:{episodeId:'e',side:'input'},profile:{id:'a',model:'m'},skillId:'s',instruction:'转换',taskId:'test'});

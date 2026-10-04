@@ -391,7 +391,8 @@ export function ApiLibrary({ state, setState }) {
       if (data.kind !== 'chat') return existing ? updateMediaProfile(s,existing.id,data) : addMediaProfile(s,data);
       if (existing) return updateApiProfile(s,existing.id,data);
       const next = addApiProfile(s,data.name,data.provider,data.endpoint,data.model,data.apiKey);
-      return updateApiProfile(next,next.apiProfiles.at(-1).id,data);
+      const configured=updateApiProfile(next,next.apiProfiles.at(-1).id,data);
+      return s.activeApiId?configured:setActiveApi(configured,next.apiProfiles.at(-1).id);
     },state)); setImportOpen(false);
   };
   const handleActivate = id => setState(s => activeApiKind === 'chat' ? setActiveApi(s, id) : setActiveMediaApi(s, activeApiKind, id));

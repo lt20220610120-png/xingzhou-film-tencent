@@ -19,25 +19,23 @@ export function CandidateList({records,project,kind,setState,onError,compact=fal
 }
 
 export function AgentPanel({project,kind,state,setState,agent,target,onError,chat=false,defaultInstruction='',actionLabel='生成候选',onRun}) {
- const key=target.section||target.episodeId||'project',options=creatorModelOptions(state.apiProfiles),saved=project.creator.runConfig?.[key]||{};
+ const key=target.section||target.episodeId||'project',options=creatorModelOptions(state.apiProfiles,state.activeApiId),saved=project.creator.runConfig?.[key]||{};
  const legacySkill=project.episodes.find(e=>e.id===target.episodeId)?.selectedSkill;
  const defaultSkill=state.skills.find(s=>s.id===legacySkill||s.name===legacySkill)?.id||(kind==='fruit'?state.skills[0]?.id||'':'');
- const [selection,setSelection]=useState(saved.selection||options[0]?.selectionId||''),[customModel,setCustomModel]=useState(saved.customModel||''),[skillId,setSkillId]=useState(saved.skillId??defaultSkill),[scope,setScope]=useState(saved.scope||'project'),[instruction,setInstruction]=useState(''),[skillView,setSkillView]=useState(false),[history,setHistory]=useState(false);
- useEffect(()=>{const c=project.creator.runConfig?.[key]||{};setSelection(c.selection||options[0]?.selectionId||'');setCustomModel(c.customModel||'');setSkillId(c.skillId??defaultSkill);setScope(c.scope||'project');setInstruction('');},[project.id,key]);
- const current=options.find(o=>o.selectionId===selection),profile=current?{...current,model:customModel.trim()||current.model}:null,skill=state.skills.find(s=>s.id===skillId),activity=agent.activity[`${kind}:${project.id}`]||{};
- const [loadingModels,setLoadingModels]=useState(false);
- const refreshModels=async()=>{setLoadingModels(true);try{const rows=await agent.discoverModels(current);if(!Array.isArray(rows)||!rows.length)throw new Error('接口未返回模型列表，可在下方手动指定模型');setState(s=>({...s,apiProfiles:s.apiProfiles.map(p=>p.id===current.id?{...p,models:rows}:p)}));}catch(e){onError(e.message);}finally{setLoadingModels(false);}};
- const configure=patch=>setState(s=>{const p=s[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===project.id);return updateCreatorProject(s,kind,project.id,{runConfig:{...p.creator.runConfig,[key]:{selection,customModel,skillId,scope,...patch}}});});
+ const [selection,setSelection]=useState(saved.selection||''),[skillId,setSkillId]=useState(saved.skillId??defaultSkill),[scope,setScope]=useState(saved.scope||'project'),[instruction,setInstruction]=useState(''),[skillView,setSkillView]=useState(false),[history,setHistory]=useState(false);
+ useEffect(()=>{const c=project.creator.runConfig?.[key]||{};setSelection(c.selection||'');setSkillId(c.skillId??defaultSkill);setScope(c.scope||'project');setInstruction('');},[project.id,key]);
+ const current=options.find(o=>o.selectionId===selection)||options[0],profile=current||null,skill=state.skills.find(s=>s.id===skillId),activity=agent.activity[`${kind}:${project.id}`]||{};
+ const configure=patch=>setState(s=>{const p=s[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===project.id);return updateCreatorProject(s,kind,project.id,{runConfig:{...p.creator.runConfig,[key]:{selection:current?.selectionId||selection,skillId,scope,...patch}}});});
  const run=async(request=instruction)=>{try{if(!profile)throw new Error('请先在 API 接口配置模型，或重新选择有效接口');if(kind==='fruit'&&!skillId)throw new Error('请选择完整 Skill 再转换');
-  const config={selection,customModel,skillId,scope};setState(s=>{const p=s[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===project.id);return updateCreatorProject(s,kind,project.id,{runConfig:{...p.creator.runConfig,[key]:config}});});
+  const config={selection:current?.selectionId||selection,skillId,scope};setState(s=>{const p=s[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===project.id);return updateCreatorProject(s,kind,project.id,{runConfig:{...p.creator.runConfig,[key]:config}});});
   const args={kind,projectId:project.id,target,instruction:request.trim()||defaultInstruction||CREATOR_TASK_RULES[target.task||key]||'按当前内容协同创作',profile,skillId,scope,chat};
   if(onRun)await onRun(args);else await agent.run(args);setInstruction('');
  }catch(e){onError(e.message);}};
  const records=project.creator.records.filter(r=>r.type==='ai'&&(r.target?.section===target.section&&target.section||r.target?.episodeId===target.episodeId&&target.episodeId));
  const messages=(project.creator.chat||[]).filter(m=>m.stage===key);
  return <aside className={`creator-agent ${chat?'creator-chat':''}`}><header><strong><Bot size={17}/>{chat?'项目协作':'Agent 辅助'}</strong><button className="ghost" onClick={()=>setHistory(true)}><History size={15}/>历史</button></header><div className="creator-agent-config">
- <label>接口与模型<select aria-label="创作模型" value={selection} onChange={e=>{setSelection(e.target.value);configure({selection:e.target.value});}}>{!current&&<option value="">请选择接口</option>}{options.map(o=><option key={o.selectionId} value={o.selectionId}>{o.name} · {o.model}</option>)}</select></label>
- <details><summary>查询或指定接口内的其他模型</summary><button className="secondary" disabled={!current||current.provider==='codexLocal'||loadingModels} onClick={refreshModels}>{loadingModels?'正在查询…':'查询此接口模型'}</button><input aria-label="自定义模型名称" placeholder="模型名称，留空使用上方选择" value={customModel} onChange={e=>{setCustomModel(e.target.value);configure({customModel:e.target.value});}}/></details>
+ <label>接口与模型<select aria-label="创作模型" value={current?.selectionId||''} onChange={e=>{setSelection(e.target.value);configure({selection:e.target.value});}}>{!current&&<option value="">请选择接口</option>}{options.map(o=><option key={o.selectionId} value={o.selectionId}>{o.isDefault?'默认 · ':''}{o.name} · {o.model}</option>)}</select></label>
+
  <label>Skill<select aria-label="创作 Skill" value={skillId} onChange={e=>{setSkillId(e.target.value);configure({skillId:e.target.value});}}><option value="">{kind==='fruit'?'请选择 Skill':'不附加 Skill'}</option>{state.skills.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>{skill&&<button className="ghost creator-skill-link" onClick={()=>setSkillView(true)}>完整 Skill · {1+(skill.files?.length||0)} 个文件</button>}
  <label>参考范围<select value={scope} onChange={e=>{setScope(e.target.value);configure({scope:e.target.value});}}><option value="project">当前内容＋全剧与项目资料</option><option value="current">当前内容＋已采用核心设定</option></select></label>
  </div>{chat&&<div className="creator-chat-messages">{!messages.length&&<p className="creator-muted">把你的想法说出来，我们一起整理。当前采用的设定与项目资料会随模型切换保留。</p>}{messages.map(m=><article key={m.id} className={m.role}><small>{m.role==='user'?'我':m.role==='decision'?'已采用决定':`Agent · ${m.model||''}`}</small><pre>{m.content}</pre></article>)}</div>}

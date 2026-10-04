@@ -35,6 +35,27 @@ module.exports = function configurePackagedSmoke(app) {
         const creatorRoundTrip = await require('mammoth').extractRawText({buffer:creatorBuffer});
         report.creatorWorkspace = {docxRoundTrip:creatorRoundTrip.value.replace(/\n\n/g,'\n').trim() === creatorContent,
           bridge:await win.webContents.executeJavaScript("['saveCreatorDocument','importCreatorVideo','loadState','saveState'].every(name=>typeof window.xingzhou?.[name]==='function')")};
+        const { pathToFileURL } = require('node:url');
+        const ip = await import(pathToFileURL(path.join(__dirname,'../core/ipWorkspace.js')).href);
+        const { IP_BUILTIN_SKILLS } = await import(pathToFileURL(path.join(__dirname,'../core/ipBuiltinSkills.js')).href);
+        const { archiveCreatorProject } = await import(pathToFileURL(path.join(__dirname,'../core/creatorWorkspace.js')).href);
+        let ipState = ip.createIPProject({fruitProjects:[],scriptProjects:[],scriptLibrary:[]},{name:'安装包 IP 验证',duration:60});
+        const ipId = ipState.fruitProjects[0].id;
+        const novel = '第一章 归还\r\n女主归还包。\r\n第二章 相识\r\n两人相识。';
+        ipState = ip.importIPNovel(ipState,ipId,{name:'验证小说.txt',content:novel});
+        const chapters = ip.getIPProject(ipState,ipId).creator.ip.source.chapters;
+        ipState = ip.applyIPPlan(ipState,ipId,{episodes:[{chapterIds:chapters.map(c=>c.id),outline:'归还后相识'}]});
+        const ipEpisode = ip.getIPProject(ipState,ipId).episodes[1];
+        ipState = ip.updateIPDraft(ipState,ipId,ipEpisode.id,creatorContent);
+        ipState = archiveCreatorProject(ipState,ipId);
+        const ipArchived = ipState.scriptLibrary[0].content;
+        ipState = ip.updateIPDraft(ipState,ipId,ipEpisode.id,'收录后继续修改');
+        report.ipLibrary = {
+          builtinFiles:IP_BUILTIN_SKILLS.map(skill=>skill.files.length + (skill.content ? 1 : 0)),
+          chapterMapping:ip.ipOriginal(ip.getIPProject(ipState,ipId),ip.getIPProject(ipState,ipId).episodes[1]) === novel,
+          snapshot:ipState.scriptLibrary[0].content === ipArchived && ipArchived.includes(creatorContent),
+          textDecoding:require('./text-import.cjs').decodeImportText(Buffer.from([0xd6,0xd0,0xce,0xc4])).content === '中文'
+        };
         const helper = fs.readFileSync(path.join(__dirname, 'workbuddy-archive.py'), 'utf8');
         report.workBuddy = { helperBundled: helper.includes('def extract(') && helper.includes('sqlite3') && helper.includes('--inspect-data'), modulesLoad: typeof require('./workbuddy-panel.cjs').createWorkBuddyPanel === 'function' && typeof require('./workbuddy-service.cjs').createWorkBuddyService === 'function' && typeof require('./workbuddy-update.cjs').createWorkBuddyUpdater === 'function' };
         for (let attempt=0;attempt<30;attempt++) {
@@ -63,7 +84,7 @@ module.exports = function configurePackagedSmoke(app) {
           const restored = await api.artReviewLoadLocal({projectId});
           return {bridge,localRoundTrip:restored?.episodes?.[1]?.state === '睡衣' && restored.episodes[1].pending === true};
         })()`);
-        finish(report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.builtinFiles.join(',') === '8,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

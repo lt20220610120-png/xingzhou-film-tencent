@@ -19,11 +19,9 @@ export const CREATOR_TASK_RULES = {
  check:'检查所选内容的因果、时间、人物动机与知情状态、伏笔兑现及场次格式；逐项定位问题并提出可选修改，不自动覆盖正文。',
 };
 const txt = value => String(value ?? '');
-export function creatorModelOptions(profiles = []) {
- return profiles.flatMap(profile => {
-  const all=[profile.model,...(profile.models||profile.availableModels||profile.discoveredModels||[]).map(m=>typeof m==='string'?m:(m.id||m.model||m.name))].filter(Boolean);
-  return [...new Set(all)].map(model=>({...profile,model,selectionId:JSON.stringify([profile.id,model])}));
- });
+export function creatorModelOptions(profiles = [], activeApiId) {
+ // Only models actually added in API settings are selectable. Discovery is configuration.
+ return profiles.filter(p=>p.model).map(profile=>({...profile,selectionId:JSON.stringify([profile.id,profile.model]),isDefault:profile.id===activeApiId})).sort((a,b)=>Number(b.isDefault)-Number(a.isDefault));
 }
 export function creatorMainInput(project,kind,target={}) {
  const inputSide=target.inputSide||target.side;

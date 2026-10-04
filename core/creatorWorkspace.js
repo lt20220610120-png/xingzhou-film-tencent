@@ -30,7 +30,7 @@ export const CREATOR_REWRITE_SECTIONS = [
   { key: 'characters', label: '人物' }, { key: 'timeline', label: '人物线与时间线' },
 ];
 const sectionLabels = Object.fromEntries([...CREATOR_FRAMEWORK_STAGES, ...CREATOR_REWRITE_SECTIONS].map(stage => [stage.key, stage.label]));
-const resolveMode = (p, kind) => kind === 'fruit' ? 'fruit' : ['rewrite', 'free', 'framework'].includes(p.creator?.mode)
+const resolveMode = (p, kind) => kind === 'fruit' ? (p.creator?.mode === 'ip' ? 'ip' : 'fruit') : ['rewrite', 'free', 'framework'].includes(p.creator?.mode)
   ? p.creator.mode : p.mode === 'rewrite' ? 'rewrite' : p.mode === 'framework' ? 'framework' : 'free';
 const normalizeSection = section => ({ input: '', output: '', accepted: false, locked: false, stale: false, ...clone(section || {}) });
 const refIds = value => Array.isArray(value) ? [...new Set(value)] : [];
@@ -629,7 +629,7 @@ export const editCreatorMaster = (state, kind, id, side, master) => mutateProjec
   return { ...p, episodes, creator: { ...p.creator, records } };
 });
 
-export const archiveCreatorProject = (state, id, { side = 'output', includeSections = false } = {}) => {
+export const archiveCreatorProject = (state, id, { side = 'output', includeSections = false, stageDraft = false } = {}) => {
   const kind = (state.scriptProjects || []).some(p => p.id === id) ? 'script' : 'fruit';
   const p = normalizeCreatorProject((state[projectKey(kind)] || []).find(project => project.id === id), kind);
   if (!p) return state;
@@ -637,15 +637,15 @@ export const archiveCreatorProject = (state, id, { side = 'output', includeSecti
   if (!content.trim()) fail('CREATOR_EMPTY_ARCHIVE', '所选范围没有正文，请完成后再收录。');
   const library = state.scriptLibrary || [], existing = library.find(item => item.sourceProjectId === id && (!item.sourceKind || item.sourceKind === kind));
   const timestamp = now(), creatorMode = p.creator.mode, sourceMode = creatorMode === 'rewrite' ? 'rewrite' : creatorMode === 'fruit' ? 'fruit' : 'original';
-  const modeLabel = { fruit: '果子', rewrite: '洗稿', free: '原创·自由', framework: '原创·框架' }[creatorMode];
+  const modeLabel = { ip: 'IP · 小说改编', fruit: '果子', rewrite: '洗稿', free: '原创·自由', framework: '原创·框架' }[creatorMode];
   const versions = existing?.versions?.length ? clone(existing.versions) : existing ? [{
     id: `${existing.id}_legacy`, version: 1, content: text(existing.content), createdAt: existing.createdAt,
   }] : [];
   const version = { id: uid(), version: versions.length + 1, name: p.name, sourceProjectId: id, sourceKind: kind,
-    creatorMode, sourceMode, modeLabel, side, includeSections: creatorMode === 'framework' && side === 'output' ? false : Boolean(includeSections),
+    creatorMode, sourceMode, modeLabel, side, stageDraft:Boolean(stageDraft), includeSections: creatorMode === 'framework' && side === 'output' ? false : Boolean(includeSections),
     content, episodes: clone(p.episodes), sections: clone(p.creator.sections), story: clone(p.creator.story), createdAt: timestamp };
   const item = { ...existing, id: existing?.id || uid(), name: p.name, sourceProjectId: id, sourceKind: kind,
-    sourceMode, creatorMode, modeLabel, content, side: version.side, includeSections: version.includeSections,
+    sourceMode, creatorMode, modeLabel, content, stageDraft:version.stageDraft, side: version.side, includeSections: version.includeSections,
     versions: [...versions, version], currentVersionId: version.id, createdAt: existing?.createdAt || timestamp, updatedAt: timestamp };
   return { ...state, scriptLibrary: existing ? library.map(entry => entry.id === existing.id ? item : entry) : [...library, item] };
 };
