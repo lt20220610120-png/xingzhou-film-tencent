@@ -1,4 +1,5 @@
 import { splitFullScript } from './scriptImport.js';
+import { formatIPScriptText } from './ipScenes.js';
 
 // Persist only JSON data. This module deliberately does not import projectStore:
 // projectStore calls this normalizer while loading existing projects.
@@ -565,7 +566,24 @@ export const buildCreatorText = (project, kind = 'script', side = 'output', { in
   const sections = includeSections && !finalOnly ? Object.entries(p.creator.sections)
     .map(([key, section]) => text(section[side]).trim() ? `【${sectionLabels[key] || key}】\n${section[side].trim()}` : '').filter(Boolean) : [];
   const episodes = finalOnly ? p.episodes.filter(episode => episode.type === 'episode') : p.episodes;
-  return [...sections, includeSections && !finalOnly ? buildAdoptedStoryText(p) : '', episodeBlocks(episodes, kind, side)].filter(Boolean).join('\n\n');
+  const blocks = p.creator.mode === 'ip' && side === 'output' ? buildIPOutputBlocks(episodes, kind) : episodeBlocks(episodes, kind, side);
+  const content = [...sections, includeSections && !finalOnly ? buildAdoptedStoryText(p) : '', blocks].filter(Boolean).join('\n\n');
+  return p.creator.mode === 'ip' && side === 'output' ? formatIPScriptText(content) : content;
+};
+
+const buildIPOutputBlocks = (episodes, kind) => {
+  const field = sideField(kind, 'output');
+  let episodeNumber = 0;
+  return episodes.map(episode => {
+    if (episode.type === 'episode') episodeNumber++;
+    const content = formatIPScriptText(text(episode[field])).trim();
+    if (!content) return '';
+    // Generated/imported drafts may already contain their own episode title.
+    const hasEpisodeTitle = /^[ \t]*(?:[【\[]?[ \t]*)?第[一二三四五六七八九十百千万零〇两\d]+[ \t]*集(?:[ \t:：】\]]|$)/m.test(content);
+    if (episode.type === 'episode' && hasEpisodeTitle) return content;
+    const title = formatIPScriptText(episode.title || (episode.type === 'episode' ? `第${episodeNumber}集` : episode.type === 'settings' ? '设定' : '自定义内容')).trim();
+    return `【${title}】\n${content}`;
+  }).filter(Boolean).join('\n\n');
 };
 
 const buildAdoptedStoryText = project => {

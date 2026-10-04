@@ -10,7 +10,8 @@ import {createCreatorProject,appendCreatorRecord,adoptCreatorRecord,deleteCreato
 function fixture(){
  let state=createIPProject({fruitProjects:[]},{name:'原文定位回归'}),id=state.fruitProjects[0].id;
  state=importIPNovel(state,id,{name:'文件名不能充当章节范围',content:'第1章 开始\r\n甲走进房间，听到乙说的话。\r\n第2章 结果\r\n乙回应，甲离开。\r\n'});
- let p=getIPProject(state,id);state=applyIPPlan(state,id,{episodes:[{chapterIds:p.creator.ip.source.chapters.map(c=>c.id),outline:'按故事切分'}]});p=getIPProject(state,id);
+ const p=getIPProject(state,id),episode={id:`${id}_legacy_1`,title:'第1集',type:'episode',sourceId:p.creator.ip.source.id,chapterIds:p.creator.ip.source.chapters.map(c=>c.id),outline:'按故事切分',scriptText:'',ipVersions:[]};
+ p.creator.ip.plan={sourceId:p.creator.ip.source.id,episodes:[{chapterIds:episode.chapterIds,outline:episode.outline}]};p.episodes.push(episode);
  return {state,id,p,eid:p.episodes[1].id};
 }
 const body='## 第1集\n### 场景1-1 内景 房间 日\n人物：甲、乙\n甲：原文对白。\n';

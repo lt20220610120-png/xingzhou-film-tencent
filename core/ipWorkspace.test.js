@@ -9,9 +9,12 @@ function fixture(content='第一章 捡包\r\n女主捡到包。\r\n\r\n第二�
  let state=createIPProject({fruitProjects:[],scriptProjects:[],scriptLibrary:[]},{name:'小说改编',duration:120});
  const id=state.fruitProjects[0].id;state=importIPNovel(state,id,{name:'原著.txt',content});
  let p=getIPProject(state,id),chapters=p.creator.ip.source.chapters;
- state=applyIPPlan(state,id,{mainline:'捡包→归还→相识',ending:'原著第三章相识',episodes:[{chapterIds:chapters.slice(0,2).map(c=>c.id),outline:'捡包归还'},...(chapters.length>2?[{chapterIds:chapters.slice(2).map(c=>c.id),outline:'相识'}]:[])]});
+ // Load a persisted pre-2.7.3 small plan to verify legacy manuscript operations.
+ const plan={mainline:'捡包→归还→相识',ending:'原著第三章相识',sourceId:p.creator.ip.source.id,episodes:[{chapterIds:chapters.slice(0,2).map(c=>c.id),outline:'捡包归还'},...(chapters.length>2?[{chapterIds:chapters.slice(2).map(c=>c.id),outline:'相识'}]:[])]};
+ p.creator.ip.plan=plan;p.episodes.push(...plan.episodes.map((e,i)=>({...e,id:`${id}_legacy_${i}`,title:`第${i+1}集`,type:'episode',sourceId:plan.sourceId,scriptText:'',ipVersions:[]})));
  return {state,id,p:getIPProject(state,id)};
 }
+const validNewPlan=(p,count=80,outline='新规划')=>({episodes:Array.from({length:count},()=>({chapterIds:[p.creator.ip.source.chapters[0].id],outline}))});
 test('IP normalization and chapter offsets retain exact original bytes as imported text',()=>{
  const {p}=fixture();assert.equal(normalizeCreatorProject(p,'fruit').creator.mode,'ip');
  const source=p.creator.ip.source;assert.equal(source.chapters.length,3);assert.equal(source.chapters.map(c=>source.content.slice(c.start,c.end)).join(''),source.content);
@@ -40,8 +43,8 @@ test('reimport and replan keep all old sources and version mappings independentl
  state=appendIPVersion(state,id,e.id,{content:'原版'},{activate:true});const version=getIPProject(state,id).episodes[1].ipVersions[0],oldSource=ipOriginal(p,e);
  state=importIPNovel(state,id,{content:'第一章 新版\n全新原文',name:'新版'});p=getIPProject(state,id);
  assert.equal(p.creator.ip.sources.length,2);assert.equal(ipOriginal(p,e,version),oldSource);assert.equal(p.episodes[1].scriptText,'原版');assert.ok(p.episodes[1].stale);
- state=applyIPPlan(state,id,{episodes:[{chapterIds:[p.creator.ip.source.chapters[0].id],outline:'新规划'}]});p=getIPProject(state,id);
- assert.equal(p.episodes.length,2);assert.equal(p.episodes[1].ipVersions.length,1);assert.equal(p.creator.ip.retiredEpisodes.length,1);
+ state=applyIPPlan(state,id,validNewPlan(p));p=getIPProject(state,id);
+ assert.equal(p.episodes.length,81);assert.equal(p.episodes[1].ipVersions.length,1);assert.equal(p.creator.ip.retiredEpisodes.length,0);
 });
 test('chapter mapping and earlier edits invalidate confirmation of later episodes',()=>{
  let {state,id,p}=fixture();for(const e of p.episodes){state=updateIPDraft(state,id,e.id,'正文');state=confirmIPEpisode(state,id,e.id);}
@@ -51,10 +54,10 @@ test('chapter mapping and earlier edits invalidate confirmation of later episode
 });
 test('whole-novel planning reads all chunks and includes both duration and full Skill package',async()=>{
  const content='第一章 开始\n'+'甲'.repeat(15000)+'末尾真实证据';let {p}=fixture(content);const requests=[],reads=[];
- const result=await runIPTask({api:{aiChat:async r=>{requests.push(r);return r.taskId.endsWith(':plan')?JSON.stringify({mainline:'主线',ending:'真实停点',episodes:[{chapterIds:[p.creator.ip.source.chapters[0].id],outline:'保留原句'}]}):'完整阅读笔记';}},project:p,task:'plan',profile:{id:'api',model:'configured'},taskId:'read',onRead:r=>reads.push(r)});
+ const result=await runIPTask({api:{aiChat:async r=>{requests.push(r);if(r.taskId.endsWith(':plan'))return JSON.stringify({mainline:'主线',ending:'真实停点',segments:[{from:1,to:1,episodes:80,focus:'保留原句'}]});if(r.taskId.includes(':plan-group-'))return JSON.stringify(validNewPlan(p,Number(r.messages.at(-1).content.match(/本次只规划 (\d+) 集/)[1]),'保留原句'));return '完整阅读笔记';}},project:p,task:'plan',profile:{id:'api',model:'configured'},taskId:'read',onRead:r=>reads.push(r)});
  assert.equal(reads.reduce((n,r)=>n+r.end-r.start,0),content.length);assert.ok(requests.some(r=>r.messages.some(m=>m.content.includes('末尾真实证据'))));
  const prompt=requests.at(-1).messages.map(m=>m.content).join('\n');assert.match(prompt,/120 分钟/);assert.match(prompt,/70000/);
- for(const file of IP_BUILTIN_SKILLS[0].files)assert.ok(prompt.includes(file.content));assert.equal(result.plan.episodes.length,1);
+ for(const file of IP_BUILTIN_SKILLS[0].files)assert.ok(prompt.includes(file.content));assert.equal(result.plan.episodes.length,80);
 });
 test('episode generation re-reads ALL previous current text then exact novel and retains initial draft before review',async()=>{
  let {state,id,p}=fixture();for(const e of p.episodes.slice(0,2)){state=updateIPDraft(state,id,e.id,e.type==='settings'?'设定资料':'第一集最新完整正文和专属末句');state=confirmIPEpisode(state,id,e.id);}
@@ -82,7 +85,7 @@ test('restoring an earlier novel version keeps its exact original mapping throug
  state=appendIPVersion(state,id,e.id,{content:'旧来源初稿'},{activate:true});
  const initial=getIPProject(state,id).episodes[1].ipVersions[0],original=ipOriginal(p,e);
  state=importIPNovel(state,id,{content:'第一章 新版\n新版故事',name:'新版'});
- p=getIPProject(state,id);state=applyIPPlan(state,id,{episodes:[{chapterIds:[p.creator.ip.source.chapters[0].id],outline:'新版'}]});
+ p=getIPProject(state,id);state=applyIPPlan(state,id,validNewPlan(p));
  state=adoptIPVersion(state,id,e.id,initial.id);p=getIPProject(state,id);
  assert.equal(ipOriginal(p,p.episodes[1]),original);
  state=updateIPDraft(state,id,e.id,'基于旧原文继续手动修改');state=saveIPVersion(state,id,e.id);
@@ -99,8 +102,8 @@ test('mapping changes archive the prior draft with its original chapters before 
  p=getIPProject(state,id);const saved=p.episodes[1].ipVersions.at(-1);assert.equal(saved.content,'未经 blur 存档的修改');assert.equal(ipOriginal(p,p.episodes[1],saved),prior);
 });
 test('shorter replanning retires old tail episodes and excludes them from active master',()=>{
- let {state,id,p}=fixture();state=updateIPDraft(state,id,p.episodes[2].id,'旧规划尾集');
- state=applyIPPlan(state,id,{episodes:[{chapterIds:[p.creator.ip.source.chapters[0].id],outline:'仅一集'}]});p=getIPProject(state,id);
- assert.equal(p.episodes.filter(e=>e.type==='episode').length,1);assert.doesNotMatch(ipMaster(p),/旧规划尾集/);
+ let {state,id,p}=fixture();state=applyIPPlan(state,id,validNewPlan(p,81));p=getIPProject(state,id);state=updateIPDraft(state,id,p.episodes[81].id,'旧规划尾集');
+ state=applyIPPlan(state,id,validNewPlan(p,80));p=getIPProject(state,id);
+ assert.equal(p.episodes.filter(e=>e.type==='episode').length,80);assert.doesNotMatch(ipMaster(p),/旧规划尾集/);
  assert.equal(p.creator.ip.retiredEpisodes[0].scriptText,'旧规划尾集');assert.equal(p.creator.ip.retiredEpisodes[0].ipVersions[0].content,'旧规划尾集');
 });

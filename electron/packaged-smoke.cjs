@@ -44,18 +44,25 @@ module.exports = function configurePackagedSmoke(app) {
         const novel = '第一章 归还\r\n女主归还包。\r\n第二章 相识\r\n两人相识。';
         ipState = ip.importIPNovel(ipState,ipId,{name:'验证小说.txt',content:novel});
         const chapters = ip.getIPProject(ipState,ipId).creator.ip.source.chapters;
-        ipState = ip.applyIPPlan(ipState,ipId,{episodes:[{chapterIds:chapters.map(c=>c.id),outline:'归还后相识'}]});
+        // Synthetic nodes verify storage and duration validation, not a claim
+        // that this tiny fixture contains enough story for fifty real episodes.
+        const smokeEpisode = {chapterIds:chapters.map(c=>c.id),outline:'归还后相识'};
+        let rejectsUndersized=false;
+        try{ip.applyIPPlan(ipState,ipId,{episodes:[smokeEpisode]});}catch(error){rejectsUndersized=/至少50集/.test(error.message);}
+        ipState = ip.applyIPPlan(ipState,ipId,{episodes:Array.from({length:50},()=>({...smokeEpisode}))});
         const ipEpisode = ip.getIPProject(ipState,ipId).episodes[1];
         ipState = ip.updateIPDraft(ipState,ipId,ipEpisode.id,creatorContent);
         ipState = archiveCreatorProject(ipState,ipId);
         const ipArchived = ipState.scriptLibrary[0].content;
         ipState = ip.updateIPDraft(ipState,ipId,ipEpisode.id,'收录后继续修改');
         report.ipLibrary = {
+          durationFloor:rejectsUndersized && ip.getIPProject(ipState,ipId).creator.ip.plan.episodes.length===50,
           builtinFiles:IP_BUILTIN_SKILLS.map(skill=>skill.files.length + (skill.content ? 1 : 0)),
           chapterMapping:ip.ipOriginal(ip.getIPProject(ipState,ipId),ip.getIPProject(ipState,ipId).episodes[1]) === novel,
           snapshot:ipState.scriptLibrary[0].content === ipArchived && ipArchived.includes(creatorContent),
           textDecoding:require('./text-import.cjs').decodeImportText(Buffer.from([0xd6,0xd0,0xce,0xc4])).content === '中文'
         };
+        report.geminiWeb = {modulesLoad:typeof require('./gemini-web.cjs').createGeminiWebService==='function' && typeof require('./gemini-shutdown.cjs').createGeminiQuitHandler==='function',bridge:await win.webContents.executeJavaScript("['geminiWebStatus','geminiWebOpenLogin','geminiWebModels'].every(name=>typeof window.xingzhou?.[name]==='function')")};
         const helper = fs.readFileSync(path.join(__dirname, 'workbuddy-archive.py'), 'utf8');
         report.workBuddy = { helperBundled: helper.includes('def extract(') && helper.includes('sqlite3') && helper.includes('--inspect-data'), modulesLoad: typeof require('./workbuddy-panel.cjs').createWorkBuddyPanel === 'function' && typeof require('./workbuddy-service.cjs').createWorkBuddyService === 'function' && typeof require('./workbuddy-update.cjs').createWorkBuddyUpdater === 'function' };
         for (let attempt=0;attempt<30;attempt++) {
@@ -84,7 +91,7 @@ module.exports = function configurePackagedSmoke(app) {
           const restored = await api.artReviewLoadLocal({projectId});
           return {bridge,localRoundTrip:restored?.episodes?.[1]?.state === '睡衣' && restored.episodes[1].pending === true};
         })()`);
-        finish(report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.builtinFiles.join(',') === '8,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '8,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

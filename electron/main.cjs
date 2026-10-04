@@ -12,6 +12,8 @@ const { saveCreatorDocument, importCreatorVideo, loadCreatorStateWithBackup } = 
 const { downloadInstaller } = require('./update-service.cjs');
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
 const { requestText, testTextConnection } = require('./text-provider.cjs');
+const { createGeminiWebService } = require('./gemini-web.cjs');
+const { createGeminiQuitHandler } = require('./gemini-shutdown.cjs');
 const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
 const { readMediaBytes, configureMediaCache } = require('./media-network.cjs');
 const { createCosImageCache } = require('./cos-image-cache.cjs');
@@ -30,7 +32,10 @@ if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
 const defaultDataDir = () => path.join(app.getPath('documents'), '行舟影视资料');
-let accessService;
+let accessService, geminiWebService;
+const getGeminiWeb = () => geminiWebService || (geminiWebService=createGeminiWebService({profileDir:path.join(app.getPath('userData'),'gemini-browser')}));
+const geminiRun = (config,options) => getGeminiWeb().request(config,options);
+for(const [channel,method] of Object.entries({'gemini-web-status':'status','gemini-web-login':'openLogin','gemini-web-models':'listModels'}))ipcMain.handle(channel,(event)=>{assertTrustedFrame(event,mainWindow);return getGeminiWeb()[method]();});
 let mainWindow, workBuddyService, workBuddyPanel;
 function setupWorkBuddy() {
   workBuddyService = createWorkBuddyService({ userDataDir: app.getPath('userData') });
@@ -139,7 +144,7 @@ ipcMain.handle('ai-task-status',(_,p)=>aiTaskProgress.get(String(p?.taskId||''))
 ipcMain.handle('ai-chat',async(_,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
- try{const output=await requestText({...payload,signal:controller.signal},{onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
+ try{const output=await requestText({...payload,signal:controller.signal},{geminiRun,onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
  catch(error){if(payload.resultEnvelope)return {ok:false,code:error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
  finally{if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
@@ -153,7 +158,7 @@ ipcMain.handle('collab-art-review-save',(_,p)=>collabService.saveArtReview(p));
 ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview(p));
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
-ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config));
+ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun}));
 ipcMain.handle('app-version',()=>app.getVersion());
 ipcMain.handle('check-update',async(_,manifestUrl)=>{if(!manifestUrl)return {configured:false,currentVersion:app.getVersion()};const {manifest,source}=await fetchUpdateManifest(manifestUrl);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
 let downloadedInstaller=null,activeDownload=null;
@@ -214,7 +219,7 @@ ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dial
 ipcMain.handle('collab-attach-generated-asset-image',(_,payload)=>collabService.attachGeneratedAssetImage(payload));
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
-ipcMain.handle('discover-models', (_, config) => discoverModels(config));
+ipcMain.handle('discover-models', (_, config) => config?.provider==='geminiWeb'?getGeminiWeb().listModels():discoverModels(config));
 ipcMain.handle('collab-resolve-asset-image', (_, payload) => collabService.resolveAssetImage(payload));
 const imageCacheAccount = () => readCloudSession()?.account?.id || '';
 let activeImageCache, activeImageCacheDir;
@@ -284,4 +289,4 @@ protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:{secure:true,
 function registerCanvasAppProtocol(){const appDir=path.normalize(path.join(__dirname,'../canvas-app'));protocol.handle('xzapp',(request)=>{const url=new URL(request.url);let rel=decodeURIComponent(url.pathname).replace(/^\/+/,'');if(!rel||rel==='')rel='index.html';const resolved=path.normalize(path.join(appDir,rel));if(!resolved.startsWith(appDir))return new Response('forbidden',{status:403});if(!fs.existsSync(resolved))return net.fetch(pathToFileURL(path.join(appDir,'index.html')).toString());return net.fetch(pathToFileURL(resolved).toString())})}
 app.whenReady().then(()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',(request)=>{const filePath=decodeURIComponent(request.url.replace(/^xzmedia:\/\//,'').replace(/^\//,''));const resolved=path.normalize(filePath);const relative=path.relative(path.normalize(getDataDir()),resolved);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))return new Response('forbidden',{status:403});return net.fetch(pathToFileURL(resolved).toString())})}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'));collabService=createCollabService(readCloudSession);setupWorkBuddy();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
 
-app.on('before-quit',event=>{if(workBuddyPanel?.isUpdating())event.preventDefault();});
+app.on('before-quit',createGeminiQuitHandler({getService:()=>geminiWebService,isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit()}));

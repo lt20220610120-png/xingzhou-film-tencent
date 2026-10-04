@@ -3,6 +3,15 @@
 // ============================================================
 
 export const API_PROVIDERS = {
+  geminiWeb: {
+    name: '本机 Gemini（网页账号额度）',
+    type: 'geminiWeb',
+    defaultEndpoint: '',
+    defaultModel: 'auto',
+    description: '通过本机独立浏览器登录 Gemini 网页账号，模型从账号实时读取',
+    requiresApiKey: false,
+    keyName: 'apiKey',
+  },
   codexLocal: {
     name: '本机 Codex（ChatGPT 额度）',
     type: 'codexLocal',

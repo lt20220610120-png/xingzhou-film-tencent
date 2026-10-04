@@ -32,6 +32,15 @@ export function ProjectCardHub({
   const isIP = kind === 'ip';
   const isFruit = kind === 'fruit';
   const isScript = kind === 'script';
+  const compactEntry = !isDirector && (isIP || isFruit);
+  const entryActions = [
+    ...(onUpload ? [{ id: 'upload', label: isIP ? '上传小说' : '上传剧本', description: isIP ? '选择小说与目标时长，直接开始改编' : '自动创建项目，识别设定与分集', icon: Upload, run: onUpload }] : []),
+    ...(onUploadCompleted ? [{ id: 'completed', label: '导入完成剧本', description: '已有成稿直接阅读、编辑与收录', icon: FileText, run: onUploadCompleted }] : []),
+    { id: 'create', label: '新建项目', description: `创建一个新的${isIP ? 'IP 改编' : '果子'}项目`, icon: Plus, run: onCreate },
+  ];
+  const [entryActionId, setEntryActionId] = useState(() => onUpload ? 'upload' : onUploadCompleted ? 'completed' : 'create');
+  const entryAction = entryActions.find(action => action.id === entryActionId) || entryActions[0];
+  const EntryIcon = entryAction.icon;
   const canOrganize = !!onRename && !!onMoveToGroup && !!onCreateGroup;
   
   // 先按分组过滤，再按搜索过滤
@@ -114,9 +123,15 @@ export function ProjectCardHub({
       )}
 
       <div className="project-grid">
-        {!isDirector && onUpload && <button className="project-card add creator-upload-card" aria-label={isIP ? '上传小说' : '上传剧本'} onClick={onUpload}><div><Upload /></div><h3>{isIP ? '上传小说' : '上传剧本'}</h3><p>{isIP ? '选择小说与目标时长，直接开始改编' : '自动创建项目，识别设定与分集'}</p></button>}
-        {!isDirector && onUploadCompleted && <button className="project-card add creator-upload-card completed" aria-label="导入完成剧本" onClick={onUploadCompleted}><div><FileText /></div><h3>导入完成剧本</h3><p>已有成稿直接阅读、编辑与收录</p></button>}
-        {!isDirector && <button className="project-card add" aria-label="新建项目" onClick={onCreate}><div><Plus /></div><h3>新建项目</h3><p>创建一个新的{isIP ? 'IP 改编' : isFruit ? '果子' : '剧本'}项目</p></button>}
+        {compactEntry && <article className="project-card creator-entry-card">
+          <div className="creator-entry-heading"><span className="creator-entry-icon" aria-hidden="true"><EntryIcon size={20}/></span><div><small>{isIP ? '小说改编' : '剧本导入与整理'}</small><h3>{isIP ? '开始 IP 项目' : '开始果子项目'}</h3></div></div>
+          <label className="creator-entry-select"><span className="visually-hidden">{isIP ? 'IP 项目' : '果子项目'}创建方式</span><select aria-label={`${isIP ? 'IP 项目' : '果子项目'}创建方式`} value={entryAction.id} onChange={event => setEntryActionId(event.target.value)}>{entryActions.map(action => <option key={action.id} value={action.id}>{action.label}</option>)}</select></label>
+          <p>{entryAction.description}</p>
+          <button type="button" className="primary creator-entry-submit" onClick={entryAction.run}>{entryAction.label}<ArrowUpRight size={15}/></button>
+        </article>}
+        {!isDirector && !compactEntry && onUpload && <button className="project-card add creator-upload-card" aria-label={isIP ? '上传小说' : '上传剧本'} onClick={onUpload}><div><Upload /></div><h3>{isIP ? '上传小说' : '上传剧本'}</h3><p>{isIP ? '选择小说与目标时长，直接开始改编' : '自动创建项目，识别设定与分集'}</p></button>}
+        {!isDirector && !compactEntry && onUploadCompleted && <button className="project-card add creator-upload-card completed" aria-label="导入完成剧本" onClick={onUploadCompleted}><div><FileText /></div><h3>导入完成剧本</h3><p>已有成稿直接阅读、编辑与收录</p></button>}
+        {!isDirector && !compactEntry && <button className="project-card add" aria-label="新建项目" onClick={onCreate}><div><Plus /></div><h3>新建项目</h3><p>创建一个新的{isIP ? 'IP 改编' : isFruit ? '果子' : '剧本'}项目</p></button>}
         {isDirector && filterGroup === 'director-workbench' && <button className="project-card add" onClick={onUpload}><div><Upload /></div><h3>上传剧本</h3><p>自动识别总剧本与分集</p></button>}
         {isDirector && filterGroup === 'director-library' && library?.map(item => <article key={item.id} className="project-card library-source"><div className="card-cover"><BookOpen /></div><small>内容创作者 · 剧本库</small><h3>{item.name}</h3><p>导入导演工作台后可逐集处理</p><button className="primary" onClick={() => onImportLibrary(item)}>选择剧本</button></article>)}
         {visibleProjects.map(project =>{
