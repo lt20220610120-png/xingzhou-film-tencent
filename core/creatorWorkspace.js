@@ -504,6 +504,14 @@ export const appendCreatorRecord = (state, kind, id, record = {}) => mutateProje
   return { ...p, creator: { ...p.creator, records } };
 });
 
+export const deleteCreatorRecord = (state, kind, id, recordId) => mutateProject(state, kind, id, p => {
+  const record=p.creator.records.find(r=>r.id===recordId);
+  if(record?.status==='running')fail('CREATOR_RUNNING_RECORD', '请先停止正在运行的任务再删除');
+  // Adopted content lives in sections/episodes. Deleting its provenance record
+  // must never implicitly erase that content or unrelated chat and candidates.
+  return {...p,creator:{...p.creator,records:p.creator.records.filter(r=>r.id!==recordId)}};
+});
+
 /** Explicit stale/lock overrides are allowStale:true and unlock:true. No adoption
  * is automatic. A history/deleted-node record uses this same API for restoration.
  */

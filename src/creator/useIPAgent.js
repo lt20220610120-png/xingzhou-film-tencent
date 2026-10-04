@@ -26,7 +26,7 @@ export function useIPAgent({state,setState,getState,api}){
    patch({status:'completed',output:result.output||result.content,finishedAt:new Date().toISOString()});
    return result;
   }catch(e){patch({status:job.cancelled?'cancelled':'failed',error:e.message,partialText:e.partialText||'',finishedAt:new Date().toISOString()});throw e;}
-  finally{jobs.current.delete(projectId);setActivity(s=>({...s,[projectId]:{running:false}}));}
+  finally{jobs.current.delete(projectId);setActivity(s=>({...s,[projectId]:{running:queues.current.has(projectId),label:queues.current.has(projectId)?'准备下一集…':''}}));}
  };
  const runRemaining=async({projectId,profile,instruction=''})=>{
   if(jobs.current.has(projectId)||queues.current.has(projectId))throw new Error('本项目已有任务在运行');
@@ -37,7 +37,6 @@ export function useIPAgent({state,setState,getState,api}){
     const p=getIPProject(getState?.()||latest.current,projectId);if(!p)throw new Error('项目已移除');
     const next=p.episodes.find(e=>e.type==='episode'&&!e.scriptText?.trim());if(!next)break;
     const result=await run({projectId,task:'episode',episodeId:next.id,profile,instruction,fromQueue:true});completed++;
-    if(result.issues?.length)throw new Error(`${next.title}已保存，有 ${result.issues.length} 项待核问题。请查看本集原文对照，修改并确认后继续。`);
     const fresh=getIPProject(getState?.()||latest.current,projectId)?.episodes.find(e=>e.id===next.id);
     if(fresh?.scriptText!==result.content)throw new Error(`${next.title}的输入在生成时变化，结果已留在版本中，请核对采用后继续`);
    }

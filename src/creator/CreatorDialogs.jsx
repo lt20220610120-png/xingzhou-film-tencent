@@ -5,8 +5,8 @@ import { ipBodyCount } from '../../core/ipWorkspace.js';
 import { creatorExportStatus } from '../../core/creatorExportStatus.js';
 import { buildCreatorText, archiveCreatorProject } from '../../core/creatorWorkspace.js';
 
-export function CreatorDialog({title,onClose,children,className=''}) {
- return createPortal(<div className="veil creator-veil" onClick={e=>{if(e.target===e.currentTarget)onClose();}}><section role="dialog" aria-modal="true" aria-label={title} className={`creator-dialog ${className}`}><header><h2>{title}</h2><button className="ghost" aria-label="关闭窗口" onClick={onClose}><X size={18}/></button></header>{children}</section></div>,document.body);
+export function CreatorDialog({title,onClose,children,className='',headerActions}) {
+ return createPortal(<div className="veil creator-veil" onClick={e=>{if(e.target===e.currentTarget)onClose();}}><section role="dialog" aria-modal="true" aria-label={title} className={`creator-dialog ${className}`}><header><h2>{title}</h2>{headerActions&&<div className="creator-dialog-actions">{headerActions}</div>}<button className="ghost" aria-label="关闭窗口" onClick={onClose}><X size={18}/></button></header>{children}</section></div>,document.body);
 }
 export function ExportDialog({project,kind,api,setState,onClose,archive=false,initialSide='output',single=false}) {
  const [side,setSide]=useState(initialSide),[includeSections,setIncludeSections]=useState(!single&&kind==='script'&&project.creator.mode==='rewrite'),[format,setFormat]=useState('docx'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[success,setSuccess]=useState('');
