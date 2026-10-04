@@ -10,7 +10,7 @@ function ipcBridge(requestText){
  const handlers=new Map();
  const main=fs.readFileSync(path.join(__dirname,'main.cjs'),'utf8');
  const source=main.slice(main.indexOf('const activeAiRequests='),main.indexOf('const analysisStore='));
- vm.runInNewContext(source,{requestText,geminiRun:async()=>{throw new Error('browser must not start in serializer tests');},AbortController,ipcMain:{handle:(channel,handler)=>handlers.set(channel,handler)}});
+ vm.runInNewContext(source,{requestText,geminiRun:async()=>{throw new Error('browser must not start in serializer tests');},doubaoRun:async()=>{throw new Error('desktop client must not start in serializer tests');},AbortController,ipcMain:{handle:(channel,handler)=>handlers.set(channel,handler)}});
  return payload=>handlers.get('ai-chat')(null,payload);
 }
 

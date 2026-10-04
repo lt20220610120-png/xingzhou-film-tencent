@@ -128,8 +128,33 @@ export function deleteIPVersion(state,id,episodeId,versionId){return mutateIP(st
 export function confirmIPEpisode(state,id,episodeId){return mutateIP(state,id,p=>{
  const e=p.episodes.find(e=>e.id===episodeId);if(!e?.scriptText?.trim())throw new Error('请先完成本集正文');
  if(e.sourceId&&e.sourceId!==p.creator.ip.source?.id)throw new Error('此稿关联旧版小说，请先核对并调整为当前小说章节后确认');
- return {...p,episodes:p.episodes.map(e=>e.id===episodeId?{...e,ipVersions:preserve(p,e,'人工确认稿'),...(e.type==='settings'?{settingsScopeKey:ipSettingsScopeKey(p.creator.ip.source?.id,p.creator.ip.plan)}:{}),stale:false,finalConfirmed:true}:e)};
+ return {...p,episodes:p.episodes.map(e=>e.id===episodeId?confirmIPNode(p,e):e)};
 });}
+const confirmIPNode=(p,e)=>({...e,ipVersions:preserve(p,e,'人工确认稿'),...(e.type==='settings'?{settingsScopeKey:ipSettingsScopeKey(p.creator.ip.source?.id,p.creator.ip.plan)}:{}),stale:false,finalConfirmed:true});
+export function ipConfirmationSummary(project){
+ const nodes=(project?.episodes||[]).filter(e=>e.type==='episode'||e.type==='settings'),filled=nodes.filter(e=>e.scriptText?.trim());
+ const alreadyConfirmed=filled.filter(e=>e.finalConfirmed&&!e.stale).length;
+ return {episodes:filled.filter(e=>e.type==='episode').length,settings:filled.filter(e=>e.type==='settings').length,emptyEpisodes:nodes.filter(e=>e.type==='episode'&&!e.scriptText?.trim()).length,emptySettings:nodes.filter(e=>e.type==='settings'&&!e.scriptText?.trim()).length,alreadyConfirmed,pending:filled.length-alreadyConfirmed};
+}
+export function assertIPConfirmationReady(project){
+ if(!project)throw new Error('项目已移除');
+ const filled=project.episodes.filter(e=>(e.type==='episode'||e.type==='settings')&&e.scriptText?.trim());
+ if(!filled.length)throw new Error('当前没有可确认的设定或正文，请先完成创作');
+ // Validate the complete batch before snapshotting or changing any node.
+ // This matches single confirmation and prevents a half-confirmed manuscript.
+ const oldSource=filled.find(e=>e.sourceId&&e.sourceId!==project.creator.ip.source?.id);
+ if(oldSource)throw new Error(`${oldSource.title||'当前稿'}关联旧版小说，请先核对并调整为当前小说章节后确认；本次未确认任何内容。`);
+ return filled;
+}
+export function confirmAllIPEpisodes(state,id){
+ const current=getIPProject(state,id),filled=assertIPConfirmationReady(current);
+ if(ipConfirmationSummary(current).pending===0)return state;
+ const targets=new Set(filled.map(e=>e.id));
+ return mutateIP(state,id,p=>{
+  // Settings and bodies are confirmed together, without edit invalidation.
+  return {...p,episodes:p.episodes.map(e=>targets.has(e.id)?confirmIPNode(p,e):e)};
+ });
+}
 export function restoreRetiredIPEpisode(state,id,episodeId){return mutateIP(state,id,p=>{
  const e=(p.creator.ip.retiredEpisodes||[]).find(e=>e.id===episodeId);if(!e)throw new Error('找不到已移出的分集');
  const restored={...e,title:`第${p.episodes.filter(e=>e.type==='episode').length+1}集`,stale:true,finalConfirmed:false};

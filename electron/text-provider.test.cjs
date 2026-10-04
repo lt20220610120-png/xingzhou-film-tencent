@@ -2,6 +2,21 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { requestText, testTextConnection } = require('./text-provider.cjs');
 
+test('Doubao Work uses its local account bridge and defaults to high reasoning',async()=>{
+ const signal=new AbortController().signal;
+ const result=await requestText({provider:'doubaoWork',model:'turbo',messages:[{role:'user',content:'正文'}]}, {
+  signal,doubaoRun:async(config,options)=>{assert.equal(config.model,'turbo');assert.equal(config.reasoningEffort,'high');assert.equal(options.signal,signal);return '豆包工作正文';},
+  apiRun:async()=>{throw new Error('must not use a paid API');},
+ });
+ assert.equal(result,'豆包工作正文');
+});
+
+test('Doubao Work connection test returns real text and missing initialization fails clearly',async()=>{
+ const result=await testTextConnection({provider:'doubaoWork',model:'auto'}, {doubaoRun:async config=>{assert.match(config.messages[0].content,/连接成功/);return '连接成功';},apiTest:async()=>{throw new Error('must not use API');}});
+ assert.equal(result.protocol,'doubaoWork');assert.equal(result.message,'连接成功');
+ await assert.rejects(requestText({provider:'doubaoWork'}),/尚未初始化/);
+});
+
 test('Gemini web account uses the browser session bridge instead of an API key',async()=>{
  const signal=new AbortController().signal;
  const result=await requestText({provider:'geminiWeb',model:'account-model',messages:[{role:'user',content:'正文'}]}, {

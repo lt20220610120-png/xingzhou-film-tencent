@@ -3,6 +3,15 @@
 // ============================================================
 
 export const API_PROVIDERS = {
+  doubaoWork: {
+    name: '本机豆包工作（登录账号额度）',
+    type: 'doubaoWork',
+    defaultEndpoint: '',
+    defaultModel: 'auto',
+    description: '通过本机已登录的豆包工作处理文本，默认高推理强度',
+    requiresApiKey: false,
+    keyName: 'apiKey',
+  },
   geminiWeb: {
     name: '本机 Gemini（网页账号额度）',
     type: 'geminiWeb',

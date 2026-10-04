@@ -89,7 +89,7 @@ export function ProjectCardHub({
   };
 
   return (
-    <main className="card-page project-hub-refined">
+    <main className={`card-page project-hub-refined${compactEntry ? ' creator-project-hub' : ''}`}>
       <header>
         <span>{isIP ? '成品库 · 小说改编' : isFruit ? '市场果子' : isScript ? '内容创作' : isDirector ? '导演工作台' : '项目'}</span>
         <h1>{title}</h1>{headerExtra}
