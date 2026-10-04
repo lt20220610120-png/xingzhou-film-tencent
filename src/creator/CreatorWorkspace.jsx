@@ -15,11 +15,11 @@ import { CandidateList } from './AgentPanel.jsx';
 const readMemory=(key,fallback)=>{try{return localStorage.getItem(key)||fallback;}catch{return fallback;}};
 const remember=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 const names={fruit:'果子库',rewrite:'洗稿',free:'原创·自由创作',framework:'原创·框架式创作'};
-export function CreatorWorkspace({area,state,setState,api,onNavigate,onSave,saveStatus}) {
+export function CreatorWorkspace({area,state,setState,getState,api,onNavigate,onSave,saveStatus}) {
  const [channel,setChannel]=useState(readMemory('xz-creator-channel','rewrite')),[originalFilter,setOriginalFilter]=useState('all');
  const [fruitId,setFruitId]=useState(readMemory('xz-creator-fruit','')),[scriptId,setScriptId]=useState(readMemory('xz-creator-script','')),[active,setActive]=useState('master');
  const [create,setCreate]=useState(false),[name,setName]=useState(''),[newMode,setNewMode]=useState('free'),[newGroup,setNewGroup]=useState(''),[exportOpen,setExportOpen]=useState(false),[archiveOpen,setArchiveOpen]=useState(false),[sourceOpen,setSourceOpen]=useState(false),[pendingSource,setPendingSource]=useState(null),[error,setError]=useState(''),[addNode,setAddNode]=useState(false),[nodeTitle,setNodeTitle]=useState(''),[nodeType,setNodeType]=useState('episode'),[materials,setMaterials]=useState(false),[collapsed,setCollapsed]=useState(false);
- const agent=useCreatorAgent({state,setState,api});
+ const agent=useCreatorAgent({state,setState,getState,api});
  const kind=area==='fruit'?'fruit':'script',selectedId=kind==='fruit'?fruitId:scriptId;
  const rawProject=state[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===selectedId);
  const project=normalizeCreatorProject(rawProject,kind),framework=project?.creator.mode==='framework',rewrite=project?.creator.mode==='rewrite';
