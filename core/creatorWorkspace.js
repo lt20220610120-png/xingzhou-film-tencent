@@ -223,6 +223,7 @@ export const creatorInputFingerprint = (project, target = {}) => {
     })).filter(episode => episode.id !== target.episodeId);
   const serialized = JSON.stringify(canonical({ projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
+    referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
     references: p.creator.references.filter(reference => reference.enabled !== false).map(reference => ({ id: reference.id, content: reference.content })),
   }));
   let hash = 2166136261;
@@ -247,6 +248,7 @@ const patchSection = (project, kind, key, patch) => {
     fail('CREATOR_LOCKED', '该成果已锁定，请明确解锁后修改。');
   }
   const next = normalizeSection({ ...previous, ...clone(patch) });
+  if(own(patch,'input')&&!own(patch,'inputStale'))next.inputStale=false;
   if(patch.accepted===true&&!own(patch,'stale'))next.stale=false;
   if (next.locked && (!next.accepted || !text(next.output).trim())) fail('CREATOR_LOCKED', '请先采用非空成果，再锁定该内容。');
   let updated = { ...project, creator: { ...project.creator, sections: { ...project.creator.sections, [key]: next } } };
@@ -456,7 +458,10 @@ export const mergeCreatorEvents = (state, kind, id, eventIds, patch = {}) => mut
 const documentContent = document => typeof document === 'string' ? document : text(document?.content) || text(document?.text) || text(document?.masterScript);
 const freezeDocument = (document, previous) => {
   const input = typeof document === 'string' ? { content: document } : clone(document || {}), content = documentContent(input);
-  const sameDocument = previous && (input.id ? input.id === previous.id : content === previous.content && text(input.name || input.fileName) === previous.name);
+  const sameDocument = previous && (input.id ? input.id === previous.id
+    : input.sourceProjectId ? input.sourceProjectId===previous.sourceProjectId&&input.sourceSide===previous.sourceSide
+    : input.filePath ? input.filePath===previous.filePath
+    : !previous.sourceProjectId&&text(input.name||input.fileName)===previous.name);
   const id = input.id || (sameDocument ? previous.id : uid());
   // Compiled fruit projects use the explicit headings emitted by buildCreatorText.
   const parseText = content.replace(/\r\n?/g, '\n');
@@ -474,7 +479,10 @@ export const importCreatorSource = (state, id, document) => mutateProject(state,
   const source = freezeDocument(document, p.creator.source);
   let next = { ...p, creator: { ...p.creator, source } };
   if (!p.episodes.length) next.episodes = source.episodes.map(episode => normalizeEpisode({ id: uid(), title: episode.title, sourceEpisodeIds: [episode.id] }, 'script'));
-  if (JSON.stringify(p.creator.source) !== JSON.stringify(source)) next = staleEpisodes(next, 'script');
+  if (JSON.stringify(p.creator.source) !== JSON.stringify(source)) {
+    next = staleEpisodes(next, 'script');
+    if(p.creator.source?.content!==source.content)next={...next,creator:{...next.creator,sections:Object.fromEntries(Object.entries(next.creator.sections).map(([key,value])=>[key,value.input.trim()?{...value,inputStale:true}:value]))}};
+  }
   return next;
 });
 export const addCreatorReference = (state, id, document) => mutateProject(state, 'script', id, p => {

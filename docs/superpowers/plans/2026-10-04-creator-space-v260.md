@@ -83,4 +83,4 @@ Files: package.json、package-lock.json、release-notes/2.6.0.md、qa records、
 
 Baseline commit 9392121; feature branch codex/creator-space-v260. Product implementation and publish explicitly authorized. Main controller owns UI/integration and release; independent workers own the domain file pair and the Electron document files; no overlapping edits or worker releases.
 
-2026-10-04 集成完成：人物事件稳定条目、引用验证、因果无环、拆分合并、完整聊天和模型范围、长输入读取、候选分支选择、总稿同源、旧稿恢复及固定收录版本均落实。独立审查指出的运行与资料问题已修并补回归。1308项测试及构建通过，四组页面模拟流程与导演导入通过，未调用付费生成。详见 docs/qa/creator-space-v260.md。下一步提交与打包发布2.6.0。
+2026-10-04 集成完成：人物事件稳定条目、引用验证、因果无环、拆分合并、完整聊天和模型范围、长输入读取、候选分支选择、总稿同源、旧稿恢复及固定收录版本均落实。独立审查指出的运行与资料问题已修并补回归。1312项测试及构建通过，四组页面模拟流程与导演导入通过，未调用付费生成。详见 docs/qa/creator-space-v260.md。下一步提交与打包发布2.6.0。

@@ -63,3 +63,10 @@ test('stale derived drafts are excluded while locked facts and names of referenc
  const context=buildCreatorContext(p,{kind:'script',target:{section:'simulation'}});
  assert.match(context,/锁定结局|候选人物名/);assert.doesNotMatch(context,/旧细纲不应当事实|未采用人物秘密/);
 });
+test('rewrite generation reads current reference analyses as reference without treating abandoned new proposals as facts',()=>{
+ const p={...project,creator:{...project.creator,mode:'rewrite',sections:{outline:{input:'原剧的因果拆解',output:'未采用的新作结局',accepted:false},events:{input:'来源更新前的旧拆解',inputStale:true}}}};
+ const context=buildCreatorContext(p,{kind:'script',target:{episodeId:'e'}});
+ assert.match(context,/原剧的因果拆解/);assert.match(context,/仅供参考，不是新作事实/);
+ assert.doesNotMatch(context,/未采用的新作结局|来源更新前的旧拆解/);
+ assert.doesNotMatch(buildCreatorContext(p,{kind:'script',scope:'current'}),/原剧的因果拆解/);
+});

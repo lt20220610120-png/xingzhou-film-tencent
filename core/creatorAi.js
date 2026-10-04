@@ -44,18 +44,20 @@ export function buildCreatorContext(project,{kind='script',target={},scope='proj
  const episodes=scope==='current'?[]:(project.episodes||[]).filter(e=>e.id!==target.episodeId).map(e=>`【新作${e.title}，${e.finalConfirmed?'已确认':'编辑草稿'}】\n${kind==='fruit'?(e.scriptText||''):(e.result||e.content||'')}`);
  const source=includeSources&&scope!=='current'&&project.creator?.source?.content?`【对标来源，仅供参考，不是新作事实：${project.creator.source.name||''}】\n${project.creator.source.content}`:'';
  const refs=includeSources&&scope!=='current'?(project.creator?.references||[]).filter(r=>r.enabled!==false).map(r=>`【对标材料：${r.name||r.fileName}】\n${r.content}`):[];
+ const analyses=includeSources&&scope!=='current'&&project.creator?.mode==='rewrite'?Object.entries(project.creator.sections).filter(([key,value])=>key!==target.section&&value.input?.trim()&&!value.inputStale).map(([key,value])=>`【对标拆解，仅供参考，不是新作事实：${key}】\n${value.input}`):[];
  const decisions=(project.creator?.chat||[]).filter(m=>m.adopted||m.role==='decision').map(m=>`【明确决定】${m.content}`);
  const story=project.creator?.story;
  const adoptedEvents=(story?.events||[]).filter(i=>i.accepted);
  const neededCharacters=new Set(adoptedEvents.flatMap(i=>i.characterIds||[]));
  const neededEvents=new Set(adoptedEvents.flatMap(i=>[...(i.predecessorIds||[]),i.parentEventId].filter(Boolean)));
  const storyContext=story?`【当前采用人物与统一事件（按稳定ID关联）】\n${JSON.stringify({characters:(story.characters||[]).filter(i=>i.accepted),events:adoptedEvents,necessaryReferences:{characters:story.characters.filter(i=>!i.accepted&&neededCharacters.has(i.id)).map(i=>({id:i.id,name:i.name,accepted:false})),events:story.events.filter(i=>!i.accepted&&neededEvents.has(i.id)).map(i=>({id:i.id,title:i.title,accepted:false}))}})}\n必要引用仅提供身份名称；未采用的关联条目内容尚待确认，不得当作已定事实。`:'';
- return [`项目：${project.name}`, ...sections,storyContext,...episodes,source,...refs,...decisions].filter(Boolean).join('\n\n');
+ return [`项目：${project.name}`, ...sections,storyContext,...episodes,source,...refs,...analyses,...decisions].filter(Boolean).join('\n\n');
 }
 function sourceDocuments(project,kind,scope) {
  const docs=[];
  if(scope!=='current'&&project.creator?.source?.content)docs.push({name:project.creator.source.name||'对标剧本',text:project.creator.source.content});
  if(scope!=='current')for(const ref of project.creator?.references||[]) if(ref.enabled!==false&&ref.content)docs.push({name:ref.name||ref.fileName||'参考材料',text:ref.content});
+ if(scope!=='current'&&project.creator?.mode==='rewrite')for(const [key,value] of Object.entries(project.creator.sections))if(value.input?.trim()&&!value.inputStale)docs.push({name:`对标拆解，仅供参考：${key}`,text:value.input});
  const own=(project.episodes||[]).map(e=>`${e.title}\n${kind==='fruit'?e.scriptText:(e.result||e.content||'')}`).join('\n\n');
  if(scope!=='current'&&own.trim())docs.push({name:'新作分集草稿',text:own});
  const history=(project.creator?.chat||[]).filter(m=>m.role==='user'||m.role==='assistant').slice(0,-12).map(m=>`${m.role==='user'?'用户历史想法':'Agent历史候选，未采用不作为事实'}：${m.content}`).join('\n\n');

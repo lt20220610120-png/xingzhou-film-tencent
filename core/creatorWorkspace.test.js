@@ -848,3 +848,28 @@ test('master editing respects explicit node boundaries even when dialogue mentio
  assert.deepEqual(project(state).episodes.map(e=>e.id),ids);
  assert.equal(project(state).episodes[1].result,'第二集收录后修改');
 });
+test('source content changes preserve reference analyses for review until explicitly analyzed again',()=>{
+ let state=make('rewrite');const id=project(state).id;
+ state=importCreatorSource(state,id,{id:'source',content:'第1集\n旧剧情'});
+ state=updateCreatorSection(state,'script',id,'outline',{input:'旧对标拆解'});
+ state=importCreatorSource(state,id,{id:'source',content:'第1集\n新剧情'});
+ assert.equal(project(state).creator.sections.outline.input,'旧对标拆解');assert.equal(project(state).creator.sections.outline.inputStale,true);
+ state=updateCreatorSection(state,'script',id,'outline',{input:'新对标拆解'});
+ assert.equal(project(state).creator.sections.outline.inputStale,false);
+});
+test('changing a reference analysis invalidates project-scope episode candidates',()=>{
+ let state=make('rewrite');const id=project(state).id;
+ state=importCreatorSource(state,id,{content:'第1集\n原剧'});
+ const episodeId=project(state).episodes[0].id,target={episodeId};
+ const before=creatorInputFingerprint(project(state),target);
+ state=updateCreatorSection(state,'script',id,'outline',{input:'新的对标拆解'});
+ assert.notEqual(creatorInputFingerprint(project(state),target),before);
+});
+test('updating the same fruit source preserves episode links while refreshing the frozen source content',()=>{
+ let state=make('rewrite');const id=project(state).id;
+ state=importCreatorSource(state,id,{name:'参考剧',sourceProjectId:'fruit',sourceSide:'output',content:'第1集\n初版正文'});
+ const before=project(state).creator.source,linkedId=project(state).episodes[0].sourceEpisodeIds[0];
+ state=importCreatorSource(state,id,{name:'参考剧改名',sourceProjectId:'fruit',sourceSide:'output',content:'第1集\n更新版正文'});
+ assert.equal(project(state).creator.source.id,before.id);assert.equal(project(state).creator.source.episodes[0].id,linkedId);
+ assert.match(project(state).creator.source.episodes[0].content,/更新版正文/);
+});
