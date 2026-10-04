@@ -13,11 +13,14 @@ function normalizeBounds(value, size) {
 
 function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebContentsView, session, shell, onState = () => {}, setInterval: interval = setInterval, clearInterval: clear = clearInterval }) {
   let epoch = 0, boundsEpoch = 0, view = null, partition = null, timer = null, authorizedAt = 0, authorizedToken = '', pageToken = '', verifying = null;
+  let pageReady = false, viewBounds = null;
   let progress = { busy: false, stage: 'idle', message: '' };
   let startup = null;
   function destroyPage() {
     clear(timer); timer = null; authorizedAt = 0; authorizedToken = ''; pageToken = '';
-    const oldView = view, oldSession = partition; view = null; partition = null;
+    const oldView = view, oldSession = partition; view = null; partition = null; pageReady = false; viewBounds = null;
+    // Native content sits above the replacement DOM during identity teardown.
+    try { oldView?.setVisible(false); } catch {}
     try { getWindow()?.contentView.removeChildView(oldView); } catch {}
     try { oldView?.webContents.close({ waitForBeforeUnload: false }); } catch {}
     return Promise.allSettled([oldSession?.clearStorageData(), oldSession?.closeAllConnections()]);
@@ -45,7 +48,8 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     boundsEpoch++;
     if (!view) return false;
     const win = getWindow(); if (!win || win.isDestroyed()) return false;
-    const rect = normalizeBounds(bounds, win.getContentBounds()); view.setBounds(rect); view.setVisible(rect.width > 0 && rect.height > 0); return true;
+    const rect = normalizeBounds(bounds, win.getContentBounds()); viewBounds = rect;
+    view.setBounds(rect); view.setVisible(pageReady && rect.width > 0 && rect.height > 0); return true;
   }
   async function resume({ bounds } = {}) {
     if (!view) return false;
@@ -90,13 +94,17 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     });
     await ownSession.cookies.set(service.sessionCookie(status.root));
     if (ticket !== epoch) { await ownSession.clearStorageData(); throw new Error('控制面板打开已取消'); }
-    const ownView = new WebContentsView({ webPreferences: { session: ownSession, contextIsolation: true, nodeIntegration: false, sandbox: true } }); view = ownView; pageToken = accessService.token();
+    const ownView = new WebContentsView({ webPreferences: { session: ownSession, contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    // Views default to visible; hide before attachment and keep the loading
+    // surface hidden until the requested page is ready.
+    ownView.setVisible(false); pageReady = false; view = ownView; pageToken = accessService.token();
     ownView.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//i.test(url)) shell.openExternal(url).catch(() => {}); return { action: 'deny' }; });
     ownView.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== origin) event.preventDefault(); });
     ownView.webContents.on('will-redirect', (event, url) => { if (new URL(url).origin !== origin) event.preventDefault(); });
     win.contentView.addChildView(ownView); setBounds(presentation === boundsEpoch ? bounds : { x: 0, y: 0, width: 0, height: 0 });
     try { await ownView.webContents.loadURL(origin); } catch (error) { if (ticket === epoch) await close(); throw new Error('WorkBuddy 页面加载失败，请重新连接'); }
     if (ticket !== epoch) throw new Error('控制面板打开已取消');
+    pageReady = true; ownView.setVisible(Boolean(viewBounds?.width > 0 && viewBounds?.height > 0));
     timer = interval(() => { authorize(ticket).then(() => { if (ticket === epoch) return ownSession.cookies.set(service.sessionCookie(status.root)); }).catch(() => { if (ticket === epoch) return close(); }); }, 60000);
     timer?.unref?.(); return status;
   }

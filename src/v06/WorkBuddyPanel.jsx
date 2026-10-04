@@ -21,6 +21,8 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
   const dialogRef = useRef(null);
   const lifetime = useRef(0);
   const mounted = useRef(false);
+  const initialized = useRef(false);
+  const pendingOpen = useRef(false);
   const statusRef = useRef(null);
   const viewWanted = useRef(false);
   const viewPresent = useRef(false);
@@ -58,6 +60,7 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
       height: Math.max(0, Math.floor(Math.min(window.innerHeight, rect.bottom - host.clientTop)) - y) };
   }, []);
   const closeView = useCallback(async () => {
+    pendingOpen.current = false;
     viewWanted.current = false;
     viewPresent.current = false;
     viewEpoch.current += 1;
@@ -101,6 +104,8 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
   }, [active, bounds, invoke, markDisconnected, showError]);
   const openView = useCallback(async (generation = lifetime.current) => {
     if (!active(generation) || updatingRef.current || !statusRef.current?.installed) return;
+    if (!activeRef.current) { pendingOpen.current = true; return; }
+    pendingOpen.current = false;
     const nextBounds = bounds();
     if (!nextBounds) return;
     viewWanted.current = true;
@@ -120,6 +125,8 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
     setBusy('load'); setError(''); setNotice('');
     try {
       await closeView();
+      if (!active(generation)) return;
+      if (!activeRef.current) { initialized.current = false; return; }
       const [next, currentProgress] = await Promise.all([invoke('workBuddyStatus'), invoke('workBuddyUpdateState')]);
       if (!active(generation)) return;
       applyStatus(next);
@@ -195,7 +202,10 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
     }
   };
   actions.current = { refresh, syncBounds, resumeView: async () => {
-    if (!viewPresent.current) return;
+    if (!viewPresent.current) {
+      if (pendingOpen.current) await openView().catch(reason => showError(reason, lifetime.current));
+      return;
+    }
     const generation = lifetime.current, epoch = ++presentationEpoch.current;
     presentationReady.current = false;
     syncBounds();
@@ -208,34 +218,41 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
   } };
 
   useEffect(() => {
-    presentationEpoch.current += 1;
-    if (panelActive) actions.current.resumeView();
-    else {
-      presentationReady.current = false;
-      lastBounds.current = '';
-      actions.current.syncBounds();
-      // Hide even when the first open is still waiting for service startup.
-      invoke('workBuddySetBounds', { x: 0, y: 0, width: 0, height: 0 }).catch(() => {});
-    }
-  }, [panelActive, invoke]);
-
-  useEffect(() => {
     mounted.current = true;
     lifetime.current += 1;
+    initialized.current = false;
+    pendingOpen.current = false;
     if (account?.isAdmin !== true || account?.banned === true) {
       updatingRef.current = false; updatePending.current = false;
       setUpdating(false); setConfirmUpdate(false);
       setError('需要有效的行舟管理员权限'); setBusy('');
-    } else actions.current.refresh();
+    } else setBusy('');
     return () => {
       mounted.current = false;
       lifetime.current += 1;
       viewWanted.current = false;
       viewPresent.current = false;
+      pendingOpen.current = false;
       viewEpoch.current += 1;
       invoke('workBuddyClose').catch(() => {});
     };
   }, [account?.id, account?.isAdmin, account?.banned, invoke]);
+
+  useEffect(() => {
+    presentationEpoch.current += 1;
+    if (panelActive && account?.isAdmin === true && account?.banned !== true) {
+      // A remembered admin tab is also mounted in hidden workspaces after a
+      // role switch. Only entering the visible WorkBuddy tab may start it.
+      if (!initialized.current) { initialized.current = true; actions.current.refresh(); }
+      else actions.current.resumeView();
+    } else {
+      presentationReady.current = false;
+      lastBounds.current = '';
+      actions.current.syncBounds();
+      // Hide even when an explicitly requested open is still starting.
+      if (viewWanted.current || viewPresent.current) invoke('workBuddySetBounds', { x: 0, y: 0, width: 0, height: 0 }).catch(() => {});
+    }
+  }, [panelActive, account?.id, account?.isAdmin, account?.banned, invoke]);
 
   useEffect(() => {
     const generation = lifetime.current;

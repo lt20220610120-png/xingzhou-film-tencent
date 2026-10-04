@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, BookOpen, Upload, Trash2, PenLine, FolderPlus, FolderCog, Users, Film, ArrowUpRight } from 'lucide-react';
+import { Plus, BookOpen, FileText, Upload, Trash2, PenLine, FolderPlus, FolderCog, Users, Film, ArrowUpRight } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { defaultProjectGroupName } from '../../core/projectGroups.js';
 
 export function ProjectCardHub({
   title, subtitle, projects, onCreate, onOpen, onDelete, kind = 'project',
-  onImportLibrary, onUpload, library, headerExtra,
+  onImportLibrary, onUpload, onUploadCompleted, library, headerExtra,
   groups = [], onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup,
   onManageCollab, canManageCollab = () => false, canDeleteProject = () => true,
 }) {
@@ -114,16 +114,18 @@ export function ProjectCardHub({
       )}
 
       <div className="project-grid">
-        {!isDirector && <button className="project-card add" onClick={onCreate}><div><Plus /></div><h3>新建项目</h3><p>创建一个新的{isIP ? 'IP 改编' : isFruit ? '果子' : '剧本'}项目</p></button>}
+        {!isDirector && onUpload && <button className="project-card add creator-upload-card" aria-label={isIP ? '上传小说' : '上传剧本'} onClick={onUpload}><div><Upload /></div><h3>{isIP ? '上传小说' : '上传剧本'}</h3><p>{isIP ? '选择小说与目标时长，直接开始改编' : '自动创建项目，识别设定与分集'}</p></button>}
+        {!isDirector && onUploadCompleted && <button className="project-card add creator-upload-card completed" aria-label="导入完成剧本" onClick={onUploadCompleted}><div><FileText /></div><h3>导入完成剧本</h3><p>已有成稿直接阅读、编辑与收录</p></button>}
+        {!isDirector && <button className="project-card add" aria-label="新建项目" onClick={onCreate}><div><Plus /></div><h3>新建项目</h3><p>创建一个新的{isIP ? 'IP 改编' : isFruit ? '果子' : '剧本'}项目</p></button>}
         {isDirector && filterGroup === 'director-workbench' && <button className="project-card add" onClick={onUpload}><div><Upload /></div><h3>上传剧本</h3><p>自动识别总剧本与分集</p></button>}
         {isDirector && filterGroup === 'director-library' && library?.map(item => <article key={item.id} className="project-card library-source"><div className="card-cover"><BookOpen /></div><small>内容创作者 · 剧本库</small><h3>{item.name}</h3><p>导入导演工作台后可逐集处理</p><button className="primary" onClick={() => onImportLibrary(item)}>选择剧本</button></article>)}
         {visibleProjects.map(project =>{
           const group = groups.find(item => item.id === project.groupId);
           return <article key={project.id} className="project-card">
             <div className="project-card-symbol" aria-hidden="true">{isDirector ? <Film size={21}/> : <BookOpen size={21}/>}</div>
-            <div className="project-kind-row"><small>{isIP ? 'IP · 忠实改编' : isFruit ? '市场验证剧本' : isScript ? (project.mode === 'rewrite' ? '洗稿创作' : project.creator?.mode === 'framework' ? '原创 · 框架式创作' : '原创 · 自由创作') : '导演项目'}</small><span className="project-badges">{isDirector && project.cloudRole === 'collaborator' && <span className="cloud-collab-badge">协作</span>}{canOrganize && <span className="group-badge">{group?.name || '未分组'}</span>}</span></div>
+            <div className="project-kind-row"><small>{isIP ? project.creator.ip.completedImport ? 'IP · 已完成剧本' : 'IP · 忠实改编' : isFruit ? '市场验证剧本' : isScript ? (project.mode === 'rewrite' ? '洗稿创作' : project.creator?.mode === 'framework' ? '原创 · 框架式创作' : '原创 · 自由创作') : '导演项目'}</small><span className="project-badges">{isDirector && project.cloudRole === 'collaborator' && <span className="cloud-collab-badge">协作</span>}{canOrganize && <span className="group-badge">{group?.name || '未分组'}</span>}</span></div>
             {renamingId === project.id ? <input className="project-name-input" autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => saveRename(project)} onKeyDown={e => { if (e.key === 'Enter') saveRename(project); if (e.key === 'Escape') setRenamingId(null); }}/> : <h3 title={project.name}>{project.name}</h3>}
-            <p>{isIP ? project.episodes.filter(e=>e.type==='episode').length : project.episodes.length} 集{isIP && <> · {project.creator.ip.duration} 分钟</>}{isFruit && <> · {'★'.repeat(project.rating) || '未评级'}</>}{isDirector && <> · {project.episodes.reduce((sum, ep) => sum + (ep.prompts?.length || 0), 0)} 条提示词</>}</p>
+            <p>{isIP || isFruit ? project.episodes.filter(e=>e.type==='episode').length : project.episodes.length} 集{isIP && <> · {project.creator.ip.completedImport ? '已完成剧本' : `${project.creator.ip.duration} 分钟`}</>}{isFruit && <> · {'★'.repeat(project.rating) || '未评级'}</>}{isDirector && <> · {project.episodes.reduce((sum, ep) => sum + (ep.prompts?.length || 0), 0)} 条提示词</>}</p>
             {canOrganize && <div className="project-organize-row"><button onClick={() => { setRenamingId(project.id); setRenameValue(project.name); }}><PenLine size={14}/>修改名称</button><select aria-label={`${project.name}的分组`} value={project.groupId || (isDirector ? 'director-workbench' : '')} disabled={isDirector && project.groupId === 'director-cloud'} onChange={e => onMoveToGroup?.(project.id, e.target.value)}>{!isDirector&&<option value="">未分组</option>}{(isDirector ? [groups.find(group => group.id === 'director-workbench'), ...customGroups].filter(Boolean) : groups).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></div>}
             <div className="project-card-actions"><button className="primary" onClick={() => onOpen(project.id)}>{isDirector ? '继续导演' : '继续创作'}<ArrowUpRight size={14}/></button>{isDirector && onManageCollab && canManageCollab(project) && <button className="secondary director-collab-button" onClick={() => onManageCollab(project)}><Users size={14}/>{project.cloudProjectId ? '管理协作' : '开启协作'}</button>}{onDelete && canDeleteProject(project) && <button className="card-delete" title="删除项目" aria-label={`删除项目 ${project.name}`} onClick={e => { e.stopPropagation(); setDeleteTarget(project); }}><Trash2 size={15}/><span className="visually-hidden">删除</span></button>}</div>
           </article>;

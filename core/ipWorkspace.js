@@ -25,7 +25,7 @@ export function parseNovel(content,id=uid()){
 }
 export function importIPNovel(state,id,document){
  const source={...parseNovel(document.content),name:document.name||document.fileName||'小说',filePath:document.filePath||''};
- return mutateIP(state,id,p=>({...p,episodes:p.episodes.map(e=>({...e,sourceId:e.sourceId||p.creator.ip.source?.id||source.id,ipVersions:preserve(p,e,'更新小说前的编辑稿'),stale:!!e.scriptText,finalConfirmed:false})),creator:{...p.creator,ip:{...p.creator.ip,source,sources:[...(p.creator.ip.sources||[]),source],reading:[],plan:null}}}));
+ return mutateIP(state,id,p=>({...p,episodes:p.episodes.map(e=>({...e,sourceId:e.sourceId||p.creator.ip.source?.id||source.id,ipVersions:preserve(p,e,'更新小说前的编辑稿'),stale:!!e.scriptText,finalConfirmed:false})),creator:{...p.creator,ip:{...p.creator.ip,completedImport:false,source,sources:[...(p.creator.ip.sources||[]),source],reading:[],plan:null}}}));
 }
 export const ipSourceFor=(p,sourceId)=>sourceId?(p.creator.ip.sources||[]).find(s=>s.id===sourceId):p.creator.ip.source;
 export function ipOriginal(p,episode,version){

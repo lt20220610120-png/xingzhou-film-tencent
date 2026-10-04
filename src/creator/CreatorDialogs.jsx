@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Download, Save } from 'lucide-react';
 import { ipBodyCount } from '../../core/ipWorkspace.js';
+import { creatorExportStatus } from '../../core/creatorExportStatus.js';
 import { buildCreatorText, archiveCreatorProject } from '../../core/creatorWorkspace.js';
 
 export function CreatorDialog({title,onClose,children,className=''}) {
@@ -10,9 +11,7 @@ export function CreatorDialog({title,onClose,children,className=''}) {
 export function ExportDialog({project,kind,api,setState,onClose,archive=false,initialSide='output',single=false}) {
  const [side,setSide]=useState(initialSide),[includeSections,setIncludeSections]=useState(!single&&kind==='script'&&project.creator.mode==='rewrite'),[format,setFormat]=useState('docx'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[success,setSuccess]=useState('');
  const content=buildCreatorText(project,kind,side,{includeSections});
- const missing=(project.episodes||[]).filter(e=>!String(kind==='fruit'?(side==='input'?e.rawText:e.scriptText):(side==='input'?e.content:e.result)).trim());
- const unconfirmed=['framework','ip'].includes(project.creator.mode)?(project.episodes||[]).filter(e=>!e.finalConfirmed||e.stale):[];
- const shortIP=project.creator.mode==='ip'&&ipBodyCount(project)<(project.creator.ip.duration===120?70000:40000);
+ const {missing,unconfirmed,shortIP}=creatorExportStatus(project,kind,side);
  const submit=async()=>{setError('');setBusy(true);try{
   if(!content.trim())throw new Error('所选范围没有可导出的内容');
   if(archive){if(project.creator.mode==='ip'&&!project.episodes.some(e=>e.type==='episode'))throw new Error('请先完成分集正文再收录');if(missing.length||unconfirmed.length)throw new Error('请先完成缺失集和终稿复核；当前内容仍可导出为草稿');setState(s=>archiveCreatorProject(s,project.id,{side,includeSections,stageDraft:shortIP}));setSuccess(shortIP?'已收录阶段版本，继续改稿不会改变此版本':'已收录完成版本，后续改稿会保留这一版本');}

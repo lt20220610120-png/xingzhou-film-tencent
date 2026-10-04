@@ -11,14 +11,14 @@ export function useIPAgent({state,setState,getState,api}){
   if(episodeId)setState(s=>saveIPVersion(s,projectId,episodeId));
   const project=getIPProject(read(),projectId);if(!project)throw new Error('项目已移除');
   const id=`ip-task-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,job={id,cancelled:false,current:id};jobs.current.set(projectId,job);
-  const record={id,type:'ip-task',target:{episodeId},task,model:profile?.model,instruction,createdAt:new Date().toISOString(),status:'running',output:''};
+  const record={id,type:'ip-task',target:{episodeId},task,model:profile?.model,instruction,createdAt:new Date().toISOString(),status:'running',output:'',diagnostics:[]};
   const patch=delta=>setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,records:p.creator.records.map(r=>r.id===id?{...r,...delta}:r)}})));
   setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,records:[...p.creator.records,record]}})));
   try{
    const result=await runIPTask({api,project,task,episodeId,profile,instruction,taskId:id,isCancelled:()=>job.cancelled,allowReviewedPrevious:fromQueue,
     onProgress:a=>{job.current=a.taskId;setActivity(s=>({...s,[projectId]:{...a,running:true}}));},
     onRead:r=>setState(s=>mutateIP(s,projectId,p=>p.creator.ip.source?.id!==r.sourceId?p:{...p,creator:{...p.creator,ip:{...p.creator.ip,reading:[...(p.creator.ip.reading||[]).filter(old=>!(old.start===r.start&&old.end===r.end)),r]}}})),
-    onDraft:v=>{if(v.type==='version')setState(s=>appendIPVersion(s,projectId,episodeId,{...v,model:profile.model}));else patch({output:v.content});}
+    onDraft:v=>{if(v.type==='version')setState(s=>appendIPVersion(s,projectId,episodeId,{...v,model:profile.model}));else setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,records:p.creator.records.map(r=>r.id!==id?r:{...r,output:v.content,diagnostics:[...(r.diagnostics||[]),{...v,createdAt:new Date().toISOString()}]})}})));}
    });
    if(job.cancelled)throw new Error('任务已停止');
    if(result.type==='plan')setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,ip:{...p.creator.ip,planCandidates:[...(p.creator.ip.planCandidates||[]),{id,plan:result.plan,sourceId:result.sourceId,createdAt:new Date().toISOString()}]}}})));

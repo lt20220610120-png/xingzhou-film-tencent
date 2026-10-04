@@ -3,26 +3,65 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { createWorkBuddyPanel, normalizeBounds, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 
-function fixture(account = { isAdmin: true }, serviceOverrides = {}) {
+function fixture(account = { isAdmin: true }, serviceOverrides = {}, pageOverrides = {}) {
   let current = account, token = 'session-a', cookieCount = 0, started = 0, authorized = 0, loaded = 0, cleared = 0;
-  const views = [];
+  const views = [], attachedVisibility = [];
   class View {
     constructor(options) {
-      this.options = options; this.webContents = new EventEmitter();
-      Object.assign(this.webContents, { loadURL: async (url) => { loaded++; this.url = url; }, close: () => { this.closed = true; }, setWindowOpenHandler: (fn) => { this.popup = fn; } });
+      this.options = options; this.visible = true; this.webContents = new EventEmitter();
+      Object.assign(this.webContents, { loadURL: async (url) => { loaded++; this.url = url; await pageOverrides.loadURL?.(url); }, close: () => { this.closed = true; }, setWindowOpenHandler: (fn) => { this.popup = fn; } });
       views.push(this);
     }
     setBounds(value) { this.bounds = value; }
     setVisible(value) { this.visible = value; }
   }
   const partition = { cookies: { set: async () => { cookieCount++; } }, clearStorageData: async () => { cleared++; }, closeAllConnections: async () => {}, setPermissionCheckHandler: (fn) => { partition.permissionCheck = fn; }, setPermissionRequestHandler: (fn) => { partition.permission = fn; }, webRequest: { onBeforeRequest: (...args) => { partition.request = args.at(-1); } } };
-  const win = { isDestroyed: () => false, getContentBounds: () => ({ width: 1200, height: 800 }), contentView: { addChildView: () => {}, removeChildView: () => {} } };
+  const win = { isDestroyed: () => false, getContentBounds: () => ({ width: 1200, height: 800 }), contentView: { addChildView: child => { attachedVisibility.push(child.visible); }, removeChildView: () => {} } };
   const updater = { update: async () => {} };
   const access = { session: async () => { authorized++; return current; }, token: () => token };
   const events = [];
   const panel = createWorkBuddyPanel({ getWindow: () => win, accessService: access, updater, onState: (value) => events.push(value), service: { status: async () => ({ installed: true, running: true, root: '/local', port: 7864 }), start: async () => { started++; return { installed: true, running: true, root: '/local', port: 7864 }; }, sessionCookie: () => ({ url: 'http://127.0.0.1:7864', name: 'wb_session', value: 'private', httpOnly: true }), ...serviceOverrides }, WebContentsView: View, session: { fromPartition: () => partition }, shell: { openExternal: async () => {} }, setInterval: () => 1, clearInterval: () => {} });
-  return { panel, access, updater, events, views, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, counts: () => ({ cookieCount, started }), lifecycle: () => ({ authorized, loaded, cleared }) };
+  return { panel, access, updater, events, views, attachedVisibility, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, counts: () => ({ cookieCount, started }), lifecycle: () => ({ authorized, loaded, cleared }) };
 }
+
+test('a native page is attached hidden and shown only after its content has loaded', async () => {
+  let finishLoad;
+  const f = fixture({ isAdmin: true }, {}, { loadURL: () => new Promise(resolve => { finishLoad = resolve; }) });
+  const opening = f.panel.open({ bounds: { x: 240, y: 180, width: 850, height: 580 } });
+  await new Promise(setImmediate);
+  assert.deepEqual(f.attachedVisibility, [false]);
+  assert.equal(f.views[0].visible, false);
+  finishLoad(); await opening;
+  assert.equal(f.views[0].visible, true);
+  await f.panel.close();
+});
+
+test('hiding a page while its content loads cannot briefly show it when loading completes', async () => {
+  let finishLoad;
+  const f = fixture({ isAdmin: true }, {}, { loadURL: () => new Promise(resolve => { finishLoad = resolve; }) });
+  const opening = f.panel.open({ bounds: { x: 240, y: 180, width: 850, height: 580 } });
+  await new Promise(setImmediate);
+  assert.equal(f.views[0].visible, false);
+  f.panel.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  finishLoad(); await opening;
+  assert.equal(f.views[0].visible, false);
+  await f.panel.close();
+});
+
+test('role teardown hides and revokes the page without probing or stopping its service', async () => {
+  let inspected = 0, stopped = 0;
+  const f = fixture({ isAdmin: true }, { status: async () => { inspected++; }, stop: async () => { stopped++; } });
+  await f.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } });
+  const authorized = f.lifecycle().authorized;
+  const closing = f.panel.revoke();
+  assert.equal(f.views[0].visible, false);
+  await closing;
+  await f.panel.revoke();
+  assert.equal(f.views[0].closed, true);
+  assert.equal(f.lifecycle().authorized, authorized);
+  assert.equal(inspected, 0);
+  assert.equal(stopped, 0);
+});
 
 test('leaving and returning preserves the page, route and draft while verifying the administrator again', async () => {
   const f = fixture(), bounds = { x: 240, y: 180, width: 850, height: 580 };

@@ -85,6 +85,26 @@ test('discovery uses the existing shortcut working directory and persists the se
   assert.equal(await second.getRoot(), root);
 });
 
+test('shortcut discovery is hidden and remembered status checks never start helper processes', async t => {
+  const { root, userDataDir } = fixture(t);
+  const helpers = [], launches = [];
+  const service = createWorkBuddyService({ userDataDir, platform: 'win32', fetch: healthy,
+    exec: async (file, args, options) => {
+      helpers.push({ file, args, options });
+      return { stdout: JSON.stringify([{ workingDirectory: root, targetPath: 'powershell.exe', arguments: '' }]) };
+    },
+    spawn: (file, args, options) => { launches.push({ file, args, options }); return fakeSpawn(); },
+  });
+  assert.equal((await service.status()).running, true);
+  assert.equal(helpers.length, 1);
+  assert.equal(helpers[0].file, 'powershell.exe');
+  assert.equal(helpers[0].options.windowsHide, true);
+  assert.ok(helpers[0].args.includes('-NonInteractive'));
+  await service.status(); await service.status();
+  assert.equal(helpers.length, 1);
+  assert.equal(launches.length, 0);
+});
+
 test('short lived cookie uses the real administrator and current revocation version', t => {
   const { root, userDataDir } = fixture(t);
   const service = createWorkBuddyService({ userDataDir, now: () => 1700000000000 });

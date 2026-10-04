@@ -4,7 +4,7 @@ import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Film, BookOpen, Library, Settings, Sparkles, KeyRound,
+  Film, BookOpen, Library, ScrollText, Settings, Sparkles, KeyRound,
   FileText, Bot, Plus, X, Star, Trash2, Save, Upload, Download,
   Video, PenLine, MessageSquare, HardDrive, UserRound, Users,
   RefreshCw, FolderOpen, Check, ArrowLeft, AlertCircle, LogOut, ShieldCheck, Palette
@@ -1369,7 +1369,7 @@ function App() {
   const creatorNav = [
     ['fruit', BookOpen, '成品库'],
     ['studio', PenLine, '创作剧本'],
-    ['scripts', Library, '剧本库'],
+    ['scripts', ScrollText, '剧本库'],
   ];
   const toolsNav = [
     ['skills', Library, 'Skill 库'],
