@@ -6,6 +6,7 @@ import {runArtReviewAnalysis} from '../../core/artReviewRunner.js';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
 import {projectPublishedReviewAssets} from '../../core/artReview.js';
 import ArtReviewSection from './ArtReviewSection.jsx';
+import {readCollabNavigation,rememberCollabNavigation} from '../../core/collabNavigation.js';
 import {createCloudCache} from '../../core/cloudCache.js';
 import {useAssetImageActivity} from './useAssetImageActivity.js';
 import {mediaModelChoices} from '../../core/modelChoices.js';
@@ -634,7 +635,9 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const [batchProfileId,setBatchProfileId,batchProfile]=useWindowModel(`batch-image:${project.id}`,batchProfiles);
   const analysisProfiles=state.apiProfiles||[];
   const [analysisModelId,setAnalysisModelId,analysisProfile]=useWindowModel(`analysis:${project.id}`,analysisProfiles,state.activeApiId);
-  const [episode, setEpisode] = useState(null);
+  const artNav={accountId,projectId:project.id,section:'art'};
+  const [episode, setEpisode] = useState(()=>readCollabNavigation(artNav).episodeNumber??null);
+  useEffect(()=>{rememberCollabNavigation(artNav,{episodeNumber:episode});},[accountId,project.id,episode]);
   const [category, setCategory] = useState('character');
   const [search, setSearch] = useState('');
   const locator = useAssetLocator(`${project.id}:${episode}:${category}`);
@@ -1447,8 +1450,8 @@ export function CollabWorkspace({ state, api, account }) {
       </aside>
       <main className="collab-stage">
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
-        {section === 'art-review' && <ArtReviewEntry project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
-        {section === 'art' && <ArtSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
+        {section === 'art-review' && <ArtReviewEntry key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
+        {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}

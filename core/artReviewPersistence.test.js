@@ -106,28 +106,28 @@ test('failed initial checkpoint load can be retried without losing the existing 
  f.failLocal=null;await f.store.load(f.project);assert.deepEqual(f.store.snapshot(),local);
 });
 
-test('explicit publication uploads only the selected review and its approved dependencies against the real repository',async()=>{
+test('explicit publication uploads only the selected episode; earlier references stay local',async()=>{
  const f=fixture({count:4});await f.store.load(f.project);
  await f.store.update(1,()=>approved(1));await f.store.update(2,()=>({...approved(2),dependencies:{1:reviewLedgerSignature(f.disk.episodes[1])}}));
  await f.store.update(3,()=>({...approved(3),dependencies:{1:reviewLedgerSignature(f.disk.episodes[1]),2:reviewLedgerSignature(f.disk.episodes[2])}}));
  await f.store.update(4,()=>approved(4));
  assert.equal(f.saveCalls.length,0);assert.equal(f.publishCalls.length,0);
  await f.store.publish(3,['3-1','3-2']);
- assert.deepEqual(f.saveCalls.map(p=>p.episodeNumber),[1,2,3]);assert.deepEqual(f.publishCalls.map(p=>p.episodeNumber),[3]);
- assert.deepEqual(Object.keys(f.project.analysis_progress),['1','2','3']);
+ assert.deepEqual(f.saveCalls.map(p=>p.episodeNumber),[3]);assert.deepEqual(f.publishCalls.map(p=>p.episodeNumber),[3]);
+ assert.deepEqual(Object.keys(f.project.analysis_progress),['3']);
  assert.deepEqual(f.project.assets.map(a=>a.name),['【第3集台灯】']);assert.deepEqual(f.project.assets[0].episodes,[3]);
  assert.equal(f.disk.episodes[1].pending,true);assert.equal(f.disk.episodes[2].pending,true);assert.equal(f.disk.episodes[3].pending,false);assert.equal(f.disk.episodes[4].version,0);
  assert.equal(summarizeArtReview(f.disk,f.project).published,1);assert.deepEqual(summarizeArtReview(f.disk,f.project).pendingEpisodes,[1,2,4]);
  assert.ok(f.saveCalls.every(p=>!p.data.publishRequest&&!p.data.uploadedWriteId&&!p.data.cloudReceipt));
- await f.store.publish(2,['2-1','2-2']);assert.deepEqual(f.saveCalls.map(p=>p.episodeNumber),[1,2,3]);
+ await f.store.publish(2,['2-1','2-2']);assert.deepEqual(f.saveCalls.map(p=>p.episodeNumber),[3,2]);
 });
 
-test('changed local dependency is rejected before any cloud mutation',async()=>{
+test('changed earlier episode does not block independently verified later episode',async()=>{
  const f=fixture({count:2});await f.store.load(f.project);await f.store.update(1,()=>approved(1));
  await f.store.update(2,()=>({...approved(2),dependencies:{1:reviewLedgerSignature(f.disk.episodes[1])}}));
  await f.store.update(1,r=>editArtReview(r,{type:'roster-remove',itemId:reviewRoster(r)[0].id}));
- await assert.rejects(f.store.publish(2,['2-1']),/第 1 集核实清单/);
- assert.equal(f.saveCalls.length,0);assert.equal(f.publishCalls.length,0);assert.equal(f.disk.episodes[2].pending,true);
+ await f.store.publish(2,['2-1']);
+ assert.deepEqual(f.saveCalls.map(p=>p.episodeNumber),[2]);assert.equal(f.publishCalls.length,1);assert.equal(f.disk.episodes[1].pending,true);
 });
 
 test('legacy pending migration keeps its optimistic version and write ID; conflicts leave local edits intact',async()=>{

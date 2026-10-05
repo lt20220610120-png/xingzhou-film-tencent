@@ -53,10 +53,11 @@ test('chapter mapping and earlier edits invalidate confirmation of later episode
  assert.equal(ipBodyCount({episodes:[{type:'settings',scriptText:'不计入'},{type:'episode',scriptText:'## 第1集 标题\n### 场景1-1\n△甲。'}]}),8);
 });
 test('whole-novel planning reads all chunks and includes both duration and full Skill package',async()=>{
- const content='第一章 开始\n'+'甲'.repeat(15000)+'末尾真实证据';let {p}=fixture(content);const requests=[],reads=[];
- const result=await runIPTask({api:{aiChat:async r=>{requests.push(r);if(r.taskId.endsWith(':plan'))return JSON.stringify({mainline:'主线',ending:'真实停点',segments:[{from:1,to:1,episodes:80,focus:'保留原句'}]});if(r.taskId.includes(':plan-group-')){const text=r.messages.at(-1).content,count=Number(text.match(/本次只规划 (\d+) 集/)[1]),start=Number(text.match(/单元内第(\d+)至/)[1]);return JSON.stringify({episodes:Array.from({length:count},(_,i)=>({chapterIds:[p.creator.ip.source.chapters[0].id],outline:`保留原句切点${start+i}`}))});}return '完整阅读笔记';}},project:p,task:'plan',profile:{id:'api',model:'configured'},taskId:'read',onRead:r=>reads.push(r)});
+ const {withGroundedScenes,groundedGroup,continuityReply}=await import('./ipPlanTestFixture.js');
+ const content=withGroundedScenes('第一章 开始\n'+'甲'.repeat(15000)+'末尾真实证据');let {p}=fixture(content);const requests=[],reads=[];
+ const result=await runIPTask({api:{aiChat:async r=>{requests.push(r);if(r.taskId.includes(':plan-continuity-'))return continuityReply();if(r.taskId.endsWith(':plan'))return JSON.stringify({mainline:'主线',ending:'真实停点',segments:[{from:1,to:1,episodes:80,focus:'保留原句'}]});if(r.taskId.includes(':plan-group-'))return JSON.stringify(groundedGroup(p.creator.ip.source,r,'保留原句切点'));return '完整阅读笔记';}},project:p,task:'plan',profile:{id:'api',model:'configured'},taskId:'read',onRead:r=>reads.push(r)});
  assert.equal(reads.reduce((n,r)=>n+r.end-r.start,0),content.length);assert.ok(requests.some(r=>r.messages.some(m=>m.content.includes('末尾真实证据'))));
- const prompt=requests.at(-1).messages.map(m=>m.content).join('\n');assert.match(prompt,/120 分钟/);assert.match(prompt,/70000/);
+ const prompt=requests.findLast(r=>r.taskId.includes(':plan-group-')).messages.map(m=>m.content).join('\n');assert.match(prompt,/120 分钟/);assert.match(prompt,/70000/);
  for(const file of IP_BUILTIN_SKILLS[0].files)assert.ok(prompt.includes(file.content));assert.equal(result.plan.episodes.length,80);
 });
 test('episode generation re-reads ALL previous current text then exact novel and retains initial draft before review',async()=>{

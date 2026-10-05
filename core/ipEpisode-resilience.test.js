@@ -25,6 +25,24 @@ test('malformed review repairs automatically without regenerating or publishing 
  assert.equal(diagnostics.filter(d=>d.type==='version').length,0);assert.ok(diagnostics.some(d=>d.type==='review-error'));
  assert.ok(result.issues.includes(card.issues[0]));assert.ok(requests.at(-1).messages.at(-1).content.includes('正文不放进 JSON'));
 });
+
+test('a plain truncated audit JSON repairs by error code without rewriting the completed screenplay',async()=>{
+ const {p,eid}=fixture(),diagnostics=[],requests=[];let audits=0;
+ const partial='{"comparison":"已完成逐场原文核对","corrections":[],"issues":[';
+ const result=await runIPTask(args(p,eid,{aiChat:async r=>{requests.push(r);if(r.taskId.endsWith(':write'))return body;return ++audits===1?partial:JSON.stringify(card);}},{onDraft:d=>diagnostics.push(d)}));
+ assert.equal(result.content,body);assert.equal(audits,2);assert.equal(requests.filter(r=>r.taskId.endsWith(':write')).length,1);
+ assert.ok(diagnostics.some(d=>d.type==='review-error'&&d.content===partial));
+ assert.ok(requests.at(-1).taskId.endsWith(':review-format1'));
+});
+
+test('repeated truncated audit fields retain the completed body and explicit review warning for queue continuity',async()=>{
+ const {p,eid}=fixture(),diagnostics=[];let writes=0,audits=0;
+ const result=await runIPTask(args(p,eid,{aiChat:async r=>{if(r.taskId.endsWith(':write')){writes++;return body;}audits++;return '{"comparison":"原文核对记录未完整';}},{onDraft:d=>diagnostics.push(d)}));
+ assert.equal(writes,1);assert.equal(audits,3);assert.equal(result.content,body);
+ assert.ok(result.issues.some(issue=>issue.includes('连续返回不规范结构')));
+ assert.equal(diagnostics.filter(d=>d.type==='review-error').length,3);
+ assert.equal(reviewedIPBody({scriptText:body,ipVersions:[result],stale:false},p.creator.ip.source.id),true);
+});
 test('completed draft resumes after a provider outage and identical final retry deduplicates its visible version',async()=>{
  let {state,id,p,eid}=fixture(),writes=0;const diagnostics=[];
  await assert.rejects(runIPTask(args(p,eid,{aiChat:async r=>{if(r.taskId.endsWith(':write')){writes++;return body;}throw new Error('Service unavailable');}},{onDraft:d=>diagnostics.push(d)})),/unavailable/);
@@ -49,11 +67,44 @@ test('truncated screenplay automatically continues the saved tail; cancellation 
  let stopped=false;
  await assert.rejects(runIPTask(args(p,eid,{aiChat:async()=>{stopped=true;return {ok:false,partialText:'付费片段',error:'cancel'};}},{isCancelled:()=>stopped})),e=>e.partialText==='付费片段');
 });
+test('stream network interruption and timeouts carrying paid output continue the saved tail without rewriting the initial prompt',async t=>{
+ for(const code of ['STREAM_INCOMPLETE','REQUEST_TIMEOUT'])await t.test(code,async()=>{
+  const {p,eid}=fixture(),diagnostics=[];let writes=0,continues=0;
+  const result=await runIPTask(args(p,eid,{aiChat:async r=>{
+   if(r.taskId.endsWith(':write')){writes++;return {ok:false,code,error:'network fetch timeout after paid output',partialText:body,providerDiagnostic:{type:'stream_interrupted',characters:body.length}};}
+   if(r.taskId.includes(':write-continue-')){continues++;assert.equal(r.messages.at(-2).content,body);return '甲：继续忠实对白。';}
+   return JSON.stringify(card);
+  }},{onDraft:d=>diagnostics.push(d)}));
+  assert.equal(writes,1);assert.equal(continues,1);assert.equal(result.content,body+'甲：继续忠实对白。');
+  assert.ok(diagnostics.some(d=>d.complete===false&&d.errorCode===code&&d.providerDiagnostic?.type==='stream_interrupted'));
+ });
+});
 test('review format failure becomes an explicit warning, keeps body and permits batch continuity without human confirmation',async()=>{
  const {p,eid}=fixture();const result=await runIPTask(args(p,eid,{aiChat:async r=>r.taskId.endsWith(':write')?body:'broken card'}));
  assert.equal(result.content,body);assert.match(result.issues.join(' '),/人工核对/);
  const e={scriptText:result.content,ipVersions:[result],stale:false};
  assert.equal(reviewedIPBody(e,p.creator.ip.source.id),true);assert.equal(reviewedIPBody({...e,stale:true},p.creator.ip.source.id),false);
+});
+
+test('plain body refusal is preserved without completing a screenplay, and an old refused write checkpoint is ignored',async()=>{
+ const {p,eid}=fixture(),diagnostics=[],refusal='我只是一个文本 AI，在这方面没法帮到你。';let calls=0;
+ await assert.rejects(()=>runIPTask(args(p,eid,{aiChat:async()=>{calls++;return refusal;}},{onDraft:d=>diagnostics.push(d)})),e=>e.code==='IP_MODEL_REFUSAL');
+ assert.equal(calls,1);assert.ok(!diagnostics.some(d=>d.type==='episode-checkpoint'&&d.complete));
+ const saved=diagnostics.find(d=>d.type==='episode-refusal');assert.equal(saved.content,refusal);
+ p.creator.records.push({diagnostics:[{...saved,type:'episode-checkpoint',complete:true}]});let writes=0;
+ const result=await runIPTask(args(p,eid,{aiChat:async r=>{if(r.taskId.endsWith(':write')){writes++;return body;}return JSON.stringify(card);}}));
+ assert.equal(writes,1);assert.equal(result.content,body);
+ assert.equal(reviewedIPBody({scriptText:refusal,ipVersions:[{content:refusal,sourceId:p.creator.ip.source.id,comparison:'旧版误判',issues:[]}],stale:false,finalConfirmed:true},p.creator.ip.source.id),false);
+});
+test('review refusal preserves its raw reply and paid body, and resumes auditing without rewriting',async()=>{
+ const {p,eid}=fixture(),diagnostics=[],refusal='我只是一个文本 AI，在这方面没法帮到你。';let writes=0,reviews=0;
+ await assert.rejects(()=>runIPTask(args(p,eid,{aiChat:async r=>{if(r.taskId.endsWith(':write')){writes++;return body;}reviews++;return refusal;}},{onDraft:d=>diagnostics.push(d)})),e=>e.code==='IP_MODEL_REFUSAL');
+ assert.equal(writes,1);assert.equal(reviews,1);assert.equal(diagnostics.find(d=>d.type==='review-refusal').content,refusal);
+ assert.ok(diagnostics.some(d=>d.type==='episode-checkpoint'&&d.stage==='write'&&d.complete));
+ assert.ok(!diagnostics.some(d=>d.type==='episode-checkpoint'&&d.stage==='review'&&d.complete));
+ p.creator.records.push({diagnostics});
+ const result=await runIPTask(args(p,eid,{aiChat:async r=>{assert.ok(!r.taskId.endsWith(':write'));return JSON.stringify(card);}}));
+ assert.equal(result.content,body);
 });
 test('specific correction rounds return plain screenplay, retain checkpoints and expose only the final result',async()=>{
  const {p,eid}=fixture(),diagnostics=[];let writes=0;

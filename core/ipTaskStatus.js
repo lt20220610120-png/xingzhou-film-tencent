@@ -12,6 +12,7 @@ export function ipWorkStatus(project,activity={}) {
  if(activity.running)return {...base,tone:'running',buttonLabel:'正在生成…',message:activity.label||'正在处理，请等待…'};
  if(activity.status==='failed')return {...base,tone:'error',message:`任务未完成：${activity.label||'请重试；已生成内容已保留。'}`};
  if(activity.status==='cancelled')return {...base,tone:'paused',message:'任务已停止，已生成内容保留，可继续补全。'};
- if(!ip.plan&&!ip.completedImport)return {...base,tone:'waiting',message:'请先在创作控制台核对并采用分集规划。'};
+ if(!pending&&ip.firstDraft?.lengthWarning)return {...base,tone:'review',message:`全部分集首稿已生成，待核对。${ip.firstDraft.lengthWarning}`};
+ if(!ip.plan&&!ip.completedImport)return {...base,tone:'waiting',message:'请先在分集规划中一键生成首版。'};
  return base;
 }

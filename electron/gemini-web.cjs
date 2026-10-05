@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: nativeSpawn } = require('node:child_process');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHash } = require('node:crypto');
 
 const GEMINI_URL = 'https://gemini.google.com/app';
 const LOGIN_MESSAGE = '请点击“登录 Gemini 网页账号”，完成登录后关闭独立窗口，再点击“刷新登录与模型”';
@@ -79,29 +79,52 @@ function parseUserStatus(raw) {
   throw new Error('Gemini 网页没有返回账号状态，网页协议可能已变化，请重新连接');
 }
 
-function parseGeneratedText(raw) {
-  let output = '', completed = false, frames, interrupted = false;
+function parseGeneratedText(raw, { onDiagnostic, streamEOF = true } = {}) {
+  let output = '', completed = false, frames, interrupted = false, indicator = null, candidateId = '', finalContext = false, failure = null;
   try { frames = parseFrames(raw); } catch (error) { frames = error.frames || []; interrupted = true; }
   for (const part of frames) {
     const errorCode = part?.[5]?.[2]?.[0]?.[1]?.[0];
     if (errorCode) {
-      if(errorCode>=1090&&errorCode<=1099)throw Object.assign(new Error(`Gemini 网页会话验证失败（状态 ${errorCode}）`),{code:output?'OUTPUT_TRUNCATED':'GEMINI_SESSION_REJECTED',statusCode:errorCode,...output?{partialText:output}:{}});
+      if(errorCode>=1090&&errorCode<=1099){failure=Object.assign(new Error(`Gemini 网页会话验证失败（状态 ${errorCode}）`),{code:output?'OUTPUT_TRUNCATED':'GEMINI_SESSION_REJECTED',statusCode:errorCode,...output?{partialText:output}:{}});break;}
       const messages = { 1037: 'Gemini 网页账号当前模型额度已用完，请等待恢复或选择其他模型', 1050: 'Gemini 网页模型与会话不匹配，请重新发送', 1052: 'Gemini 网页所选模型不可用或协议已变化，请重新检查模型', 1060: 'Gemini 网页暂时限制了当前网络，请稍后重试', 1013: 'Gemini 网页暂时处理失败，请稍后重试' };
-      throw new Error(messages[errorCode] || `Gemini 网页处理失败（状态 ${errorCode}）`);
+      failure=Object.assign(new Error(messages[errorCode] || `Gemini 网页处理失败（状态 ${errorCode}）`),{statusCode:errorCode});break;
     }
     if (typeof part?.[2] !== 'string') continue;
     let body; try { body = JSON.parse(part[2]); } catch { continue; }
     const candidate = body?.[4]?.[0];
     const text = candidate?.[1]?.[0];
     if (typeof text === 'string') {
-      output = /^https?:\/\/googleusercontent\.com\/card_content\//.test(text) && typeof candidate?.[22]?.[0] === 'string' ? candidate[22][0] : text;
-      if (candidate?.[8]?.[0] === 2) completed = true;
+      const nextCandidateId = typeof candidate?.[0] === 'string' ? candidate[0] : '';
+      const nextOutput = /^https?:\/\/googleusercontent\.com\/card_content\//.test(text) && typeof candidate?.[22]?.[0] === 'string' ? candidate[22][0] : text;
+      // The final context belongs to the candidate that produced it. A later
+      // candidate or changed text cannot inherit an earlier acknowledgement.
+      if (nextCandidateId !== candidateId || nextOutput !== output) finalContext = false;
+      output = nextOutput;
+      candidateId = nextCandidateId;
+      indicator = Number.isInteger(candidate?.[8]?.[0]) ? candidate[8][0] : null;
+      // Every candidate frame replaces its prior state. A finished earlier
+      // frame or context token must not certify a later unfinished candidate.
+      completed = indicator === 2;
     }
-    if (typeof body?.[25] === 'string' && output) completed = true;
+    if (typeof body?.[25] === 'string') finalContext = true;
   }
   const text = output.replace(/https?:\/\/googleusercontent\.com\/(?:\w+\/)+\d+\n*/g, '').trim();
+  // Older web responses omit the candidate indicator, but include a final
+  // context frame. Keep that compatibility only when no unfinished indicator
+  // explicitly contradicts completion.
+  completed ||= indicator === null && finalContext && !!text;
+  const diagnostic = {
+    frameCount: frames.length, receivedBytes: Buffer.byteLength(String(raw || ''), 'utf8'),
+    candidateIdHash: candidateId ? createHash('sha256').update(candidateId).digest('hex').slice(0,16) : null,
+    candidateCharacters: output.length, outputCharacters: text.length,
+    completionIndicator: indicator, hasFinalContext: finalContext,
+    streamEOF: streamEOF === true, interruptedFrame: interrupted,
+    completed: completed && !interrupted && !failure, ...(failure?.statusCode ? {statusCode:failure.statusCode} : {}),
+  };
+  try { onDiagnostic?.(diagnostic); } catch { /* Diagnostics never alter task outcomes. */ }
+  if (failure) throw Object.assign(failure,{providerDiagnostic:diagnostic});
   if (!completed || interrupted) {
-    if (text || interrupted) throw Object.assign(new Error('Gemini 网页响应中断，未收到完整正文，请缩短输入或重新发送'), { code: 'OUTPUT_TRUNCATED', partialText: text });
+    if (text || interrupted) throw Object.assign(new Error('Gemini 网页响应中断，未收到完整正文，请缩短输入或重新发送'), { code: 'OUTPUT_TRUNCATED', partialText: text, providerDiagnostic: diagnostic });
   }
   if (!text) throw new Error('Gemini 网页没有返回正文，请检查登录状态和当前模型额度');
   return text;
@@ -194,16 +217,31 @@ async function browserRequest(kind, request, timeout) {
       if (runtime.bytes > 16000000) { controller.abort(); return { ok: false, code: 'TOO_LARGE', raw }; }
       raw += decoder.decode(value, { stream: true });
     }
-    raw += decoder.decode(); return { ok: true, raw };
-  } catch (error) { return { ok: false, code: error.name === 'AbortError' ? 'ABORTED' : 'NETWORK', raw }; }
+    raw += decoder.decode(); return { ok: true, raw, streamEOF: true };
+  } catch (error) { return { ok: false, code: error.name === 'AbortError' ? 'ABORTED' : 'NETWORK', raw, streamEOF: false }; }
   finally { clearTimeout(timer); if (runtime.controller === controller) runtime.controller = null; }
 }
 
-function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findBrowser, spawn = nativeSpawn, WebSocket: WebSocketClass = global.WebSocket } = {}) {
+function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findBrowser, spawn = nativeSpawn, WebSocket: WebSocketClass = global.WebSocket, onDiagnostic } = {}) {
   if (!profileDir) throw new Error('Gemini 独立浏览器资料目录未配置');
   const resolvedProfile = path.resolve(profileDir);
   if (/[/\\](?:Microsoft[/\\]Edge|Google[/\\]Chrome)[/\\]User Data(?:[/\\]|$)/i.test(resolvedProfile)) throw new Error('Gemini 必须使用行舟影视独立浏览器资料目录');
   let child = null, connection = null, pageSession = null, visible = false, closed = false, lastState = { installed: !!locateBrowser(), loggedIn: false, running: false, models: [], message: LOGIN_MESSAGE }, queue = Promise.resolve();
+  let diagnosticSequence = 0;
+  const recordDiagnostic = value => {
+    const diagnostic = { createdAt: new Date().toISOString(), sequence: ++diagnosticSequence, ...value };
+    try {
+      const file = path.join(resolvedProfile, 'gemini-generation-diagnostics.jsonl');
+      // Retain only bounded protocol metadata. No prompt, generated text,
+      // conversation identifiers, cookies or authentication tokens are logged.
+      if (fs.existsSync(file) && fs.statSync(file).size > 262144) {
+        try { fs.unlinkSync(file + '.1'); } catch { /* First rotation has no prior file. */ }
+        fs.renameSync(file, file + '.1');
+      }
+      fs.appendFileSync(file, JSON.stringify(diagnostic) + '\n', 'utf8');
+    } catch { /* Local diagnostics must not prevent a paid response. */ }
+    try { onDiagnostic?.(diagnostic); } catch { /* Optional QA observers are isolated. */ }
+  };
   const serialized = (operation, signal) => {
     const result = queue.then(() => { checkSignal(signal); if (closed) throw new Error('Gemini 服务已停止'); return operation(); });
     queue = result.catch(() => {});
@@ -346,12 +384,12 @@ function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findB
         checkSignal(signal);
         if (!result?.ok) {
           if (result?.raw) {
-            try { return parseGeneratedText(result.raw); } catch (error) { if (error.code === 'OUTPUT_TRUNCATED' && error.partialText) throw error; }
+            try { return parseGeneratedText(result.raw,{onDiagnostic:recordDiagnostic,streamEOF:result.streamEOF===true}); } catch (error) { if (error.code === 'OUTPUT_TRUNCATED' && error.partialText) throw error; }
           }
           const messages = { AUTH_REQUIRED: LOGIN_MESSAGE, ABORTED: 'Gemini 网页处理超时，请检查网络或缩短输入', TOO_LARGE: 'Gemini 网页返回内容过长，请拆分任务后重新发送', NETWORK: 'Gemini 网页网络连接中断，请检查网络后重新发送' };
           throw new Error(messages[result?.code] || `Gemini 网页请求失败${result?.status ? `（HTTP ${result.status}）` : ''}`);
         }
-        return parseGeneratedText(result.raw);
+        return parseGeneratedText(result.raw,{onDiagnostic:recordDiagnostic,streamEOF:result.streamEOF!==false});
         };
         try{return await send(payload);}catch(error){
           // Only an explicit session rejection with no delivered text is replayed.

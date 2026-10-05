@@ -5,25 +5,27 @@ import { normalizeCreatorProject } from './creatorWorkspace.js';
 import { runIPTask } from './ipAi.js';
 import { IP_BUILTIN_SKILLS } from './ipBuiltinSkills.js';
 import * as workspace from './ipWorkspace.js';
+import {withGroundedScenes,groundedGroup,continuityReply} from './ipPlanTestFixture.js';
 
 function fixture(duration=60){
  let state=createIPProject({fruitProjects:[]},{name:'持续规划',duration});
  const id=state.fruitProjects[0].id;
- state=importIPNovel(state,id,{content:'第一章 开篇\n甲捡包，找到失主。\n第二章 归还\n甲归还失物，双方相识。'});
+ state=importIPNovel(state,id,{content:withGroundedScenes('第一章 开篇\n甲捡包，找到失主。\n第二章 归还\n甲归还失物，双方相识。')});
  return {state,id,p:getIPProject(state,id)};
 }
 const episodes=(source,count,offset=0)=>Array.from({length:count},(_,i)=>({chapterIds:[source.chapters[i%2].id],outline:`原文已发生场面${offset+i+1}的因果与停点`}));
 const input=request=>request.messages.map(m=>m.content).join('\n');
 const apiFor=(p,{count=50,failBatch=false,requests=[]}={})=>({aiChat:async request=>{
  requests.push(request);
+ if(request.taskId.includes(':plan-continuity-'))return continuityReply();
  if(request.taskId.includes(':read-'))return '甲捡包归还，失主与甲相识；真实停点为相识，没有后续结局。';
  if(request.taskId.includes(':settings'))return '【故事梗概】甲归还失物并相识。\n【核心标签】都市、相识\n【人物小传】甲：归还失物。\n【核心设定】依据导入两章，后续【待定】。';
  if(request.taskId.includes(':plan-group-')){
   const match=input(request).match(/本次只规划 (\d+) 集/),n=Number(match?.[1]);
   assert.ok(n>=1&&n<=12,'单元细纲每批至多十二集，输出中断时自动缩小');
-  if(failBatch&&input(request).includes('单元内第13至24集'))throw new Error('模型服务暂不可用');
+  if(failBatch&&input(request).includes('单元内第13至18集'))throw new Error('模型服务暂不可用');
   const offset=Number(input(request).match(/单元内第(\d+)至/)[1])-1;
-  return JSON.stringify({episodes:episodes(p.creator.ip.source,n,offset)});
+  return JSON.stringify(groundedGroup(p.creator.ip.source,request,'原著实际场面'));
  }
  if(request.taskId.endsWith(':plan')||request.taskId.endsWith(':plan-repair'))return JSON.stringify({mainline:'归还失物相识',ending:'第二章相识',segments:[{from:1,to:2,episodes:count,focus:'仅切分已有原文场面'}]});
  throw new Error(`意外请求 ${request.taskId}`);
@@ -63,7 +65,7 @@ test('planning preserves manual settings and resumes successful batches without 
  const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'resume',api:apiFor(p,{requests:resumedRequests})});
  assert.equal(result.plan.episodes.length,50);
  assert.ok(!resumedRequests.some(r=>r.taskId.includes(':read-')||r.taskId.includes(':settings')||r.taskId.endsWith(':plan')));
- assert.ok(!resumedRequests.some(r=>input(r).includes('单元内第1至12集')));
+ assert.ok(!resumedRequests.some(r=>input(r).includes('单元内第1至6集')));
  p.episodes[0].scriptText='手动维护的设定与小传';
  const manualRequests=[];
  const manual=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'manual',api:apiFor(p,{requests:manualRequests})});

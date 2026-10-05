@@ -28,6 +28,21 @@ test('desktop abort envelope has a stopped classification while success still re
  assert.equal((await ipcBridge(async()=> '完整正文')({resultEnvelope:true})).output,'完整正文');
 });
 
+test('stream diagnostics cross IPC only through an explicit metadata whitelist',async()=>{
+ const bridge=ipcBridge(async()=>{throw Object.assign(new Error('流中断'),{code:'STREAM_INCOMPLETE',partialText:'已付费部分',providerDiagnostic:{frameCount:3,receivedBytes:80,outputCharacters:6,hasDoneMarker:false,streamEOF:true,completionMarker:'',finishReason:'aborted',headers:{Authorization:'private'},prompt:'private',endpoint:'https://private',apiKey:'private',extra:'private'}});});
+ const result=structuredClone(await bridge({resultEnvelope:true}));
+ assert.deepEqual(result.providerDiagnostic,{frameCount:3,receivedBytes:80,outputCharacters:6,hasDoneMarker:false,streamEOF:true,completionMarker:'',finishReason:'aborted'});
+ assert.equal(result.code,'STREAM_INCOMPLETE');assert.equal(result.partialText,'已付费部分');
+ const invalid=await ipcBridge(async()=>{throw Object.assign(new Error('invalid'),{providerDiagnostic:{frameCount:-1,receivedBytes:NaN,outputCharacters:1.5,hasDoneMarker:'false',finishReason:'private response text with spaces'}});})({resultEnvelope:true});
+ assert.equal('providerDiagnostic' in invalid,false);
+});
+
+test('stream diagnostic terminal marker and absent finish reason retain their exact meaning',async()=>{
+ const bridge=ipcBridge(async()=>{throw Object.assign(new Error('interrupted after marker'),{providerDiagnostic:{hasDoneMarker:true,completionMarker:'[DONE]',finishReason:null,streamEOF:false}});});
+ const result=structuredClone(await bridge({resultEnvelope:true}));
+ assert.deepEqual(result.providerDiagnostic,{hasDoneMarker:true,completionMarker:'[DONE]',finishReason:null,streamEOF:false});
+});
+
 test('desktop IPC through Skill execution pauses a throttled real batch and leaves its next scene pending',async()=>{
  const {executeSkillWithAi}=await import('../core/skillExecution.js');
  const {createQuickGenerationController}=await import('../core/directorQuickGeneration.js');

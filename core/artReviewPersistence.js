@@ -1,4 +1,4 @@
-import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewLedgerSignature,reviewSceneSignature} from './artReview.js';
+import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignature} from './artReview.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 
 const stores=new Map();
@@ -38,8 +38,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   catch(error){return publishFailure(number,error);}
   return acknowledge(number,receipt,saved);
  };
- // This helper is called only by explicit publication, including its approved
- // prior-episode dependencies. Uploading a dependency does not publish its assets.
+ // Only the episode explicitly selected for publication is uploaded.
  const uploadForPublish=async(number,snapshot)=>{
   const recovered=await resolveReceipt(number);
   let r={...structuredClone(snapshot),version:recovered.version};
@@ -52,19 +51,6 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   catch(error){return publishFailure(number,error);}
   await acknowledge(number,receipt,saved);
   return {...r,version:saved.version,uploadedWriteId:r.writeId};
- };
- const publicationDependencies=number=>{
-  const dependencies=new Set();
-  const visit=n=>{
-   const record=ledger.episodes[n];
-   for(const [key,stamp]of Object.entries(record.dependencies||{})){
-    const prior=Number(key),dependency=ledger.episodes[key];
-    if(!Number.isInteger(prior)||prior<1||prior>=Number(n))throw Error('前集核实依赖格式不正确，请重新生成本集并复核');
-    if(!dependency||reviewLedgerSignature(dependency)!==stamp||!isReviewCurrent(dependency,episodes.find(e=>e.episodeNumber===prior)))throw Error(`第 ${prior} 集核实清单或正文已变化，请重新生成本集并复核`);
-    if(!dependencies.has(prior)){dependencies.add(prior);visit(prior);}
-   }
-  };
-  visit(number);return [...dependencies].sort((a,b)=>a-b);
  };
  const store={
   snapshot:()=>ledger,
@@ -107,9 +93,11 @@ export function getArtReviewStore({api,projectId,accountId=''}){
    // Freeze the exact approved content requested by the user in the local lane.
    const capture=enqueue(()=>{
    const r=ledger.episodes[number];if(!r)throw Error('请先读取本集核实清单');
+   if(!isReviewCurrent(r,episodes.find(e=>e.episodeNumber===Number(number))))throw Error(`第 ${number} 集正文已变化，请重新读取本集并核实`);
    if(!Array.isArray(sceneIds)||!sceneIds.length||new Set(sceneIds).size!==sceneIds.length)throw Error('请选择已核实场景');
    for(const id of sceneIds){const scene=r.scenes.find(s=>s.id===id);if(!scene||!isSceneVerified(scene))throw Error(`场景 ${id} 尚未核实或细节待补齐`);}
-   const dependencies=publicationDependencies(number);return {snapshot:structuredClone(r),dependencies:dependencies.map(prior=>({number:prior,snapshot:structuredClone(ledger.episodes[prior])}))};
+   // Earlier ledgers are generation references, not publication dependencies.
+   return {snapshot:structuredClone(r)};
    });
    capture.catch(()=>{}); // The cloud lane may still be handling an earlier request.
    return enqueueCloud(async()=>{
@@ -126,7 +114,6 @@ export function getArtReviewStore({api,projectId,accountId=''}){
     r={...r,writeId:r.writeId||crypto.randomUUID(),publishRequest:request};
     await patchRecord(number,current=>({...current,...(!current.writeId?{writeId:r.writeId}:{}),publishRequest:request}));
    }
-   for(const prior of captured.dependencies)await uploadForPublish(prior.number,prior.snapshot);
    if(request.uploadedVersion===undefined){r=await uploadForPublish(number,r);request={...request,uploadedVersion:r.version};await patchRecord(number,current=>({...current,publishRequest:request}));}
    const receipt={kind:'publish',draftWriteId:r.writeId,params:{episodeNumber:Number(number),baseVersion:request.uploadedVersion,sceneIds:ids,writeId:request.writeId}};
    await patchRecord(number,current=>({...current,pending:true,cloudReceipt:receipt}));

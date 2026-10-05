@@ -58,9 +58,63 @@ export function ipOriginal(p,episode,version){
  if(episode.type==='settings')return source.content;
  return episodeSourceRanges(episode,source,version).map(r=>source.content.slice(r.start,r.end)).join('');
 }
+const ipJsonText=output=>String(output||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+// Find a value boundary without inventing missing quotes/brackets or accepting
+// commas and braces inside strings as structural delimiters.
+const ipJsonValueEnd=(text,start)=>{
+ const first=text[start];
+ if(first==='"'){
+  let escaped=false;
+  for(let i=start+1;i<text.length;i++){if(escaped){escaped=false;continue;}if(text[i]==='\\'){escaped=true;continue;}if(text[i]==='"')return i+1;}
+  return -1;
+ }
+ if(first==='{'||first==='['){
+  const stack=[first];let string=false,escaped=false;
+  for(let i=start+1;i<text.length;i++){
+   const c=text[i];if(string){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')string=false;continue;}
+   if(c==='"'){string=true;continue;}if(c==='{'||c==='[')stack.push(c);
+   else if(c==='}'||c===']'){if(stack.pop()!==(c==='}'?'{':'['))return -2;if(!stack.length)return i+1;}
+  }
+  return -1;
+ }
+ let end=start;while(end<text.length&&!/[\s,}\]]/.test(text[end]))end++;return end;
+};
+export function isIPModelRefusal(output){
+ const text=String(output||'').trim();
+ if(!text||text.length>240||/^[\[{]/.test(text))return false;
+ return /^(?:(?:对不起|抱歉|很抱歉)[，,：:\s]*)?(?:我只是|身为|作为|我是)(?:一个)?(?:文本\s*)?(?:AI|语言模型|人工智能)/i.test(text)&&/(?:不能|不具备|没(?:有|法|办法)|无法|超出|爱莫能助|局限)/.test(text)
+  ||/^我(?:无法|不能|没法|没办法).{0,160}(?:因为我只是|我是)(?:一个)?(?:文本\s*)?(?:AI|语言模型|人工智能)/i.test(text)
+  ||/^(?:对不起|抱歉|很抱歉|请恕我)[，,：:\s]*(?:.{0,100})(?:无法|不能|爱莫能助)/.test(text)&&/(?:帮助|帮到|回答|回复|理解|请求|问题|能力|爱莫能助|提供)/.test(text)
+  ||/^(?:由于|受限于)程序代码的局限[，,]?(?:我)?(?:没法|无法|不能)/.test(text);
+}
 export function parseIPJson(output){
- const text=String(output||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
- try{return JSON.parse(text);}catch{throw new Error('模型返回的结构无法识别，原始结果已留在任务记录，可重新生成。');}
+ const text=ipJsonText(output);
+ try{return JSON.parse(text);}catch{
+  if(isIPModelRefusal(text))throw Object.assign(new Error('模型没有执行当前任务，返回了无法处理的答复；该答复不会计作有效阅读或规划，原始结果已保留。'),{code:'IP_MODEL_REFUSAL'});
+  const incomplete=/^[\[{]/.test(text)&&ipJsonValueEnd(text,0)===-1;
+  throw Object.assign(new Error(incomplete?'模型规划输出在字段中途结束，原始结果已保留；需要恢复完整主线后分批细化。':'模型返回的结构无法识别，原始结果已留在任务记录，可重新生成。'),{code:incomplete?'IP_JSON_TRUNCATED':'IP_JSON_INVALID'});
+ }
+}
+export function recoverIPPlanMap(output){
+ const text=ipJsonText(output);if(text[0]!=='{')return null;
+ const map={},seen=new Set(),allowed=new Set(['mainline','ending','notes','readingIndex','segments']);let at=1;
+ while(at<text.length){
+  while(/\s/.test(text[at]||'')&&at<text.length)at++;
+  if(text[at]!== '"')break;
+  const keyEnd=ipJsonValueEnd(text,at);if(keyEnd<0)break;
+  let key;try{key=JSON.parse(text.slice(at,keyEnd));}catch{return null;}
+  if(seen.has(key))return null;seen.add(key);at=keyEnd;
+  while(/\s/.test(text[at]||'')&&at<text.length)at++;if(text[at++]!==':')return null;
+  while(/\s/.test(text[at]||'')&&at<text.length)at++;
+  const valueEnd=ipJsonValueEnd(text,at);if(valueEnd<0)break;
+  let value;try{value=JSON.parse(text.slice(at,valueEnd));}catch{return null;}
+  if(allowed.has(key))map[key]=value;at=valueEnd;
+  while(/\s/.test(text[at]||'')&&at<text.length)at++;
+  if(text[at]===','){at++;continue;}if(text[at]==='}'||at===text.length)break;return null;
+ }
+ // Only completed map fields are eligible. Partial episodes never become a
+ // completed episode list; the caller must validate source bounds and budget.
+ return typeof map.mainline==='string'&&map.mainline.trim()&&typeof map.ending==='string'&&map.ending.trim()&&Array.isArray(map.segments)&&map.segments.length?map:null;
 }
 export const ipMinimumEpisodes=duration=>duration===120?80:50;
 // Omit duration only when validating a partial batch or inspecting legacy data.
@@ -73,14 +127,22 @@ export function validateIPPlan(plan,source,duration){
  const episodes=plan.episodes.map((e,i)=>{
   if(!Array.isArray(e.chapterIds)||!e.chapterIds.length||e.chapterIds.some(id=>!ids.has(id)))throw new Error(`第${i+1}集的原文章节无效，请重新选择来源`);
   const ranges=e.sourceRanges?.length?validateSourceRanges(e.sourceRanges,source):undefined;
-  return {title:`第${i+1}集`,outline:String(e.outline||''),chapterIds:ranges?rangeChapters(ranges,source).map(c=>c.id):source.chapters.filter(c=>e.chapterIds.includes(c.id)).map(c=>c.id),...(ranges?{sourceRanges:ranges}:{})};
+  return {title:`第${i+1}集`,outline:String(e.outline||''),chapterIds:ranges?rangeChapters(ranges,source).map(c=>c.id):source.chapters.filter(c=>e.chapterIds.includes(c.id)).map(c=>c.id),...(ranges?{sourceRanges:ranges}:{}),...(Array.isArray(e.sourceQuotes)?{sourceQuotes:copy(e.sourceQuotes)}:{})};
  });
  return {...plan,episodes};
 }
 export function applyIPPlan(state,id,plan){
  return mutateIP(state,id,p=>{
   const valid=validateIPPlan(plan,p.creator.ip.source,p.creator.ip.duration),existing=p.episodes.filter(e=>e.type==='episode');
-  const episodes=valid.episodes.map((e,i)=>({...existing[i],...e,sourceRanges:e.sourceRanges,id:existing[i]?.id||uid(),sourceId:p.creator.ip.source.id,type:'episode',rawText:'',scriptText:existing[i]?.scriptText||'',ipVersions:existing[i]?preserve(p,existing[i],'重新规划前的编辑稿'):[],stale:!!existing[i]?.scriptText,finalConfirmed:false}));
+  let upstreamChanged=false;
+  const episodes=valid.episodes.map((e,i)=>{
+   const old=existing[i],changed=!!old&&(old.sourceId!==p.creator.ip.source.id||JSON.stringify(old.chapterIds||[])!==JSON.stringify(e.chapterIds)||JSON.stringify(old.sourceRanges)!==JSON.stringify(e.sourceRanges)||String(old.outline||'')!==e.outline);
+   upstreamChanged ||= changed;
+   // Changed sources/cuts and their downstream continuity require new writing.
+   // The complete old text remains in versions with its original provenance.
+   const clear=!!old&&upstreamChanged;
+   return {...old,...e,sourceRanges:e.sourceRanges,sourceQuotes:e.sourceQuotes,id:old?.id||uid(),sourceId:p.creator.ip.source.id,type:'episode',rawText:'',scriptText:clear?'':old?.scriptText||'',ipVersions:old?preserve(p,old,'重新规划前的编辑稿'):[],stale:clear?false:!!old?.scriptText,finalConfirmed:false};
+  });
   const retired=existing.slice(episodes.length).map(e=>({...e,ipVersions:preserve(p,e,'移出规划前的编辑稿'),stale:true,finalConfirmed:false,retiredAt:now()}));
   // Keep obsolete episodes in a recoverable archive, outside the active manuscript and queue.
   const settingsScope=ipSettingsScopeKey(p.creator.ip.source.id,valid);
@@ -93,20 +155,33 @@ export function applyIPPlan(state,id,plan){
  });
 }
 export function addIPEpisode(state,id){return mutateIP(state,id,p=>({...p,episodes:[...p.episodes,{id:uid(),sourceId:p.creator.ip.source?.id,type:'episode',title:`第${p.episodes.filter(e=>e.type==='episode').length+1}集`,rawText:'',scriptText:'',chapterIds:[],ipVersions:[]}]}));}
+export function beginIPFirstDraft(state,id,plan,{replace=false}={}){
+ const original=getIPProject(state,id),settings=original?.episodes.find(e=>e.type==='settings');
+ const preserved=settings?saveIPVersion(state,id,settings.id,'重新规划前的设定编辑稿'):state;
+ const adopted=applyIPPlan(preserved,id,plan);
+ return mutateIP(adopted,id,p=>({...p,episodes:p.episodes.map(e=>{
+  if(e.type==='episode')return {...e,scriptText:replace?'':e.scriptText,stale:replace?false:e.stale,finalConfirmed:false};
+  if(e.type!=='settings')return e;
+  const scope=ipSettingsScopeKey(p.creator.ip.source.id,p.creator.ip.plan);
+  const candidate=e.ipVersions?.findLast(v=>v.sourceId===p.creator.ip.source.id&&v.settingsScopeKey===scope&&v.content?.trim()&&!isIPModelRefusal(v.content));
+  if(candidate)return {...e,scriptText:candidate.content,settingsScopeKey:scope,stale:false,finalConfirmed:false};
+  return {...e,stale:!!e.scriptText};
+ }),creator:{...p.creator,ip:{...p.creator.ip,firstDraft:{status:'running',startedAt:now(),planKey:ipHash(JSON.stringify(plan))}}}}));
+}
 export function updateIPMapping(state,id,episodeId,chapterIds,outline,sourceRanges){return mutateIP(state,id,p=>{
  const source=p.creator.ip.source;if(!source)throw new Error('请先导入小说');
  if(chapterIds.some(id=>!source.chapters.some(c=>c.id===id)))throw new Error('原文章节已经变化，请重新选择');
  const ranges=sourceRanges?.length?validateSourceRanges(sourceRanges,source):undefined;
- return {...p,episodes:p.episodes.map(e=>e.id===episodeId?{...e,ipVersions:preserve(p,e,'调整章节前的编辑稿'),sourceId:source.id,chapterIds:ranges?rangeChapters(ranges,source).map(c=>c.id):[...chapterIds],sourceRanges:ranges,outline,stale:!!e.scriptText,finalConfirmed:false}:e)};
+ return {...p,episodes:p.episodes.map(e=>e.id===episodeId?{...e,ipVersions:preserve(p,e,'调整章节前的编辑稿'),sourceId:source.id,chapterIds:ranges?rangeChapters(ranges,source).map(c=>c.id):[...chapterIds],sourceRanges:ranges,sourceQuotes:undefined,outline,stale:!!e.scriptText,finalConfirmed:false}:e)};
 });}
 export function ipFingerprint(p,episodeId){
  const e=p.episodes.find(e=>e.id===episodeId),index=p.episodes.indexOf(e);
  return ipHash(JSON.stringify({source:p.creator.ip.source?.id,duration:p.creator.ip.duration,plan:p.creator.ip.plan,episode:e&&{id:e.id,sourceId:e.sourceId,chapterIds:e.chapterIds,sourceRanges:e.sourceRanges,outline:e.outline,scriptText:e.scriptText},previous:p.episodes.slice(0,index).map(e=>[e.id,e.sourceId,e.chapterIds,e.sourceRanges,e.scriptText])}));
 }
-const snapshot=(p,e,label,extra={})=>({id:uid(),createdAt:now(),label,content:e.scriptText||'',sourceId:e.sourceId||p.creator.ip.source?.id,chapterIds:[...(e.chapterIds||[])],sourceRanges:copy(e.sourceRanges),outline:e.outline||'',...(e.settingsScopeKey?{settingsScopeKey:e.settingsScopeKey}:{}),...extra});
+const snapshot=(p,e,label,extra={})=>({id:uid(),createdAt:now(),label,content:e.scriptText||'',sourceId:e.sourceId||p.creator.ip.source?.id,chapterIds:[...(e.chapterIds||[])],sourceRanges:copy(e.sourceRanges),...(e.sourceQuotes?{sourceQuotes:copy(e.sourceQuotes)}:{}),outline:e.outline||'',...(e.settingsScopeKey?{settingsScopeKey:e.settingsScopeKey}:{}),...extra});
 const preserve=(p,e,label)=>{
  const versions=e.ipVersions||[];
- return !e.scriptText?.trim()||versions.some(v=>v.content===e.scriptText&&v.sourceId===(e.sourceId||p.creator.ip.source?.id)&&JSON.stringify(v.chapterIds||[])===JSON.stringify(e.chapterIds||[])&&JSON.stringify(v.sourceRanges)===JSON.stringify(e.sourceRanges))?versions:[...versions,snapshot(p,e,label)];
+ return !e.scriptText?.trim()||versions.some(v=>v.content===e.scriptText&&v.sourceId===(e.sourceId||p.creator.ip.source?.id)&&JSON.stringify(v.chapterIds||[])===JSON.stringify(e.chapterIds||[])&&JSON.stringify(v.sourceRanges)===JSON.stringify(e.sourceRanges)&&JSON.stringify(v.sourceQuotes)===JSON.stringify(e.sourceQuotes)&&String(v.outline||'')===String(e.outline||''))?versions:[...versions,snapshot(p,e,label)];
 };
 export function updateIPDraft(state,id,episodeId,content){return mutateIP(state,id,p=>{
  const index=p.episodes.findIndex(e=>e.id===episodeId);if(index<0)throw new Error('当前分集已移除');
@@ -118,12 +193,15 @@ export function appendIPVersion(state,id,episodeId,version,{activate=false,inval
  return {...p,episodes:p.episodes.map((e,i)=>{
   if(i!==index)return activate&&invalidateLater&&i>index&&e.scriptText?{...e,stale:true,finalConfirmed:false}:e;
   const versions=preserve(p,e,'生成前的编辑稿'),existing=version.generationKey&&versions.find(v=>v.generationKey===version.generationKey&&v.content===version.content);
-  return {...e,ipVersions:existing?versions:[...versions,snapshot(p,e,version.label||'Agent 候选',{...version,id:version.id||uid(),sourceId:version.sourceId||p.creator.ip.source?.id})],...(activate?{scriptText:version.content,sourceId:version.sourceId||p.creator.ip.source?.id,chapterIds:version.chapterIds||e.chapterIds,sourceRanges:version.sourceRanges||e.sourceRanges,...(e.type==='settings'?{settingsScopeKey:version.settingsScopeKey}:{}),stale:false,finalConfirmed:false}:{})};
+  const sourceId=version.sourceId||p.creator.ip.source?.id,chapterIds=version.chapterIds||e.chapterIds,sourceRanges=version.sourceRanges||e.sourceRanges;
+  const sameSource=sourceId===e.sourceId&&JSON.stringify(chapterIds)===JSON.stringify(e.chapterIds)&&JSON.stringify(sourceRanges)===JSON.stringify(e.sourceRanges);
+  const sourceQuotes=copy(version.sourceQuotes??(sameSource?e.sourceQuotes:undefined));
+  return {...e,ipVersions:existing?versions:[...versions,snapshot(p,e,version.label||'Agent 候选',{...version,id:version.id||uid(),sourceId,sourceQuotes})],...(activate?{scriptText:version.content,sourceId,chapterIds,sourceRanges,sourceQuotes,...(e.type==='settings'?{settingsScopeKey:version.settingsScopeKey}:{}),stale:false,finalConfirmed:false}:{})};
  })};
 });}
 export function adoptIPVersion(state,id,episodeId,versionId){return mutateIP(state,id,p=>{
  const index=p.episodes.findIndex(e=>e.id===episodeId),e=p.episodes[index],v=e?.ipVersions?.find(v=>v.id===versionId);if(!v)throw new Error('此版本已删除');
- return {...p,episodes:p.episodes.map((node,i)=>i===index?{...node,ipVersions:preserve(p,node,'切换前的编辑稿'),scriptText:v.content,sourceId:v.sourceId,chapterIds:v.chapterIds||node.chapterIds,sourceRanges:v.sourceRanges,outline:v.outline??node.outline,...(node.type==='settings'?{settingsScopeKey:v.settingsScopeKey}:{}),stale:v.sourceId!==p.creator.ip.source?.id||node.type==='settings'&&!!v.settingsScopeKey&&v.settingsScopeKey!==ipSettingsScopeKey(p.creator.ip.source?.id,p.creator.ip.plan),finalConfirmed:false}:i>index&&node.scriptText?{...node,stale:true,finalConfirmed:false}:node)};
+ return {...p,episodes:p.episodes.map((node,i)=>i===index?{...node,ipVersions:preserve(p,node,'切换前的编辑稿'),scriptText:v.content,sourceId:v.sourceId,chapterIds:v.chapterIds||node.chapterIds,sourceRanges:v.sourceRanges,sourceQuotes:copy(v.sourceQuotes),outline:v.outline??node.outline,...(node.type==='settings'?{settingsScopeKey:v.settingsScopeKey}:{}),stale:v.sourceId!==p.creator.ip.source?.id||node.type==='settings'&&!!v.settingsScopeKey&&v.settingsScopeKey!==ipSettingsScopeKey(p.creator.ip.source?.id,p.creator.ip.plan),finalConfirmed:false}:i>index&&node.scriptText?{...node,stale:true,finalConfirmed:false}:node)};
 });}
 export function deleteIPVersion(state,id,episodeId,versionId){return mutateIP(state,id,p=>({...p,episodes:p.episodes.map(e=>e.id===episodeId?{...e,ipVersions:(e.ipVersions||[]).filter(v=>v.id!==versionId)}:e)}));}
 export function confirmIPEpisode(state,id,episodeId){return mutateIP(state,id,p=>{

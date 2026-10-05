@@ -56,7 +56,7 @@ export async function runArtReviewAnalysis({project,genre,profile,api,job={},onP
  for(const episode of episodes){
   if(job.cancelled)break;
   const n=episode.episodeNumber,old=store.snapshot().episodes[n];
-  if(detailsOnly||!force&&!mapOnly&&!focusItem&&old.status==='generated'&&isReviewCurrent(old,episode)){
+  if(detailsOnly||!force&&!mapOnly&&!focusItem&&old.status==='generated'&&old.scenes.every(s=>s.mappingReady)&&isReviewCurrent(old,episode)){
    if(isReviewCurrent(old,episode))failures.push(...(await fillArtReviewDetails({store,episode,project,genre,profile,api,job,onProgress})).map(e=>`第 ${n} 集：${e}`));
    continue;
   }

@@ -6,6 +6,7 @@ import {parseAssetName} from '../../core/collabStore.js';
 import {ART_REVIEW_CATEGORIES,artReviewContext,editArtReview,isReviewCurrent,isSceneVerified,reviewRoster,reviewAssetKey,reviewName,reviewSceneSignature,needsArtReviewDetails} from '../../core/artReview.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
+import {readCollabNavigation,rememberCollabNavigation,restoredCollabEpisode} from '../../core/collabNavigation.js';
 import '../art-review.css';
 
 const CATEGORY_ICONS={character:Users,scene:MapPin,prop:Package};
@@ -84,8 +85,10 @@ function ReviewScene({scene,record,canChange,onAct,onUpdate,onEdit,onAdd,onPubli
 export default function ArtReviewSection({project,assets,api,state,accountId,canEdit,refresh,analysisJob,onAnalyze,onStop,onOpenArt}){
  const episodes=useMemo(()=>listCollabEpisodes(project.episodes),[project.episodes]);
  const store=useMemo(()=>getArtReviewStore({api,projectId:project.id,accountId}),[api,project.id,accountId]);
- const [number,setNumber]=useState(episodes[0]?.episodeNumber),[,rerender]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(0),[error,setError]=useState(''),[notice,setNotice]=useState(''),[editor,setEditor]=useState(null),[confirmation,setConfirmation]=useState(null),[assignment,setAssignment]=useState(null),[picker,setPicker]=useState(null);
- const autoAttempts=useRef(new Set()),publishTasks=useRef(new Set()),sceneNavRef=useRef(null),[selectedScenes,setSelectedScenes]=useState({});
+ const navScope={accountId,projectId:project.id,section:'art-review'};
+ const [number,setNumber]=useState(()=>restoredCollabEpisode(readCollabNavigation(navScope).episodeNumber,episodes)),[,rerender]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(0),[error,setError]=useState(''),[notice,setNotice]=useState(''),[editor,setEditor]=useState(null),[confirmation,setConfirmation]=useState(null),[assignment,setAssignment]=useState(null),[picker,setPicker]=useState(null);
+ const publishTasks=useRef(new Set()),sceneNavRef=useRef(null),[selectedScenes,setSelectedScenes]=useState(()=>readCollabNavigation(navScope).scenes||{});
+ useEffect(()=>{rememberCollabNavigation(navScope,{episodeNumber:number,scenes:selectedScenes});},[accountId,project.id,number,selectedScenes]);
  const [modelId,setModelId,profile]=useWindowModel(`analysis:${project.id}`,state.apiProfiles||[],state.activeApiId);
  useEffect(()=>store.subscribe(()=>rerender(v=>v+1)),[store]);
  useEffect(()=>{let active=true;store.load(project,assets).catch(e=>active&&setError(e.message)).finally(()=>active&&setLoading(false));return()=>{active=false;};},[store,project,assets]);
@@ -98,11 +101,6 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
  const pendingDetails=episodes.reduce((sum,e)=>sum+(isReviewCurrent(ledger.episodes[e.episodeNumber],e)?reviewRoster(ledger.episodes[e.episodeNumber]).filter(needsArtReviewDetails).length:0),0);
  const allVerified=episodes.reduce((sum,e)=>sum+(isReviewCurrent(ledger.episodes[e.episodeNumber],e)?ledger.episodes[e.episodeNumber]?.scenes.filter(isSceneVerified).length||0:0),0);
  const roster=record?reviewRoster(record):[];
- useEffect(()=>{
-  if(loading||!current||!canEdit||running||!profile||!['legacy','mapping-pending'].includes(record?.status))return;
-  const key=`${number}:${record.sourceContent}`;if(autoAttempts.current.has(key))return;autoAttempts.current.add(key);
-  onAnalyze({profile,episodeNumber:number,force:false}).catch(e=>setError(e.message));
- },[loading,current,canEdit,busy,running,profile?.id,number,record?.status]);
  const act=async(fn,success='')=>{setBusy(v=>v+1);setError('');setNotice('');try{await fn();if(success)setNotice(success);}catch(e){setError(e.message);}finally{setBusy(v=>Math.max(0,v-1));}};
  const update=action=>store.update(number,r=>editArtReview(r,action,accountId));
  const closeOverlays=()=>{setAssignment(null);setPicker(null);setEditor(null);setConfirmation(null);setError('');setNotice('');};
@@ -175,7 +173,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   <section className="art-review-controls" aria-label="核实配置">
    <div className="art-review-episode-select"><button aria-label="上一集" disabled={position<=0} onClick={()=>chooseEpisode(episodes[position-1].episodeNumber)}><ChevronLeft size={18}/></button><label>分集<select aria-label="核实分集" value={number} onChange={e=>chooseEpisode(Number(e.target.value))}>{episodes.map(e=><option key={e.episodeNumber} value={e.episodeNumber}>第 {e.episodeNumber} 集 · {e.title||'剧本'}</option>)}</select></label><button aria-label="下一集" disabled={position>=episodes.length-1} onClick={()=>chooseEpisode(episodes[position+1].episodeNumber)}><ChevronRight size={18}/></button></div>
    <div className="art-review-model"><ModelSelect label="读取与补齐模型" displayLabel="模型" value={modelId} onChange={setModelId} profiles={state.apiProfiles||[]} disabled={!canEdit||running}/></div>
-   <div className="art-review-controls-actions"><button className="art-review-secondary" disabled={!canEdit||running||!profile} onClick={()=>analyze(false)}><RefreshCw size={15}/>{record.status==='empty'?'分析本集':'自动关联场景'}</button><button className="art-review-secondary" aria-label="重新读取本集（只补缺）" title="重新读取本集，只补充缺少的条目" disabled={!canEdit||running||!profile} onClick={()=>analyze(true)}>重读本集（补缺）</button><button className="art-review-secondary" aria-label={`一键补齐全部待补细节${pendingDetails?` (${pendingDetails})`:""}`} title="一键补齐全剧所有待补细节" disabled={!canEdit||running||!profile||!pendingDetails} onClick={()=>act(async()=>{const job=await onAnalyze({profile,detailsOnly:true});if(job?.error)throw Error(job.error);},'已完成批量补齐；信息卡保存在本机，可继续核实与发布。')}><RefreshCw size={15}/>补齐全剧细节{pendingDetails?` (${pendingDetails})`:''}</button>{running&&<button className="art-review-secondary" onClick={onStop}>停止分析</button>}</div>
+   <div className="art-review-controls-actions"><button className="art-review-secondary" disabled={!canEdit||running||!profile} onClick={()=>act(async()=>{const job=await onAnalyze({profile,force:false});if(job?.error)throw Error(job.error);},"全剧场景关联已完成，可逐集核实。")}><RefreshCw size={15}/>关联全剧场景</button><button className="art-review-secondary" disabled={!canEdit||running||!profile} onClick={()=>analyze(false)}><RefreshCw size={15}/>{record.status==='empty'?'分析本集':'自动关联场景'}</button><button className="art-review-secondary" aria-label="重新读取本集（只补缺）" title="重新读取本集，只补充缺少的条目" disabled={!canEdit||running||!profile} onClick={()=>analyze(true)}>重读本集（补缺）</button><button className="art-review-secondary" aria-label={`一键补齐全部待补细节${pendingDetails?` (${pendingDetails})`:""}`} title="一键补齐全剧所有待补细节" disabled={!canEdit||running||!profile||!pendingDetails} onClick={()=>act(async()=>{const job=await onAnalyze({profile,detailsOnly:true});if(job?.error)throw Error(job.error);},'已完成批量补齐；信息卡保存在本机，可继续核实与发布。')}><RefreshCw size={15}/>补齐全剧细节{pendingDetails?` (${pendingDetails})`:''}</button>{running&&<button className="art-review-secondary" onClick={onStop}>停止分析</button>}</div>
   </section>
   {!!scenes.length&&<nav className="art-review-scene-navigation" aria-label="本集场景"><header><h2>逐场核实</h2><div className="art-review-overview"><span>本集 <b>{scenes.length}</b> 场</span><span>已核实 <b>{verified.length}</b></span><span>已发布 <b>{published.length}</b></span></div><div className="art-review-scene-stepper"><button aria-label="上一场" disabled={scenePosition<=0} onClick={()=>chooseScene(scenes[scenePosition-1].id)}><ChevronLeft size={18}/></button><span>当前 {scenePosition+1}/{scenes.length} 场</span><button aria-label="下一场" disabled={scenePosition>=scenes.length-1} onClick={()=>chooseScene(scenes[scenePosition+1].id)}><ChevronRight size={18}/></button></div></header><div ref={sceneNavRef} className="art-review-scene-navigation-list">{scenes.map((scene,index)=>{
    const status=sceneReviewStatus(scene,record),active=scene.id===selectedSceneId;

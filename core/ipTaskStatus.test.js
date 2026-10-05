@@ -18,6 +18,11 @@ test('running and failed tasks show distinct states and retain pending work',()=
  const status=ipWorkStatus(p,{running:false,status:'failed',label:'连接中断'});
  assert.equal(status.tone,'error');assert.match(status.message,/连接中断/);assert.equal(status.pending,true);
 });
+
+test('a completed short first draft retains its length warning after reopening',()=>{
+ const p=project('设定');p.creator.ip.firstDraft={status:'completed',lengthWarning:'正文 30000 字，低于目标 40000 字，需回查有效原文场面'};
+ const status=ipWorkStatus(p);assert.equal(status.pending,false);assert.equal(status.tone,'review');assert.match(status.message,/低于目标 40000/);
+});
 test('confirmed work and imported finished scripts do not request extra adaptation',()=>{
  const p=project('设定');p.episodes.forEach(e=>e.finalConfirmed=true);
  assert.match(ipWorkStatus(p).message,/已确认/);

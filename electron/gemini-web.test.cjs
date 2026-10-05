@@ -41,6 +41,63 @@ test('Gemini distinguishes the final text from thoughts and interrupted output',
   assert.throws(() => api().parseGeneratedText(frame([['wrb.fr',null,null,null,null,[null,null,[[null,[1037]]]]]])), /额度/);
 });
 
+const generatedFrame = (text, indicator, context = false, id = 'candidate-private-id') => {
+  const candidate = Array(9).fill(null);
+  candidate[0] = id; candidate[1] = [text]; candidate[8] = indicator == null ? null : [indicator];
+  const body = Array(26).fill(null); body[4] = [candidate];
+  if (context) body[25] = 'private-context-token';
+  return frame([['wrb.fr', null, JSON.stringify(body)]]);
+};
+
+test('Gemini completion follows the final candidate and a context token cannot finish partial JSON', () => {
+  const initial = generatedFrame('{"episodes":[]}', 2);
+  const partial = generatedFrame('{"episodes":[{"outline":"未结束', 1, true, 'next-private-candidate');
+  let diagnostic;
+  assert.throws(() => api().parseGeneratedText(initial + partial, {onDiagnostic: value => diagnostic = value}),
+    error => error.code === 'OUTPUT_TRUNCATED' && error.partialText === '{"episodes":[{"outline":"未结束');
+  assert.equal(diagnostic.completionIndicator, 1);
+  assert.equal(diagnostic.hasFinalContext, true);
+  assert.equal(diagnostic.completed, false);
+  assert.equal(diagnostic.frameCount, 2);
+  assert.equal(api().parseGeneratedText(partial + generatedFrame('{"episodes":[{"outline":"完整"}]}', 2, true, 'next-private-candidate')),
+    '{"episodes":[{"outline":"完整"}]}');
+});
+
+test('Gemini accepts older indicator-free final context but rejects an explicitly pending candidate', () => {
+  assert.equal(api().parseGeneratedText(generatedFrame('旧版完整正文', null, true)), '旧版完整正文');
+  assert.throws(() => api().parseGeneratedText(generatedFrame('仍在生成正文', 1, true)),
+    error => error.code === 'OUTPUT_TRUNCATED' && error.providerDiagnostic.completionIndicator === 1);
+  assert.throws(() => api().parseGeneratedText(generatedFrame('缺少完成确认', null)), error => error.code === 'OUTPUT_TRUNCATED');
+});
+
+test('Gemini final context stays associated with its candidate and cannot certify a later draft', () => {
+  const oldComplete = generatedFrame('{"episodes":[]}', 2, true, 'old-candidate');
+  const nextPartial = generatedFrame('{"episodes":[{"outline":"未结束', null, false, 'new-candidate');
+  assert.throws(() => api().parseGeneratedText(oldComplete + nextPartial), error =>
+    error.code === 'OUTPUT_TRUNCATED' && error.partialText === '{"episodes":[{"outline":"未结束' &&
+    error.providerDiagnostic.completionIndicator === null && error.providerDiagnostic.hasFinalContext === false);
+  assert.throws(() => api().parseGeneratedText(oldComplete + generatedFrame('{"episodes":[', null, false, 'old-candidate')),
+    error => error.code === 'OUTPUT_TRUNCATED' && error.providerDiagnostic.hasFinalContext === false);
+  const sameCandidate = generatedFrame('当前完整正文', null, false, 'new-candidate');
+  const finalBody = Array(26).fill(null); finalBody[25] = 'current-private-context';
+  const finalFrame = frame([['wrb.fr', null, JSON.stringify(finalBody)]]);
+  assert.equal(api().parseGeneratedText(oldComplete + sameCandidate + finalFrame), '当前完整正文');
+  assert.equal(api().parseGeneratedText(oldComplete + generatedFrame('新候选完整正文', null, true, 'new-candidate')), '新候选完整正文');
+});
+
+test('Gemini protocol diagnostics contain counts and hashes without private content or context tokens', () => {
+  const diagnostics = [];
+  api().parseGeneratedText(generatedFrame('私人正文😀', 2, true), {streamEOF:false,onDiagnostic: value => diagnostics.push(value)});
+  const diagnostic = diagnostics[0], json = JSON.stringify(diagnostic);
+  assert.equal(diagnostic.streamEOF, false);
+  assert.equal(diagnostic.completed, true);
+  assert.equal(diagnostic.candidateCharacters, '私人正文😀'.length);
+  assert.match(diagnostic.candidateIdHash, /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(json, /私人正文|candidate-private-id|private-context-token/);
+  // A failed QA observer is isolated from response handling.
+  assert.equal(api().parseGeneratedText(generatedFrame('完整正文', 2), {onDiagnostic: () => {throw new Error('observer unavailable');}}), '完整正文');
+});
+
 test('Gemini protocol sends a fresh temporary chat and preserves the selected account model', () => {
   assert.equal(typeof api().buildGenerateRequest, 'function');
   const result = api().buildGenerateRequest('测试正文', {id:'account-pro-id',capacity:2,capacityField:12,modelNumber:3}, 'test-session');
@@ -139,6 +196,26 @@ test('Gemini runs quietly in an owned profile, serializes quota requests, and op
   assert.equal(duringLogin.loggedIn,false);
   assert.match(duringLogin.message,/关闭.*刷新/);
   assert.equal(fake.launches.length,2);
+});
+
+test('Gemini records bounded privacy-safe diagnostics for complete and partial service responses', async t => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-gemini-diagnostics-'));
+  let calls = 0; const observed = [];
+  const fake=fakeBrowser(dir,{generateResult:()=>({ok:true,streamEOF:true,raw:generatedFrame('生成正文',++calls === 1 ? 2 : 1,true)})});
+  const service=api().createGeminiWebService({...fake.dependencies,onDiagnostic: value=>observed.push(value)});
+  t.after(async()=>{await service.close();fs.rmSync(dir,{recursive:true,force:true});});
+  assert.equal(await service.request({messages:[{role:'user',content:'private-user-input'}]}), '生成正文');
+  await assert.rejects(service.request({messages:[{role:'user',content:'private-user-input'}]}), error => error.code === 'OUTPUT_TRUNCATED');
+  const file=path.join(dir,'gemini-generation-diagnostics.jsonl');
+  const content=fs.readFileSync(file,'utf8');
+  assert.doesNotMatch(content,/生成正文|private-user-input|private-context-token|candidate-private-id/);
+  assert.deepEqual(observed.map(value=>[value.sequence,value.completed,value.streamEOF]),[[1,true,true],[2,false,true]]);
+  assert.equal(content.trim().split('\n').length,2);
+  fs.writeFileSync(file,'x'.repeat(262145),'utf8');
+  fs.writeFileSync(file+'.1','older-rotation','utf8');
+  await assert.rejects(service.request({messages:[{role:'user',content:'private-user-input'}]}), error => error.code === 'OUTPUT_TRUNCATED');
+  assert.equal(fs.statSync(file+'.1').size,262145);
+  assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).sequence,3);
 });
 
 test('Gemini refreshes and replays an explicit 1095 rejection once, without changing model or exposing login UI',async t=>{

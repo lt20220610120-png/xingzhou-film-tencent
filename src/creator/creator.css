@@ -202,15 +202,16 @@
 @media(max-width:900px){.creator-dialog-actions{gap:4px}.creator-dialog-actions button{font-size:12px;min-height:30px}.ip-scene-rail{gap:6px;flex-wrap:wrap}.ip-scene-strip{flex:1}.ip-scene-strip>button{width:150px}}
 
 /* Separate creation controls from the manuscript directory. */
-.ip-control-nav{margin:10px 0 12px;padding:9px 6px 7px;border:1px solid #d9cdee;border-radius:11px;background:linear-gradient(140deg,#faf7ff,#eee7fa);box-shadow:0 3px 12px #5f4b8908;display:flex;flex-direction:column;gap:5px}
-.ip-control-nav>strong{display:flex;align-items:center;gap:6px;padding:2px 4px 5px;font-size:12px;font-weight:600;color:#7153a4}
-.ip-control-nav>strong svg{width:13px;height:13px;flex-shrink:0}
-.ip-control-nav>.creator-nav-label{padding:2px 4px 5px;font-size:12px;letter-spacing:.2px;font-weight:600;color:#7153a4}
-.creator-shell .ip-control-nav>button{display:flex;align-items:center;gap:6px;text-align:left;width:100%;padding:8px 5px;min-height:38px;border:1px solid transparent;border-radius:7px;font:13px/1.5 var(--studio-font);color:#6d5d87;background:transparent}
-.creator-shell .ip-control-nav>button.active{background:#fff;color:#694c9f;border-color:#ded2ef;box-shadow:0 2px 6px #5e477b08}
-.ip-control-nav>button svg{width:15px;height:15px;flex-shrink:0}
+/* Primary IP pages stay separate from individual episode navigation. */
+.ip-control-nav{margin:10px 0 12px;display:flex;flex-direction:column;gap:8px}
+.creator-shell .ip-control-nav>button{display:flex;align-items:center;gap:8px;text-align:left;width:100%;padding:11px 10px;min-height:66px;border:1px solid #dcd1ed;border-radius:10px;font:14px/1.5 var(--studio-font);color:#6d598c;background:linear-gradient(140deg,#f8f4fe,#eee7fa);box-shadow:0 2px 8px #5f4b8906;transition:background .16s ease,color .16s ease,border-color .16s ease,box-shadow .16s ease}
+.creator-shell .ip-control-nav>button:hover{background:#eee6fb;border-color:#cbb9e5;color:#5d4487}
+.creator-shell .ip-control-nav>button.active{background:#e9ddfa;color:#5b398b;border-color:#bda7dc;box-shadow:inset 3px 0 #8870ca,0 2px 8px #5f4b890a;font-weight:600}
+.creator-shell .ip-control-nav>button:focus-visible{outline:2px solid #8870ca;outline-offset:2px}
+.ip-control-nav>button svg{width:17px;height:17px;flex-shrink:0}
 .ip-control-nav>button>span{min-width:0;white-space:normal;line-height:1.5}
-.ip-control-nav>button small{display:block;color:#9384a8;font-size:10px;font-weight:400;line-height:1.4;margin-top:3px}
+.ip-control-nav>button small{display:block;color:#8b799f;font-size:10px;font-weight:400;line-height:1.4;margin-top:3px}
+.ip-control-nav>button.active small{color:#74598e}
 .ip-manuscript-nav{display:flex;flex-direction:column;gap:4px;border-top:1px solid #e0e5ed;padding-top:6px}
 .creator-shell .ip-manuscript-nav>button{display:flex;align-items:center;gap:7px;border:0;background:transparent;text-align:left;min-height:38px;border-radius:7px;padding:8px;font:14px/1.5 var(--studio-font);color:var(--brand-muted);transition:background .16s ease,color .16s ease}
 .creator-shell .ip-manuscript-nav>button.active{background:#fff;color:#654d9e;box-shadow:inset 3px 0 #8870ca,0 3px 12px #4f426e08}

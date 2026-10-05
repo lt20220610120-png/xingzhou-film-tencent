@@ -16,12 +16,18 @@ function responseText(data) {
 }
 function checkResponse(data) {
   if (data?.error || data?.status === 'failed') throw new Error(data.error?.message || '服务商生成失败');
-  if (data?.status === 'incomplete' || ['length', 'max_tokens'].includes(data?.choices?.[0]?.finish_reason || data?.stop_reason)) {
-    throw new Error('模型输出被截断，尚未完整生成。请提高服务商的输出额度或缩小本次输入范围。');
+  const finishReason = data?.choices?.[0]?.finish_reason || data?.stop_reason;
+  if (data?.status === 'incomplete' || ['length', 'max_tokens'].includes(finishReason)) {
+    throw Object.assign(new Error('模型输出被截断，尚未完整生成。请提高服务商的输出额度或缩小本次输入范围。'), { code: 'OUTPUT_TRUNCATED', providerType: 'output_truncated' });
   }
-  if (data?.choices?.[0]?.finish_reason === 'content_filter') throw new Error('服务商未返回正文：内容审核未通过。');
+  // DeepSeek documents these finish reasons as interrupted generation, even
+  // when the transport later supplies [DONE]. Preserve the paid partial text.
+  if (['aborted', 'insufficient_system_resource'].includes(finishReason)) {
+    throw Object.assign(new Error('服务商中断了本次生成，尚未完整返回正文。已保留收到的部分内容。'), { code: 'STREAM_INCOMPLETE', providerType: 'stream_interrupted' });
+  }
+  if (finishReason === 'content_filter') throw Object.assign(new Error('服务商未返回正文：内容审核未通过。'), { code: 'MODEL_CONTENT_FILTER', providerType: 'content_filter' });
 }
-function parseResponse(raw) {
+function parseResponse(raw, { streamEOF = true, onDiagnostic } = {}) {
   if (!/^\s*(?:event:|data:|:)/m.test(raw)) {
     let data;
     try { data = JSON.parse(raw.replace(/^\uFEFF/, '')); }
@@ -32,20 +38,34 @@ function parseResponse(raw) {
     if (textContent(data?.choices?.[0]?.message?.reasoning_content)) throw new Error('模型只返回了推理过程，没有生成最终正文。请检查服务商输出额度或更换模型。');
     throw new Error('接口已响应，但没有返回模型正文。请核对协议和模型，并使用“测试正文”检查。');
   }
-  let output = '', snapshot = '', complete = false;
+  let output = '', snapshot = '', complete = false, frameCount = 0, hasDoneMarker = false, completionMarker = null, finishReason = null;
+  const diagnostic = () => ({
+    frameCount, receivedBytes: Buffer.byteLength(raw, 'utf8'), outputCharacters: (snapshot || output).length,
+    hasDoneMarker, completionMarker, finishReason, streamEOF: streamEOF === true,
+  });
   const throwWithPartial = (error) => {
     if (!error.partialText) error.partialText = snapshot || output || '';
+    error.providerDiagnostic = diagnostic();
+    onDiagnostic?.(error.providerDiagnostic);
     throw error;
   };
-  for (const block of raw.replace(/\r\n/g, '\n').split(/\n\s*\n/)) {
-    const payload = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
-    if (!payload) continue;
-    if (payload.trim() === '[DONE]') { complete = true; continue; }
+  const payloads = raw.replace(/\r\n/g, '\n').split(/\n\s*\n/)
+    .map(block => block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n')).filter(Boolean);
+  for (const [index, payload] of payloads.entries()) {
+    frameCount++;
+    if (payload.trim() === '[DONE]') { complete = true; hasDoneMarker = true; completionMarker = '[DONE]'; continue; }
     let event;
-    try { event = JSON.parse(payload); } catch { throwWithPartial(new Error('接口事件流格式损坏，未保存为成功结果。')); }
+    try { event = JSON.parse(payload); } catch {
+      const interruptedTail = !complete && index === payloads.length - 1;
+      throwWithPartial(Object.assign(new Error('接口事件流格式损坏，未保存为成功结果。'), interruptedTail
+        ? { code: 'STREAM_INCOMPLETE', providerType: 'stream_interrupted' }
+        : { code: 'STREAM_MALFORMED', providerType: 'invalid_stream' }));
+    }
     // Capture the delta before checking finish_reason. A length/content-filter
     // event can contain the last paid token that must remain resumable.
     const choice = event.choices?.[0];
+    const reportedReason = choice?.finish_reason || event.stop_reason || event.delta?.stop_reason;
+    if (reportedReason) finishReason = ['stop', 'length', 'max_tokens', 'content_filter', 'tool_calls', 'end_turn', 'stop_sequence', 'aborted', 'insufficient_system_resource'].includes(reportedReason) ? reportedReason : 'other';
     output += textContent(choice?.delta?.content);
     if (choice?.message) snapshot = responseText(event);
     if (event.type === 'response.output_text.delta') output += textContent(event.delta);
@@ -58,17 +78,18 @@ function parseResponse(raw) {
     }
     if (event.type === 'response.completed') {
       try { checkResponse(event.response); } catch (error) { throwWithPartial(error); }
-      snapshot = responseText(event.response); complete = true;
+      snapshot = responseText(event.response); complete = true; completionMarker = 'response.completed';
     }
     if (event.type === 'message_delta') {
       try { checkResponse({ stop_reason: event.delta?.stop_reason }); } catch (error) { throwWithPartial(error); }
     }
-    if (event.type === 'message_stop') complete = true;
-    if (choice?.finish_reason) complete = true;
+    if (event.type === 'message_stop') { complete = true; completionMarker = 'message_stop'; }
+    if (choice?.finish_reason) { complete = true; completionMarker = 'finish_reason'; }
   }
-  if (!complete) throwWithPartial(new Error('接口传输中断，未收到生成完成标记。服务商可能已计费，请先检查请求记录。'));
+  if (!complete) throwWithPartial(Object.assign(new Error('接口传输中断，未收到生成完成标记。服务商可能已计费，请先检查请求记录。'), { code: 'STREAM_INCOMPLETE', providerType: 'stream_interrupted' }));
   const result = snapshot || output;
   if (!result.trim()) throwWithPartial(new Error('接口已响应，但事件流没有返回正文。'));
+  onDiagnostic?.(diagnostic());
   return result;
 }
 function resolveProtocol({ endpoint = '', protocol = 'auto', provider = '' }) {
@@ -77,7 +98,7 @@ function resolveProtocol({ endpoint = '', protocol = 'auto', provider = '' }) {
   if (/\/messages\/?$/.test(endpoint) || /api\.anthropic\.com/.test(endpoint) || provider === 'claudeCodePool') return 'anthropic';
   return 'chat';
 }
-async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgress } = {}) {
+async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgress, onDiagnostic } = {}) {
   const { endpoint, apiKey = '', model, messages = [], requiresApiKey = true, signal } = config;
   if (!endpoint?.trim()) throw new Error('请填写接口地址');
   let parsedUrl;
@@ -116,15 +137,15 @@ async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgre
   const cancel = () => controller.abort(signal.reason);
   if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => controller.abort(new DOMException('模型响应超时', 'TimeoutError')), timeoutMs);
-  let raw = '';
+  let raw = '', streamEOF = false;
   try {
     onProgress?.({phase:'waiting',receivedBytes:0});
     const response = await fetchFn(`${normalizeEndpoint(endpoint)}${suffix}`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
     if(response.body?.getReader){
       const reader=response.body.getReader(),decoder=new TextDecoder();let receivedBytes=0;
-      try{while(true){const {done,value}=await reader.read();if(done)break;receivedBytes+=value.byteLength;raw+=decoder.decode(value,{stream:true});onProgress?.({phase:'receiving',receivedBytes});}raw+=decoder.decode();}
+      try{while(true){const {done,value}=await reader.read();if(done){streamEOF=true;break;}receivedBytes+=value.byteLength;raw+=decoder.decode(value,{stream:true});onProgress?.({phase:'receiving',receivedBytes});}raw+=decoder.decode();}
       finally{reader.releaseLock();}
-    }else raw=await response.text();
+    }else {raw=await response.text();streamEOF=true;}
     if (!response.ok) {
       let data; try { data = JSON.parse(raw); } catch {}
       const retryAfter = response.headers?.get?.('retry-after');
@@ -138,10 +159,23 @@ async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgre
         httpStatus: response.status, providerCode: data?.error?.code, providerType: data?.error?.type, retryAfterMs,
       });
     }
-    return parseResponse(raw);
+    return parseResponse(raw, { streamEOF, onDiagnostic });
   } catch (error) {
-    if(raw && !error.partialText){try{error.partialText=parseResponse(raw);}catch(partial){error.partialText=partial.partialText||'';}}
-    if (controller.signal.aborted && !signal?.aborted) throw Object.assign(new Error('等待模型响应超时。服务商可能已计费，请先核对请求记录，避免重复生成。'),{partialText:error.partialText||''});
+    let providerTermination = false;
+    if(raw && !error.providerDiagnostic){
+      try { const partial = parseResponse(raw, { streamEOF, onDiagnostic: data => { error.providerDiagnostic = data; } }); error.partialText ||= partial; }
+      catch(partial) {
+        error.partialText ||= partial.partialText || ''; error.providerDiagnostic = partial.providerDiagnostic;
+        // A failure after a terminal provider frame must not turn content
+        // filtering (or a token limit) into a generic resumable network error.
+        providerTermination = !signal?.aborted && (['MODEL_CONTENT_FILTER', 'OUTPUT_TRUNCATED', 'STREAM_MALFORMED'].includes(partial.code)
+          || ['aborted', 'insufficient_system_resource'].includes(partial.providerDiagnostic?.finishReason));
+        if (providerTermination) error = partial;
+      }
+      if (!providerTermination && !streamEOF && !controller.signal.aborted && !error.httpStatus) { error.code = 'STREAM_INCOMPLETE'; error.providerType = 'stream_interrupted'; }
+      if (error.providerDiagnostic) onDiagnostic?.(error.providerDiagnostic);
+    }
+    if (!providerTermination && controller.signal.aborted && !signal?.aborted) throw Object.assign(new Error('等待模型响应超时。服务商可能已计费，请先核对请求记录，避免重复生成。'),{code:'REQUEST_TIMEOUT',partialText:error.partialText||'',providerDiagnostic:error.providerDiagnostic});
     throw error;
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
 }

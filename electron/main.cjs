@@ -148,12 +148,21 @@ ipcMain.handle('import-skill-document',async()=>{const r=await dialog.showOpenDi
 ipcMain.handle('import-full-script',async()=>{const r=await dialog.showOpenDialog({title:'导入完整剧本',properties:['openFile'],filters:[{name:'剧本文档',extensions:['txt','md','text','docx']}]});if(r.canceled||!r.filePaths[0])return null;const filePath=r.filePaths[0];const ext=path.extname(filePath).toLowerCase();let content,encoding='docx';if(ext==='.docx')content=(await mammoth.extractRawText({path:filePath})).value;else ({content,encoding}=require('./text-import.cjs').decodeImportText(fs.readFileSync(filePath)));return {filePath,fileName:path.basename(filePath),content,encoding}});
 const activeAiRequests=new Map();
 const aiTaskProgress=new Map();
+const safeProviderDiagnostic=value=>{
+ if(!value||typeof value!=='object')return undefined;
+ const result={};
+ for(const key of ['frameCount','receivedBytes','outputCharacters'])if(Number.isSafeInteger(value[key])&&value[key]>=0)result[key]=value[key];
+ for(const key of ['hasDoneMarker','streamEOF'])if(typeof value[key]==='boolean')result[key]=value[key];
+ if(value.completionMarker===null||['','[DONE]','response.completed','message_stop','finish_reason'].includes(value.completionMarker))result.completionMarker=value.completionMarker;
+ if(value.finishReason===null||['','stop','length','max_tokens','content_filter','tool_calls','end_turn','stop_sequence','aborted','insufficient_system_resource','other'].includes(value.finishReason))result.finishReason=value.finishReason;
+ return Object.keys(result).length?result:undefined;
+};
 ipcMain.handle('ai-task-status',(_,p)=>aiTaskProgress.get(String(p?.taskId||''))||null);
 ipcMain.handle('ai-chat',async(_,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
  try{const output=await requestText({...payload,signal:controller.signal},{geminiRun,doubaoRun,chatgptRun,onProgress:status=>{if(taskId)aiTaskProgress.set(taskId,status);}});return payload.resultEnvelope?{ok:true,output}:output}
- catch(error){if(payload.resultEnvelope)return {ok:false,code:error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||''};if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
+ catch(error){if(payload.resultEnvelope){const diagnostic=safeProviderDiagnostic(error.providerDiagnostic);return {ok:false,code:error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||'',...(diagnostic?{providerDiagnostic:diagnostic}:{})};}if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
  finally{if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');

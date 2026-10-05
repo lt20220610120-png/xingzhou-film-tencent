@@ -3,7 +3,6 @@ const {mergePublicationOutput}=require('./analysis-publication.cjs');
 const fail=(message,status=409)=>{throw Object.assign(Error(message),{status});};
 const signature=s=>JSON.stringify([s.id,s.source,s.items.map(i=>[i.id,i.category,i.name,i.description,i.ready,...(i.detailStatus?[i.detailStatus]:[])])]);
 const verified=s=>Boolean(s.approval?.signature===signature(s));
-const ledgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(verified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
 function sourceScenes(content,number){
  const source=String(content||'').replace(/\r\n?/g,'\n').trim(),lines=source.split('\n'),starts=[];
  if(!source)return [];
@@ -58,7 +57,8 @@ function artReviewRepository(pool){
     validateReview(p.data,episode,number);next={...p.data,published:old?.published||{},managedAssetNames:old?.managedAssetNames||[],version:Number(old?.version||0)+1,lastWriteId:p.writeId,updatedBy:uid,updatedAt:Date.now()};delete next.pending;delete next.syncError;delete next.writeId;
    }else{
     if(!old)fail('请先保存并核实本集清单');validateReview(old,episode,number);
-    for(const [n,stamp]of Object.entries(old.dependencies||{}))if(ledgerSignature(progress[n]?.review)!==stamp||progress[n]?.review?.sourceContent!==String(getEpisode(row,Number(n)).content||''))fail(`第 ${n} 集核实清单或正文已变化，请重新生成本集并复核`);
+    // References to earlier episodes remain provenance. Only the selected
+    // episode's source and approvals govern publishing its independent assets.
     if(!Array.isArray(p.sceneIds)||!p.sceneIds.length||new Set(p.sceneIds).size!==p.sceneIds.length)fail('请选择已核实场景',400);
     next=structuredClone(old);next.published||={};const previousNames=new Set(Object.values(old.published||{}).flatMap(s=>s.items.map(i=>i.name)));
     for(const id of p.sceneIds){const s=next.scenes.find(s=>s.id===id);if(!s||!verified(s))fail(`场景 ${id} 尚未核实或细节待补齐`,400);next.published[id]={id:s.id,source:s.source,items:structuredClone(s.items),signature:signature(s),at:Date.now(),actor:uid};}

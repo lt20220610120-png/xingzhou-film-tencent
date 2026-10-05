@@ -32,11 +32,11 @@ export function sourceRangeLabel(episode,source,version) {
  const first=chapters[0],last=chapters.at(-1),partial=ranges[0].start!==first.start||ranges.at(-1).end!==last.end;
  return `${short(first)}${first.id!==last.id?'至'+short(last):''}${partial?' · 故事片段':''}`;
 }
-export function resolveSourceQuotes(items,source,contextRanges) {
+export function resolveSourceQuotes(items,source,contextRanges,{minQuoteLength=6}={}) {
  if(!Array.isArray(items)||!items.length)throw new Error('缺少原文定位');
  return validateSourceRanges(items.map(item=>{
   const startQuote=String(item.startQuote||''),endQuote=String(item.endQuote||'');
-  if(startQuote.length<6||endQuote.length<6)throw new Error('原文定位句过短');
+  if([...startQuote.replace(/\s/g,'')].length<minQuoteLength||[...endQuote.replace(/\s/g,'')].length<minQuoteLength)throw new Error('原文定位句过短');
   const hits=[];
   const merged=[];for(const r of contextRanges){const last=merged.at(-1);if(last&&last.end===r.start)last.end=r.end;else merged.push({...r});}
   for(const r of merged){let pos=source.content.indexOf(startQuote,r.start);while(pos>=0&&pos<r.end){const end=source.content.indexOf(endQuote,pos);if(end>=0&&end+endQuote.length<=r.end)hits.push({start:pos,end:end+endQuote.length});pos=source.content.indexOf(startQuote,pos+1);}}
@@ -46,7 +46,7 @@ export function resolveSourceQuotes(items,source,contextRanges) {
   if(!hits.length)for(const r of merged){
    const positions=[];let text='';for(let i=r.start;i<r.end;i++)if(!/\s/.test(source.content[i])){text+=source.content[i];positions.push(i);}
    const first=startQuote.replace(/\s/g,''),last=endQuote.replace(/\s/g,'');
-   if(first.length<6||last.length<6)throw new Error('原文定位句过短');
+   if([...first].length<minQuoteLength||[...last].length<minQuoteLength)throw new Error('原文定位句过短');
    let pos=text.indexOf(first);while(pos>=0){const end=text.indexOf(last,pos);if(end>=0)hits.push({start:positions[pos],end:positions[end+last.length-1]+1});pos=text.indexOf(first,pos+1);}
   }
   if(hits.length!==1)throw new Error('原文定位句无法唯一对应');

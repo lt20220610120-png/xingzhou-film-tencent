@@ -65,8 +65,8 @@ test('gateway blocks non-art members and fails closed while lock state is unknow
   assert.equal((await handleAction(action,{projectId:'p'},{id:'other'},repo)).status,403);repo.isProjectLocked=async()=>undefined;assert.equal((await handleAction(action,{projectId:'p'},{id:'owner'},repo)).status,503);assert.equal(calls,0);
  }
 });
-test('earlier approved inventory dependencies are checked before publication',async()=>{
+test('earlier reference changes do not block selected episode publication; malformed provenance is rejected',async()=>{
  const f=fixture(),r=record();r.dependencies={0:'bad'};assert.throws(()=>validateReview({...r,dependencies:{2:'future'}},episode,1),/前集/);
  f.row.episodes=[{...episode,title:'第2集',episodeNumber:2,content:episode.content.replaceAll('1-','2-')},episode];const second=record();second.episodeNumber=2;second.sourceContent=f.row.episodes[0].content;second.scenes=sourceScenes(second.sourceContent,2).map((s,i)=>({...s,items:[item('【角色-'+i+'】')]}));second.scenes.forEach(s=>s.approval={signature:signature(s)});second.dependencies={1:'old approved ledger'};
- await f.repo.saveArtReview('p',{episodeNumber:2,data:second,baseVersion:0,writeId:crypto.randomUUID()},'owner');await assert.rejects(f.repo.publishArtReview('p',{episodeNumber:2,baseVersion:1,sceneIds:['2-1'],writeId:crypto.randomUUID()},'owner'),/第 1 集/);assert.equal(f.row.assets.length,0);
+ await f.repo.saveArtReview('p',{episodeNumber:2,data:second,baseVersion:0,writeId:crypto.randomUUID()},'owner');await f.repo.publishArtReview('p',{episodeNumber:2,baseVersion:1,sceneIds:['2-1'],writeId:crypto.randomUUID()},'owner');assert.equal(f.row.assets.length,1);
 });

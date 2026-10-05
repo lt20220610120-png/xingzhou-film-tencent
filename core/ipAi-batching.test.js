@@ -1,18 +1,65 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createIPProject, importIPNovel, getIPProject } from './ipWorkspace.js';
+import { createIPProject, importIPNovel, getIPProject, parseNovel } from './ipWorkspace.js';
 import { runIPTask } from './ipAi.js';
 import { IP_BUILTIN_SKILLS } from './ipBuiltinSkills.js';
 
 const truncated=partialText=>({ok:false,code:'FAILED',error:'模型输出被截断，尚未完整生成。',partialText});
-function novel(content){let s=createIPProject({fruitProjects:[]},{name:'读取边界',duration:60});const id=s.fruitProjects[0].id;s=importIPNovel(s,id,{name:'原文.txt',content});return getIPProject(s,id);}
-const direct=(p,r)=>r.taskId.includes(':settings')?'【故事梗概】原文主线\n【人物小传】原著人物':r.taskId.includes(':plan-group-')?JSON.stringify({episodes:Array.from({length:Number(text(r).match(/本次只规划 (\d+) 集/)[1])},(_,i)=>({chapterIds:p.creator.ip.source.chapters.map(c=>c.id),outline:groupOutline(r,i,'原著场面')}))}):JSON.stringify({mainline:'原文主线',ending:'材料实际末句',notes:'保留事实',segments:[{from:1,to:p.creator.ip.source.chapters.length,episodes:50,focus:'真实故事单元'}]});
+const sceneQuote=(chapter,scene)=>`定位${String(chapter).padStart(4,'0')}场${String(scene).padStart(4,'0')}，人物核查原著证据后告知同行。`;
+function sceneSource(content){
+ const parsed=parseNovel(content,'fixture-source');
+ return parsed.chapters.map((chapter,index)=>{
+  let text=content.slice(chapter.start,chapter.end),headerEnd=text.indexOf('\n')+1;
+  if(!headerEnd)headerEnd=text.length;
+  if(text.length-headerEnd<2600)return `${text}\n${Array.from({length:60},(_,i)=>sceneQuote(index+1,i+1)).join('\n')}\n`;
+  // Replace equal-length filler, keeping the original byte ranges and emoji
+  // positions used by adaptive reading/Unicode boundary regressions.
+  let result='',cursor=0,scene=1;
+  for(let at=headerEnd;at+32<text.length;at+=90){
+   const quote=sceneQuote(index+1,scene++),piece=text.slice(at,at+quote.length);
+   if(/[\uD800-\uDFFF\r\n]/.test(piece))continue;
+   result+=text.slice(cursor,at)+quote;cursor=at+quote.length;
+  }
+  if(cursor===0){
+   // A source made entirely of supplementary characters has no safe filler
+   // spans to replace. Retain all Unicode characters and add real cuts between
+   // complete chunks; assertions below use the resulting source dynamically.
+   result=text.slice(0,headerEnd);cursor=headerEnd;scene=1;
+   while(cursor<text.length){
+    let end=Math.min(text.length,cursor+180);
+    if(/[\uD800-\uDBFF]/.test(text[end-1])&&/[\uDC00-\uDFFF]/.test(text[end]))end--;
+    result+=`${text.slice(cursor,end)}\n${sceneQuote(index+1,scene++)}\n`;cursor=end;
+   }
+   return result;
+  }
+  return result+text.slice(cursor);
+ }).join('');
+}
+function novel(content){let s=createIPProject({fruitProjects:[]},{name:'读取边界',duration:60});const id=s.fruitProjects[0].id;s=importIPNovel(s,id,{name:'原文.txt',content:sceneSource(content)});return getIPProject(s,id);}
+const continuity=r=>r.taskId.includes(':plan-continuity-')?JSON.stringify({ok:true,issues:[]}):null;
+const windowOffsets=new WeakMap();
+function episodeGroup(p,r){
+ const source=p.creator.ip.source,input=text(r),count=Number(input.match(/本次只规划 (\d+) 集/)[1]);
+ const [start,end]=input.match(/【本批完整原文窗口\[(\d+),(\d+)\)】/).slice(1).map(Number);
+ const share=Number(input.match(/本批尚余(\d+)集/)[1]),offset=0;
+ const cuts=[...source.content.slice(start,end).matchAll(/定位\d+场\d+，人物核查原著证据后告知同行。/g)].map(m=>({quote:m[0],start:start+m.index,end:start+m.index+m[0].length}));
+ assert.ok(cuts.length>=share,`The real source window must contain at least ${share} distinct scenes, found ${cuts.length}`);
+ assert.ok(count<=6);
+ assert.ok(source.chapters.filter(c=>c.start<end&&c.end>start).every(c=>input.includes(source.content.slice(Math.max(start,c.start),Math.min(end,c.end)))),'grounding must receive the complete raw source window');
+ return JSON.stringify({episodes:Array.from({length:count},(_,i)=>{
+  const cut=cuts[Math.floor((offset+i)*cuts.length/share)],chapter=source.chapters.find(c=>c.start<=cut.start&&cut.end<=c.end);
+  assert.ok(chapter,'quote must stay inside its declared chapter');
+  return {chapterIds:[chapter.id],outline:`原著独立场面 ${cut.quote}`,sourceQuotes:[{startQuote:cut.quote,endQuote:cut.quote}]};
+ })});
+}
+const direct=(p,r)=>continuity(r)||(r.taskId.includes(':settings')?'【故事梗概】原文主线\n【人物小传】原著人物':r.taskId.includes(':plan-group-')?episodeGroup(p,r):JSON.stringify({mainline:'原文主线',ending:'材料实际末句',notes:'保留事实',segments:[{from:1,to:p.creator.ip.source.chapters.length,episodes:50,focus:'真实故事单元'}]}));
 const text=r=>r.messages.map(m=>m.content).join('\n');
-const groupOutline=(r,i,label)=>`${label} ${Number(text(r).match(/单元内第(\d+)至/)[1])+i}`;
 const range=r=>{if(!r.taskId.includes(':read-'))return null;const m=text(r).match(/字符 \[(\d+),(\d+)\)/);return m&&{start:Number(m[1]),end:Number(m[2])};};
 
 test('truncated first read splits exact source intervals, saves only completed notes and disables DeepSeek thinking',async()=>{
- const p=novel('第一章 开篇\n'+'原文事实。'.repeat(11000)+'真实最后一句'),reads=[],requests=[],drafts=[];let failed=false;
+ const original='第一章 开篇\n'+'原文事实。'.repeat(11000)+'真实最后一句';
+ const p=novel(original),reads=[],requests=[],drafts=[];let failed=false;
+ assert.equal(p.creator.ip.source.content.length,original.length,'anchored fixture preserves the original character capacity');
  const result=await runIPTask({project:p,task:'plan',profile:{model:'cn:deepseek-v4.1-flash'},taskId:'split',onRead:r=>reads.push(r),onDraft:d=>drafts.push(d),api:{aiChat:async r=>{requests.push(r);if(range(r)){if(!failed){failed=true;return truncated('不能算读完的半段');}return '已完整阅读当前区间，保留末句。';}return direct(p,r);}}});
  assert.equal(result.plan.episodes.length,50);assert.equal(reads.slice().sort((a,b)=>a.start-b.start).map(r=>p.creator.ip.source.content.slice(r.start,r.end)).join(''),p.creator.ip.source.content);
  assert.ok(reads.every(r=>r.note!=='不能算读完的半段'));assert.ok(drafts.some(d=>d.content==='不能算读完的半段'));
@@ -21,6 +68,7 @@ test('truncated first read splits exact source intervals, saves only completed n
 
 test('unknown-capacity source reading halves only explicit input-capacity refusals and keeps Unicode coverage',async()=>{
  const p=novel('第一章 开篇\n'+'甲😀'.repeat(23000)+'真实末句'),source=p.creator.ip.source,reads=[],drafts=[],requests=[];let refused=false;
+ assert.equal([...source.content].filter(c=>c==='😀').length,23000,'anchored fixture retains every supplementary character');
  const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'input-capacity',onRead:r=>reads.push(r),onDraft:d=>drafts.push(d),api:{aiChat:async r=>{
   requests.push(r);
   if(range(r)){
@@ -51,17 +99,19 @@ test('resume accepts successful adaptive and legacy intervals without reading th
 
 test('long-novel planning reduces bounded factual batches then generates episode groups with complete Skill',async()=>{
  const p=novel(Array.from({length:30},(_,i)=>`第${i+1}章 场面${i+1}\n${'原文事实。'.repeat(1200)}\n`).join('')),requests=[];
- const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'long',api:{aiChat:async r=>{requests.push(r);if(range(r))return '事件、人物、场面与真实停点。'.repeat(1200);if(r.taskId.includes(':digest-'))return '贯通事实与原文真实停点；各章场面来源仍在通读记录。';if(r.taskId.includes(':plan-group-')){const input=text(r),ids=JSON.parse(input.match(/本单元有效章节：\n([^\n]+)/)[1]).map(c=>c.id),count=Number(input.match(/本次只规划 (\d+) 集/)[1]);return JSON.stringify({episodes:Array.from({length:count},(_,i)=>({chapterIds:ids,outline:groupOutline(r,i,'有原文依据的场面和接点')}))});}return JSON.stringify({mainline:'从第1章推进至第30章',ending:'第30章真实停点',notes:'材料范围明确',segments:[{from:1,to:15,episodes:25,focus:'前半主线'},{from:16,to:30,episodes:25,focus:'后半收束'}]});}}});
+ const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'long',api:{aiChat:async r=>{requests.push(r);if(range(r))return '事件、人物、场面与真实停点。'.repeat(1200);if(r.taskId.includes(':digest-'))return '贯通事实与原文真实停点；各章场面来源仍在通读记录。';const audit=continuity(r);if(audit)return audit;if(r.taskId.includes(':settings'))return '【故事梗概】原著前后主线';if(r.taskId.includes(':plan-group-'))return episodeGroup(p,r);return JSON.stringify({mainline:'从第1章推进至第30章',ending:'第30章真实停点',notes:'材料范围明确',segments:[{from:1,to:15,episodes:25,focus:'前半主线'},{from:16,to:30,episodes:25,focus:'后半收束'}]});}}});
  assert.equal(result.plan.episodes.length,50);assert.ok(requests.some(r=>r.taskId.includes(':digest-')));assert.ok(requests.filter(r=>r.taskId.includes(':plan-group-')).length>=4);
  for(const r of requests.filter(r=>!range(r)&&!r.taskId.includes(':digest-')&&!r.taskId.includes(':settings'))){for(const file of IP_BUILTIN_SKILLS[0].files)assert.ok(text(r).includes(file.content));}
- assert.deepEqual(result.plan.episodes.at(-1).chapterIds,p.creator.ip.source.chapters.slice(15).map(c=>c.id));
+ assert.ok(result.plan.episodes.at(-1).chapterIds.every(id=>p.creator.ip.source.chapters.slice(15).some(c=>c.id===id)));
+ assert.ok(result.plan.episodes.every(e=>e.sourceRanges?.length&&e.sourceQuotes?.length));
 });
 
 test('truncated whole planning switches to compact map and splits a truncated episode group',async()=>{
  const p=novel('第一章 开始\n相识。\n第二章 转折\n误会。\n第三章 收束\n原文结局。'),drafts=[];let mapFailed=false,groupFailed=false;
  const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'plan-truncate',onDraft:d=>drafts.push(d),api:{aiChat:async r=>{
   if(range(r))return '原文事实笔记';if(r.taskId.endsWith(':plan')&&!mapFailed){mapFailed=true;return truncated('{"episodes":[未完整');}
-  if(r.taskId.includes(':plan-group-')){if(!groupFailed){groupFailed=true;return truncated('未完整分集');}const n=Number(text(r).match(/本次只规划 (\d+) 集/)[1]);return JSON.stringify({episodes:Array.from({length:n},(_,i)=>({chapterIds:[p.creator.ip.source.chapters[0].id],outline:groupOutline(r,i,'原文场面')}))});}
+  const audit=continuity(r);if(audit)return audit;if(r.taskId.includes(':settings'))return '【故事梗概】所选原文因果';
+  if(r.taskId.includes(':plan-group-')){if(!groupFailed){groupFailed=true;return truncated('未完整分集');}return episodeGroup(p,r);}
   return JSON.stringify({mainline:'相识误会收束',ending:'实际结局',notes:'只选原文',segments:[{from:1,to:3,episodes:50,focus:'完整主线'}]});
  }}});
  assert.equal(result.plan.episodes.length,50);assert.ok(drafts.some(d=>d.content==='{"episodes":[未完整'));assert.ok(drafts.some(d=>d.content==='未完整分集'));
@@ -93,7 +143,8 @@ test('settings truncation produces completed smaller sections and keeps paid par
 });
 
 test('reading boundaries never split a Unicode supplementary character into unpaired surrogates',async()=>{
- const p=novel('第一章 原文\n'+'甲'.repeat(3192)+'😀'+'乙'.repeat(3400)),reads=[];
+ const original='第一章 原文\n'+'甲'.repeat(3192)+'😀'+'乙'.repeat(3400),p=novel(original),reads=[];
+ assert.equal(p.creator.ip.source.content.length,original.length);assert.equal(p.creator.ip.source.content.indexOf('😀'),original.indexOf('😀'),'fixture preserves the exact emoji boundary');
  await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'unicode',onRead:r=>reads.push(r),api:{aiChat:async r=>range(r)?'完整事实':direct(p,r)}});
  const source=p.creator.ip.source.content;
  for(const r of reads){const first=source.charCodeAt(r.start),last=source.charCodeAt(r.end-1);assert.ok(!(first>=0xdc00&&first<=0xdfff));assert.ok(!(last>=0xd800&&last<=0xdbff));}
@@ -198,9 +249,9 @@ test('valid long-novel plans may contain more than twelve bounded story units',a
  const p=novel(Array.from({length:22},(_,i)=>`第${i+1}章 原著场面\n本章事实。\n`).join(''));
  const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'many-units',api:{aiChat:async r=>{
   if(range(r))return '原著事实';
+  const audit=continuity(r);if(audit)return audit;if(r.taskId.includes(':settings'))return '【故事梗概】真实贯通单元';
   if(r.taskId.includes(':plan-group-')){
-   const ids=JSON.parse(text(r).match(/本单元有效章节：\n([^\n]+)/)[1]).map(c=>c.id);
-   return JSON.stringify({episodes:Array.from({length:Number(text(r).match(/本次只规划 (\d+) 集/)[1])},(_,i)=>({chapterIds:ids,outline:groupOutline(r,i,'按原著单元安排')}))});
+   return episodeGroup(p,r);
   }
   return JSON.stringify({mainline:'贯通主线',ending:'第22章真实终点',notes:'22个简短单元',segments:Array.from({length:22},(_,i)=>({from:i+1,to:i+1,episodes:3,focus:'原著场面'}))});
  }}});
@@ -212,10 +263,10 @@ test('malformed episode-batch JSON remains saved and retries as smaller validate
  const p=novel('第一章 原著\n相识。\n第二章 原著\n发展。\n第三章 原著\n原文终点。'),drafts=[];let failures=0;
  const result=await runIPTask({project:p,task:'plan',profile:{model:'m'},taskId:'invalid-group',onDraft:d=>drafts.push(d),api:{aiChat:async r=>{
   if(range(r))return '原著事实';
+  const audit=continuity(r);if(audit)return audit;if(r.taskId.includes(':settings'))return '【故事梗概】原著主线';
   if(r.taskId.includes(':plan-group-')){
    if(failures<2){failures++;return '{"episodes":[malformed';}
-   const count=Number(text(r).match(/本次只规划 (\d+) 集/)[1]);
-   return JSON.stringify({episodes:Array.from({length:count},(_,i)=>({chapterIds:[p.creator.ip.source.chapters[0].id],outline:groupOutline(r,i,'原著场面')}))});
+   return episodeGroup(p,r);
   }
   return JSON.stringify({mainline:'主线',ending:'真实终点',notes:'预算',segments:[{from:1,to:3,episodes:50,focus:'单元'}]});
  }}});
