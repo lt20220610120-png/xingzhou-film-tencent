@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {createChatGPTWebService,inspectChatGPTResponse}=require('./chatgpt-web.cjs');
+const {createChatGPTWebService,inspectChatGPTPage,inspectChatGPTResponse,submitComposer}=require('./chatgpt-web.cjs');
 const {requestText,testTextConnection}=require('./text-provider.cjs');
 function fake({challenge=false,pending=false,loggedIn=true}={}){
  let sent=0,closed=0,logins=0,cancelled=0;
@@ -10,7 +10,7 @@ function fake({challenge=false,pending=false,loggedIn=true}={}){
   if(expression.includes('function inspectChatGPTResponse'))return {anchored:true,text:'连接成功',streaming:pending,finished:!pending};
   if(expression.includes('stop-button')){cancelled++;return true;}
  }};
- return {browserFactory:()=>browser,get sent(){return sent},get closed(){return closed},get logins(){return logins},get cancelled(){return cancelled}};
+ return {browserFactory:()=>browser,verificationWaitMs:0,get sent(){return sent},get closed(){return closed},get logins(){return logins},get cancelled(){return cancelled}};
 }
 test('ChatGPT website provider returns a finished anchored answer and never invokes Codex or a paid API',async()=>{
  const state=fake(),service=createChatGPTWebService(state);let fallback=0;
@@ -38,4 +38,25 @@ test('DOM response extraction ignores older assistant turns and removes the webs
  const user={textContent:'XZ_REQUEST_unique',closest:()=>({}),compareDocumentPosition:e=>e===fresh?4:2};
  global.Node={DOCUMENT_POSITION_FOLLOWING:4};global.document={querySelectorAll:selector=>selector.includes('"user"')?[user]:selector.includes('"assistant"')?[old,fresh]:[]};
  const result=inspectChatGPTResponse('XZ_REQUEST_unique');assert.equal(result.text,'{"episodes":[]}');assert.equal(result.finished,true);assert.equal(result.streaming,false);assert.equal(result.anchored,true);
+});
+test('Chinese browser verification is distinct from a logged-out account',t=>{
+ const previousDocument=global.document,previousLocation=global.location;t.after(()=>{global.document=previousDocument;global.location=previousLocation;});
+ global.location={origin:'https://chatgpt.com'};global.document={title:'请稍候…',readyState:'complete',querySelectorAll:()=>[],querySelector:()=>null};
+ const state=inspectChatGPTPage();assert.equal(state.challenge,true);assert.equal(state.loggedOut,false);assert.equal(state.loggedIn,false);
+});
+test('account detection waits for ChatGPT hydration after readyState complete without reopening login',async()=>{
+ const state=fake(),browser=state.browserFactory();let checks=0,evaluate=browser.evaluate;
+ browser.evaluate=async expression=>expression.includes('function inspectChatGPTPage')&&checks++===0?{ready:'complete',composer:false,loggedIn:false,loggedOut:false}:evaluate(expression);
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser});const result=await service.status();assert.equal(result.loggedIn,true);assert.ok(checks>=2);assert.equal(state.logins,0);await service.close();
+});
+test('ProseMirror input readback preserves the inserted blank paragraph rather than layout innerText spacing',t=>{
+ const previousDocument=global.document;t.after(()=>{global.document=previousDocument;});
+ const text=value=>({nodeType:3,textContent:value}),paragraph=value=>({tagName:'P',textContent:value,childNodes:value?[text(value)]:[{tagName:'BR',nodeType:1,childNodes:[]}]}),send={disabled:false,dataset:{testid:'send-button'},getClientRects:()=>[{}],click(){this.clicked=true;}};
+ const editor={tagName:'DIV',children:[paragraph('Header'),paragraph(''),paragraph('{"message":"hello"}')],innerText:'Header\n\n\n{"message":"hello"}',getClientRects:()=>[{}],closest:()=>({})};
+ global.document={querySelectorAll:selector=>selector.includes('#prompt-textarea')?[editor]:[send]};
+ assert.equal(submitComposer('Header\n\n{"message":"hello"}').ok,true);assert.equal(send.clicked,true);send.clicked=false;assert.equal(submitComposer('Header\n\n{"message":"different"}').reason,'COMPOSER_MISMATCH');assert.equal(send.clicked,false);
+});
+test('a page that never finishes account hydration is reported as loading failure rather than logged out',async()=>{
+ const state=fake(),browser=state.browserFactory();browser.evaluate=async()=>({ready:'complete',composer:false,loggedIn:false,loggedOut:false});
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser,inspectTimeoutMs:1});const result=await service.status();assert.equal(result.code,'WEB_PAGE_NOT_READY');assert.match(result.message,/加载/);assert.doesNotMatch(result.message,/请.*登录/);assert.equal(state.logins,0);await service.close();
 });

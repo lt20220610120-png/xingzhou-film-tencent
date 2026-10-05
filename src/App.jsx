@@ -1302,10 +1302,11 @@ function App() {
   // 保存状态（debounce）
   useEffect(() => {
     if (!initialized) return;
-    // Browser cache quotas must never prevent saving paid output to disk.
-    try { localStorage.setItem(STORAGE, JSON.stringify(state)); } catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
     setCreatorSaveStatus({ saving: true });
     const timer = setTimeout(async () => {
+      // Coalesce parallel reading/progress updates before serializing large
+      // projects. Browser cache quotas must never prevent saving output to disk.
+      try { localStorage.setItem(STORAGE, JSON.stringify(stateRef.current)); } catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
       try { persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({ saved: true }); }
       catch(error) { setCreatorSaveStatus({ error: error.message }); }
     }, 250);

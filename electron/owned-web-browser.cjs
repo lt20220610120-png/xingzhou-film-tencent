@@ -1,10 +1,11 @@
 const fs=require('node:fs'),path=require('node:path');
 const {spawn:nativeSpawn}=require('node:child_process');
 const {findBrowser,createCdpConnection}=require('./gemini-web.cjs');
+const {spawnBackgroundBrowser}=require('./windows-background-browser.cjs');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const abortError=()=>Object.assign(new Error('任务已停止'),{name:'AbortError'});
 const check=signal=>{if(signal?.aborted)throw abortError();};
-function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrowser,spawn=nativeSpawn,WebSocket=global.WebSocket}={}){
+function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrowser,spawn=nativeSpawn,WebSocket=global.WebSocket,startupTimeoutMs=30000}={}){
  if(!profileDir||!url||!name)throw new Error('独立浏览器配置缺失');
  const profile=path.resolve(profileDir);
  if(/[/\\](?:Microsoft[/\\]Edge|Google[/\\]Chrome)[/\\]User Data(?:[/\\]|$)/i.test(profile))throw new Error('必须使用行舟影视独立浏览器资料目录');
@@ -14,7 +15,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   const own=connection;connection=null;session=null;
   if(own){try{await own.command('Browser.close',{},null,{timeout:5000});}catch{}own.disconnect();}
   const process=child;child=null;visible=false;
-  if(process&&process.exitCode==null){await Promise.race([new Promise(r=>process.once('exit',r)),pause(1000)]);if(process.exitCode==null)process.kill();}
+  if(process&&process.exitCode==null){await Promise.race([new Promise(r=>process.once('exit',r)),pause(1000)]);if(process.exitCode==null){process.kill();await Promise.race([new Promise(r=>process.once('exit',r)),pause(5000)]);if(process.exitCode==null)throw new Error(`${name} 后台浏览器仍在退出，请稍后刷新连接`);}}
  }
  async function ensure(signal){
   check(signal);if(closed)throw new Error(`${name} 服务已停止`);
@@ -24,12 +25,13 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   const executable=locate();if(!executable)throw new Error('本机未找到 Edge 或 Chrome');
   fs.mkdirSync(profile,{recursive:true});const portFile=path.join(profile,'DevToolsActivePort');
   try{fs.unlinkSync(portFile);}catch{}
-  child=spawn(executable,[`--user-data-dir=${profile}`,'--headless=new','--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-timer-throttling',url],{windowsHide:true,shell:false,stdio:'ignore'});
+  try{
+  child=spawnBackgroundBrowser(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling',url],{spawn});
   let failed=false;child.once('error',()=>{failed=true;});
-  const deadline=Date.now()+30000;
+  const deadline=Date.now()+startupTimeoutMs;
   while(Date.now()<deadline){
    check(signal);if(closed)throw new Error(`${name} 服务已停止`);
-   if(failed||child?.exitCode!=null)throw new Error(`${name} 独立浏览器启动失败，请关闭独立登录窗口后重试`);
+   if(failed||child?.exitCode!=null){const cause=/XINGZHOU_BACKGROUND_ERROR:([^\r\n<]+)/.exec(child?.startupError||'')?.[1];throw new Error(cause?`${name} 后台浏览器启动失败（${cause}）`:`${name} 独立浏览器启动失败，请关闭独立登录窗口后重试`);}
    let lines;try{lines=fs.readFileSync(portFile,'utf8').trim().split(/\r?\n/);}catch{await pause(150);continue;}
    if(!/^\d+$/.test(lines[0])||!/^\/devtools\/browser\/[a-z0-9-]+$/i.test(lines[1]||'')){await pause(150);continue;}
    connection=createCdpConnection(`ws://127.0.0.1:${Number(lines[0])}${lines[1]}`,WebSocket);await connection.opened;
@@ -39,6 +41,12 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
    session=(await connection.command('Target.attachToTarget',{targetId,flatten:true})).sessionId;return;
   }
   throw new Error(`${name} 后台浏览器启动超时`);
+  }catch(error){
+   // A failed initial connection must release the owned browser/profile now,
+   // so a later refresh or explicit login does not inherit a stale lock.
+   try{await closeBrowser();}catch(cleanupError){error.message+=`；${cleanupError.message}`;}
+   throw error;
+  }
  }
  async function evaluate(expression,{signal,timeout=30000}={}){
   check(signal);const r=await connection.command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},session,{signal,timeout});

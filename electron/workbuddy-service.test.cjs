@@ -54,6 +54,29 @@ const fakeSpawn = () => {
   return child;
 };
 
+function fixtureProcessWaitCommand({ pid, startedAt, createdAt }, executable) {
+  assert.ok(Number.isInteger(pid) && pid > 0);
+  assert.ok(Number.isSafeInteger(startedAt) && Number.isSafeInteger(createdAt) && startedAt <= createdAt);
+  const expected = executable.replaceAll("'", "''");
+  return [
+    "$ErrorActionPreference='Stop';",
+    `$record=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if(-not $record){exit};`,
+    '$created=([DateTimeOffset]$record.CreationDate.ToUniversalTime()).ToUnixTimeMilliseconds();',
+    // A venv redirector can exit before cleanup, and Windows may reuse its PID.
+    // Creation time outside the captured spawn interval proves it is another
+    // instance: leave it alone, without even obtaining a waitable handle.
+    `if($created -lt ${startedAt} -or $created -gt ${createdAt}){exit};`,
+    `$command=[string]$record.CommandLine; if(-not $command.Contains('${expected}') -or $command -notmatch '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)' -or $command -notmatch '(?:^|\\s)server\\.main:app(?:\\s|$)'){throw 'Fixture process identity mismatch'};`,
+    `$owned=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if(-not $owned){exit};`,
+    // Pin the process handle, then recheck its start time. This also closes the
+    // PID-reuse race between the CIM lookup and Get-Process. WaitForExit now
+    // observes that same handle, never a later process with the same number.
+    'try {$null=$owned.SafeHandle; $handleCreated=([DateTimeOffset]$owned.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()} catch [System.InvalidOperationException] {exit};',
+    'if($handleCreated -ne $created){exit};',
+    "if(-not $owned.WaitForExit(5000)){throw 'Fixture manager did not exit before cleanup'}",
+  ].join(' ');
+}
+
 test('folder selection rejects relative or incomplete roots without saving them', async t => {
   const { userDataDir } = fixture(t);
   const service = createWorkBuddyService({ userDataDir, exec: processExec, fetch: unavailable });
@@ -269,6 +292,22 @@ test('Windows identity checks accept both installed interpreters and reject anot
   }
 });
 
+test('Windows fixture cleanup refuses reused PIDs and preserves same-instance identity checks', { skip: process.platform !== 'win32' }, async () => {
+  const run = require('node:util').promisify(require('node:child_process').execFile);
+  const executable = path.join(os.tmpdir(), 'xz-workbuddy-identity', '.venv/Scripts/pythonw.exe');
+  const capture = { pid: 123, startedAt: 1700000000000, createdAt: 1700000000010 };
+  const original = 1700000000005, reused = 1700000000100;
+  const commandLine = `"${executable}" -m uvicorn server.main:app --port 7864`;
+  const invoke = (creation, command, handleCreation = creation, mayWait = false) => {
+    const records = `function Get-CimInstance { [pscustomobject]@{CreationDate=[DateTimeOffset]::FromUnixTimeMilliseconds(${creation}).UtcDateTime;CommandLine='${command.replaceAll("'", "''")}'} }; function Get-Process { $owned=[pscustomobject]@{SafeHandle=1;StartTime=[DateTimeOffset]::FromUnixTimeMilliseconds(${handleCreation}).UtcDateTime}; Add-Member -InputObject $owned -MemberType ScriptMethod -Name WaitForExit -Value {${mayWait ? "[Console]::WriteLine('FIXTURE_WAITED');return $true" : "throw 'Must not wait for another process instance'"}}; return $owned }; `;
+    return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', records + fixtureProcessWaitCommand(capture, executable)], { windowsHide: true, timeout: 8000 });
+  };
+  assert.equal((await invoke(reused, 'another deployment')).stdout.trim(), '');
+  await assert.rejects(invoke(original, 'another deployment'), /Fixture process identity mismatch/);
+  assert.equal((await invoke(original, commandLine, reused)).stdout.trim(), '');
+  assert.equal((await invoke(original, commandLine, original, true)).stdout.trim(), 'FIXTURE_WAITED');
+});
+
 test('Windows manager has no console and keeps writing logs after its launching app exits', { skip: process.platform !== 'win32', timeout: 20000 }, async t => {
   const { execFileSync, execFile: run } = require('node:child_process');
   const { promisify } = require('node:util');
@@ -282,17 +321,17 @@ test('Windows manager has no console and keeps writing logs after its launching 
   const report = path.join(root, 'console.json');
   const launchReport = path.join(root, 'spawned-process.json');
   beforeCleanup(async () => {
-    const ids = new Set();
-    for (const file of [launchReport, report]) if (fs.existsSync(file)) {
-      const pid = JSON.parse(fs.readFileSync(file, 'utf8')).pid;
-      if (Number.isInteger(pid) && pid > 0) ids.add(pid);
+    const records = new Map();
+    // The self-report has an exact OS creation time. Prefer it when a launcher
+    // and the stand-in share a PID; otherwise check both recorded instances.
+    for (const file of [report, launchReport]) if (fs.existsSync(file)) {
+      const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (Number.isInteger(record.pid) && record.pid > 0 && !records.has(record.pid)) records.set(record.pid, record);
     }
-    const expected = path.join(root, '.venv/Scripts/pythonw.exe').replaceAll("'", "''");
-    for (const pid of ids) {
-      // Only inspect IDs captured from this test's actual spawn/self-report.
+    for (const record of records.values()) {
       // Never enumerate, stop, or wait for the user's installed WorkBuddy.
       await promisify(run)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-        `$ErrorActionPreference='Stop'; $record=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if(-not $record){exit}; $command=[string]$record.CommandLine; if(-not $command.Contains('${expected}') -or $command -notmatch '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)' -or $command -notmatch '(?:^|\\s)server\\.main:app(?:\\s|$)'){throw 'Fixture process identity mismatch'}; $owned=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if($owned -and -not $owned.WaitForExit(5000)){throw 'Fixture manager did not exit before cleanup'}`],
+        fixtureProcessWaitCommand(record, path.join(root, '.venv/Scripts/pythonw.exe'))],
         { windowsHide: true, timeout: 8000 });
     }
   });
@@ -301,10 +340,15 @@ test('Windows manager has no console and keeps writing logs after its launching 
   fs.writeFileSync(path.join(root, 'uvicorn.py'), `import ctypes,json,os,sys,time
 kernel=ctypes.windll.kernel32
 kernel.GetConsoleWindow.restype=ctypes.c_void_p
+kernel.GetCurrentProcess.restype=ctypes.c_void_p
+kernel.GetProcessTimes.argtypes=[ctypes.c_void_p]+[ctypes.POINTER(ctypes.c_ulonglong)]*4
+created,exited,user,cpu=[ctypes.c_ulonglong() for _ in range(4)]
+if not kernel.GetProcessTimes(kernel.GetCurrentProcess(),ctypes.byref(created),ctypes.byref(exited),ctypes.byref(user),ctypes.byref(cpu)): raise ctypes.WinError()
+created_at=created.value//10000-11644473600000
 console=kernel.GetConsoleWindow()
 print('manager-stdout',flush=True)
 print('manager-stderr',file=sys.stderr,flush=True)
-with open('console.json','w') as f: json.dump({'pid':os.getpid(),'console':console or 0,'args':sys.argv},f)
+with open('console.json','w') as f: json.dump({'pid':os.getpid(),'startedAt':created_at,'createdAt':created_at,'console':console or 0,'args':sys.argv},f)
 time.sleep(1.5)
 with open('survived.txt','w') as f: f.write('alive')
 # Keep the process/log handles live after the success marker so cleanup must
@@ -316,7 +360,7 @@ time.sleep(1)
 const {spawn}=require('node:child_process');
 const {createWorkBuddyService}=require(${JSON.stringify(require.resolve('./workbuddy-service.cjs'))});
 const service=createWorkBuddyService({userDataDir:${JSON.stringify(userDataDir)},pollIntervalMs:10,
-spawn:(file,args,options)=>{const child=spawn(file,args,options);fs.writeFileSync(${JSON.stringify(launchReport)},JSON.stringify({pid:child.pid}));return child;},
+spawn:(file,args,options)=>{const startedAt=Date.now(),child=spawn(file,args,options);fs.writeFileSync(${JSON.stringify(launchReport)},JSON.stringify({pid:child.pid,startedAt,createdAt:Date.now()}));return child;},
 fetch:async()=>{if(!fs.existsSync(${JSON.stringify(report)})) throw Error('pending');return {ok:true,json:async()=>({ok:true,service:'workbuddy-manager'})};},
 exec:async(_file,args)=>({stdout:JSON.stringify({found:args.at(-1).includes('7863')||fs.existsSync(${JSON.stringify(report)}),matches:true,pid:123})})});
 service.start(${JSON.stringify(root)}).catch(()=>{process.exitCode=1});

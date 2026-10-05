@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createIPProject,importIPNovel,getIPProject,updateIPMeta,ipFingerprint} from './ipWorkspace.js';
 import {runIPTask} from './ipAi.js';
-const fixture=()=>{let state=createIPProject({fruitProjects:[]},{name:'并发验证',readConcurrency:3});const id=state.fruitProjects[0].id;state=importIPNovel(state,id,{content:Array.from({length:6},(_,i)=>`第${i+1}章 因果\n原文事实${i+1}。\n`).join('')});return {state,id,project:getIPProject(state,id)};};
+const fixture=()=>{let state=createIPProject({fruitProjects:[]},{name:'并发验证',readConcurrency:3});const id=state.fruitProjects[0].id;state=importIPNovel(state,id,{content:Array.from({length:6},(_,i)=>`第${i+1}章 因果\n${'原文事实。'.repeat(5000)}\n`).join('')});return {state,id,project:getIPProject(state,id)};};
 test('parallel source reads synthesize ordered facts and balance all request lifecycle IDs',async()=>{
  const {project}=fixture(),source=project.creator.ip.source,active=new Set(),reads=[],requests=[];let peak=0;
  source.chapters.slice(0,1).forEach(c=>project.creator.ip.reading.push({sourceId:source.id,chapterId:c.id,start:c.start,end:c.end,note:'章节事实1'}));
