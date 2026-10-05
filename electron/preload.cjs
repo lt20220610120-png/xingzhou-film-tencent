@@ -1,5 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
+ chatgptWebStatus:()=>ipcRenderer.invoke('chatgpt-web-status'),chatgptWebOpenLogin:()=>ipcRenderer.invoke('chatgpt-web-login'),chatgptWebModels:()=>ipcRenderer.invoke('chatgpt-web-models'),
  geminiWebStatus:()=>ipcRenderer.invoke('gemini-web-status'),geminiWebOpenLogin:()=>ipcRenderer.invoke('gemini-web-login'),geminiWebModels:()=>ipcRenderer.invoke('gemini-web-models'),
  doubaoWorkStatus:()=>ipcRenderer.invoke('doubao-work-status'),doubaoWorkOpenLogin:()=>ipcRenderer.invoke('doubao-work-login'),doubaoWorkModels:()=>ipcRenderer.invoke('doubao-work-models'),
  artReviewLoadLocal:p=>ipcRenderer.invoke('art-review-load-local',p),artReviewSaveLocal:p=>ipcRenderer.invoke('art-review-save-local',p),collabArtReviewSave:p=>ipcRenderer.invoke('collab-art-review-save',p),collabArtReviewPublish:p=>ipcRenderer.invoke('collab-art-review-publish',p),

@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const { spawn, execFile } = require('node:child_process');
 const runFile = require('node:util').promisify(execFile);
+const { windowlessPython,windowlessPythonArgs } = require('./windows-process.cjs');
 
 const REPOSITORY = 'ithtelab/workbuddy-manager';
 const RELEASE_API = `https://api.github.com/repos/${REPOSITORY}/releases/latest`;
@@ -92,7 +93,7 @@ function validateRoot(root) {
 }
 function run(executable,args,{cwd,timeout=180000}={}) {
   return new Promise((resolve,reject)=>{
-    const child=spawn(executable,args,{cwd,windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'}});
+    const child=spawn(windowlessPython(executable),windowlessPythonArgs(args),{cwd,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe'],env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'}});
     let ended=false;const finish=error=>{if(ended)return;ended=true;clearTimeout(timer);error?reject(error):resolve();};
     // Consume child output without forwarding anything that might contain proxy
     // credentials or environment values to the renderer or application logs.
@@ -120,8 +121,9 @@ async function inspectPersistentPaths(root,{python=path.join(root,'.venv','Scrip
   const folder=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-workbuddy-inspect-'));
   try{
     const helper=safePath(folder,'workbuddy-data-guard.py');fs.writeFileSync(helper,fs.readFileSync(path.join(__dirname,'workbuddy-archive.py')),{flag:'wx'});
-    const {stdout}=await runFile(python,[helper,'--inspect-data',root],{cwd:root,windowsHide:true,timeout:20000,maxBuffer:512*1024,encoding:'utf8',env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'}});
-    const paths=JSON.parse(stdout);
+    const resultFile=safePath(folder,'paths.json');
+    await runFile(windowlessPython(python),windowlessPythonArgs([helper,'--inspect-data',root,resultFile]),{cwd:root,windowsHide:true,shell:false,timeout:20000,maxBuffer:512*1024,encoding:'utf8',env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'}});
+    const paths=JSON.parse(fs.readFileSync(resultFile,'utf8'));
     if(!Array.isArray(paths)||paths.length<3||paths.some(item=>typeof item.key!=='string'||typeof item.path!=='string'||!path.isAbsolute(item.path)))throw new Error('invalid inspection');
     return paths;
   }catch{throw new Error('无法确认资料目录，暂不能自动更新；请检查控制面板的数据路径配置');}

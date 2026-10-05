@@ -24,9 +24,9 @@ export function parseCompletedScript(content){
 
 // Allocate identifiers and validate files before setState, so React replaying an
 // updater cannot create another project or leave an empty project on failure.
-export function prepareNovelProject(document,{duration=60,selection='',groupId=null}={}){
+export function prepareNovelProject(document,{duration=60,selection='',groupId=null,readConcurrency=3}={}){
  documentText(document);
- const empty={fruitProjects:[]},created=createIPProject(empty,{name:projectNameFromFile(document.fileName||document.name),duration,groupId});
+ const empty={fruitProjects:[]},created=createIPProject(empty,{name:projectNameFromFile(document.fileName||document.name),duration,groupId,readConcurrency});
  const imported=importIPNovel(created,created.fruitProjects[0].id,{...document,name:document.fileName||document.name});
  const project=imported.fruitProjects[0];
  return {...project,creator:{...project.creator,ip:{...project.creator.ip,selection}}};

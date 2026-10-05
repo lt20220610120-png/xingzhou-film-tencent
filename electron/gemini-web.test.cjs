@@ -86,9 +86,12 @@ function fakeBrowser(dir, settings = {}) {
       const reply = value => queueMicrotask(() => this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({id:message.id,result:value})})));
       if(message.method==='Target.getTargets') return reply({targetInfos:[{type:'page',targetId:'app-owned-page'}]});
       if(message.method==='Target.attachToTarget') return reply({sessionId:'app-owned-session'});
+      if(message.method==='Page.reload')return reply({});
       if(message.method==='Browser.close') { const close = () => {reply({}); const child=launches.at(-1).child;child.exitCode=0;child.emit('exit',0);}; if(settings.closeDelay) setTimeout(close,settings.closeDelay);else close();return; }
       assert.equal(message.method,'Runtime.evaluate');
       const expression=message.params.expression;
+      if(expression==='performance.timeOrigin')return reply({result:{value:1}});
+      if(expression.startsWith('({timeOrigin:'))return reply({result:{value:{timeOrigin:2,ready:'complete'}}});
       if(expression.startsWith('({ready:')) return reply({result:{value:{ready:'complete',origin:'https://gemini.google.com',token:true}}});
       if(expression.includes("})('status',")) return reply({result:{value:{ok:true,raw:statusFrame()}}});
       if(expression.includes("})('generate',")) {
@@ -136,6 +139,22 @@ test('Gemini runs quietly in an owned profile, serializes quota requests, and op
   assert.equal(duringLogin.loggedIn,false);
   assert.match(duringLogin.message,/关闭.*刷新/);
   assert.equal(fake.launches.length,2);
+});
+
+test('Gemini refreshes and replays an explicit 1095 rejection once, without changing model or exposing login UI',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-gemini-1095-'));let calls=0;
+ const rejection=frame([['wrb.fr',null,null,null,null,[null,null,[[null,[1095]]]]]]);
+ const fake=fakeBrowser(dir,{generateResult:raw=>({ok:true,raw:++calls===1?rejection:raw})});
+ const service=api().createGeminiWebService(fake.dependencies);t.after(async()=>{await service.close();fs.rmSync(dir,{recursive:true,force:true});});
+ assert.equal(await service.request({model:'account-pro-id',messages:[{role:'user',content:'任务'}]}),'连接成功');
+ assert.equal(calls,2);assert.equal(fake.launches.length,1);assert.ok(fake.launches[0].args.includes('--headless=new'));
+});
+test('persistent Gemini 1095 rejection is bounded and requires user reauthentication',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-gemini-rejected-'));let calls=0;
+ const rejection=frame([['wrb.fr',null,null,null,null,[null,null,[[null,[1095]]]]]]);
+ const fake=fakeBrowser(dir,{generateResult:()=>{calls++;return {ok:true,raw:rejection};}}),service=api().createGeminiWebService(fake.dependencies);
+ t.after(async()=>{await service.close();fs.rmSync(dir,{recursive:true,force:true});});
+ await assert.rejects(service.request({messages:[{role:'user',content:'任务'}]}),e=>e.code==='GEMINI_SESSION_REJECTED'&&/重新验证/.test(e.message));assert.equal(calls,2);
 });
 
 test('Gemini cancellation aborts the browser fetch and permits the next request', async t => {

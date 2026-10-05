@@ -71,7 +71,7 @@ function createWorkBuddyService({ userDataDir, exec = runFile, fetch: request = 
   const starts = new Map();
 
   const powershell = command => exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
-    windowsHide: true, timeout: 12000, maxBuffer: 512 * 1024, encoding: 'utf8',
+    windowsHide: true, shell: false, timeout: 12000, maxBuffer: 512 * 1024, encoding: 'utf8',
   });
   const jsonResult = result => {
     try { return JSON.parse(String(result?.stdout ?? result ?? '').replace(/^\uFEFF/, '').trim() || 'null'); }
@@ -221,7 +221,7 @@ function createWorkBuddyService({ userDataDir, exec = runFile, fetch: request = 
     const out = fs.openSync(outFile, 'a');
     const err = fs.openSync(errFile, 'a');
     let child;
-    try { child = spawn(file, args, { cwd, detached: true, windowsHide: true, stdio: ['ignore', out, err], env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } }); }
+    try { child = spawn(file, args, { cwd, detached: true, windowsHide: true, shell: false, stdio: ['ignore', out, err], env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } }); }
     catch { throw new Error('无法启动面板运行文件'); }
     finally { fs.closeSync(out); fs.closeSync(err); }
     let failed = false;

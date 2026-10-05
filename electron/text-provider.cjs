@@ -4,6 +4,10 @@ const { createTextRequestScheduler } = require('./text-request-rate.cjs');
 const requestScheduler = createTextRequestScheduler();
 
 async function requestText(config, options = {}) {
+  if(config?.provider==='chatgptWeb'){
+    if(!options.chatgptRun)throw new Error('ChatGPT 网页账号连接尚未初始化，请在桌面应用的 API 接口中登录');
+    return options.chatgptRun(config,{signal:options.signal||config.signal,onProgress:options.onProgress});
+  }
   if (config?.provider === 'doubaoWork') {
     if (!options.doubaoRun) throw new Error('豆包工作连接尚未初始化，请在桌面应用的 API 接口中连接本机客户端');
     return options.doubaoRun({...config,reasoningEffort:config.reasoningEffort||'high'}, { signal: options.signal || config.signal, onProgress: options.onProgress });
@@ -25,7 +29,7 @@ async function requestText(config, options = {}) {
 }
 
 async function testTextConnection(config, options = {}) {
-  if (!['codexLocal','geminiWeb','doubaoWork'].includes(config?.provider)) return (options.apiTest || testAiConnection)(config, options);
+  if (!['codexLocal','geminiWeb','doubaoWork','chatgptWeb'].includes(config?.provider)) return (options.apiTest || testAiConnection)(config, options);
   const started = Date.now();
   const message = await requestText({ ...config, messages: [{ role: 'user', content: '只回复：连接成功' }] }, options);
   return { ok: true, message, protocol: config.provider, elapsedMs: Date.now() - started };

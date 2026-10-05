@@ -13,7 +13,7 @@ const range=r=>{if(!r.taskId.includes(':read-'))return null;const m=text(r).matc
 test('truncated first read splits exact source intervals, saves only completed notes and disables DeepSeek thinking',async()=>{
  const p=novel('第一章 开篇\n'+'原文事实。'.repeat(1100)+'真实最后一句'),reads=[],requests=[],drafts=[];let failed=false;
  const result=await runIPTask({project:p,task:'plan',profile:{model:'cn:deepseek-v4.1-flash'},taskId:'split',onRead:r=>reads.push(r),onDraft:d=>drafts.push(d),api:{aiChat:async r=>{requests.push(r);if(range(r)){if(!failed){failed=true;return truncated('不能算读完的半段');}return '已完整阅读当前区间，保留末句。';}return direct(p,r);}}});
- assert.equal(result.plan.episodes.length,50);assert.equal(reads.map(r=>p.creator.ip.source.content.slice(r.start,r.end)).join(''),p.creator.ip.source.content);
+ assert.equal(result.plan.episodes.length,50);assert.equal(reads.slice().sort((a,b)=>a.start-b.start).map(r=>p.creator.ip.source.content.slice(r.start,r.end)).join(''),p.creator.ip.source.content);
  assert.ok(reads.every(r=>r.note!=='不能算读完的半段'));assert.ok(drafts.some(d=>d.content==='不能算读完的半段'));
  assert.ok(requests.every(r=>r.analysisMode===true));assert.ok(requests.filter(r=>range(r)).every(r=>r.maxOutputTokens<=4096));
 });

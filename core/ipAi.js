@@ -1,4 +1,5 @@
 import { writeIPEpisode } from './ipEpisodeAi.js';
+import { runReadingPool } from './ipReading.js';
 import { IP_BUILTIN_SKILLS } from './ipBuiltinSkills.js';
 import { buildSkillMessages } from './skillContext.js';
 import { assertMessageCapacity } from './skillExecution.js';
@@ -19,7 +20,7 @@ const packNotes=(items,limit=9000)=>{
  }
  if(group.length)groups.push(group);return groups;
 };
-export async function runIPTask({api,project,task,episodeId,profile,instruction='',taskId,isCancelled=()=>false,onProgress=()=>{},onRead=()=>{},onDraft=()=>{},allowReviewedPrevious=false}){
+export async function runIPTask({api,project,task,episodeId,profile,instruction='',taskId,isCancelled=()=>false,onProgress=()=>{},onRead=()=>{},onDraft=()=>{},onRequestStart=()=>{},onRequestEnd=()=>{},allowReviewedPrevious=false}){
  if(!profile?.model)throw new Error('请先在 API 接口中添加并选择文本模型');
  const ip=project.creator.ip,source=ip.source;
  if(!source?.content)throw new Error('请先导入小说');
@@ -27,8 +28,11 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
  const invoke=async(messages,suffix,label,maxOutputTokens=8192)=>{
   if(isCancelled())stop();
   assertMessageCapacity(messages,profile,{maxOutputTokens});
-  onProgress({label,taskId:`${taskId}:${suffix}`});
-  const response=await api.aiChat({profileId:profile.id,provider:profile.provider,protocol:profile.protocol,endpoint:profile.endpoint,apiKey:profile.apiKey,requiresApiKey:profile.requiresApiKey,model:profile.model,reasoningEffort:profile.reasoningEffort,messages,taskId:`${taskId}:${suffix}`,resultEnvelope:true,maxOutputTokens,analysisMode:true});
+  const requestId=`${taskId}:${suffix}`;
+  onRequestStart(requestId);onProgress({label,taskId:requestId});
+  let response;
+  try{response=await api.aiChat({profileId:profile.id,provider:profile.provider,protocol:profile.protocol,endpoint:profile.endpoint,apiKey:profile.apiKey,requiresApiKey:profile.requiresApiKey,model:profile.model,reasoningEffort:profile.reasoningEffort,messages,taskId:requestId,resultEnvelope:true,maxOutputTokens,analysisMode:true});}
+  finally{onRequestEnd(requestId);}
   if(isCancelled())stop(response?.partialText||(response?.ok===true?response.output:typeof response==='string'?response:''));
   if(response?.ok===false)throw Object.assign(new Error(response.error||'模型调用失败'),{code:response.code,partialText:response.partialText});
   const output=typeof response==='string'?response:response?.output;
@@ -54,6 +58,7 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
    const record={sourceId:source.id,chapterId:chapter.id,start,end,note,readAt:new Date().toISOString()};
    await onRead(record);readRecords.push(record);
   };
+  const readingJobs=[];
   for(const chapter of source.chapters){
    let start=chapter.start;
    while(start<chapter.end){
@@ -63,9 +68,13 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
     if(prior){readRecords.push(prior);start=prior.end;continue;}
     const nextSaved=(ip.reading||[]).filter(r=>r.sourceId===source.id&&r.start>start&&r.start<chapter.end&&r.note).reduce((n,r)=>Math.min(n,r.start),chapter.end);
     const end=unicodeBoundary(source.content,Math.min(chapter.end,start+3200,nextSaved));
-    await readRange(chapter,start,end);start=end;
+    readingJobs.push({chapter,start,end});start=end;
    }
   }
+  // Web account bridges serialize internally; HTTP APIs can use the full pool.
+  const concurrency=['geminiWeb','chatgptWeb','doubaoWork'].includes(profile.provider)?1:ip.readConcurrency;
+  await runReadingPool(readingJobs,({chapter,start,end})=>readRange(chapter,start,end),{concurrency,isCancelled});
+  readRecords.sort((a,b)=>a.start-b.start||a.end-b.end);
   const readingNote=r=>{const chapter=source.chapters.find(c=>c.id===r.chapterId||r.start>=c.start&&r.end<=c.end);return `【${chapter?.id} ${chapter?.title} 原文范围[${r.start},${r.end})】\n${r.note}`;};
   for(const r of readRecords)notes.push(readingNote(r));
   const stageMessages=(stageSkill,prompt,phase,stageBase=base)=>{

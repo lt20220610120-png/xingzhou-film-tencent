@@ -178,7 +178,11 @@ def extract(archive, destination, version):
 if __name__ == '__main__':
     try:
         if sys.argv[1:2] == ['--inspect-data']:
-            print(json.dumps(inspect_data(sys.argv[2]), ensure_ascii=True))
+            result = json.dumps(inspect_data(sys.argv[2]), ensure_ascii=True)
+            if len(sys.argv) == 4:
+                Path(sys.argv[3]).write_text(result, encoding='utf-8')
+            else:
+                print(result)
         else:
             print(extract(*sys.argv[1:]))
     except Exception as error:

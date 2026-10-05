@@ -85,6 +85,7 @@ function parseGeneratedText(raw) {
   for (const part of frames) {
     const errorCode = part?.[5]?.[2]?.[0]?.[1]?.[0];
     if (errorCode) {
+      if(errorCode>=1090&&errorCode<=1099)throw Object.assign(new Error(`Gemini 网页会话验证失败（状态 ${errorCode}）`),{code:output?'OUTPUT_TRUNCATED':'GEMINI_SESSION_REJECTED',statusCode:errorCode,...output?{partialText:output}:{}});
       const messages = { 1037: 'Gemini 网页账号当前模型额度已用完，请等待恢复或选择其他模型', 1050: 'Gemini 网页模型与会话不匹配，请重新发送', 1052: 'Gemini 网页所选模型不可用或协议已变化，请重新检查模型', 1060: 'Gemini 网页暂时限制了当前网络，请稍后重试', 1013: 'Gemini 网页暂时处理失败，请稍后重试' };
       throw new Error(messages[errorCode] || `Gemini 网页处理失败（状态 ${errorCode}）`);
     }
@@ -340,7 +341,8 @@ function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findB
       }, 1000) : null;
       try {
         checkSignal(signal);
-        const result = await evaluate(`(${browserRequest.toString()})('generate',${JSON.stringify(payload)},${timeout})`, { signal, timeout: timeout + 5000, cancelFetch: true });
+        const send=async request=>{
+        const result = await evaluate(`(${browserRequest.toString()})('generate',${JSON.stringify(request)},${timeout})`, { signal, timeout: timeout + 5000, cancelFetch: true });
         checkSignal(signal);
         if (!result?.ok) {
           if (result?.raw) {
@@ -350,10 +352,32 @@ function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findB
           throw new Error(messages[result?.code] || `Gemini 网页请求失败${result?.status ? `（HTTP ${result.status}）` : ''}`);
         }
         return parseGeneratedText(result.raw);
+        };
+        try{return await send(payload);}catch(error){
+          // Only an explicit session rejection with no delivered text is replayed.
+          // Never replay partial output, timeouts, quota errors, or network errors.
+          if(error.code!=='GEMINI_SESSION_REJECTED')throw error;
+          checkSignal(signal);options.onProgress?.({phase:'reconnecting',receivedBytes:0});
+          const previousOrigin=await evaluate('performance.timeOrigin',{signal});
+          await connection.command('Page.reload',{ignoreCache:true},pageSession,{signal});
+          const refreshDeadline=Date.now()+30000;let refreshed=false;
+          while(Date.now()<refreshDeadline){
+            const page=await evaluate('({timeOrigin:performance.timeOrigin,ready:document.readyState})',{signal});
+            if(page.timeOrigin!==previousOrigin&&page.ready==='complete'){refreshed=true;break;}
+            await pause(200);checkSignal(signal);
+          }
+          if(!refreshed)throw new Error('Gemini 后台页面刷新超时，请检查网络后重新连接');
+          lastState={installed:true,running:true,...await inspect(signal)};
+          if(!lastState.loggedIn)throw new Error(lastState.message);
+          const refreshedModel=model&&lastState.models.find(item=>item.id===model.id);
+          if(model&&!refreshedModel)throw new Error('Gemini 账号模型已经变化，请刷新模型后重新选择');
+          try{return await send(buildGenerateRequest(prompt,refreshedModel||null,randomUUID(),config.extendedThinking===true));}
+          catch(second){if(second.code==='GEMINI_SESSION_REJECTED')throw Object.assign(new Error(`Gemini 网页会话仍被 Google 拒绝（状态 ${second.statusCode}）。后台刷新未恢复，请打开独立登录窗口重新验证账号，完成后关闭窗口再测试正文。`),{code:second.code,statusCode:second.statusCode});throw second;}
+        }
       } finally { if (progress) clearInterval(progress); }
     }, options.signal || config.signal),
     close: () => { closed = true; return stopOwnedBrowser(); },
   };
 }
 
-module.exports = { createGeminiWebService, findBrowser, parseFrames, parseUserStatus, parseGeneratedText, buildGenerateRequest };
+module.exports = { createGeminiWebService, findBrowser, createCdpConnection, parseFrames, parseUserStatus, parseGeneratedText, buildGenerateRequest };

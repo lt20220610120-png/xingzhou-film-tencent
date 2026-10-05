@@ -73,6 +73,9 @@
 .ip-model-select{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--brand-muted);min-width:0}.ip-model-select select{width:100%}
 .ip-project-config{display:grid;grid-template-columns:minmax(200px,1.3fr) minmax(160px,1fr);gap:18px;padding:18px;border:1px solid var(--brand-line);background:#fff;border-radius:12px}
 .ip-project-config>label{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--brand-muted)}
+.ip-project-config.ip-control-config{grid-template-columns:minmax(200px,1.3fr) minmax(160px,1fr) minmax(110px,.65fr)}
+.ip-control-config small{font-size:12px;line-height:1.5}
+@media(max-width:1000px){.ip-project-config.ip-control-config{grid-template-columns:1fr}}
 .ip-builtin{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:14px;color:var(--brand-muted)}.ip-builtin button{padding:4px 0;min-height:28px!important;color:var(--brand-text)}
 .ip-source-card{display:flex;align-items:center;gap:16px;padding:22px 0;border-bottom:1px solid var(--brand-line);margin-bottom:22px}.ip-source-card>div{flex:1;min-width:0}.ip-source-card strong{font-size:17px}.ip-source-card p{font-size:14px;color:var(--brand-muted);margin:7px 0 0}
 .ip-welcome{padding:70px 24px;text-align:center;background:#fff;border:1px dashed var(--brand-line);border-radius:12px;margin-top:24px;color:var(--brand-muted)}.ip-welcome h3{color:var(--brand-ink);font-size:21px}.ip-welcome p{font-size:15px;line-height:1.8}.ip-welcome button{margin:20px auto 0}

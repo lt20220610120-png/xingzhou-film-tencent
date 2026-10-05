@@ -1,5 +1,6 @@
 import { normalizeCreatorProject, buildCreatorText } from './creatorWorkspace.js';
 import { episodeSourceRanges, validateSourceRanges, rangeChapters } from './ipSourceRanges.js';
+import { normalizeReadConcurrency } from './ipReading.js';
 
 let sequence=0;
 const uid=()=>`ip_${Date.now().toString(36)}_${sequence++}_${Math.random().toString(36).slice(2,7)}`;
@@ -33,9 +34,9 @@ export const getIPProject=(state,id)=>state.fruitProjects?.find(p=>p.id===id&&p.
 export function mutateIP(state,id,fn){
  return {...state,fruitProjects:state.fruitProjects.map(p=>p.id!==id?p:{...fn(normalizeCreatorProject(p,'fruit')),updatedAt:now()})};
 }
-export function createIPProject(state,{name,duration=60,groupId=null}){
+export function createIPProject(state,{name,duration=60,groupId=null,readConcurrency=3}){
  if(!name?.trim())throw new Error('请填写项目名称');
- const p=normalizeCreatorProject({id:uid(),name:name.trim(),groupId,createdAt:now(),updatedAt:now(),episodes:[{id:uid(),title:'设定和小传',type:'settings',rawText:'',scriptText:'',ipVersions:[]}],creator:{mode:'ip',ip:{duration:duration===120?120:60,sources:[],source:null,plan:null,planCandidates:[],reading:[]}}},'fruit');
+ const p=normalizeCreatorProject({id:uid(),name:name.trim(),groupId,createdAt:now(),updatedAt:now(),episodes:[{id:uid(),title:'设定和小传',type:'settings',rawText:'',scriptText:'',ipVersions:[]}],creator:{mode:'ip',ip:{duration:duration===120?120:60,readConcurrency:normalizeReadConcurrency(readConcurrency),sources:[],source:null,plan:null,planCandidates:[],reading:[]}}},'fruit');
  return {...state,fruitProjects:[...(state.fruitProjects||[]),p]};
 }
 export function parseNovel(content,id=uid()){
