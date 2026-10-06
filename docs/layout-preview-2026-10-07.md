@@ -11,3 +11,10 @@
 构建独立预览：先运行 `npm run build`，再运行 `node scripts/build-layout-preview.mjs`。双击生成的 `output/layout-preview/打开布局预览.cmd`。独立演示使用合成示例项目和模拟 Agent，独立保存至预览目录，不读取正式项目，不安装正式软件。
 
 2.7.14 验证：全套 1638 项测试通过；浏览器验证 32 项页面、编辑和持久化检查，7 项模拟生成与候选采用检查，18 项浮窗拖动、四边限位、窄窗口及重开恢复检查。生产构建与安装包运行时检查通过。验证截图保存在 `output/playwright`，运行日志和安装包报告保存在 `qa`。
+
+正式发布：2.7.14 已发布，两个公开 `latest.json` 的版本、地址、文件大小和 SHA256 与本地安装包一致，GitHub 附件公开摘要也一致。
+
+- 安装包：102,642,068 字节。
+- SHA256：`9a32715c006386e93300eda85005e444aed0016e347282e52cb1eedd08bf4658`。
+- 发布页：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.7.14
+- 独立 Electron 浮窗演示验证：浮窗标题栏存在，三组导航正常，渲染错误为零。
