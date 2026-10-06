@@ -242,8 +242,8 @@
 .art-analysis-info .collab-info-script>.collab-panel-title { flex:0 0 auto; padding:14px 18px; margin:0; border-bottom:1px solid var(--art-border); font-size:14px; min-height:65px; flex-wrap:wrap; }
 .art-analysis-info .art-script-edit-status { color:var(--art-muted); font-size:11px; font-weight:400; margin-left:3px; }
 .art-analysis-info .collab-save-script { min-height:35px; padding:7px 11px; border:1px solid var(--art-border); border-radius:7px; font-size:12px; background:#fff; color:var(--art-accent); }
-.art-analysis-info .collab-info-script>textarea { min-height:0; padding:20px 24px; border:0; border-radius:0; color:var(--art-ink); font-family:inherit; font-size:15px; line-height:1.9; box-shadow:none; outline-offset:-3px; }
-.art-analysis-info :is(button,select,textarea):focus-visible,
+.art-analysis-info .collab-info-script>:is(textarea,.formatted-editor) { min-height:0; padding:20px 24px; border:0; border-radius:0; color:var(--art-ink); font-family:inherit; font-size:15px; line-height:1.9; box-shadow:none; outline-offset:-3px; }
+.art-analysis-info :is(button,select,:is(textarea,.formatted-editor)):focus-visible,
 .director-batch-settings :is(button,select):focus-visible { outline:2px solid var(--brand-accent); outline-offset:3px; }
 @media(max-width:1100px) {
   .director-stage .quick-mode-container { grid-template-columns:minmax(0,1fr)!important; --director-pane-height:620px; }
@@ -254,7 +254,7 @@
   .art-analysis-info .art-config-fields>.collab-panel-title { margin-top:10px; }
   .art-analysis-info .collab-locked-skill { margin:0 16px; }
   .art-analysis-info .collab-info-script { min-height:540px; }
-  .art-analysis-info .collab-info-script>textarea { min-height:470px; }
+  .art-analysis-info .collab-info-script>:is(textarea,.formatted-editor) { min-height:470px; }
 }
 @media(max-width:650px) {
   .director-batch-heading .director-batch-settings { justify-content:flex-start; }
@@ -266,7 +266,7 @@
   .director-stage .quick-auto-progress { max-height:220px; padding:10px 12px; }
   .art-analysis-info .art-config-fields { display:block; }
   .art-analysis-info .collab-info-script>.collab-panel-title { padding:12px; }
-  .art-analysis-info .collab-info-script>textarea { padding:16px; }
+  .art-analysis-info .collab-info-script>:is(textarea,.formatted-editor) { padding:16px; }
 }
 @media(prefers-reduced-motion:reduce) {
   .art-analysis-info .style-chip { transition:none; }

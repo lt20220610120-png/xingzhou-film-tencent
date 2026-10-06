@@ -1,3 +1,4 @@
+import {FormattedEditor} from './components/FormattedText.jsx';
 import {UserProfile} from './v06/UserProfile.jsx';
 import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
@@ -513,7 +514,7 @@ function AiDrawer({ open, onClose, project, episodeId, kind, onApply, state, ski
         {result && (
           <div className="ai-answer">
             <div className="answer-head">AI 返回内容</div>
-            <textarea value={result} onChange={(e) => setResult(e.target.value)} />
+            <FormattedEditor value={result} onChange={(e) => setResult(e.target.value)} />
             <button className="secondary" onClick={() => onApply(result, scope)}>
               <Save size={15} /> 应用到{scope === 'episode' ? '当前集' : scope === 'multi' ? '选中集' : scope === 'range' ? '范围' : '总剧本'}
             </button>
@@ -611,7 +612,7 @@ function FruitEpisodeEditor({ project, episode, setState, skills, state, api }) 
               </div>
               <span className="status done">已生成</span>
             </div>
-            <textarea
+            <FormattedEditor
               className="big-editor result"
               value={episode.scriptText}
               onChange={(e) => update({ scriptText: e.target.value, status: '已修改' })}
@@ -707,7 +708,7 @@ function ScriptEpisodeEditor({ project, episode, setState, skills, state, api })
                 <small>转换完成后在这里手动修改</small>
               </div>
             </div>
-            <textarea
+            <FormattedEditor
               className="big-editor result"
               value={episode.result}
               onChange={(e) => update({ result: e.target.value, status: '已修改' })}

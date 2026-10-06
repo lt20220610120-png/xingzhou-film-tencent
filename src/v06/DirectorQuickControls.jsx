@@ -1,3 +1,4 @@
+import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import React from 'react';
 import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
 
@@ -27,7 +28,7 @@ export function DirectorQuickProgress({run,onStop,onResume,sourceView,onSourceVi
     {(stale||run?.phase==='stale')&&<p className="quick-run-warning">原文或项目设定已变化，分段稿需要重新生成。</p>}
     {(error||run?.errors?.[0]?.message)&&<p role="alert" className="quick-run-warning">{error||run.errors[0].message}</p>}
     {run?.plan&&sourceView==='plan'&&<div className="quick-plan-timing">{run.plan.segments.map(s=><span key={s.id}>（{s.index}）建议 {s.recommendedDurationSeconds} 秒{s.durationCompression&&Number.isFinite(s.naturalEstimatedSeconds)&&` · 自然预计 ${Math.round(s.naturalEstimatedSeconds*10)/10} 秒，紧凑节奏`}</span>)}</div>}
-    {run&&run.phase!=='completed'&&Object.values(run.segmentDrafts||{}).some(d=>d.prompt?.content)&&<details className="quick-draft-preview"><summary>查看本轮草稿与核对内容</summary>{Object.entries(run.segmentDrafts).map(([id,d])=>d.prompt?.content&&<pre key={id}>{d.prompt.content}</pre>)}</details>}
-    {!!run?.previousDrafts?.length&&<details className="quick-draft-preview"><summary>查看更新前保留的草稿</summary>{run.previousDrafts.map((d,i)=><pre key={i}>{d.prompt.content}</pre>)}</details>}
+    {run&&run.phase!=='completed'&&Object.values(run.segmentDrafts||{}).some(d=>d.prompt?.content)&&<details className="quick-draft-preview"><summary>查看本轮草稿与核对内容</summary>{Object.entries(run.segmentDrafts).map(([id,d])=>d.prompt?.content&&<FormattedText key={id} text={d.prompt.content}/>)}</details>}
+    {!!run?.previousDrafts?.length&&<details className="quick-draft-preview"><summary>查看更新前保留的草稿</summary>{run.previousDrafts.map((d,i)=><FormattedText key={i} text={d.prompt.content}/>)}</details>}
   </div>;
 }

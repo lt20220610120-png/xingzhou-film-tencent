@@ -51,7 +51,7 @@
 .collab-analyze-btn{white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:7px;justify-content:center;}
 .collab-analysis-actions{display:flex;gap:8px;align-items:center;}.collab-analysis-actions button{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
 .collab-info-script{flex:1;min-width:0;display:flex;flex-direction:column;}
-.collab-info-script textarea{flex:1;min-height:0;resize:none;border:1.5px solid #ddd5c2;border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:1.75;background:#fff;}
+.collab-info-script :is(textarea,.formatted-editor){flex:1;min-height:0;resize:none;border:1.5px solid #ddd5c2;border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:1.75;background:#fff;}
 .collab-save-script{white-space:nowrap;flex-shrink:0;}
 
 /* 按集网格 */
@@ -78,7 +78,7 @@
 .collab-asset-rail button small{color:#98917f;font-size:11.5px;}
 .collab-asset-detail{display:flex;gap:18px;flex:1;min-width:0;min-height:0;}
 .collab-asset-desc{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;}
-.collab-asset-desc textarea{flex:1;min-height:220px;resize:none;border:1.5px solid #ddd5c2;border-radius:12px;padding:13px 15px;font-size:13.5px;line-height:1.7;background:#fff;}
+.collab-asset-desc :is(textarea,.formatted-editor){flex:1;min-height:220px;resize:none;border:1.5px solid #ddd5c2;border-radius:12px;padding:13px 15px;font-size:13.5px;line-height:1.7;background:#fff;}
 .collab-asset-desc .ghost{align-self:flex-start;white-space:nowrap;}
 .collab-image-box{width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:9px;background:#faf7ef;border:1px solid #e7e1cf;border-radius:14px;padding:14px;overflow-y:auto;}
 .collab-asset-image{width:100%;border-radius:11px;object-fit:cover;max-height:300px;background:#eee;}
@@ -99,12 +99,12 @@
 .director-collab-invite{display:flex;gap:8px;margin:14px 0;}.director-collab-invite input{margin:0;flex:1;}
 .director-collab-members{display:flex;flex-direction:column;gap:6px}.director-collab-members>div{display:flex;align-items:center;justify-content:space-between;border:1px solid #e1e6f1;border-radius:8px;padding:9px 11px;}
 .cloud-project-lock-banner{display:flex;align-items:center;gap:7px;background:#fff0f1;color:#a83241;border:1px solid #efc4c9;border-radius:9px;padding:10px 13px;margin-bottom:12px;}
-.cloud-project-locked>textarea{pointer-events:none;opacity:.76;}
-.master-editor-toolbar{display:flex;align-items:center;gap:9px}.master-editor{resize:vertical}.director-master{max-width:none!important;width:100%;padding:28px 34px 42px!important}.director-master .master-editor{min-height:calc(100vh - 150px)!important}.master-title-tools>div{display:flex;align-items:center;gap:12px}.master-title-tools h1{margin-bottom:12px!important}.add-episode-dialog{width:min(680px,92vw)}.add-episode-dialog textarea{width:100%;min-height:320px;border:1px solid var(--line);border-radius:9px;padding:14px;resize:vertical;margin:12px 0 18px;line-height:1.8}
+.cloud-project-locked>:is(textarea,.formatted-editor){pointer-events:none;opacity:.76;}
+.master-editor-toolbar{display:flex;align-items:center;gap:9px}.master-editor{resize:vertical}.director-master{max-width:none!important;width:100%;padding:28px 34px 42px!important}.director-master .master-editor{min-height:calc(100vh - 150px)!important}.master-title-tools>div{display:flex;align-items:center;gap:12px}.master-title-tools h1{margin-bottom:12px!important}.add-episode-dialog{width:min(680px,92vw)}.add-episode-dialog :is(textarea,.formatted-editor){width:100%;min-height:320px;border:1px solid var(--line);border-radius:9px;padding:14px;resize:vertical;margin:12px 0 18px;line-height:1.8}
 .rail-episode-delete{color:#bd6570;font-size:10px;opacity:0;margin-left:auto}.director-rail>button:hover .rail-episode-delete,.director-rail>button.active .rail-episode-delete{opacity:1}
 .director-cloud-refresh{border:1px solid #b7ddeb;background:#effbff;color:#086a83;border-radius:18px;padding:7px 11px;display:inline-flex;align-items:center;gap:6px;box-shadow:none;white-space:nowrap}.mode-switch .director-cloud-refresh{margin-left:5px}
 .director-refresh-notice{display:inline-flex;align-items:center;color:#18704f!important;background:#e8f7ef;border:1px solid #b8dfca;border-radius:16px;padding:5px 10px;font-size:12px;font-weight:600;animation:refreshNoticeIn .18s ease-out}.mode-switch .director-refresh-notice{margin-left:4px}@keyframes refreshNoticeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-.setting-editor{max-width:none!important;padding:38px 42px!important}.setting-editor>p{color:var(--muted);margin-top:-8px}.setting-editor>textarea{width:100%;min-height:calc(100vh - 190px);resize:vertical;border:1px solid var(--line);border-radius:14px;background:#fff;padding:26px;font-size:15px;line-height:1.9;box-shadow:0 20px 55px #0b657012}
+.setting-editor{max-width:none!important;padding:38px 42px!important}.setting-editor>p{color:var(--muted);margin-top:-8px}.setting-editor>:is(textarea,.formatted-editor){width:100%;min-height:calc(100vh - 190px);resize:vertical;border:1px solid var(--line);border-radius:14px;background:#fff;padding:26px;font-size:15px;line-height:1.9;box-shadow:0 20px 55px #0b657012}
 .collab-storyboard-syncbar{display:flex;justify-content:flex-end;margin-bottom:12px}.collab-storyboard-syncbar button{display:flex;align-items:center;gap:6px;}
 .director-project-picker{width:min(840px,92vw);max-height:86vh;overflow:auto}.director-project-picker>header{display:flex;align-items:flex-start;justify-content:space-between}.director-project-picker>header h2{margin-top:4px}.director-project-picker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:18px 0 24px}.director-project-picker-grid>button{text-align:left;border:1px solid var(--line);border-radius:14px;background:#f8fcfd;padding:17px;display:flex;flex-direction:column;gap:6px}.director-project-picker-grid>button.active{border-color:#318fa2;background:#e6f6f7;box-shadow:0 0 0 3px #70bec62b}.director-project-picker-grid b{font-size:16px;color:#143c50}.director-project-picker-grid small{color:#547585}.director-project-picker-grid span{color:#08768a;font-size:11px}
 
@@ -130,7 +130,7 @@
 .collab-shot-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding-bottom:2px;}
 .collab-shot-controls select,.collab-shot-controls label{border:1px solid #d8e0ea;border-radius:8px;background:#f7f9fc;padding:7px 9px;font-size:12px;color:#354b63;}
 .collab-shot-controls .primary{margin-left:auto;white-space:nowrap;display:flex;align-items:center;gap:5px;}
-.collab-shot-prompt textarea{width:100%;height:100%;min-height:0;resize:none;border:1px solid #d9e0e8;border-radius:10px;background:#f7f9fc;padding:12px;line-height:1.7;color:#263b53;box-sizing:border-box;}
+.collab-shot-prompt :is(textarea,.formatted-editor){width:100%;height:100%;min-height:0;resize:none;border:1px solid #d9e0e8;border-radius:10px;background:#f7f9fc;padding:12px;line-height:1.7;color:#263b53;box-sizing:border-box;}
 .collab-shot-main{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:12px;height:360px;min-height:360px;}
 .collab-shot-video{border:1px solid #dfe5ed;border-radius:10px;background:#f7f9fc;padding:9px;display:flex;flex-direction:column;gap:8px;min-width:0;height:100%;box-sizing:border-box;}
 .collab-shot-assets{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;border-top:1px solid #edf0f4;padding-top:10px;color:#50677e;font-size:12px;}
@@ -148,8 +148,8 @@
 .asset-delete-mini{border:0;background:transparent;color:#b42318;cursor:pointer;padding:0;vertical-align:middle;}
 .manual-add-button{display:flex;align-items:center;gap:5px;white-space:nowrap;}
 .collab-manual-asset-modal{width:520px;max-width:92vw;display:flex;flex-direction:column;gap:10px;}
-.collab-manual-asset-modal input,.collab-manual-asset-modal select,.collab-manual-asset-modal textarea{border:1px solid #ddd5c2;border-radius:9px;padding:9px 11px;background:#fff;font-size:13px;}
-.collab-manual-asset-modal textarea{min-height:130px;resize:vertical;line-height:1.6;}
+.collab-manual-asset-modal input,.collab-manual-asset-modal select,.collab-manual-asset-modal :is(textarea,.formatted-editor){border:1px solid #ddd5c2;border-radius:9px;padding:9px 11px;background:#fff;font-size:13px;}
+.collab-manual-asset-modal :is(textarea,.formatted-editor){min-height:130px;resize:vertical;line-height:1.6;}
 .manual-episode-picks{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:#5d574b;font-size:13px;}
 .manual-episode-picks b{width:100%;}
 .manual-episode-picks label{background:#f5f0e4;border-radius:8px;padding:6px 9px;}
@@ -200,7 +200,7 @@
 .collab-chat-item.mine .collab-chat-bubble{background:#1d1a14;color:#f5f1e6;border-color:#1d1a14;}
 .collab-chat-image{max-width:280px;border-radius:11px;border:1px solid #e0d9c6;}
 .collab-chat-compose{display:flex;gap:9px;align-items:flex-end;padding-top:11px;flex-shrink:0;}
-.collab-chat-compose textarea{flex:1;min-height:58px;max-height:130px;resize:vertical;border:1.5px solid #ddd5c2;border-radius:12px;padding:10px 13px;font-size:13.5px;background:#fff;}
+.collab-chat-compose :is(textarea,.formatted-editor){flex:1;min-height:58px;max-height:130px;resize:vertical;border:1.5px solid #ddd5c2;border-radius:12px;padding:10px 13px;font-size:13.5px;background:#fff;}
 .collab-chat-compose button{white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;}
 
 /* 管理后台制片按钮 */
@@ -211,7 +211,7 @@
 .collab-asset-actions button{display:flex;align-items:center;gap:6px;white-space:nowrap;}
 .collab-modify-prompt-modal{width:min(680px,92vw);display:flex;flex-direction:column;gap:10px;max-height:86vh;overflow:auto;}
 .collab-modify-prompt-modal label{font-size:12px;color:#6d6555;font-weight:600;}
-.collab-modify-prompt-modal textarea{width:100%;min-height:110px;resize:vertical;border:1.5px solid #ddd5c2;border-radius:10px;padding:10px 12px;line-height:1.65;box-sizing:border-box;background:#fff;}
+.collab-modify-prompt-modal :is(textarea,.formatted-editor){width:100%;min-height:110px;resize:vertical;border:1.5px solid #ddd5c2;border-radius:10px;padding:10px 12px;line-height:1.65;box-sizing:border-box;background:#fff;}
 .collab-modify-prompt-modal .modify-original-content{min-height:150px;background:#f7f3e9;color:#5d574b;}
 
 /* 美术工具栏：左侧负责范围与资产，右侧负责批量操作 */

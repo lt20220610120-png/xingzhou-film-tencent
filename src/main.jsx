@@ -30,3 +30,4 @@ import './production-workspace.css';
 import './brand-theme.css';
 import './creator/creator.css';
 import './workspace-readability.css';
+import './components/formatted-text.css';

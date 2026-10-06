@@ -1,3 +1,4 @@
+import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { ChatGPTAccountSetup } from './ChatGPTAccountSetup.jsx';
 import { GeminiAccountSetup } from './GeminiAccountSetup.jsx';
 import { DoubaoWorkAccountSetup } from './DoubaoWorkAccountSetup.jsx';
@@ -361,7 +362,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
       {kind === 'chat' && !isLocalAccount && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
     </div>
     {['video','image'].includes(kind) && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
-    {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <pre>{testResult.reply}</pre>}</div>}
+    {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <FormattedText text={testResult.reply}/>}</div>}
     <div className="modal-actions"><button type="button" className="ghost" onClick={onCancel}>取消</button>{kind === 'chat' && <button type="button" className="secondary" onClick={handleTest} disabled={testing||isDoubaoWork}><RefreshCw size={14} className={testing ? 'spin' : ''}/>{testing ? '等待正文…' : '测试正文'}</button>}<button type="submit" className="primary" disabled={isDoubaoWork}><Save size={14}/>保存配置</button></div>
   </form>;
 }

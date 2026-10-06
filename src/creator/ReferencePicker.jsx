@@ -1,0 +1,6 @@
+import React,{useState} from 'react';
+import {ChevronDown} from 'lucide-react';
+export function ReferencePicker({label='参考剧本',items,selected,onChange,disabled=false}) {
+ const [search,setSearch]=useState('');
+ return <details className="creator-reference-picker"><summary><strong>{label}</strong><span>已选 {selected.length} / {items.length}</span><ChevronDown size={14}/></summary><div className="creator-reference-menu"><div className="creator-reference-tools"><input aria-label={`搜索${label}`} placeholder="搜索名称…" value={search} onChange={e=>setSearch(e.target.value)}/><button className="secondary" disabled={disabled} onClick={()=>onChange(items.map(i=>i.id))}>全选</button><button className="secondary" disabled={disabled} onClick={()=>onChange([])}>不参考</button></div><div className="creator-reference-list">{items.filter(i=>i.title.toLowerCase().includes(search.toLowerCase())).map(i=><label className="creator-check" key={i.id} title={i.title}><input type="checkbox" disabled={disabled} checked={selected.includes(i.id)} onChange={e=>onChange(e.target.checked?[...selected,i.id]:selected.filter(id=>id!==i.id))}/><span>{i.title}</span></label>)}{!items.length&&<p className="creator-muted">尚无对标内容</p>}</div></div></details>;
+}

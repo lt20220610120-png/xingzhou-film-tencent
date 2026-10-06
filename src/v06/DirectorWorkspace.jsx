@@ -1,3 +1,4 @@
+import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { prepareLibraryDirector } from '../../core/directorLibrary.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
@@ -202,9 +203,9 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
       </div>
       {prompt.sceneAuditStatus==='warning'&&<details className="quick-run-warning"><summary>查看核对提醒 · 提示词已保留</summary>{(prompt.sceneAuditWarnings||[]).map((item,i)=><div key={i}><p>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>{Array.isArray(item.evidence?.expected)&&Array.isArray(item.evidence?.actual)&&<div className="prompt-review-comparison"><small>原文台词</small><pre>{item.evidence.expected.join('\n')}</pre><small>生成台词</small><pre>{item.evidence.actual.join('\n')}</pre></div>}</div>)}</details>}
       {editing ? (
-        <textarea className="prompt-edit-textarea" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`编辑提示词 ${prompt.label}`} />
+        <FormattedEditor className="prompt-edit-textarea" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`编辑提示词 ${prompt.label}`} />
       ) : (
-        <div className="prompt-content">{prompt.content}</div>
+        <FormattedText className="prompt-content" text={prompt.content}/>
       )}
     </div>
   );
@@ -577,7 +578,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             <div className="creative-dual-panels">
               <article className="creative-script-panel">
                 <div className="creative-panel-title"><BookOpen size={16}/> 场景 {currentScene} · 剧本内容 <span className="readonly-badge">只读</span></div>
-                <textarea value={currentSceneContent} readOnly aria-label="当前场景剧本内容" />
+                <FormattedEditor value={currentSceneContent} readOnly aria-label="当前场景剧本内容" />
               </article>
               <article className="creative-vision-panel">
                 <div className="creative-panel-title"><Sparkles size={16}/> 场景 {currentScene} · 导演构想</div>
@@ -667,8 +668,8 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                   </div>
                 </div>
                 {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
-                {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><pre key={index}>{reply.output}</pre>)}</details>}
-                <textarea
+                {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><FormattedText key={index} text={reply.output}/>)}</details>}
+                <FormattedEditor
                   className="quick-scene-textarea"
                   value={quickSettings.segmentationMode==='auto'&&sourceView==='plan'?autoSceneText:currentSceneContent}
                   readOnly={Boolean(project.cloudLocked)||(quickSettings.segmentationMode==='auto'&&sourceView==='plan')}

@@ -1,3 +1,4 @@
+import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {ModelSelect} from './ModelSelect.jsx';
 import React, { useState, useRef, useEffect } from 'react';
 import {
@@ -222,7 +223,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
               ref={(el) => { if (el) msgRefs.current[msg.id] = el; }}
               className={`chat-bubble ${msg.role}`}
             >
-              {msg.content}
+              {msg.role==='assistant'?<FormattedText text={msg.content}/>:msg.content}
             </div>
           ))}
         </div>
@@ -268,7 +269,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
         {userMessages.map((msg, idx) => (
           <button
             key={msg.id}
-            title={msg.content}
+            title={msg.role==='assistant'?<FormattedText text={msg.content}/>:msg.content}
             onClick={() => msgRefs.current[msg.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           >
             <span>{msg.content.slice(0, 16)}</span>

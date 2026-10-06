@@ -1,3 +1,4 @@
+import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
@@ -404,7 +405,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {error && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
-      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><textarea readOnly value={buildImagePrompt(asset, refAsset, project.style)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
+      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
       <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
@@ -495,7 +496,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
           <PencilLine size={15} /><strong>{asset.name} 提示词</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
-        <textarea aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
+        <FormattedEditor aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings">
           <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.customized ? '已自定义' : '自动识别 · 可修改'}</small></div>
@@ -513,7 +514,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
           <h2>AI 修改提示词</h2><ModelSelect profiles={state.apiProfiles||[]} value={revisionModelId} onChange={setRevisionModelId} disabled={modifying} label="修改提示词模型"/>
           <label>当前提示词</label>
-          <textarea className="modify-original-content" value={promptSettings.content} readOnly />
+          <FormattedEditor className="modify-original-content" value={promptSettings.content} readOnly />
           <label>修改意见</label>
           <textarea aria-label="修改意见" value={instruction} disabled={modifying} onChange={(event) => setInstruction(event.target.value)} placeholder="描述你希望 AI 调整的内容，例如建筑年代、人物服装或构图。" autoFocus />
           {modifyError && <div className="collab-error">{modifyError}</div>}
