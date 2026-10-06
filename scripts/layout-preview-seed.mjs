@@ -1,0 +1,14 @@
+// Synthetic sample content for the standalone layout review.
+export default async function createLayoutPreviewSeed() {
+  const {createInitialState}=await import('../core/projectStore.js'),{createCreatorProject,updateCreatorSection}=await import('../core/creatorWorkspace.js'),{addRewriteSource,saveRewriteAnalysis}=await import('../core/rewriteWorkflow.js');
+  let s=createCreatorProject(createInitialState(),{mode:'rewrite',name:'大纲工作台 · 布局预览'});const id=s.scriptProjects[0].id;
+  const macro={groups:[{id:'g1',title:'男女主相遇',goal:'从互不认识到建立联系。小事件围绕这次相遇服务，不必预先安排逐集对白。',events:[{id:'e1',title:'女主捡到遗失的包',summary:'女主在路上发现遗失物，决定寻找失主。',purpose:'通过一件主动帮助他人的事展示女主人物底色，并引出男主母亲。'},{id:'e2',title:'女主将包物归原主',summary:'女主在包内找到联系方式，将包交还给失主。',purpose:'建立女主与男主母亲之间的联系，为后续邀约和相遇提供因果。'},{id:'e3',title:'答谢与婉拒',summary:'男主母亲提出答谢并希望介绍儿子，女主礼貌婉拒。',purpose:'展示女主的独立与分寸，留下下一次自然相遇的空间。'}]},{id:'g2',title:'两人逐渐相爱',goal:'从认识到彼此信任；共同经历推动关系变化。',events:[{id:'e4',title:'共同解决难题',summary:'两人因工作难题合作。',purpose:'让彼此认识到对方的能力与价值观。'},{id:'e5',title:'主动表达心意',summary:'双方主动选择进一步了解对方。',purpose:'完成关系阶段的推进，并为下一阶段留下考验。'}]},{id:'g3',title:'遇到挫折并作出选择',goal:'面对现实阻力后重新确认共同目标。',events:[{id:'e6',title:'误会产生',summary:'外部信息引发分歧。',purpose:'检验此前建立的信任。'},{id:'e7',title:'澄清与选择',summary:'两人找到事实并坦诚交流。',purpose:'以人物主动选择收束关系变化。'}]}]};
+  const mainline={eventGroups:[{id:'l1',groupId:'g1',eventId:'e1',title:'女主捡到遗失的包',episodes:[{number:1,title:'第1集',outline:'女主在归途中发现遗失的包。她尝试寻找失主，决定将包妥善保管。人物的善意通过行动展现，为后续联系作准备。'},{number:2,title:'第2集',outline:'女主发现可以联系失主的线索，并主动拨通电话。双方确认遗失物的特征，约定归还方式。'},{number:3,title:'第3集',outline:'归还前出现一个需要澄清的小误会，女主用实际行动解决。失主开始对她产生信任，衔接下一组还包事件。'}]},{id:'l2',groupId:'g1',eventId:'e2',title:'女主将包物归原主',episodes:[{number:4,title:'第4集',outline:'双方见面，遗失物物归原主。男主母亲发现女主处事有分寸，留下再次联系的理由。'}]},{id:'l3',groupId:'g2',eventId:'e4',title:'共同解决难题',episodes:[{number:5,title:'第5集',outline:'两人因工作难题合作，逐渐理解彼此。'}]}]};
+  for(let n=1;n<=3;n++){s=addRewriteSource(s,id,{name:`对标剧本${n} · 都市故事示例`,content:'第1集\n1-1 外景 路边 日\n女主捡到包，决定寻找失主。\n第2集\n2-1 内景 房间 日\n女主找到联系方式。'});const book=[s.scriptProjects[0].creator.source,...s.scriptProjects[0].creator.references].at(-1);s=saveRewriteAnalysis(s,id,book.id,{settings:'现代都市背景。人物能力与世界规则均以现实为基础，故事围绕信任与主动选择展开。',macroOutline:macro,outline:mainline,characters:'女主独立善良，男主谨慎真诚。双方通过共同经历建立信任。'});}
+  for(const [key,output] of Object.entries({settings:'新作设定：现代都市，现实世界规则。',macroOutline:JSON.stringify(macro),outline:JSON.stringify(mainline),characters:'新作人物保持独立动机。'}))s=updateCreatorSection(s,'script',id,key,{output,accepted:true});
+  s.apiProfiles=[{id:'qa-model',name:'布局预览模拟接口',model:'mock-text',endpoint:'https://mock.invalid',requiresApiKey:false}];s.activeApiId='qa-model';
+  s=createCreatorProject(s,{mode:'fruit',name:'果子筛选验证',groupId:'fruit-only'});s.fruitGroups=[{id:'fruit-only',name:'果子专用分组'}];
+  // This fixture is an explicit demonstration, separate from real project files.
+  s.scriptProjects[0].mode='rewrite';
+  return {state:s,id,macro,mainline};
+}

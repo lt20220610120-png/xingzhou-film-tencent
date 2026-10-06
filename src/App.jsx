@@ -1219,6 +1219,8 @@ function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir
 function App() {
   const [role, setRole] = useState(null);
   const [nav, setNav] = useState('fruit');
+  const lastCreatorArea=useRef('fruit');
+  if(['fruit','studio','scripts'].includes(nav))lastCreatorArea.current=nav;
   const [canvasRoute, setCanvasRoute] = useState(() => localStorage.getItem('xz-canvas-last-route') || '#/canvas');
   const canvasFrameRef = useRef(null);
   const [canvasVisited, setCanvasVisited] = useState(false);
@@ -1419,7 +1421,7 @@ function App() {
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
-        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={['fruit','studio','scripts'].includes(nav) ? nav : 'studio'} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
+        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
         {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} />}

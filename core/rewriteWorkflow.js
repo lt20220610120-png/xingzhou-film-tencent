@@ -1,4 +1,5 @@
-import {validateRewriteOutline} from './rewriteOutline.js';
+import {validateRewriteOutline,REWRITE_OUTLINE_RULE} from './rewriteOutline.js';
+import {validateRewriteMainline,REWRITE_MAINLINE_RULE} from './rewriteMainline.js';
 import { normalizeCreatorProject,addCreatorEpisode,updateCreatorEpisode,removeCreatorNode,adoptCreatorRecord } from './creatorWorkspace.js';
 import { splitFullScript } from './scriptImport.js';
 
@@ -36,8 +37,13 @@ export const removeRewriteSource=(state,id,sourceId)=>change(state,id,p=>{
 export const saveRewriteAnalysis=(state,id,sourceId,raw,stage)=>change(state,id,p=>{
   const result={...parseRewriteObject(raw)},keys=stage?[stage]:['settings','outline','characters',...(result.macroOutline?['macroOutline']:[])];
   if(stage&&!['settings','macroOutline','outline','characters'].includes(stage))throw new Error('未知拆解区域');
-  if(!keys.filter(k=>k!=='macroOutline').every(k=>typeof result[k]==='string'&&result[k].trim()))throw new Error('当前拆解区域的内容为空，原始结果已留在历史。');
+  if(!keys.filter(k=>!['macroOutline','outline'].includes(k)).every(k=>typeof result[k]==='string'&&result[k].trim()))throw new Error('当前拆解区域的内容为空，原始结果已留在历史。');
   if(keys.includes('macroOutline'))result.macroOutline=validateRewriteOutline(result.macroOutline);
+  if(keys.includes('outline')) {
+    if(typeof result.outline==='object')result.outline=validateRewriteMainline(result.outline,result.macroOutline||rewriteSources(p).find(b=>b.id===sourceId)?.analysis?.macroOutline);
+    else if(typeof result.outline!=='string'||!result.outline.trim())throw new Error('主线拆解内容为空，原始结果已留在历史。');
+    else if(result.outline.trim().startsWith('{'))result.outline=validateRewriteMainline(result.outline,result.macroOutline||rewriteSources(p).find(b=>b.id===sourceId)?.analysis?.macroOutline);
+  }
   const update=b=>b.id===sourceId?{...b,analysis:{...b.analysis,...Object.fromEntries(keys.map(k=>[k,result[k]])),createdAt:new Date().toISOString()}}:b;
   if(!rewriteSources(p).some(b=>b.id===sourceId))throw new Error('对标来源已移除，不能写入拆解');
   return {...p,creator:{...p.creator,source:p.creator.source?update(p.creator.source):null,references:p.creator.references.map(update)}};
@@ -91,7 +97,8 @@ export function prepareRewriteTask(project,target={}) {
   const books=rewriteSources(project),w=rewriteState(project);
   if(target.task==='rewriteAnalyze') {
     const book=books.find(b=>b.id===target.sourceId);if(!book)throw new Error('找不到对标剧本');
-    return {...project,episodes:[],creator:{...project.creator,source:book,references:[],sections:{},chat:[],story:{events:[],characters:[]}}};
+    const references=target.analysisStage==='outline'&&book.analysis?.macroOutline?[{id:`${book.id}-skeleton`,name:'本书已拆解大纲（仅用于集纲归组，编号必须保持）',enabled:true,content:JSON.stringify(book.analysis.macroOutline)}]:[];
+    return {...project,episodes:[],creator:{...project.creator,source:book,references,sections:{},chat:[],story:{events:[],characters:[]}}};
   }
   const key=target.section||'episode',ids=w.selections[key]||[];
   const selected=books.filter(b=>ids.includes(b.id));
@@ -100,7 +107,7 @@ export function prepareRewriteTask(project,target={}) {
   const sections=Object.fromEntries(Object.entries(project.creator.sections).map(([k,v])=>[k,{...v,input:''}]));
   return {...project,episodes,creator:{...project.creator,source:null,references,sections,story:{events:[],characters:[]}}};
 }
-export const REWRITE_ANALYSIS_RULE='完整拆解当前唯一对标剧本，输出 JSON 对象，设定、主线、人物为中文字符串，大纲为结构化对象，共四个字段：{"settings":"时代、地域风土、社会背景、架空体系、世界规则与个人金手指；明确区分人人可用的世界能力和主角专属能力，来源依据与推断","outline":"剧本主线而非单个人命运：编号主要事件从开端到真实结尾，每项包含各人物小事件如何交织、实际时间、因果、转折及来源集场","characters":"主要人物详细分析性格底色、动机、关系、从剧本开始到结束的个人事件链和命运变化；次要人物简写。把剧本当真实世界理解，不虚构材料外结局"}。另输出 macroOutline 字段：{"groups":[{"id":"group-1","title":"大事件阶段","goal":"阶段共同目标与起终状态","events":[{"id":"event-1","title":"小事件","summary":"核心行动短提纲","purpose":"服务阶段目标的作用与因果"}]}]}。大纲只拆大事件和小事件，不按每集分组或分配集数，不写逐集细节；集场仅作为来源依据。不要拆其他剧本，不生成新作。';
+export const REWRITE_ANALYSIS_RULE=`完整拆解当前唯一对标剧本，输出纯 JSON，包含 settings 设定字符串、macroOutline 大纲对象、outline 主线对象、characters 人物字符串。设定包含时代、地域、社会背景、世界规则和个人能力；人物包含性格底色、动机、关系、命运变化及证据，未明示内容标注推断。大纲字段按大事件阶段、组内小事件组织，不划分集数：${REWRITE_OUTLINE_RULE}。在同一个输出中先建立大纲稳定 id，再为主线使用这些完全相同的 groupId/eventId：${REWRITE_MAINLINE_RULE}。主线结构放在 outline 字段内。不得拆其他剧本或生成新作。`;
 export const REWRITE_PLAN_RULE='只依据新作当前采用的设定、大纲骨架、主线、人物生成细纲候选。把主线主要事件分配到连续集数，再把人物小事件、行动、对白要点、知情变化、伏笔和因果衔接落实到每一集。输出纯JSON：{"majorEvents":[{"id":"event-1","title":"主要事件","startEpisode":1,"endEpisode":7,"events":"交织的小事件","timeline":"时间与因果"}],"episodes":[{"number":1,"title":"第1集","eventIds":["event-1"],"outline":"本集完整详细规划，不是几句话概述","hook":"悬念与伏笔","continuity":"前后集衔接及人物知情状态"}]}。必须每集有详细规划，集号从1到结局连续，与事件范围一致；集数按用户要求和实际故事决定，不照搬对标。';
 
 // Manual episodes are ordinary editor nodes with their own input, output and Agent.

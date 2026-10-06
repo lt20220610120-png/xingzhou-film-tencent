@@ -1,4 +1,5 @@
 import {readRewriteOutline,validateRewriteOutline,rewriteOutlineText,copyOutlineGroups} from './rewriteOutline.js';
+import {readRewriteMainline,validateRewriteMainline,rewriteMainlineText} from './rewriteMainline.js';
 import { splitFullScript } from './scriptImport.js';
 import { formatIPScriptText } from './ipScenes.js';
 
@@ -34,6 +35,13 @@ export const CREATOR_REWRITE_SECTIONS = [
 const sectionLabels = Object.fromEntries([...CREATOR_FRAMEWORK_STAGES, ...CREATOR_REWRITE_SECTIONS].map(stage => [stage.key, stage.label]));
 const resolveMode = (p, kind) => kind === 'fruit' ? (p.creator?.mode === 'ip' ? 'ip' : 'fruit') : ['rewrite', 'free', 'framework'].includes(p.creator?.mode)
   ? p.creator.mode : p.mode === 'rewrite' ? 'rewrite' : p.mode === 'framework' ? 'framework' : 'free';
+export function filterCreatorProjects(projects,{kind='script',channel='rewrite',originalFilter='all'}={}) {
+ return projects.filter(project=>{
+  const mode=resolveMode(project,kind);
+  if(kind==='fruit')return mode!=='ip';
+  return channel==='rewrite'?mode==='rewrite':mode!=='rewrite'&&(originalFilter==='all'||mode===originalFilter);
+ });
+}
 const normalizeSection = section => ({ input: '', output: '', accepted: false, locked: false, stale: false, ...clone(section || {}) });
 const refIds = value => Array.isArray(value) ? [...new Set(value)] : [];
 const normalizeStoryCharacter = (item, id) => ({ ...clone(item || {}), id: item?.id || id,
@@ -226,7 +234,7 @@ export const creatorInputFingerprint = (project, target = {}) => {
     })).filter(episode => episode.id !== target.episodeId);
   const referenceKey=target.section||'episode',referenceIds=p.creator.rewrite?.selections?.[referenceKey]||[];
   const analysisSource = [p.creator.source,...p.creator.references].find(book => book?.id === target.sourceId);
-  const serialized = JSON.stringify(canonical(target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
+  const serialized = JSON.stringify(canonical(target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
     referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
     rewrite: p.creator.mode==='rewrite' ? {selections:{[referenceKey]:referenceIds},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.mode!=='rewrite'||referenceIds.includes(p.creator.source?.id)?p.creator.source?.analysis||null:null,
@@ -550,7 +558,11 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
   const previous = target.episodeId ? text(node[field]) : text(node[target.side]);
   const macro = target.section==='macroOutline'&&target.side==='output';
   if(macro&&record.type!=='history')validateRewriteOutline(record.output);
-  const output = macro ? JSON.stringify(mode==='append'?{groups:[...readRewriteOutline(previous).groups,...copyOutlineGroups(readRewriteOutline(record.output).groups)]}:readRewriteOutline(record.output)) : mode === 'append' ? [previous, record.output].filter(Boolean).join('\n\n') : record.output;
+  if(target.format==='rewriteMainline'&&record.type!=='history')validateRewriteMainline(record.output,p.creator.sections.macroOutline?.output);
+  const rewriteMainlineTarget=p.creator.mode==='rewrite'&&target.section==='outline'&&target.side==='output';
+  const mainline=rewriteMainlineTarget&&readRewriteMainline(record.output).eventGroups.length>0;
+  if(mainline&&record.type!=='history')validateRewriteMainline(record.output,p.creator.sections.macroOutline?.output);
+  const output = macro ? JSON.stringify(mode==='append'?{groups:[...readRewriteOutline(previous).groups,...copyOutlineGroups(readRewriteOutline(record.output).groups)]}:readRewriteOutline(record.output)) : mainline&&mode==='append'?JSON.stringify(validateRewriteMainline({legacyText:readRewriteMainline(previous).legacyText,eventGroups:[...readRewriteMainline(previous).eventGroups,...readRewriteMainline(record.output).eventGroups]},p.creator.sections.macroOutline?.output)):mainline?JSON.stringify(record.type==='history'?readRewriteMainline(record.output):validateRewriteMainline(record.output,p.creator.sections.macroOutline?.output)):mode === 'append' ? [previous, record.output].filter(Boolean).join('\n\n') : record.output;
   const history = historyRecord(p, target, previous, { previousAccepted: node.accepted, previousLocked: node.locked });
   let next = target.episodeId ? patchEpisode(p, kind, target.episodeId, {
     [field]: output, stale, ...(target.side === 'output' ? { finalConfirmed: false,
@@ -559,7 +571,7 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
         output, previous, inputFingerprint: record.inputFingerprint, createdAt: now() }],
     } : {}),
   }) : patchSection(p, kind, target.section, {
-    [target.side]: output, ...(target.side === 'output' ? { accepted: macro&&record.type==='history'?Boolean(record.previousAccepted):true } : {}), stale, ...(unlock ? { locked: false } : {}),
+    [target.side]: output, ...(target.side === 'output' ? { accepted: (macro||rewriteMainlineTarget)&&record.type==='history'?Boolean(record.previousAccepted):true } : {}), stale, ...(unlock ? { locked: false } : {}),
   });
   next.creator.records = [...next.creator.records.map(item => item.id === recordId ? { ...item, status: 'adopted', adoptedAt: now(), adoptedSide: target.side, stale } : item), history];
   return next;
@@ -571,7 +583,7 @@ export const buildCreatorText = (project, kind = 'script', side = 'output', { in
   sideField(kind, side);
   const finalOnly = p.creator.mode === 'framework' && side === 'output';
   const sections = includeSections && !finalOnly ? Object.entries(p.creator.sections)
-    .map(([key, section]) => text(section[side]).trim() ? `【${p.creator.mode==='rewrite'&&key==='outline'?'主线':sectionLabels[key] || key}】\n${key==='macroOutline'?rewriteOutlineText(section[side]):section[side].trim()}` : '').filter(Boolean) : [];
+    .map(([key, section]) => text(section[side]).trim() ? `【${p.creator.mode==='rewrite'&&key==='outline'?'主线':sectionLabels[key] || key}】\n${key==='macroOutline'?rewriteOutlineText(section[side]):p.creator.mode==='rewrite'&&key==='outline'?rewriteMainlineText(section[side],p.creator.sections.macroOutline?.output):section[side].trim()}` : '').filter(Boolean) : [];
   const episodes = finalOnly ? p.episodes.filter(episode => episode.type === 'episode') : p.episodes;
   const blocks = p.creator.mode === 'ip' && side === 'output' ? buildIPOutputBlocks(episodes, kind) : episodeBlocks(episodes, kind, side);
   const content = [...sections, includeSections && !finalOnly ? buildAdoptedStoryText(p) : '', blocks].filter(Boolean).join('\n\n');

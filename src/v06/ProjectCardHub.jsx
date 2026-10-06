@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState,useEffect,useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, BookOpen, FileText, Upload, Trash2, PenLine, FolderPlus, FolderCog, Users, Film, ArrowUpRight } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
@@ -14,15 +14,20 @@ export function ProjectCardHub({
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const groupMemoryKey = `xz-cardhub-group-${kind}`;
-  const [filterGroup, setFilterGroupState] = useState(() => {
+  const readGroup = () => {
     try {
       const saved = localStorage.getItem(groupMemoryKey);
       if (saved && (saved === 'all' || saved === 'ungrouped' || groups.some((group) => group.id === saved))) return saved;
     } catch { /* localStorage 不可用时回退默认组 */ }
     return isDirector ? 'director-workbench' : 'all';
-  });
+  };
+  const [groupFilter, setFilterGroupState] = useState(()=>({key:groupMemoryKey,value:readGroup()}));
+  // A retained hub can change library kind. Never reuse another library's group.
+  const filterGroup=groupFilter.key===groupMemoryKey&&(['all','ungrouped'].includes(groupFilter.value)||groups.some(g=>g.id===groupFilter.value))?groupFilter.value:readGroup();
+  const previousKind=useRef(kind);
+  useEffect(()=>{if(previousKind.current!==kind){previousKind.current=kind;setSearchQuery('');setRenamingId(null);setDeleteTarget(null);setGroupDialog(null);}},[kind]);
   const setFilterGroup = (next) => {
-    setFilterGroupState(next);
+    setFilterGroupState({key:groupMemoryKey,value:next});
     try { localStorage.setItem(groupMemoryKey, next); } catch { /* 忽略存储失败 */ }
   };
   const [renamingId, setRenamingId] = useState(null);
@@ -138,7 +143,7 @@ export function ProjectCardHub({
           const group = groups.find(item => item.id === project.groupId);
           return <article key={project.id} className="project-card">
             <div className="project-card-symbol" aria-hidden="true">{isDirector ? <Film size={21}/> : <BookOpen size={21}/>}</div>
-            <div className="project-kind-row"><small>{isIP ? project.creator.ip.completedImport ? 'IP · 已完成剧本' : 'IP · 忠实改编' : isFruit ? '市场验证剧本' : isScript ? (project.mode === 'rewrite' ? '洗稿创作' : project.creator?.mode === 'framework' ? '原创 · 框架式创作' : '原创 · 自由创作') : '导演项目'}</small><span className="project-badges">{isDirector && project.cloudRole === 'collaborator' && <span className="cloud-collab-badge">协作</span>}{canOrganize && <span className="group-badge">{group?.name || '未分组'}</span>}</span></div>
+            <div className="project-kind-row"><small>{isIP ? project.creator.ip.completedImport ? 'IP · 已完成剧本' : 'IP · 忠实改编' : isFruit ? '市场验证剧本' : isScript ? ((project.creator?.mode === 'rewrite' || project.mode === 'rewrite') ? '洗稿创作' : project.creator?.mode === 'framework' ? '原创 · 框架式创作' : '原创 · 自由创作') : '导演项目'}</small><span className="project-badges">{isDirector && project.cloudRole === 'collaborator' && <span className="cloud-collab-badge">协作</span>}{canOrganize && <span className="group-badge">{group?.name || '未分组'}</span>}</span></div>
             {renamingId === project.id ? <input className="project-name-input" autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => saveRename(project)} onKeyDown={e => { if (e.key === 'Enter') saveRename(project); if (e.key === 'Escape') setRenamingId(null); }}/> : <h3 title={project.name}>{project.name}</h3>}
             <p>{isIP || isFruit ? project.episodes.filter(e=>e.type==='episode').length : project.episodes.length} 集{isIP && <> · {project.creator.ip.completedImport ? '已完成剧本' : `${project.creator.ip.duration} 分钟`}</>}{isFruit && <> · {'★'.repeat(project.rating) || '未评级'}</>}{isDirector && <> · {project.episodes.reduce((sum, ep) => sum + (ep.prompts?.length || 0), 0)} 条提示词</>}</p>
             {canOrganize && <div className="project-organize-row"><button onClick={() => { setRenamingId(project.id); setRenameValue(project.name); }}><PenLine size={14}/>修改名称</button><select aria-label={`${project.name}的分组`} value={project.groupId || (isDirector ? 'director-workbench' : '')} disabled={isDirector && project.groupId === 'director-cloud'} onChange={e => onMoveToGroup?.(project.id, e.target.value)}>{!isDirector&&<option value="">未分组</option>}{(isDirector ? [groups.find(group => group.id === 'director-workbench'), ...customGroups].filter(Boolean) : groups).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></div>}

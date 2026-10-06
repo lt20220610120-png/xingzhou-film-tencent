@@ -31,5 +31,6 @@ qa/
 .cache/
 .playwright-cli/
 output/playwright/
+output/layout-preview/
 !src/assets/company-logo.png
 !build/icon-master.png
