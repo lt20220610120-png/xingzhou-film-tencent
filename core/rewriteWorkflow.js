@@ -1,9 +1,10 @@
-import { normalizeCreatorProject } from './creatorWorkspace.js';
+import {validateRewriteOutline} from './rewriteOutline.js';
+import { normalizeCreatorProject,addCreatorEpisode,updateCreatorEpisode,removeCreatorNode,adoptCreatorRecord } from './creatorWorkspace.js';
 import { splitFullScript } from './scriptImport.js';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const uid = () => `rewrite-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-export const REWRITE_STAGES = [{key:'settings',label:'设定'},{key:'outline',label:'主线'},{key:'characters',label:'人物'},{key:'detail',label:'细纲'}];
+export const REWRITE_STAGES = [{key:'settings',label:'设定'},{key:'macroOutline',label:'大纲'},{key:'outline',label:'主线'},{key:'characters',label:'人物'},{key:'detail',label:'细纲'}];
 export const rewriteSources = project => [project.creator?.source,...(project.creator?.references||[])].filter(Boolean).map((book,index)=>{
   if(index!==0||book.analysis)return book;
   const sections=project.creator?.sections||{},analysis={settings:sections.settings?.input||'',outline:sections.outline?.input||sections.events?.input||'',characters:sections.characters?.input||''};
@@ -33,9 +34,10 @@ export const removeRewriteSource=(state,id,sourceId)=>change(state,id,p=>{
   return {...p,creator:{...p.creator,source:books[0]||null,references:books.slice(1),rewrite:{...workflow,selections}}};
 });
 export const saveRewriteAnalysis=(state,id,sourceId,raw,stage)=>change(state,id,p=>{
-  const result=parseRewriteObject(raw),keys=stage?[stage]:['settings','outline','characters'];
-  if(stage&&!['settings','outline','characters'].includes(stage))throw new Error('未知拆解区域');
-  if(!keys.every(k=>typeof result[k]==='string'&&result[k].trim()))throw new Error('拆解必须包含非空的设定、主线与人物，原始结果已留在历史。');
+  const result={...parseRewriteObject(raw)},keys=stage?[stage]:['settings','outline','characters',...(result.macroOutline?['macroOutline']:[])];
+  if(stage&&!['settings','macroOutline','outline','characters'].includes(stage))throw new Error('未知拆解区域');
+  if(!keys.filter(k=>k!=='macroOutline').every(k=>typeof result[k]==='string'&&result[k].trim()))throw new Error('当前拆解区域的内容为空，原始结果已留在历史。');
+  if(keys.includes('macroOutline'))result.macroOutline=validateRewriteOutline(result.macroOutline);
   const update=b=>b.id===sourceId?{...b,analysis:{...b.analysis,...Object.fromEntries(keys.map(k=>[k,result[k]])),createdAt:new Date().toISOString()}}:b;
   if(!rewriteSources(p).some(b=>b.id===sourceId))throw new Error('对标来源已移除，不能写入拆解');
   return {...p,creator:{...p.creator,source:p.creator.source?update(p.creator.source):null,references:p.creator.references.map(update)}};
@@ -93,10 +95,23 @@ export function prepareRewriteTask(project,target={}) {
   }
   const key=target.section||'episode',ids=w.selections[key]||[];
   const selected=books.filter(b=>ids.includes(b.id));
-  const references=selected.map(book=>({...book,enabled:true,content:book.analysis?Object.entries(book.analysis).filter(([k])=>['settings','outline','characters'].includes(k)).map(([k,v])=>`【${k}】\n${v}`).join('\n\n')||book.content:book.content}));
+  const references=selected.map(book=>({...book,enabled:true,content:book.analysis?Object.entries(book.analysis).filter(([k])=>['settings','macroOutline','outline','characters'].includes(k)).map(([k,v])=>`【${k}】\n${typeof v==='string'?v:JSON.stringify(v)}`).join('\n\n')||book.content:book.content}));
   const episodes=target.episodeId?project.episodes.slice(0,project.episodes.findIndex(e=>e.id===target.episodeId)+1):[];
   const sections=Object.fromEntries(Object.entries(project.creator.sections).map(([k,v])=>[k,{...v,input:''}]));
   return {...project,episodes,creator:{...project.creator,source:null,references,sections,story:{events:[],characters:[]}}};
 }
-export const REWRITE_ANALYSIS_RULE='完整拆解当前唯一对标剧本，输出 JSON 对象，三个值均为详细中文字符串：{"settings":"时代、地域风土、社会背景、架空体系、世界规则与个人金手指；明确区分人人可用的世界能力和主角专属能力，来源依据与推断","outline":"剧本主线而非单个人命运：编号主要事件从开端到真实结尾，每项包含各人物小事件如何交织、实际时间、因果、转折及来源集场","characters":"主要人物详细分析性格底色、动机、关系、从剧本开始到结束的个人事件链和命运变化；次要人物简写。把剧本当真实世界理解，不虚构材料外结局"}。不要拆其他剧本，不生成新作。';
-export const REWRITE_PLAN_RULE='只依据新作当前采用的设定、主线、人物生成细纲候选。把主线主要事件分配到连续集数，再把人物小事件、行动、对白要点、知情变化、伏笔和因果衔接落实到每一集。输出纯JSON：{"majorEvents":[{"id":"event-1","title":"主要事件","startEpisode":1,"endEpisode":7,"events":"交织的小事件","timeline":"时间与因果"}],"episodes":[{"number":1,"title":"第1集","eventIds":["event-1"],"outline":"本集完整详细规划，不是几句话概述","hook":"悬念与伏笔","continuity":"前后集衔接及人物知情状态"}]}。必须每集有详细规划，集号从1到结局连续，与事件范围一致；集数按用户要求和实际故事决定，不照搬对标。';
+export const REWRITE_ANALYSIS_RULE='完整拆解当前唯一对标剧本，输出 JSON 对象，设定、主线、人物为中文字符串，大纲为结构化对象，共四个字段：{"settings":"时代、地域风土、社会背景、架空体系、世界规则与个人金手指；明确区分人人可用的世界能力和主角专属能力，来源依据与推断","outline":"剧本主线而非单个人命运：编号主要事件从开端到真实结尾，每项包含各人物小事件如何交织、实际时间、因果、转折及来源集场","characters":"主要人物详细分析性格底色、动机、关系、从剧本开始到结束的个人事件链和命运变化；次要人物简写。把剧本当真实世界理解，不虚构材料外结局"}。另输出 macroOutline 字段：{"groups":[{"id":"group-1","title":"大事件阶段","goal":"阶段共同目标与起终状态","events":[{"id":"event-1","title":"小事件","summary":"核心行动短提纲","purpose":"服务阶段目标的作用与因果"}]}]}。大纲只拆大事件和小事件，不按每集分组或分配集数，不写逐集细节；集场仅作为来源依据。不要拆其他剧本，不生成新作。';
+export const REWRITE_PLAN_RULE='只依据新作当前采用的设定、大纲骨架、主线、人物生成细纲候选。把主线主要事件分配到连续集数，再把人物小事件、行动、对白要点、知情变化、伏笔和因果衔接落实到每一集。输出纯JSON：{"majorEvents":[{"id":"event-1","title":"主要事件","startEpisode":1,"endEpisode":7,"events":"交织的小事件","timeline":"时间与因果"}],"episodes":[{"number":1,"title":"第1集","eventIds":["event-1"],"outline":"本集完整详细规划，不是几句话概述","hook":"悬念与伏笔","continuity":"前后集衔接及人物知情状态"}]}。必须每集有详细规划，集号从1到结局连续，与事件范围一致；集数按用户要求和实际故事决定，不照搬对标。';
+
+// Manual episodes are ordinary editor nodes with their own input, output and Agent.
+export const syncRewriteVersion=(state,id)=>change(state,id,p=>({...p,creator:{...p.creator,rewrite:saveActive(p)}}));
+export function addRewriteEpisode(state,id,title='') {
+ const p=state.scriptProjects.find(p=>p.id===id);
+ const number=Math.max(p.episodes.length,...p.episodes.map(e=>Number(e.title?.match(/^第\s*(\d+)\s*集/)?.[1]||0)))+1;
+ let next=addCreatorEpisode(state,'script',id,{title:title.trim()||`第${number}集`});
+ const episode=next.scriptProjects.find(p=>p.id===id).episodes.at(-1);
+ next=updateCreatorEpisode(next,'script',id,episode.id,{manualRewrite:true});
+ return syncRewriteVersion(next,id);
+}
+export const removeRewriteEpisode=(state,id,episodeId)=>syncRewriteVersion(removeCreatorNode(state,'script',id,episodeId),id);
+export const restoreRewriteEpisode=(state,id,recordId)=>syncRewriteVersion(adoptCreatorRecord(state,'script',id,recordId),id);

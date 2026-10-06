@@ -10,7 +10,7 @@ export function useCreatorAgent({state,setState,getState,api}) {
   const project=s[kind==='fruit'?'fruitProjects':'scriptProjects']?.find(p=>p.id===projectId);if(!project)return s;
   return updateCreatorProject(s,kind,projectId,{records:(project.creator?.records||[]).map(r=>r.id===recordId?{...r,...patch}:r)});
  });
- const run=async({kind,projectId,target,instruction,profile,skillId,scope='project',chat=false})=>{
+ const run=async({kind,projectId,target,instruction,profile,skillId,scope='project',chat=false,displayInstruction})=>{
   target={...target,scope};
   const currentState=getState?.()||latest.current;
   const project=normalizeCreatorProject(currentState[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===projectId),kind);
@@ -21,7 +21,7 @@ export function useCreatorAgent({state,setState,getState,api}) {
   const record={id,type:'ai',target:{...target},inputFingerprint:creatorInputFingerprint(project,target),output:'',status:'running',instruction,createdAt:new Date().toISOString(),model:profile.model,skillId};
   setState(s=>{
    let next=appendCreatorRecord(s,kind,projectId,record);
-   if(chat){const p=next[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===projectId);next=updateCreatorProject(next,kind,projectId,{chat:[...(p.creator?.chat||[]),{id:uid(),role:'user',content:instruction,stage:target.section||target.episodeId,createdAt:record.createdAt}]});}
+   if(chat){const p=next[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===projectId);next=updateCreatorProject(next,kind,projectId,{chat:[...(p.creator?.chat||[]),{id:uid(),role:'user',content:displayInstruction??instruction,stage:target.section||target.episodeId,createdAt:record.createdAt}]});}
    return next;
   });
   setActivity(a=>({...a,[slot]:{id,target,label:'准备资料',running:true}}));

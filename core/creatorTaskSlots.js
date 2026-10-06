@@ -1,5 +1,5 @@
 // Rewrite tasks own their result destination; other workspaces retain one project job.
-const analysisKeys = target => target.analysisStage ? [target.analysisStage] : ['settings', 'outline', 'characters'];
+const analysisKeys = target => target.analysisStage ? [target.analysisStage] : ['settings', 'macroOutline', 'outline', 'characters'];
 export const creatorTaskSlot = (kind, projectId, target, rewrite = false) => {
   const base = `${kind}:${projectId}`;
   if (!rewrite) return base;

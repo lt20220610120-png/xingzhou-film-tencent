@@ -137,7 +137,7 @@
 }
 /* Stable card tracks: resizing changes column count, never stretches a project. */
 .card-page.project-hub-refined{max-width:none;width:100%;box-sizing:border-box}
-.project-hub-refined .project-grid{grid-template-columns:repeat(auto-fill,min(320px,100%));justify-content:start;gap:18px}
+.project-hub-refined .project-grid{grid-template-columns:repeat(auto-fill,min(240px,100%));justify-content:start;gap:18px}
 .creator-agent-header-actions,.creator-run-controls{display:flex;align-items:center;gap:8px;min-width:0}
 .creator-agent-header-actions{justify-content:flex-end;flex-wrap:wrap}
 .creator-run-controls button,.rewrite-run-config button{flex:none;white-space:nowrap;min-width:64px}
@@ -160,3 +160,52 @@
 .rewrite-shell .project-directory-fixed{min-height:0;max-height:calc(100dvh - 110px);overflow:auto}
 
 .creator-run-row>.creator-run-controls{width:100%;justify-content:space-between}
+.project-hub-refined .project-grid{gap:14px;grid-auto-rows:minmax(252px,auto)}
+.project-hub-refined .project-grid>.project-card{padding:16px;min-height:252px;border-radius:13px;gap:10px}
+.project-hub-refined .project-card>.project-card-symbol{top:16px;left:16px;width:32px;height:32px}
+.project-hub-refined .project-kind-row{margin-left:42px;min-height:32px}
+.project-hub-refined .project-kind-row>small{font-size:11px}
+.project-hub-refined .project-grid>.project-card>h3{font-size:15px;line-height:22px;min-height:44px}
+.project-hub-refined .project-card-actions:has(.director-collab-button):has(.card-delete){grid-template-columns:repeat(2,minmax(0,1fr)) 30px;gap:6px}
+.project-hub-refined .project-card-actions button{font-size:11px;min-width:0;gap:4px;height:34px;min-height:34px;padding:0 6px;white-space:nowrap}
+.project-hub-refined .project-organize-row{gap:6px}
+.project-hub-refined .project-organize-row button,.project-hub-refined .project-organize-row select{font-size:11px;height:32px;padding:0 6px}
+.project-hub-refined .project-card.creator-entry-card>.creator-entry-submit{height:34px;min-height:34px;font-size:12px}
+.project-hub-refined .creator-entry-heading h3{font-size:15px}
+.rewrite-episode-nav-row{display:flex;align-items:center;gap:3px;flex:none;min-width:0}
+.rewrite-episode-nav-row>button:first-child{display:flex;align-items:center;gap:7px;flex:1;min-width:0;text-align:left;border:0;background:transparent;color:var(--brand-muted);font:14px/1.5 var(--studio-font);min-height:38px;padding:8px;border-radius:7px}
+.rewrite-episode-nav-row>button:first-child>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rewrite-episode-nav-row>button.active{background:#fff;color:#654d9e;box-shadow:inset 3px 0 #8870ca}
+.rewrite-episode-nav-row>button:last-child{flex:none;min-height:28px!important;width:24px;padding:4px!important;opacity:.6}
+.rewrite-episode-nav-row:hover>button:last-child,.rewrite-episode-nav-row:focus-within>button:last-child{opacity:1}
+.rewrite-outline-hint{font-size:12px;margin:0 0 10px}
+.rewrite-outline-editor{overflow:auto;flex:1;min-height:0;padding:12px}
+.rewrite-outline-cards{display:flex;flex-direction:column;gap:12px;min-width:0}
+.rewrite-outline-group{border:1px solid #ded4ec;border-radius:9px;background:#fcfaff;padding:10px;min-width:0}
+.rewrite-outline-group>header,.rewrite-outline-event>header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 0 6px;border:0;margin:0}
+.rewrite-group-index{padding:3px 6px;border-radius:5px;background:#eae1f5;color:#6f509c;font-size:11px;font-weight:600;flex:none}
+.rewrite-outline-group header>strong,.rewrite-outline-event header>strong{flex:1;min-width:60px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.rewrite-outline-cards header>input{flex:1;min-width:80px;width:0;border:1px solid #e3ddec;background:#fff;border-radius:5px;min-height:30px;padding:4px 6px;font-size:13px;box-sizing:border-box}
+.rewrite-outline-tools{display:flex;align-items:center;gap:2px;margin-left:auto;flex:none}
+.rewrite-outline-tools .ghost{padding:3px!important;min-height:24px!important;font-size:11px!important;white-space:nowrap}
+.rewrite-outline-cards label{display:block;color:#81718f;font-size:11px;margin:5px 0}
+.rewrite-outline-cards label>textarea{display:block;box-sizing:border-box;width:100%;min-height:58px;padding:7px 8px;border:1px solid #e5dfed;border-radius:6px;background:#fff;font:13px/1.7 var(--studio-font);resize:vertical;margin-top:4px;color:var(--brand-ink)}
+.rewrite-outline-events{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.rewrite-outline-event{padding:9px;background:#fff;border:1px solid #e9e3ef;border-radius:7px;min-width:0}
+.rewrite-outline-event header>span{font-size:12px;color:#8462ad;flex:none}
+.rewrite-outline-add{justify-content:center;width:100%;margin-top:5px}
+.rewrite-outline-goal{margin:4px 0!important;padding:6px 8px;background:#f0eaf8;border-radius:6px;display:block}
+.rewrite-outline-purpose{background:#f8f5fc;border-radius:5px;padding:5px 7px;margin-top:6px}
+.rewrite-outline-cards b{font-size:11px;color:#80649d}
+.rewrite-outline-cards .formatted-text{font:13px/1.75 var(--studio-font);max-height:none!important;padding:0;margin:3px 0!important;overflow:visible!important}
+.rewrite-outline-cards .formatted-text p{margin:0 0 5px}
+.rewrite-outline-cards small{font-size:10px;color:#908399}
+.rewrite-event-transfer{display:flex!important;gap:8px;align-items:center}
+.rewrite-event-transfer select{min-width:0;flex:1;max-width:75%}
+.creator-candidate .rewrite-outline-cards{max-height:280px;overflow:auto}
+.creator-candidate-dialog .creator-pair>.rewrite-outline-cards{max-height:65vh;overflow:auto}
+.rewrite-deleted-episodes>div{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;padding:8px;background:#f8f5fc;border-radius:7px}
+
+.rewrite-stage-macro .rewrite-stage-columns>.rewrite-analysis-column,.rewrite-stage-macro .rewrite-stage-columns>.creator-text-pane,.rewrite-stage-macro .rewrite-stage-columns>.creator-agent{height:calc(100dvh - 194px)}
+.rewrite-stage-macro .rewrite-analysis-column>.rewrite-book-card{flex:none;min-height:0;overflow:visible}
+@media(max-width:1450px){.rewrite-stage-macro .rewrite-stage-columns>.creator-agent{height:auto}.rewrite-stage-macro .rewrite-stage-columns>.rewrite-analysis-column,.rewrite-stage-macro .rewrite-stage-columns>.creator-text-pane{height:clamp(360px,54vh,620px)}}

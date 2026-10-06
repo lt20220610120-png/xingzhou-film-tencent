@@ -1,3 +1,4 @@
+import {readRewriteOutline,validateRewriteOutline,rewriteOutlineText,copyOutlineGroups} from './rewriteOutline.js';
 import { splitFullScript } from './scriptImport.js';
 import { formatIPScriptText } from './ipScenes.js';
 
@@ -26,7 +27,7 @@ export const CREATOR_FRAMEWORK_STAGES = [
   { key: 'episodeOutline', label: '分集大纲' },
 ];
 export const CREATOR_REWRITE_SECTIONS = [
-  { key: 'settings', label: '设定' }, { key: 'outline', label: '大纲' },
+  { key: 'settings', label: '设定' }, {key:'macroOutline',label:'大纲'}, { key: 'outline', label: '大纲' },
   { key: 'detail', label: '细纲' }, { key: 'events', label: '事件' },
   { key: 'characters', label: '人物' }, { key: 'timeline', label: '人物线与时间线' },
 ];
@@ -173,7 +174,8 @@ const staleEpisodes = (project, kind, predicate = () => true) => ({ ...project,
 const markDerivedSectionsStale=(project,keys)=>({...project,creator:{...project.creator,sections:Object.fromEntries(Object.entries(project.creator.sections).map(([key,value])=>[key,keys.includes(key)&&text(value.output).trim()?{...value,stale:true}:value]))}});
 const SECTION_DEPENDENCIES={
  inspiration:['settings','outline','skeleton','characters','timeline','detail','episodeOutline','simulation'],
- settings:['outline','skeleton','characters','timeline','detail','episodeOutline','simulation'],
+ macroOutline:['outline','characters','skeleton','timeline','detail','episodeOutline','simulation'],
+ settings:['macroOutline','outline','skeleton','characters','timeline','detail','episodeOutline','simulation'],
  outline:['skeleton','detail','episodeOutline','simulation'],skeleton:['detail','episodeOutline','simulation'],
  events:['timeline','detail','episodeOutline','simulation'],characters:['timeline','detail','episodeOutline','simulation'],
  timeline:['detail','episodeOutline','simulation'],experience:['simulation'],simulation:['detail','episodeOutline'],detail:['episodeOutline'],
@@ -546,7 +548,9 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
   if (stale && !allowStale && record.type !== 'history') fail('CREATOR_STALE_RESULT', '该候选基于旧版输入，请复核后明确采用。');
   if (!target.episodeId && node.locked && !unlock) fail('CREATOR_LOCKED', '该成果已锁定，请明确解锁后采用。');
   const previous = target.episodeId ? text(node[field]) : text(node[target.side]);
-  const output = mode === 'append' ? [previous, record.output].filter(Boolean).join('\n\n') : record.output;
+  const macro = target.section==='macroOutline'&&target.side==='output';
+  if(macro&&record.type!=='history')validateRewriteOutline(record.output);
+  const output = macro ? JSON.stringify(mode==='append'?{groups:[...readRewriteOutline(previous).groups,...copyOutlineGroups(readRewriteOutline(record.output).groups)]}:readRewriteOutline(record.output)) : mode === 'append' ? [previous, record.output].filter(Boolean).join('\n\n') : record.output;
   const history = historyRecord(p, target, previous, { previousAccepted: node.accepted, previousLocked: node.locked });
   let next = target.episodeId ? patchEpisode(p, kind, target.episodeId, {
     [field]: output, stale, ...(target.side === 'output' ? { finalConfirmed: false,
@@ -555,7 +559,7 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
         output, previous, inputFingerprint: record.inputFingerprint, createdAt: now() }],
     } : {}),
   }) : patchSection(p, kind, target.section, {
-    [target.side]: output, ...(target.side === 'output' ? { accepted: true } : {}), stale, ...(unlock ? { locked: false } : {}),
+    [target.side]: output, ...(target.side === 'output' ? { accepted: macro&&record.type==='history'?Boolean(record.previousAccepted):true } : {}), stale, ...(unlock ? { locked: false } : {}),
   });
   next.creator.records = [...next.creator.records.map(item => item.id === recordId ? { ...item, status: 'adopted', adoptedAt: now(), adoptedSide: target.side, stale } : item), history];
   return next;
@@ -567,7 +571,7 @@ export const buildCreatorText = (project, kind = 'script', side = 'output', { in
   sideField(kind, side);
   const finalOnly = p.creator.mode === 'framework' && side === 'output';
   const sections = includeSections && !finalOnly ? Object.entries(p.creator.sections)
-    .map(([key, section]) => text(section[side]).trim() ? `【${p.creator.mode==='rewrite'&&key==='outline'?'主线':sectionLabels[key] || key}】\n${section[side].trim()}` : '').filter(Boolean) : [];
+    .map(([key, section]) => text(section[side]).trim() ? `【${p.creator.mode==='rewrite'&&key==='outline'?'主线':sectionLabels[key] || key}】\n${key==='macroOutline'?rewriteOutlineText(section[side]):section[side].trim()}` : '').filter(Boolean) : [];
   const episodes = finalOnly ? p.episodes.filter(episode => episode.type === 'episode') : p.episodes;
   const blocks = p.creator.mode === 'ip' && side === 'output' ? buildIPOutputBlocks(episodes, kind) : episodeBlocks(episodes, kind, side);
   const content = [...sections, includeSections && !finalOnly ? buildAdoptedStoryText(p) : '', blocks].filter(Boolean).join('\n\n');
