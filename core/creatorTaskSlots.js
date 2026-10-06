@@ -16,7 +16,7 @@ export function creatorTasksConflict(a, b) {
 export function creatorTaskActivity(activity, kind, projectId, target) {
   const base = `${kind}:${projectId}`;
   if (activity[base]) return activity[base];
-  const running = Object.entries(activity).filter(([slot, value]) => slot.startsWith(`${base}:`) && value.running && (!target || (
+  const running = Object.entries(activity).filter(([slot, value]) => slot.startsWith(`${base}:`) && value.running && (target?.task!=='rewriteWorldSim'||value.target?.task==='rewriteWorldSim') && (!target || (
     value.target?.task === 'rewriteAnalyze'
       ? target.section === 'source' || target.section === 'rewriteAnalysis' || analysisKeys(value.target).includes(target.section)
       : (target.section || 'episode') === (value.target?.section || 'episode')

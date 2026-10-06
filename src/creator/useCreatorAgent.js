@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { uid } from '../../core/projectStore.js';
 import { normalizeCreatorProject, updateCreatorProject, appendCreatorRecord, creatorInputFingerprint } from '../../core/creatorWorkspace.js';
 import { runCreatorTask } from '../../core/creatorAi.js';
+import {rewriteWorldInput} from '../../core/rewriteWorld.js';
 
 export function useCreatorAgent({state,setState,getState,api}) {
  const latest=useRef(state);latest.current=state; const jobs=useRef(new Map()); const [activity,setActivity]=useState({});
@@ -18,7 +19,7 @@ export function useCreatorAgent({state,setState,getState,api}) {
   const rewrite=project.creator.mode==='rewrite',base=`${kind}:${projectId}`,slot=creatorTaskSlot(kind,projectId,target,rewrite);
   if([...jobs.current.entries()].some(([key,job])=>(key===base||key.startsWith(`${base}:`))&&(!rewrite||creatorTasksConflict(job.target,target))))throw new Error('此区域已有任务运行，请等待或停止当前任务');
   const id=`creator-${uid()}`,job={id,target,cancelled:false,reading:-1};jobs.current.set(slot,job);
-  const record={id,type:'ai',target:{...target},inputFingerprint:creatorInputFingerprint(project,target),output:'',status:'running',instruction,createdAt:new Date().toISOString(),model:profile.model,skillId};
+  const record={id,type:'ai',target:{...target},inputFingerprint:creatorInputFingerprint(project,target),output:'',status:'running',instruction,createdAt:new Date().toISOString(),model:profile.model,skillId,...(target.task==='rewriteWorldSim'?{worldInputSnapshot:rewriteWorldInput(project,target)}:{})};
   setState(s=>{
    let next=appendCreatorRecord(s,kind,projectId,record);
    if(chat){const p=next[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===projectId);next=updateCreatorProject(next,kind,projectId,{chat:[...(p.creator?.chat||[]),{id:uid(),role:'user',content:displayInstruction??instruction,stage:target.section||target.episodeId,createdAt:record.createdAt}]});}

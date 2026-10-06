@@ -1,5 +1,6 @@
 import {readRewriteOutline,validateRewriteOutline,rewriteOutlineText,copyOutlineGroups} from './rewriteOutline.js';
 import {readRewriteMainline,validateRewriteMainline,rewriteMainlineText} from './rewriteMainline.js';
+import {rewriteWorldInput} from './rewriteWorld.js';
 import { splitFullScript } from './scriptImport.js';
 import { formatIPScriptText } from './ipScenes.js';
 
@@ -234,7 +235,7 @@ export const creatorInputFingerprint = (project, target = {}) => {
     })).filter(episode => episode.id !== target.episodeId);
   const referenceKey=target.section||'episode',referenceIds=p.creator.rewrite?.selections?.[referenceKey]||[];
   const analysisSource = [p.creator.source,...p.creator.references].find(book => book?.id === target.sourceId);
-  const serialized = JSON.stringify(canonical(target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
+  const serialized = JSON.stringify(canonical(target.task==='rewriteWorldSim'?{projectId:p.id,target:activeTarget,input:rewriteWorldInput(p,target)}:target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
     referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
     rewrite: p.creator.mode==='rewrite' ? {selections:{[referenceKey]:referenceIds},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.mode!=='rewrite'||referenceIds.includes(p.creator.source?.id)?p.creator.source?.analysis||null:null,

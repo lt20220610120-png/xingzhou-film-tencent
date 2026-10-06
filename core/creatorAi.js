@@ -1,11 +1,13 @@
 import {REWRITE_OUTLINE_RULE,rewriteOutlineText} from './rewriteOutline.js';
 import {REWRITE_MAINLINE_RULE} from './rewriteMainline.js';
+import {REWRITE_WORLD_RULE} from './rewriteWorld.js';
 import { prepareRewriteTask, REWRITE_ANALYSIS_RULE, REWRITE_PLAN_RULE } from './rewriteWorkflow.js';
 import { buildSkillMessages } from './skillContext.js';
 import { assertMessageCapacity } from './skillExecution.js';
 import { chineseEpisodeNumber } from './collabEpisodes.js';
 
 export const CREATOR_TASK_RULES = {
+ rewriteWorldSim:REWRITE_WORLD_RULE,
  macroOutline:REWRITE_OUTLINE_RULE, rewriteAnalyze:REWRITE_ANALYSIS_RULE, rewritePlan:REWRITE_PLAN_RULE,
  inspiration:'整理用户灵感、类型题材、核心脑洞和世界规则。分清用户已经确定的内容、你的建议和待定问题；指出冲突双方，不自行替用户选择。',
  settings:'提取类型、题材、核心故事设定、特殊能力、世界背景和主角特点。性格特点不强行归类金手指；没有就如实记录。每项注明来源集/场，推断明确标注。',

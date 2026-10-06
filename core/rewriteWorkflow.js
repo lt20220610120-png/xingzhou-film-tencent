@@ -1,5 +1,6 @@
 import {validateRewriteOutline,REWRITE_OUTLINE_RULE} from './rewriteOutline.js';
 import {validateRewriteMainline,REWRITE_MAINLINE_RULE} from './rewriteMainline.js';
+import {prepareRewriteWorldProject} from './rewriteWorld.js';
 import { normalizeCreatorProject,addCreatorEpisode,updateCreatorEpisode,removeCreatorNode,adoptCreatorRecord } from './creatorWorkspace.js';
 import { splitFullScript } from './scriptImport.js';
 
@@ -94,6 +95,7 @@ export const deleteRewriteVersion=(state,id,versionId)=>change(state,id,p=>{
 });
 export function prepareRewriteTask(project,target={}) {
   if(project.creator?.mode!=='rewrite')return project;
+  if(target.task==='rewriteWorldSim')return prepareRewriteWorldProject(project,target);
   const books=rewriteSources(project),w=rewriteState(project);
   if(target.task==='rewriteAnalyze') {
     const book=books.find(b=>b.id===target.sourceId);if(!book)throw new Error('找不到对标剧本');

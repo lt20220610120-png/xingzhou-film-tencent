@@ -34,6 +34,7 @@ window.xingzhou=new Proxy({
  aiChat:async req=>{
   await new Promise(r=>setTimeout(r,400));if(cancelled.has(req.taskId))throw new Error('预览任务已停止');
   const text=req.messages.map(m=>m.content).join('\\n');
+  if(text.includes('大世界模拟：')){const groups=JSON.parse(JSON.stringify(seed.macro.groups));groups.reverse();for(const g of groups){g.source='重排示例素材';for(const e of g.events)e.source='示例事件改写，衔接新阶段';}return JSON.stringify({title:'示例模拟版本',changeSummary:'重组阶段和小事件，仅为操作演示',constraintsCheck:'模拟数据，请编辑复核后采用',groups});}
   if(text.includes('完整拆解当前唯一对标剧本'))return JSON.stringify({settings:'示例都市设定',macroOutline:seed.macro,outline:seed.mainline,characters:'示例人物动机与关系'});
   if(text.includes('主线是按大纲小事件归组'))return JSON.stringify(text.includes('仅拆解当前唯一对标剧本')?{outline:seed.mainline}:seed.mainline);
   if(text.includes('只整理阶段式故事骨架'))return JSON.stringify(text.includes('仅拆解当前唯一对标剧本')?{macroOutline:seed.macro}:seed.macro);
@@ -63,8 +64,17 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(()=>{
    const ready=await win.webContents.executeJavaScript('!!document.querySelector(".workspace-preserved:not([hidden]) .rewrite-view-toolbar")');
    if(ready){
     await new Promise(r=>setTimeout(r,300));
-    const result=await win.webContents.executeJavaScript('({title:document.title,floating:!!document.querySelector("[aria-label=移动项目协作浮窗]"),groups:document.querySelectorAll(".rewrite-analysis-column>div:not([hidden]) [aria-label=大事件组切换] button").length,errors:document.querySelectorAll(".render-error-page").length})');
-    result.pass=result.floating&&result.groups>=3&&result.errors===0;
+    const result=await win.webContents.executeJavaScript('({title:document.title,floating:!!document.querySelector("[aria-label=移动项目协作浮窗]"),groups:document.querySelectorAll(".rewrite-analysis-column>div:not([hidden]) .rewrite-outline-group>header>.rewrite-chain-node").length,errors:document.querySelectorAll(".render-error-page").length})');
+    result.both=await win.webContents.executeJavaScript('(()=>{const l=document.querySelector(".rewrite-analysis-column").getBoundingClientRect(),r=document.querySelector(".rewrite-reading-columns>.creator-text-pane").getBoundingClientRect();return l.width>0&&r.width>0&&Math.abs(l.width-r.width)<2})()');
+    await win.webContents.executeJavaScript('[...document.querySelectorAll(".rewrite-view-toolbar button")].find(b=>b.textContent.includes("大世界模拟")).click()');
+    await new Promise(r=>setTimeout(r,200));
+    await win.webContents.executeJavaScript('[...document.querySelectorAll(".rewrite-world-dialog button")].find(b=>b.textContent.includes("开始模拟新版本")).click()');
+    for(let retry=0;retry<40;retry++){
+     await new Promise(r=>setTimeout(r,100));
+     result.worldVersion=await win.webContents.executeJavaScript('!!document.querySelector(".rewrite-world-dialog input[aria-label=模拟版本名称]")');
+     if(result.worldVersion)break;
+    }
+    result.pass=result.floating&&result.both&&result.worldVersion&&result.groups>=3&&result.errors===0;
     fs.writeFileSync(path.join(__dirname,'native-verification.json'),JSON.stringify(result,null,2));
     fs.writeFileSync(path.join(__dirname,'native-preview.png'),(await win.webContents.capturePage()).toPNG());
     app.exit(result.pass?0:1);return;
