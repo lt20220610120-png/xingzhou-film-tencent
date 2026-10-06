@@ -1,3 +1,4 @@
+import { prepareLibraryDirector } from '../../core/directorLibrary.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {threeWayMerge} from '../../core/threeWayMerge.js';
@@ -36,7 +37,7 @@ import { directorSettingsHash } from '../../core/directorQuickStore.js';
 /* ================================================================
  * ProjectCards - 导演工作台项目选择页
  * ================================================================ */
-function ProjectCards({ projects, groups, library, onOpen, onDelete, onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup, onImportLibrary, onUpload, onManageCollab, canManageCollab, canDeleteProject, onOpenCloudManager }) {
+function ProjectCards({ projects, groups, library, onOpen, onDelete, onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup, onImportLibrary, onUpload, onManageCollab, canManageCollab, canDeleteProject, onOpenCloudManager, onLibraryCollab, canLibraryCollab }) {
   return (
     <ProjectCardHub
       title="选择一部剧本开始导演创作"
@@ -53,6 +54,8 @@ function ProjectCards({ projects, groups, library, onOpen, onDelete, onRename, o
       onRenameGroup={onRenameGroup}
       onDeleteGroup={onDeleteGroup}
       onImportLibrary={onImportLibrary}
+      onLibraryCollab={onLibraryCollab}
+      canLibraryCollab={canLibraryCollab}
       onUpload={onUpload}
       onCreate={() => {}}
       onManageCollab={onManageCollab}
@@ -1013,43 +1016,18 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   };
 
   // 处理从剧本库导入
-  const handleImportLibrary = (libItem) => {
-    const parsed = (() => {
-      try {
-        return { ...parseMasterScript(libItem.content), masterScript: libItem.content, detected: true };
-      } catch {
-        return { masterScript: libItem.content, detected: false, episodes: [{ title: '第 1 集', content: libItem.content }] };
-      }
-    })();
-
-    const episodes = parsed.episodes.map((ep, i) => ({
-      id: `lib-${Date.now()}-${i}`,
-      title: ep.title,
-      content: ep.content,
-      kind: ep.kind || 'episode',
-      prompts: [],
-      status: '待导演处理',
-    }));
-
-    const newProject = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      name: libItem.name,
-      sourceId: libItem.id,
-      sourceType: 'library',
-      masterScript: parsed.masterScript,
-      episodes,
-      lastUsedSkill: '大师级提示词1.0',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    setState((s) => ({
-      ...s,
-      directorProjects: [{ ...newProject, groupId: 'director-workbench' }, ...s.directorProjects.filter((p) => p.name !== libItem.name)],
-    }));
-    setSelectedProjectId(newProject.id);
-    setActivePane(newProject.episodes[0]?.id || 'master');
-    setMasterDraft(newProject.masterScript || '');
+  const resolveLibraryProject = item => {
+    const prepared=prepareLibraryDirector(state,item);
+    if(prepared.state!==state)setState(current=>current.directorProjects.some(p=>p.sourceType==='library'&&p.sourceId===item.id)?current:{...current,directorProjects:[prepared.project,...current.directorProjects]});
+    return prepared.project;
+  };
+  const handleImportLibrary = item => {
+    try { const newProject=resolveLibraryProject(item);setSelectedProjectId(newProject.id);const remembered=readRemembered(`xz-director-pane:${accountId}:${newProject.id}`,null);setActivePane(remembered==='master'||newProject.episodes.some(ep=>ep.id===remembered)?remembered:newProject.episodes.find(ep=>ep.kind!=='setting')?.id||newProject.episodes[0]?.id||'master');setMasterDraft(newProject.masterScript || ''); }
+    catch(error){alert(error.message);}
+  };
+  const handleLibraryCollab = item => {
+    try {const p=resolveLibraryProject(item);setCollabTarget({project:p,cloud:cloudForProject(p)});}
+    catch(error){alert(error.message);}
   };
 
   // 处理添加分集
@@ -1107,6 +1085,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           onRenameGroup={(id, name) => setState((s) => renameDirectorGroup(s, id, name))}
           onDeleteGroup={(id) => setState((s) => deleteDirectorGroup(s, id))}
           onImportLibrary={handleImportLibrary}
+          onLibraryCollab={handleLibraryCollab}
+          canLibraryCollab={isProducer}
           onUpload={handleUpload}
           onManageCollab={(project) => setCollabTarget({ project, cloud: cloudForProject(project) })}
           canManageCollab={(project) => canManageDirectorCollab(project, isProducer)}

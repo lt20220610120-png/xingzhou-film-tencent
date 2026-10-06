@@ -1,8 +1,10 @@
+import { prepareRewriteTask, REWRITE_ANALYSIS_RULE, REWRITE_PLAN_RULE } from './rewriteWorkflow.js';
 import { buildSkillMessages } from './skillContext.js';
 import { assertMessageCapacity } from './skillExecution.js';
 import { chineseEpisodeNumber } from './collabEpisodes.js';
 
 export const CREATOR_TASK_RULES = {
+ rewriteAnalyze:REWRITE_ANALYSIS_RULE, rewritePlan:REWRITE_PLAN_RULE,
  inspiration:'整理用户灵感、类型题材、核心脑洞和世界规则。分清用户已经确定的内容、你的建议和待定问题；指出冲突双方，不自行替用户选择。',
  settings:'提取类型、题材、核心故事设定、特殊能力、世界背景和主角特点。性格特点不强行归类金手指；没有就如实记录。每项注明来源集/场，推断明确标注。',
  outline:'梳理从开端到材料结尾的全部大事件，说明事件作用、先后和原因后果；资料没有结局就明确止于哪里。',
@@ -71,6 +73,7 @@ const unwrap=response=>{
 export async function runCreatorTask({api,state,project,kind='script',target={},profile,skillId='',instruction='',taskId,onProgress=()=>{},scope='project',isCancelled=()=>false}) {
  if(!profile?.model||!profile?.endpoint&&profile?.provider!=='codexLocal'&&profile?.id===undefined)throw new Error('请选择已配置的接口与模型');
  if(typeof api?.aiChat!=='function')throw new Error('当前环境不能调用模型');
+ project=prepareRewriteTask(project,target);
  const skill=skillId?state.skills?.find(s=>s.id===skillId):null;
  if(skillId&&!skill)throw new Error('所选 Skill 已移除，请重新选择');
  if(skill&&(!txt(skill.content).trim()||skill.requiresTools?.length))throw new Error(skill.requiresTools?.length?'当前文字执行环境不支持此 Skill 要求的工具':'Skill 主文件为空，请重新导入完整 Skill');

@@ -6,7 +6,7 @@ import { defaultProjectGroupName } from '../../core/projectGroups.js';
 
 export function ProjectCardHub({
   title, subtitle, projects, onCreate, onOpen, onDelete, kind = 'project',
-  onImportLibrary, onUpload, onUploadCompleted, library, headerExtra,
+  onLibraryCollab, canLibraryCollab=false, onImportLibrary, onUpload, onUploadCompleted, library, headerExtra,
   groups = [], onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup,
   onManageCollab, canManageCollab = () => false, canDeleteProject = () => true,
 }) {
@@ -133,7 +133,7 @@ export function ProjectCardHub({
         {!isDirector && !compactEntry && onUploadCompleted && <button className="project-card add creator-upload-card completed" aria-label="导入完成剧本" onClick={onUploadCompleted}><div><FileText /></div><h3>导入完成剧本</h3><p>已有成稿直接阅读、编辑与收录</p></button>}
         {!isDirector && !compactEntry && <button className="project-card add" aria-label="新建项目" onClick={onCreate}><div><Plus /></div><h3>新建项目</h3><p>创建一个新的{isIP ? 'IP 改编' : isFruit ? '果子' : '剧本'}项目</p></button>}
         {isDirector && filterGroup === 'director-workbench' && <button className="project-card add" onClick={onUpload}><div><Upload /></div><h3>上传剧本</h3><p>自动识别总剧本与分集</p></button>}
-        {isDirector && filterGroup === 'director-library' && library?.map(item => <article key={item.id} className="project-card library-source"><div className="card-cover"><BookOpen /></div><small>内容创作者 · 剧本库</small><h3>{item.name}</h3><p>导入导演工作台后可逐集处理</p><button className="primary" onClick={() => onImportLibrary(item)}>选择剧本</button></article>)}
+        {isDirector && filterGroup === 'director-library' && library?.filter(item=>item.name.toLowerCase().includes(searchQuery.toLowerCase())).map(item => <article key={item.id} className="project-card library-source"><div className="card-cover"><BookOpen /></div><small>内容创作者 · 剧本库</small><h3>{item.name}</h3><p>导入导演工作台后可逐集处理</p><div className="project-card-actions"><button className="primary" onClick={() => onImportLibrary(item)}>继续导演</button>{canLibraryCollab && <button className="secondary" onClick={()=>onLibraryCollab(item)}><Users size={14}/>开启协作</button>}</div></article>)}
         {visibleProjects.map(project =>{
           const group = groups.find(item => item.id === project.groupId);
           return <article key={project.id} className="project-card">

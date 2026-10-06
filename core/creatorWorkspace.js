@@ -225,7 +225,8 @@ export const creatorInputFingerprint = (project, target = {}) => {
   const serialized = JSON.stringify(canonical({ projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
     referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
-    references: p.creator.references.filter(reference => reference.enabled !== false).map(reference => ({ id: reference.id, content: reference.content })),
+    rewrite: p.creator.mode==='rewrite' ? {selections:p.creator.rewrite?.selections||{},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.source?.analysis || null,
+    references: p.creator.references.filter(reference => reference.enabled !== false).map(reference => ({ id: reference.id, content: reference.content, analysis: reference.analysis })),
   }));
   let hash = 2166136261;
   for (let i = 0; i < serialized.length; i++) hash = Math.imul(hash ^ serialized.charCodeAt(i), 16777619);
@@ -253,7 +254,7 @@ const patchSection = (project, kind, key, patch) => {
   if(patch.accepted===true&&!own(patch,'stale'))next.stale=false;
   if (next.locked && (!next.accepted || !text(next.output).trim())) fail('CREATOR_LOCKED', '请先采用非空成果，再锁定该内容。');
   let updated = { ...project, creator: { ...project.creator, sections: { ...project.creator.sections, [key]: next } } };
-  if (JSON.stringify(adoptedSections(project)) !== JSON.stringify(adoptedSections(updated))) updated = markDerivedSectionsStale(staleEpisodes(updated, kind), SECTION_DEPENDENCIES[key]||[]);
+  if (JSON.stringify(adoptedSections(project)) !== JSON.stringify(adoptedSections(updated))) updated = markDerivedSectionsStale(staleEpisodes(updated, kind), [...(SECTION_DEPENDENCIES[key]||[]),...(project.creator.mode==='rewrite'&&key==='outline'?['characters']:[])]);
   return updated;
 };
 
@@ -564,7 +565,7 @@ export const buildCreatorText = (project, kind = 'script', side = 'output', { in
   sideField(kind, side);
   const finalOnly = p.creator.mode === 'framework' && side === 'output';
   const sections = includeSections && !finalOnly ? Object.entries(p.creator.sections)
-    .map(([key, section]) => text(section[side]).trim() ? `【${sectionLabels[key] || key}】\n${section[side].trim()}` : '').filter(Boolean) : [];
+    .map(([key, section]) => text(section[side]).trim() ? `【${p.creator.mode==='rewrite'&&key==='outline'?'主线':sectionLabels[key] || key}】\n${section[side].trim()}` : '').filter(Boolean) : [];
   const episodes = finalOnly ? p.episodes.filter(episode => episode.type === 'episode') : p.episodes;
   const blocks = p.creator.mode === 'ip' && side === 'output' ? buildIPOutputBlocks(episodes, kind) : episodeBlocks(episodes, kind, side);
   const content = [...sections, includeSections && !finalOnly ? buildAdoptedStoryText(p) : '', blocks].filter(Boolean).join('\n\n');
