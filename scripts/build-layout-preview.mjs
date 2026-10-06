@@ -54,7 +54,7 @@ const profile=path.join(__dirname,'preview-profile');fs.mkdirSync(profile,{recur
 const verify=process.argv.includes('--verify');
 if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(()=>{
  session.defaultSession.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(_,done)=>done({cancel:true}));
- const win=new BrowserWindow({width:1700,height:1050,show:!verify,title:'行舟影视 — 两种布局预览（示例数据，未发布）',webPreferences:{nodeIntegration:false,contextIsolation:true}});
+ const win=new BrowserWindow({width:1700,height:1050,show:!verify,title:'行舟影视 — 协作浮窗演示（独立示例数据）',webPreferences:{nodeIntegration:false,contextIsolation:true}});
  win.setMenuBarVisibility(false);win.loadFile(path.join(__dirname,'dist','index.html'));
  if(verify)win.webContents.once('did-finish-load',async()=>{
   const deadline=Date.now()+20000;
@@ -63,8 +63,8 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(()=>{
    const ready=await win.webContents.executeJavaScript('!!document.querySelector(".workspace-preserved:not([hidden]) .rewrite-view-toolbar")');
    if(ready){
     await new Promise(r=>setTimeout(r,300));
-    const result=await win.webContents.executeJavaScript('({title:document.title,layouts:document.querySelector("[aria-label=布局预览方案]").options.length,groups:document.querySelectorAll(".rewrite-analysis-column>div:not([hidden]) [aria-label=大事件组切换] button").length,errors:document.querySelectorAll(".render-error-page").length})');
-    result.pass=result.layouts===2&&result.groups>=3&&result.errors===0;
+    const result=await win.webContents.executeJavaScript('({title:document.title,floating:!!document.querySelector("[aria-label=移动项目协作浮窗]"),groups:document.querySelectorAll(".rewrite-analysis-column>div:not([hidden]) [aria-label=大事件组切换] button").length,errors:document.querySelectorAll(".render-error-page").length})');
+    result.pass=result.floating&&result.groups>=3&&result.errors===0;
     fs.writeFileSync(path.join(__dirname,'native-verification.json'),JSON.stringify(result,null,2));
     fs.writeFileSync(path.join(__dirname,'native-preview.png'),(await win.webContents.capturePage()).toPNG());
     app.exit(result.pass?0:1);return;
@@ -82,5 +82,5 @@ if(!runtime)throw new Error('No Electron runtime available for the preview.');
 const relativeRuntime=path.relative(output,runtime);
 // ASCII launcher text avoids CMD's system code-page decoding of Chinese paths.
 fs.writeFileSync(path.join(output,'打开布局预览.cmd'),`@echo off\r\nstart "" "%~dp0${relativeRuntime}" "%~dp0."\r\n`);
-fs.writeFileSync(path.join(output,'说明.txt'),'这是独立布局预览，使用示例项目和模拟 Agent。\r\n双击“打开布局预览.cmd”，在顶部“布局预览”切换两种方案。\r\n不会替换正式软件或读取正式项目；正式版本仍为 2.7.13。\r\n预览中的编辑保存在本文件夹的 preview-profile。\r\n');
+fs.writeFileSync(path.join(output,'说明.txt'),'这是独立布局预览，使用示例项目和模拟 Agent。\r\n双击“打开布局预览.cmd”，点击“打开项目协作”，拖住标题栏移动浮窗。\r\n不会替换正式软件或读取正式项目；与正式软件相互独立。\r\n预览中的编辑保存在本文件夹的 preview-profile。\r\n');
 console.log(output);
