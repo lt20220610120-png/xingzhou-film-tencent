@@ -6,7 +6,7 @@ import { buildSkillMessages } from './skillContext.js';
 import { assertMessageCapacity } from './skillExecution.js';
 import { validateSourceRanges, rangeChapters } from './ipSourceRanges.js';
 import { groundIPPlanEpisodes } from './ipPlanGrounding.js';
-import { ipHash, ipFingerprint, parseIPJson, recoverIPPlanMap, isIPModelRefusal, validateIPPlan, ipMinimumEpisodes,ipSettingsScopeKey,ipSettingsReviewReason,ipAutomaticSettingsVersion,assertIPSettingsReady } from './ipWorkspace.js';
+import { ipHash, ipFingerprint, parseIPJson, recoverIPPlanMap, isIPModelRefusal, validateIPPlan, ipMinimumEpisodes,ipSettingsScopeKey,ipSettingsReviewReason,ipAutomaticSettingsVersion,assertIPSettingsReady,resolveIPInstruction } from './ipWorkspace.js';
 
 const stop=partialText=>{throw Object.assign(new Error('任务已停止，已保存的阅读记录和版本可继续使用'),{partialText:partialText||''});};
 const isTruncated=error=>error?.code==='OUTPUT_TRUNCATED'||error?.code==='IP_JSON_TRUNCATED'||error?.validationCode==='IP_JSON_TRUNCATED'||/输出被截断|输出截断|output.*truncat|max[_ ]?tokens|finish_reason.*length/i.test(error?.message||'');
@@ -35,6 +35,7 @@ const packNotes=(items,limit=9000)=>{
  if(group.length)groups.push(group);return groups;
 };
 export async function runIPTask({api,project,task,episodeId,profile,instruction='',taskId,isCancelled=()=>false,onProgress=()=>{},onRead=()=>{},onDraft=()=>{},onRequestStart=()=>{},onRequestEnd=()=>{},allowReviewedPrevious=false,firstDraftMode=false}){
+ instruction=resolveIPInstruction(project,instruction);
  if(!profile?.model)throw new Error('请先在 API 接口中添加并选择文本模型');
  const ip=project.creator.ip,source=ip.source;
  if(!source?.content)throw new Error('请先导入小说');

@@ -1,6 +1,8 @@
 import { normalizeCreatorProject, buildCreatorText } from './creatorWorkspace.js';
 import { episodeSourceRanges, validateSourceRanges, rangeChapters } from './ipSourceRanges.js';
 import { normalizeReadConcurrency } from './ipReading.js';
+import {checkpointIPEdition,startIPEdition,restoreIPEdition,removeIPEdition,retainIPWorkingDraft} from './ipEditions.js';
+export {ipEditionRecords} from './ipEditions.js';
 
 let sequence=0;
 const uid=()=>`ip_${Date.now().toString(36)}_${sequence++}_${Math.random().toString(36).slice(2,7)}`;
@@ -32,7 +34,15 @@ export function assertIPSettingsReady(project){
 }
 export const getIPProject=(state,id)=>state.fruitProjects?.find(p=>p.id===id&&p.creator?.mode==='ip');
 export function mutateIP(state,id,fn){
- return {...state,fruitProjects:state.fruitProjects.map(p=>p.id!==id?p:{...fn(normalizeCreatorProject(p,'fruit')),updatedAt:now()})};
+ return {...state,fruitProjects:state.fruitProjects.map(p=>p.id!==id?p:{...checkpointIPEdition(fn(checkpointIPEdition(normalizeCreatorProject(p,'fruit')))),updatedAt:now()})};
+}
+export const applyIPEdition=(state,id,editionId)=>mutateIP(state,id,p=>restoreIPEdition(p,editionId));
+export const deleteIPEdition=(state,id,editionId)=>mutateIP(state,id,p=>removeIPEdition(p,editionId));
+export function resolveIPInstruction(project,instruction=''){
+ const requirements=String(project?.creator?.ip?.requirements||'').trim(),specific=String(instruction||'').trim();
+ if(!requirements)return specific;
+ if(!specific||specific===requirements||specific.startsWith(`${requirements}\n\n本次修改要求：`))return specific||requirements;
+ return `${requirements}\n\n本次修改要求：${specific}`;
 }
 export function createIPProject(state,{name,duration=60,groupId=null,readConcurrency=3}){
  if(!name?.trim())throw new Error('请填写项目名称');
@@ -50,7 +60,7 @@ export function parseNovel(content,id=uid()){
 }
 export function importIPNovel(state,id,document){
  const source={...parseNovel(document.content),name:document.name||document.fileName||'小说',filePath:document.filePath||''};
- return mutateIP(state,id,p=>({...p,episodes:p.episodes.map(e=>({...e,sourceId:e.sourceId||p.creator.ip.source?.id||source.id,ipVersions:preserve(p,e,'更新小说前的编辑稿'),stale:!!e.scriptText,finalConfirmed:false})),creator:{...p.creator,ip:{...p.creator.ip,completedImport:false,source,sources:[...(p.creator.ip.sources||[]),source],reading:[],plan:null}}}));
+ return mutateIP(state,id,p=>({...p,episodes:p.episodes.map(e=>({...e,sourceId:e.sourceId||p.creator.ip.source?.id||source.id,ipVersions:preserve(p,e,'更新小说前的编辑稿'),stale:!!e.scriptText,finalConfirmed:false})),creator:{...p.creator,ip:{...p.creator.ip,activeEditionId:null,completedImport:false,source,sources:[...(p.creator.ip.sources||[]),source],reading:[],plan:null}}}));
 }
 export const ipSourceFor=(p,sourceId)=>sourceId?(p.creator.ip.sources||[]).find(s=>s.id===sourceId):p.creator.ip.source;
 export function ipOriginal(p,episode,version){
@@ -133,6 +143,7 @@ export function validateIPPlan(plan,source,duration){
 }
 export function applyIPPlan(state,id,plan){
  return mutateIP(state,id,p=>{
+  p=retainIPWorkingDraft(p);
   const valid=validateIPPlan(plan,p.creator.ip.source,p.creator.ip.duration),existing=p.episodes.filter(e=>e.type==='episode');
   let upstreamChanged=false;
   const episodes=valid.episodes.map((e,i)=>{
@@ -151,7 +162,7 @@ export function applyIPPlan(state,id,plan){
    if(e.sourceId===p.creator.ip.source.id&&ipAutomaticSettingsVersion(e)?.settingsScopeKey===settingsScope)return {...e,stale:false};
    return ipSettingsNeedReview(p,valid)?{...e,stale:true,finalConfirmed:false}:e;
   });
-  return {...p,episodes:[...frontmatter,...episodes],creator:{...p.creator,ip:{...p.creator.ip,retiredEpisodes:[...(p.creator.ip.retiredEpisodes||[]),...retired],plan:{...valid,sourceId:p.creator.ip.source.id,acceptedAt:now()}}}};
+  return startIPEdition({...p,episodes:[...frontmatter,...episodes],creator:{...p.creator,ip:{...p.creator.ip,retiredEpisodes:[...(p.creator.ip.retiredEpisodes||[]),...retired],plan:{...valid,sourceId:p.creator.ip.source.id,acceptedAt:now()}}}});
  });
 }
 export function addIPEpisode(state,id){return mutateIP(state,id,p=>({...p,episodes:[...p.episodes,{id:uid(),sourceId:p.creator.ip.source?.id,type:'episode',title:`第${p.episodes.filter(e=>e.type==='episode').length+1}集`,rawText:'',scriptText:'',chapterIds:[],ipVersions:[]}]}));}
@@ -176,7 +187,7 @@ export function updateIPMapping(state,id,episodeId,chapterIds,outline,sourceRang
 });}
 export function ipFingerprint(p,episodeId){
  const e=p.episodes.find(e=>e.id===episodeId),index=p.episodes.indexOf(e);
- return ipHash(JSON.stringify({source:p.creator.ip.source?.id,duration:p.creator.ip.duration,plan:p.creator.ip.plan,episode:e&&{id:e.id,sourceId:e.sourceId,chapterIds:e.chapterIds,sourceRanges:e.sourceRanges,outline:e.outline,scriptText:e.scriptText},previous:p.episodes.slice(0,index).map(e=>[e.id,e.sourceId,e.chapterIds,e.sourceRanges,e.scriptText])}));
+ return ipHash(JSON.stringify({source:p.creator.ip.source?.id,duration:p.creator.ip.duration,requirements:p.creator.ip.requirements||'',plan:p.creator.ip.plan,episode:e&&{id:e.id,sourceId:e.sourceId,chapterIds:e.chapterIds,sourceRanges:e.sourceRanges,outline:e.outline,scriptText:e.scriptText},previous:p.episodes.slice(0,index).map(e=>[e.id,e.sourceId,e.chapterIds,e.sourceRanges,e.scriptText])}));
 }
 const snapshot=(p,e,label,extra={})=>({id:uid(),createdAt:now(),label,content:e.scriptText||'',sourceId:e.sourceId||p.creator.ip.source?.id,chapterIds:[...(e.chapterIds||[])],sourceRanges:copy(e.sourceRanges),...(e.sourceQuotes?{sourceQuotes:copy(e.sourceQuotes)}:{}),outline:e.outline||'',...(e.settingsScopeKey?{settingsScopeKey:e.settingsScopeKey}:{}),...extra});
 const preserve=(p,e,label)=>{
@@ -251,7 +262,7 @@ export function inspectIPScript(content,number){
 export const ipMaster=p=>buildCreatorText(p,'fruit','output');
 export function updateIPMeta(state,id,patch){return mutateIP(state,id,p=>{
  const durationChanged=patch.duration!==undefined&&patch.duration!==p.creator.ip.duration;
- return {...p,...(durationChanged?{episodes:p.episodes.map(e=>({...e,stale:!!e.scriptText,finalConfirmed:false}))}:{}),creator:{...p.creator,ip:{...p.creator.ip,...copy(patch),...(durationChanged?{plan:null,planCandidates:[]}: {})}}};
+ return {...p,...(durationChanged?{episodes:p.episodes.map(e=>({...e,stale:!!e.scriptText,finalConfirmed:false}))}:{}),creator:{...p.creator,ip:{...p.creator.ip,...copy(patch),...(durationChanged?{plan:null,activeEditionId:null}: {})}}};
 });}
 
 // Queue orchestration stays independent of React so checkpoints and saved

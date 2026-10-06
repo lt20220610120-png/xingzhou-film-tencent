@@ -1,5 +1,5 @@
 import { useRef,useState } from 'react';
-import { getIPProject,mutateIP,ipFingerprint,saveIPVersion,appendIPVersion,runRemainingIPTasks,beginIPFirstDraft } from '../../core/ipWorkspace.js';
+import { getIPProject,mutateIP,ipFingerprint,saveIPVersion,appendIPVersion,runRemainingIPTasks,beginIPFirstDraft,resolveIPInstruction } from '../../core/ipWorkspace.js';
 import { runIPTask } from '../../core/ipAi.js';
 import {runIPAdaptationFlow} from '../../core/ipAdaptationFlow.js';
 
@@ -11,6 +11,7 @@ export function useIPAgent({state,setState,getState,api}){
   const read=()=>getState?.()||latest.current;
   if(episodeId)setState(s=>saveIPVersion(s,projectId,episodeId));
   const project=getIPProject(read(),projectId);if(!project)throw new Error('项目已移除');
+  instruction=resolveIPInstruction(project,instruction);
   const id=`ip-task-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,job={id,cancelled:false,current:id,active:new Set()};jobs.current.set(projectId,job);
   const record={id,type:'ip-task',target:{episodeId},task,model:profile?.model,instruction,createdAt:new Date().toISOString(),status:'running',generation:{status:'running',stage:task},output:'',diagnostics:[]};
   let outcome={status:'failed',stage:task,label:'任务未完成'};
@@ -35,7 +36,7 @@ export function useIPAgent({state,setState,getState,api}){
     }
    });
    if(job.cancelled)throw new Error('任务已停止');
-   if(result.type==='plan')setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,ip:{...p.creator.ip,planCandidates:[...(p.creator.ip.planCandidates||[]),{id,plan:result.plan,sourceId:result.sourceId,createdAt:new Date().toISOString()}]}}})));
+   if(result.type==='plan')setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,ip:{...p.creator.ip,planCandidates:[...(p.creator.ip.planCandidates||[]),{id,plan:result.plan,duration:project.creator.ip.duration,requirements:instruction,sourceId:result.sourceId,createdAt:new Date().toISOString()}]}}})));
    else if(result.type!=='firstDraft')setState(s=>{const p=getIPProject(s,projectId);if(!p)return s;const unchanged=ipFingerprint(p,episodeId)===result.fingerprint,e=p.episodes.find(e=>e.id===episodeId);return appendIPVersion(s,projectId,episodeId,{...result,model:profile.model,stale:!unchanged},{activate:unchanged&&(!e?.scriptText?.trim()||fromQueue&&task==='settings'),invalidateLater:!(task==='settings'&&e?.type==='settings'&&!e.scriptText?.trim())});});
    outcome={status:'completed',stage:task,label:task==='plan'?`分集规划已生成：${result.plan.episodes.length} 集${result.generation.settings==='generated'?'，设定与小传已生成':''}`:task==='settings'?'设定与人物小传已生成':task==='firstDraft'?result.output:'本集正文已生成',generation:result.generation||{status:'completed',stage:task}};
    patch({status:'completed',generation:outcome.generation,output:result.output||result.content,finishedAt:new Date().toISOString()});
