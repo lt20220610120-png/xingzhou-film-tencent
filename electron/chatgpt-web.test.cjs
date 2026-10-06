@@ -4,10 +4,10 @@ const {requestText,testTextConnection}=require('./text-provider.cjs');
 function fake({challenge=false,pending=false,loggedIn=true}={}){
  let sent=0,closed=0,logins=0,cancelled=0;
  const browser={loginMessage:'请登录并关闭独立窗口',installed:()=>true,ensure:async()=>{},navigate:async()=>{},command:async()=>{},close:async()=>{closed++;},openLogin:async()=>{logins++;},evaluate:async expression=>{
+  if(expression.includes('function inspectChatGPTResponse'))return {anchored:true,text:'连接成功',streaming:pending,finished:!pending};
   if(expression.includes('function inspectChatGPTPage'))return {ready:'complete',origin:'https://chatgpt.com',composer:loggedIn,loggedIn,challenge};
   if(expression.includes('function prepareComposer'))return {ok:true};
   if(expression.includes('function submitComposer')){sent++;return {ok:true};}
-  if(expression.includes('function inspectChatGPTResponse'))return {anchored:true,text:'连接成功',streaming:pending,finished:!pending};
   if(expression.includes('stop-button')){cancelled++;return true;}
  }};
  return {browserFactory:()=>browser,verificationWaitMs:0,get sent(){return sent},get closed(){return closed},get logins(){return logins},get cancelled(){return cancelled}};
@@ -59,4 +59,56 @@ test('ProseMirror input readback preserves the inserted blank paragraph rather t
 test('a page that never finishes account hydration is reported as loading failure rather than logged out',async()=>{
  const state=fake(),browser=state.browserFactory();browser.evaluate=async()=>({ready:'complete',composer:false,loggedIn:false,loggedOut:false});
  const service=createChatGPTWebService({...state,browserFactory:()=>browser,inspectTimeoutMs:1});const result=await service.status();assert.equal(result.code,'WEB_PAGE_NOT_READY');assert.match(result.message,/加载/);assert.doesNotMatch(result.message,/请.*登录/);assert.equal(state.logins,0);await service.close();
+});
+
+test('status has an overall deadline including browser startup and can be refreshed after timeout', {timeout:2000},async()=>{
+ const state=fake(),browser=state.browserFactory();let attempts=0;
+ browser.ensure=signal=>++attempts===1?new Promise((resolve,reject)=>signal?.addEventListener('abort',()=>reject(Object.assign(new Error('stopped'),{name:'AbortError'})),{once:true})):Promise.resolve();
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser,statusTimeoutMs:30});
+ const result=await Promise.race([service.status(),new Promise(r=>setTimeout(()=>r({code:'HUNG'}),200))]);assert.equal(result.code,'WEB_STATUS_TIMEOUT');assert.equal(result.authState,'unknown');
+ assert.equal((await service.status()).loggedIn,true);await service.close();
+});
+
+test('status does not wait behind a generating request or touch its page', {timeout:3000},async()=>{
+ const state=fake({pending:true}),browser=state.browserFactory();let inspectCalls=0;
+ const evaluate=browser.evaluate;browser.evaluate=async expression=>{if(expression.includes('function inspectChatGPTPage'))inspectCalls++;return evaluate(expression);};
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser}),controller=new AbortController();
+ const request=service.request({model:'auto',messages:[{role:'user',content:'Hello'}]},{signal:controller.signal}),rejection=assert.rejects(request,e=>e.name==='AbortError');
+ await new Promise(r=>setTimeout(r,20));const before=inspectCalls;
+ try{const status=await Promise.race([service.status(),new Promise(r=>setTimeout(()=>r({code:'HUNG'}),100))]);assert.equal(status.code,'WEB_BUSY');assert.equal(status.running,true);assert.equal(inspectCalls,before);}finally{controller.abort();await rejection;await service.close();}
+});
+
+test('simultaneous status refreshes share one bounded account inspection',async()=>{
+ const state=fake(),browser=state.browserFactory();let checks=0;
+ const evaluate=browser.evaluate;browser.evaluate=async expression=>{if(expression.includes('function inspectChatGPTPage'))checks++;return evaluate(expression);};
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser});
+ const results=await Promise.all([service.status(),service.status(),service.status()]);assert.ok(results.every(s=>s.loggedIn));assert.equal(checks,1);await service.close();
+});
+
+test('network error pages are distinct from expired login and website verification',async()=>{
+ const state=fake(),browser=state.browserFactory();browser.evaluate=async()=>({ready:'complete',networkError:true,loggedIn:false,loggedOut:false,challenge:false});
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser,inspectTimeoutMs:1});const result=await service.status();assert.equal(result.code,'WEB_NETWORK_ERROR');assert.equal(result.authState,'unknown');await service.close();
+});
+
+test('explicit logged-out detection reports a login-required category',async()=>{
+ const state=fake(),browser=state.browserFactory();browser.evaluate=async()=>({ready:'complete',loggedIn:false,loggedOut:true,challenge:false});
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser});const result=await service.status();assert.equal(result.code,'WEB_LOGIN_REQUIRED');assert.equal(result.authState,'required');await service.close();
+});
+
+test('opening login while a text request is running returns busy without disrupting it', {timeout:3000},async()=>{
+ const state=fake({pending:true}),service=createChatGPTWebService(state),controller=new AbortController();
+ const request=service.request({model:'auto',messages:[{role:'user',content:'Hello'}]},{signal:controller.signal}),rejection=assert.rejects(request,e=>e.name==='AbortError');
+ await new Promise(r=>setTimeout(r,20));
+ try{const result=await Promise.race([service.openLogin(),new Promise(r=>setTimeout(()=>r({code:'HUNG'}),100))]);assert.equal(result.code,'WEB_BUSY');assert.equal(state.logins,0);}finally{controller.abort();await rejection;await service.close();}
+});
+
+test('an expired login stops a text request with the login-required category',async()=>{
+ const state=fake(),browser=state.browserFactory();browser.evaluate=async()=>({ready:'complete',loggedIn:false,loggedOut:true,challenge:false});
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser});await assert.rejects(service.request({model:'auto',messages:[{role:'user',content:'Hello'}]}),e=>e.code==='WEB_LOGIN_REQUIRED');await service.close();
+});
+
+test('a verification page replacing a sent response reports verification rather than waiting for generation timeout',async()=>{
+ const state=fake(),browser=state.browserFactory(),evaluate=browser.evaluate;
+ browser.evaluate=async expression=>expression.includes('function inspectChatGPTResponse')?{anchored:false,text:'',streaming:false,finished:false,challenge:true}:evaluate(expression);
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser});await assert.rejects(service.request({model:'auto',messages:[{role:'user',content:'Hello'}],timeout:1000}),e=>e.code==='WEB_VERIFICATION_REQUIRED');await service.close();
 });

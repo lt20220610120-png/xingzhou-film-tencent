@@ -1,0 +1,43 @@
+/* Keep project actions visible while only the lower directory scrolls. */
+.creator-shell .creator-directory,.director-shell>.director-rail{display:flex;flex-direction:column;overflow:hidden;height:100dvh;min-height:0}
+.project-directory-fixed{flex:none;display:flex;flex-direction:column;gap:3px;min-width:0}
+.project-directory-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:4px}
+.creator-directory .project-directory-fixed>strong{font-size:14px;line-height:1.55;padding:8px 8px 4px;overflow-wrap:anywhere}
+.creator-directory .project-directory-fixed>small{font-size:11px;padding:0 8px 10px;line-height:1.5;color:var(--brand-muted)}
+.creator-shell .creator-directory :is(.project-directory-fixed,.project-directory-scroll)>button{display:flex;align-items:center;gap:7px;flex:none;text-align:left;border:0;background:transparent;color:var(--brand-muted);font:14px/1.5 var(--studio-font);min-height:38px;padding:8px;border-radius:7px}
+.creator-shell .creator-directory :is(.project-directory-fixed,.project-directory-scroll)>button.active{background:#fff;color:#654d9e;box-shadow:inset 3px 0 #8870ca,0 3px 12px #4f426e08}
+.creator-shell .creator-directory :is(.project-directory-fixed,.project-directory-scroll)>button:hover{background:var(--brand-selected)}
+.creator-shell .ip-manuscript-nav>.creator-add-node,.creator-shell .creator-directory .creator-add-node{border:1px dashed #cbc0e4;background:#ffffff70}
+.director-rail :is(.project-directory-fixed,.project-directory-scroll)>button{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;text-align:left;width:100%;flex:none;padding:8px;gap:7px;border:0;border-radius:6px;background:transparent;color:var(--brand-muted);font-size:14px;position:relative}
+.director-rail .project-directory-fixed>button:first-child{display:flex}
+.director-rail :is(.project-directory-fixed,.project-directory-scroll)>button.active{color:var(--brand-text);background:#fff;box-shadow:var(--brand-shadow)}
+.director-rail :is(.project-directory-fixed,.project-directory-scroll)>button:hover{background:var(--brand-selected)}
+.director-rail .project-directory-scroll>button .rail-index{width:25px;height:25px;font:600 11px/25px sans-serif;text-align:center;border-radius:5px}
+.director-rail .project-directory-scroll>button small{display:block;margin-top:2px;font-size:12px;line-height:1.4;color:var(--brand-muted)}
+.director-rail .project-directory-scroll>button .rail-episode-delete{position:absolute;right:5px;top:5px;font-size:10px;background:#fff;padding:2px;color:#bd6570;opacity:0}
+.director-rail .project-directory-scroll>button:is(:hover,.active) .rail-episode-delete{opacity:1}
+
+/* One compact scene toolbar above both columns, equal text areas below. */
+.ip-comparison-toolbar:empty{display:none}
+.ip-comparison-toolbar{border:1px solid var(--brand-line);border-radius:10px;overflow:hidden;margin-bottom:12px;background:#faf8fe}
+.ip-comparison-toolbar .ip-scene-rail{padding:7px 12px;gap:10px;min-height:54px;border:0;flex-wrap:nowrap}
+.ip-comparison-toolbar .ip-scene-rail-title{white-space:nowrap;font-size:12px}
+.ip-comparison-toolbar .ip-scene-rail-title small{display:inline;margin:0 0 0 4px}
+.ip-comparison-toolbar .ip-scene-strip{flex:1;gap:6px;padding:2px;overflow-x:auto}
+.creator-shell .ip-comparison-toolbar .ip-scene-strip>button{width:142px;min-height:38px;padding:5px 9px;border-radius:7px}
+.ip-comparison-toolbar .ip-scene-strip>button strong{font-size:12px}
+.ip-comparison-toolbar .ip-scene-strip>button small{margin-top:2px;font-size:11px}
+.ip-comparison-toolbar .ip-whole-toggle{font-size:12px;min-height:32px;padding:6px 9px}
+.ip-editor-pair .creator-text-pane>header{height:56px;min-height:56px;flex-wrap:nowrap;gap:8px}
+.ip-editor-pair .creator-text-pane>header>strong{white-space:nowrap}
+.ip-editor-pair .creator-text-pane>header>.creator-muted{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ip-editor-pair .creator-text-pane>header>select{min-width:0;flex:1;max-width:64%}
+.ip-editor-pair .ip-scene-editor{display:flex;flex-direction:column;min-height:0;flex:1}
+.creator-shell .ip-editor-pair .creator-text-pane>textarea,.creator-shell .ip-editor-pair .ip-scene-editor>textarea{height:clamp(400px,57vh,760px);min-height:400px;padding:16px;font:15px/1.85 var(--studio-font);resize:none;flex:none}
+.ip-editor-pair .creator-text-pane>small,.ip-editor-pair .ip-text-stats{min-height:44px;height:44px;padding:8px 14px;box-sizing:border-box;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;background:#fcfbfe;color:#7d8498;font-size:12px;border-top:1px solid #e9e6f1}
+.ip-editor-pair .ip-text-stats small{white-space:nowrap}
+
+/* Selected chips remain recognisable at a glance and with keyboard focus. */
+.director-stage .director-config-rack .style-chip.active,.art-analysis-info .style-chip.active,.collab-style-chips .style-chip.active{background:#e6dafa;border-color:#9275c8;color:#563486;box-shadow:inset 0 0 0 1px #9275c8,0 3px 8px #6b4eab20;font-weight:600}
+.director-stage .director-config-rack .style-chip:focus-visible,.collab-style-chips .style-chip:focus-visible{outline:2px solid #9275c8;outline-offset:3px}
+@media(max-width:1100px){.creator-shell .ip-editor-pair .creator-text-pane>textarea,.creator-shell .ip-editor-pair .ip-scene-editor>textarea{height:420px}.ip-editor-pair .ip-text-stats small{display:none}}

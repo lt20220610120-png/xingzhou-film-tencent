@@ -100,6 +100,7 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
   const episodeNumberAt = (index) => project.episodes.slice(0, index + 1).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').length;
   return (
     <aside className="director-rail">
+      <div className="project-directory-fixed">
       <button onClick={onBack}><ArrowLeft size={16} /> 所有导演项目</button>
       <h2>{project.name}</h2>
       <div className="rail-label">总剧本</div>
@@ -111,6 +112,8 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
         <span>总剧本编辑</span>
       </button>
 
+      </div>
+      <div className="project-directory-scroll">
       <div className="rail-label">分集</div>
       {project.episodes?.map((ep, idx) => (
         <button
@@ -130,6 +133,7 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
       <button className="add-episode" onClick={onAdd}>
         <Plus size={16} /> 添加集数
       </button>
+      </div>
     </aside>
   );
 }
