@@ -32,10 +32,11 @@ export const removeRewriteSource=(state,id,sourceId)=>change(state,id,p=>{
   const selections=Object.fromEntries(Object.entries(workflow.selections).map(([k,ids])=>[k,ids.filter(i=>i!==sourceId)]));
   return {...p,creator:{...p.creator,source:books[0]||null,references:books.slice(1),rewrite:{...workflow,selections}}};
 });
-export const saveRewriteAnalysis=(state,id,sourceId,raw)=>change(state,id,p=>{
-  const result=parseRewriteObject(raw);
-  if(!['settings','outline','characters'].every(k=>typeof result[k]==='string'&&result[k].trim()))throw new Error('拆解必须包含非空的设定、主线与人物，原始结果已留在历史。');
-  const update=b=>b.id===sourceId?{...b,analysis:{...b.analysis,...result,createdAt:new Date().toISOString()}}:b;
+export const saveRewriteAnalysis=(state,id,sourceId,raw,stage)=>change(state,id,p=>{
+  const result=parseRewriteObject(raw),keys=stage?[stage]:['settings','outline','characters'];
+  if(stage&&!['settings','outline','characters'].includes(stage))throw new Error('未知拆解区域');
+  if(!keys.every(k=>typeof result[k]==='string'&&result[k].trim()))throw new Error('拆解必须包含非空的设定、主线与人物，原始结果已留在历史。');
+  const update=b=>b.id===sourceId?{...b,analysis:{...b.analysis,...Object.fromEntries(keys.map(k=>[k,result[k]])),createdAt:new Date().toISOString()}}:b;
   if(!rewriteSources(p).some(b=>b.id===sourceId))throw new Error('对标来源已移除，不能写入拆解');
   return {...p,creator:{...p.creator,source:p.creator.source?update(p.creator.source):null,references:p.creator.references.map(update)}};
 });

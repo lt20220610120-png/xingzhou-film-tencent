@@ -222,11 +222,13 @@ export const creatorInputFingerprint = (project, target = {}) => {
     .map((episode, position) => ({ id: episode.id, position, title: episode.title, finalConfirmed: episode.finalConfirmed,
       ...(kind === 'fruit' ? { scriptText: episode.scriptText } : { content: episode.content, result: episode.result }),
     })).filter(episode => episode.id !== target.episodeId);
-  const serialized = JSON.stringify(canonical({ projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
+  const referenceKey=target.section||'episode',referenceIds=p.creator.rewrite?.selections?.[referenceKey]||[];
+  const analysisSource = [p.creator.source,...p.creator.references].find(book => book?.id === target.sourceId);
+  const serialized = JSON.stringify(canonical(target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
     referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
-    rewrite: p.creator.mode==='rewrite' ? {selections:p.creator.rewrite?.selections||{},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.source?.analysis || null,
-    references: p.creator.references.filter(reference => reference.enabled !== false).map(reference => ({ id: reference.id, content: reference.content, analysis: reference.analysis })),
+    rewrite: p.creator.mode==='rewrite' ? {selections:{[referenceKey]:referenceIds},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.mode!=='rewrite'||referenceIds.includes(p.creator.source?.id)?p.creator.source?.analysis||null:null,
+    references: p.creator.references.filter(reference => reference.enabled !== false).map(reference => ({ id: reference.id, content: reference.content, analysis: p.creator.mode!=='rewrite'||referenceIds.includes(reference.id)?reference.analysis:undefined })),
   }));
   let hash = 2166136261;
   for (let i = 0; i < serialized.length; i++) hash = Math.imul(hash ^ serialized.charCodeAt(i), 16777619);

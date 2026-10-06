@@ -135,3 +135,28 @@
  .rewrite-stage-heading .rewrite-run-config select{width:min(400px,55vw)}
  .rewrite-stage-columns .creator-agent-config{grid-template-columns:minmax(0,1fr)}
 }
+/* Stable card tracks: resizing changes column count, never stretches a project. */
+.card-page.project-hub-refined{max-width:none;width:100%;box-sizing:border-box}
+.project-hub-refined .project-grid{grid-template-columns:repeat(auto-fill,min(320px,100%));justify-content:start;gap:18px}
+.creator-agent-header-actions,.creator-run-controls{display:flex;align-items:center;gap:8px;min-width:0}
+.creator-agent-header-actions{justify-content:flex-end;flex-wrap:wrap}
+.creator-run-controls button,.rewrite-run-config button{flex:none;white-space:nowrap;min-width:64px}
+.creator-agent-run-status{min-width:0;flex:1}
+.creator-agent-run-status>svg{flex:none}
+.creator-agent-run-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.creator-chat .creator-run-controls{justify-content:space-between}
+.creator-chat .creator-agent-run-status{max-width:calc(100% - 76px)}
+.creator-agent-header-actions .creator-agent-run-status{max-width:240px}
+.rewrite-shell .rewrite-run-config{margin:0;padding:0;border:0;background:none;flex-wrap:wrap;gap:8px}
+.rewrite-shell .rewrite-run-config select{width:clamp(200px,23vw,340px);height:34px}
+.rewrite-shell .rewrite-run-config [role=status]{margin:0;min-width:0;gap:8px}
+.rewrite-shell .rewrite-run-config [role=status]>span{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rewrite-stage-heading .rewrite-run-config{margin-left:auto}
+.rewrite-shell .creator-section-head{flex-wrap:wrap;gap:12px}
+.rewrite-shell .creator-section-head>.creator-inline-actions{gap:8px;flex-wrap:wrap}
+.rewrite-book-card .rewrite-book-actions{display:flex;align-items:center;gap:4px;padding:4px 0 8px;margin-top:4px}
+.rewrite-book-actions .ghost{min-height:28px!important;padding:3px 9px!important;border:0!important;border-radius:5px!important;background:transparent!important;color:#7560a5;white-space:nowrap;font-size:12px!important}
+.rewrite-book-actions .ghost:hover{background:#f1ebfa!important;color:#584087}
+.rewrite-shell .project-directory-fixed{min-height:0;max-height:calc(100dvh - 110px);overflow:auto}
+
+.creator-run-row>.creator-run-controls{width:100%;justify-content:space-between}
