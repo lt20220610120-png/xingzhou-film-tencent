@@ -262,3 +262,33 @@ test('unsubmitted inspiration is persisted independently from collected original
  let p=cmd(fresh(),{type:'idea.draft',text:'未提交的灵感'});p=normalizeFrameworkProject(JSON.parse(JSON.stringify(p)));
  assert.equal(frameworkState(p).ideaDraft,'未提交的灵感');assert.equal(frameworkState(p).ideas.length,0);
 });
+
+test('English setting aliases migrate without duplicate empty categories and deletion preserves history',()=>{
+ const raw=fresh();raw.creator.framework.settings={items:[{id:'b',category:'background',text:'现代都市'},{id:'a',category:'ability',text:'系统奖励'}],pending:[],history:[],revision:2,confirmed:true};
+ const p=normalizeFrameworkProject(raw);assert.deepEqual(p.creator.framework.settings.items.map(i=>i.category),['时代与背景','个人金手指']);
+ const removed=cmd(p,{type:'settings.remove',id:'b'});
+ assert.equal(removed.creator.framework.settings.confirmed,false);assert.equal(removed.creator.framework.settings.revision,3);
+ assert.equal(removed.creator.framework.settings.history[0].removed.text,'现代都市');assert.equal(p.creator.framework.settings.items.length,2);
+ const pending=cmd(p,{type:'settings.propose',items:[{id:'candidate',category:'premise',text:'新背景',conflictsWith:['b']}]});
+ assert.equal(pending.creator.framework.settings.pending[0].category,'核心脑洞');
+ assert.throws(()=>cmd(pending,{type:'settings.remove',id:'b'}),{code:'FRAMEWORK_SETTINGS_PENDING'});
+});
+
+test('batch reference selection is atomic, preserves provenance and gives imported children fresh IDs',()=>{
+ let p=fresh();for(const id of ['c1','c2'])p=cmd(p,{type:'component.add',component:{id,title:id,summary:'完整大事件',groups:[{id:'source-group',events:[{id:'child',title:'小事件',summary:'行动和结果'}],middles:[{id:'middle',title:'中事件',events:[{id:'nested',title:'层内事件',summary:'层内结果'}]}]}]}});
+ assert.throws(()=>cmd(p,{type:'components.insertGroups',ids:['c1','missing']}),{code:'FRAMEWORK_NOT_FOUND'});
+ assert.equal(p.creator.framework.groups.length,0);assert.equal(p.creator.framework.components[0].confirmed,false);
+ const simple=cmd(p,{type:'components.insertGroups',ids:['c1','c2']});assert.equal(simple.creator.framework.groups.length,2);
+ assert.deepEqual(simple.creator.framework.groups.map(g=>g.source.componentId),['c1','c2']);
+ assert.throws(()=>cmd(p,{type:'components.insertGroups',ids:['c1'],withChildren:true}),{code:'FRAMEWORK_UNCONFIRMED'});
+ p=cmd(p,{type:'settings.confirm'});const children=cmd(p,{type:'components.insertGroups',ids:['c1','c2'],withChildren:true});
+ const ids=frameworkEvents(children).map(r=>r.event.id);assert.equal(ids.length,4);assert.equal(new Set(ids).size,4);assert.ok(!ids.includes('child'));
+ assert.equal(children.creator.framework.groups[0].middles[0].events[0].source.sourceEventId,'nested');
+});
+
+test('scratch drafts survive project reload without invalidating confirmed stories or AI inputs',()=>{
+ const p=setup(),before=frameworkState(p),updated=cmd(cmd(p,{type:'settings.draft',text:'未提交的设定要求'}),{type:'bulk.draft',text:'待拆分的完整故事'});
+ const restored=normalizeFrameworkProject(JSON.parse(JSON.stringify(updated)));
+ assert.equal(restored.creator.framework.settingsDraft,'未提交的设定要求');assert.equal(restored.creator.framework.bulkDraft,'待拆分的完整故事');
+ assert.deepEqual(restored.creator.framework.mainline,before.mainline);assert.deepEqual(restored.creator.framework.settings,before.settings);
+});

@@ -179,3 +179,19 @@ test('card organization uses the real task pipeline and only adopts the selected
  assert.throws(()=>validateFrameworkOutput(p,target,{...output,nodeId:'wrong'}),/编号/);
  p.creator.framework.groups[0].locked=true;assert.throws(()=>prepareFrameworkTask(p,target),/固定/);
 });
+
+test('bulk split accepts whole stories before confirmation, appends fresh cards and rejects stale or malformed adoption',()=>{
+ const p=project();p.creator.framework.settings.confirmed=false;p.creator.framework.groups[0].locked=true;
+ const target={task:'frameworkSplit',text:'女主捡到包。归还包之后受邀赴宴，认识男主。'};
+ assert.equal(isFrameworkTask(target),true);assert.doesNotThrow(()=>prepareFrameworkTask(p,target));
+ assert.match(frameworkTaskContext(p,target),/女主捡到包/);
+ const output={groups:[{id:'g',title:'捡包',goal:'女主捡到包并归还。'},{title:'赴宴',goal:'女主受邀赴宴，认识男主。'}]};
+ const next=applyFrameworkProjectRecord(attach(p,record(p,target,JSON.stringify(output))),'record');
+ assert.equal(next.creator.framework.groups.length,3);assert.deepEqual(next.creator.framework.groups[0],normalizeFrameworkProject(p).creator.framework.groups[0]);
+ assert.ok(next.creator.framework.groups[1].id!=='g');assert.equal(new Set(next.creator.framework.groups.map(g=>g.id)).size,3);
+ assert.equal(next.creator.records[0].status,'adopted');assert.equal(next.creator.framework.groups[1].confirmed,false);
+ assert.throws(()=>validateFrameworkOutput(p,target,{groups:[{title:'只有标题'}]}),/完整事件/);
+ assert.throws(()=>prepareFrameworkTask(p,{task:'frameworkSplit',text:' '}),/故事内容/);
+ const saved=attach(p,record(p,target,JSON.stringify(output)));saved.creator.framework.ideaSummary='后来修改的灵感';
+ assert.throws(()=>applyFrameworkProjectRecord(saved,'record'),{code:'FRAMEWORK_AI_STALE'});
+});

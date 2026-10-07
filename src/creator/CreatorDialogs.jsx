@@ -11,7 +11,12 @@ import { buildCreatorText, archiveCreatorProject } from '../../core/creatorWorks
 
 export function CreatorDialog({title,onClose,children,className='',headerActions}) {
  const floating=useMovablePanel(`xz-panel:creator-dialog:${title}`,title);
- return createPortal(<div className="veil creator-veil" onClick={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={floating.panelRef} style={floating.style} role="dialog" aria-modal="true" aria-label={title} className={`creator-dialog ${className}`}><header {...floating.handleProps}><h2>{title}</h2>{headerActions&&<div className="creator-dialog-actions">{headerActions}</div>}<button className="ghost" aria-label="关闭窗口" onClick={onClose}><X size={18}/></button></header>{children}</section></div>,document.body);
+ const flatten=value=>React.Children.toArray(value).flatMap(child=>React.isValidElement(child)&&child.type===React.Fragment?flatten(child.props.children):[child]);
+ const split=value=>{const parts=flatten(value),footer=parts.filter(child=>React.isValidElement(child)&&child.type==='footer');return {footer,body:parts.filter(child=>!footer.includes(child))};};
+ const {footer,body}=split(children),form=body.length===1&&React.isValidElement(body[0])&&body[0].type==='form'?body[0]:null;
+ const formParts=form?split(form.props.children):null;
+ const contents=form?React.cloneElement(form,{className:`${form.props.className||''} creator-dialog-form`},<div className="creator-dialog-scroll">{formParts.body}</div>,formParts.footer):<><div className="creator-dialog-scroll">{body}</div>{footer}</>;
+ return createPortal(<div className="veil creator-veil" onClick={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={floating.panelRef} style={floating.style} role="dialog" aria-modal="true" aria-label={title} className={`creator-dialog creator-fixed-dialog ${className}`}><header {...floating.handleProps}><h2>{title}</h2>{headerActions&&<div className="creator-dialog-actions">{headerActions}</div>}<button className="ghost" aria-label="关闭窗口" onClick={onClose}><X size={18}/></button></header>{contents}</section></div>,document.body);
 }
 export function ExportDialog({project,kind,api,setState,onClose,archive=false,initialSide='output',single=false}) {
  const [contentScope,setContentScope]=useState('script'),[side,setSide]=useState(initialSide),[includeSections,setIncludeSections]=useState(!single&&kind==='script'&&project.creator.mode==='rewrite'),[format,setFormat]=useState('docx'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[success,setSuccess]=useState('');

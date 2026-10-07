@@ -4,6 +4,11 @@ const clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value))
 const list=value=>Array.isArray(value)?value:[];
 const text=value=>typeof value==='string'?value:'';
 const own=(value,key)=>Object.prototype.hasOwnProperty.call(value||{},key);
+export function normalizeSettingCategory(value){
+ const category=text(value).trim();
+ const aliases={background:'时代与背景',era:'时代与背景',premise:'核心脑洞',concept:'核心脑洞',rule:'世界规则',rules:'世界规则',world:'世界规则',world_rules:'世界规则',ability:'个人金手指',power:'个人金手指',golden_finger:'个人金手指'};
+ return aliases[category.toLowerCase()]||category||'其他设定';
+}
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 let sequence=0;
 const uid=()=>`framework_${Date.now().toString(36)}_${(sequence++).toString(36)}_${Math.random().toString(36).slice(2,8)}`;
@@ -74,6 +79,7 @@ export function normalizeFrameworkProject(project){
   activePlanId:old.activePlanId||null,archives:list(old.archives),legacy:{...old.legacy},
  };
  for(const key of ['items','pending','history'])f.settings[key]=list(f.settings[key]);
+ for(const key of ['items','pending'])f.settings[key]=f.settings[key].map(item=>({...item,category:normalizeSettingCategory(item.category)}));
  f.mainline.links=list(f.mainline.links);
  for(const collection of ['characters','sources','components','simulations'])f[collection]=f[collection].map((v,i)=>({...v,id:v.id||`${prefix}_${collection}_${i+1}`}));
  if(initial){
@@ -90,6 +96,7 @@ export function normalizeFrameworkProject(project){
 }
 export const frameworkState=project=>normalizeFrameworkProject(project)?.creator?.framework;
 export const frameworkEvents=project=>{const f=frameworkState(project);return f?rows(f):[];};
+export const frameworkRows=rows;
 export const frameworkEventCode=(project,id)=>frameworkEvents(project).find(row=>row.event.id===id)?.code||'';
 export const frameworkLinks=project=>frameworkState(project)?.mainline.links||[];
 export function frameworkDraftText(project,scope='story'){
@@ -156,11 +163,13 @@ export function applyFrameworkCommand(project,command){
  case 'idea.remove':find(f.ideas,c.id,'灵感');f.ideas=f.ideas.filter(v=>v.id!==c.id);break;
  case 'idea.summary':f.ideaSummary=text(c.text);break;
  case 'idea.draft':f.ideaDraft=text(c.text);break;
+ case 'settings.draft':f.settingsDraft=text(c.text);break;
+ case 'bulk.draft':f.bulkDraft=text(c.text);break;
  case 'settings.propose':{
   if(!Array.isArray(c.items)||!c.items.length)fail('INVALID','请提供待检查设定。');
   for(const value of c.items){if(!text(value.text).trim())fail('INVALID','设定内容不能为空。');const id=value.id||uid();if(f.settings.pending.some(v=>v.id===id))fail('INVALID','待决设定编号重复。');
    const conflicts=list(value.conflictsWith);for(const conflict of conflicts)find(f.settings.items,conflict,'冲突设定');
-   f.settings.pending.push({...value,id,conflictsWith:conflicts});}
+   f.settings.pending.push({...value,category:normalizeSettingCategory(value.category),id,conflictsWith:conflicts});}
   f.settings.confirmed=false;break;
  }
  case 'settings.resolve':{
@@ -171,6 +180,35 @@ export function applyFrameworkCommand(project,command){
   f.settings.pending=f.settings.pending.filter(v=>v.id!==c.id);f.settings.confirmed=false;break;
  }
  case 'settings.confirm':if(f.settings.pending.length)fail('SETTINGS_PENDING','请先处理全部待决设定。');f.settings.confirmed=true;break;
+ case 'settings.remove':{
+  const item=find(f.settings.items,c.id,'设定');
+  if(f.settings.pending.some(candidate=>list(candidate.conflictsWith).includes(c.id)))fail('SETTINGS_PENDING','这条设定仍有待处理冲突，请先处理对应候选再删除。');
+  f.settings.history.push({choice:'remove',removed:clone(item),previous:clone(f.settings.items),createdAt:now()});
+  f.settings.items=f.settings.items.filter(value=>value.id!==c.id);f.settings.revision++;f.settings.confirmed=false;break;
+ }
+ case 'groups.add':{
+  if(!Array.isArray(c.groups)||!c.groups.length)fail('INVALID','请提供大事件卡片。');
+  for(const value of c.groups){if(!text(value.title).trim()||!text(value.goal).trim())fail('INVALID','每张大事件卡片需要标题和完整内容。');insert(f.groups,group({...value,confirmed:false,locked:false},value.id||uid()));}
+  break;
+ }
+ case 'components.insertGroups':{
+  if(!Array.isArray(c.ids)||!c.ids.length||new Set(c.ids).size!==c.ids.length)fail('INVALID','请选择不同的对标卡片。');
+  if(c.withChildren)settingsGate(f);
+  for(const id of c.ids){
+   const component=find(f.components,id,'对标卡片');component.confirmed=true;
+   const source={sourceId:component.sourceId,sourceEventId:component.sourceEventId,componentId:component.id};
+   const value=group({title:component.title,goal:component.adapted??component.summary??component.original??'',source},uid());
+   if(!text(value.title).trim())fail('INVALID','对标卡片缺少标题。');
+   if(c.withChildren){const provenance=e=>({...e,id:uid(),confirmed:false,locked:false,source:{...e.source,...source,sourceEventId:e.source?.sourceEventId||e.id,rawText:e.source?.rawText||component.rawText}});
+    const original=component.groups?.[0];
+    value.events=(original?.events||component.children||[]).map(provenance);
+    value.middles=(original?.middles||[]).map(m=>({...m,id:uid(),confirmed:false,locked:false,events:list(m.events).map(provenance)}));
+    if([...value.events,...value.middles.flatMap(m=>m.events)].some(e=>!text(e.title).trim()||!text(e.summary||e.story).trim()))fail('INVALID','小事件缺少行动与结果，请先编辑对标内容。');
+   }
+   insert(f.groups,value);
+  }
+  break;
+ }
  case 'group.add':insert(f.groups,group(c.group,c.group?.id||uid()),c.index);break;
  case 'group.update':{const n=editable(f,c.id);if(n.container!==f.groups)fail('INVALID','请选择大事件。');patchNode(n.node,c.patch);break;}
  case 'group.remove':{const n=editable(f,c.id);if(n.container!==f.groups)fail('INVALID','请选择大事件。');snapshotArchive(f,'group',n.node);n.container.splice(n.container.indexOf(n.node),1);break;}
