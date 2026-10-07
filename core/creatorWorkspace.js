@@ -4,6 +4,8 @@ import {rewriteWorldInput} from './rewriteWorld.js';
 import {rewriteStoryInput,mergeRewriteStory} from './rewriteStory.js';
 import { splitFullScript } from './scriptImport.js';
 import { formatIPScriptText } from './ipScenes.js';
+import { normalizeFrameworkProject, applyFrameworkCommand } from './frameworkWorkflow.js';
+import { isFrameworkTask, frameworkInputFingerprint, applyFrameworkProjectRecord } from './frameworkAi.js';
 
 // Persist only JSON data. This module deliberately does not import projectStore:
 // projectStore calls this normalizer while loading existing projects.
@@ -124,7 +126,7 @@ export const normalizeCreatorProject = (project, kind = 'script') => {
     }));
   }
   const records = (Array.isArray(previous.records) ? previous.records : []).filter(Boolean).map(record => clone(record));
-  return {
+  const normalized = {
     ...project, episodes,
     creator: {
       ...clone(previous), schemaVersion: SCHEMA_VERSION, mode: resolveMode(project, kind),
@@ -133,6 +135,7 @@ export const normalizeCreatorProject = (project, kind = 'script') => {
       story: normalizeStory(previous.story, project.id),
     },
   };
+  return kind === 'script' && normalized.creator.mode === 'framework' ? normalizeFrameworkProject(normalized) : normalized;
 };
 
 /** Call once after reading persisted state at startup, never during rendering or
@@ -165,7 +168,12 @@ const mutateProject = (state, kind, id, mutate) => {
   return { ...state, [key]: projects.map(project => {
     if (project?.id !== id) return project;
     const before = normalizeCreatorProject(project, kind);
-    let next = markFollowingEpisodesStale(before, mutate(before), kind);
+    let next = mutate(before);
+    if(before.creator.framework?.activePlanId===next.creator.framework?.activePlanId)next = markFollowingEpisodesStale(before, next, kind);
+    if(next.creator.mode==='framework'&&next.creator.framework?.activePlanId){
+      const f=next.creator.framework;
+      next={...next,creator:{...next.creator,framework:{...f,plans:f.plans.map(plan=>plan.id===f.activePlanId?{...plan,episodes:clone(next.episodes)}:plan)}}};
+    }
     if (JSON.stringify(adoptedStory(before)) !== JSON.stringify(adoptedStory(next))) next = markDerivedSectionsStale(staleEpisodes(next, kind), ['skeleton','timeline','detail','episodeOutline','simulation']);
     const fingerprints = new Map();
     const records = next.creator.records.map(record => {
@@ -221,6 +229,7 @@ const canonical = value => Array.isArray(value) ? value.map(canonical) : value &
 export const creatorInputFingerprint = (project, target = {}) => {
   const kind = project.creator?.mode === 'fruit' || (!project.mode && project.episodes?.some(e => own(e, 'rawText'))) ? 'fruit' : 'script';
   const p = normalizeCreatorProject(project, kind), activeTarget = { ...target, side: target.side || 'output', scope: target.scope === 'current' ? 'current' : 'project' };
+  if (p.creator.mode === 'framework' && isFrameworkTask(target)) return frameworkInputFingerprint(p, target);
   const node = target.episodeId ? p.episodes.find(episode => episode.id === target.episodeId) : p.creator.sections[target.section];
   const selected = target.episodeId ? (node ? {
     id: node.id, title: node.title, type: node.type, input: node[sideField(kind, 'input')],
@@ -333,7 +342,10 @@ const patchEpisode = (p, kind, episodeId, patch) => {
   }) };
 };
 export const updateCreatorEpisode = (state, kind, id, episodeId, patch = {}) => mutateProject(state, kind, id, p => {
-  const next = patchEpisode(p, kind, episodeId, patch);
+  const activePlan=p.creator.framework?.plans.find(plan=>plan.id===p.creator.framework.activePlanId);
+  const next = p.creator.mode==='framework'&&activePlan&&!activePlan.legacy
+    ? applyFrameworkCommand(p,{type:'episode.update',planId:activePlan.id,episodeId,patch})
+    : patchEpisode(p, kind, episodeId, patch);
   const previous = p.episodes.find(episode => episode.id === episodeId);
   if (!previous) return next;
   const changes = Object.fromEntries(['input', 'output'].filter(side => own(patch, sideField(kind, side)))
@@ -545,6 +557,7 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
   const record = p.creator.records.find(item => item.id === recordId);
   if (!record) fail('CREATOR_RECORD_MISSING', '找不到该候选或历史版本。');
   if (record.projectId && record.projectId !== id) fail('CREATOR_PROJECT_MISMATCH', '候选记录与目标项目不一致。');
+  if (p.creator.mode === 'framework' && isFrameworkTask(record.target)) return applyFrameworkProjectRecord(p, recordId, {mode,side,allowStale,unlock});
   if (record.type === 'story-history') {
     const history = storyHistoryRecord(p, 'restore', record.itemType || 'event');
     const next = applyStory(p, normalizeStory(record.storySnapshot, id), history);
@@ -709,7 +722,8 @@ export const archiveCreatorProject = (state, id, { side = 'output', includeSecti
   }] : [];
   const version = { id: uid(), version: versions.length + 1, name: p.name, sourceProjectId: id, sourceKind: kind,
     creatorMode, sourceMode, modeLabel, side, stageDraft:Boolean(stageDraft), includeSections: creatorMode === 'framework' && side === 'output' ? false : Boolean(includeSections),
-    content, episodes: clone(p.episodes), sections: clone(p.creator.sections), story: clone(p.creator.story), createdAt: timestamp };
+    content, episodes: clone(p.episodes), sections: clone(p.creator.sections), story: clone(p.creator.story),
+    ...(p.creator.mode==='framework'?{framework:clone(p.creator.framework),sourcePlanId:p.creator.framework.activePlanId}:{}),createdAt: timestamp };
   const item = { ...existing, id: existing?.id || uid(), name: p.name, sourceProjectId: id, sourceKind: kind,
     sourceMode, creatorMode, modeLabel, content, stageDraft:version.stageDraft, side: version.side, includeSections: version.includeSections,
     versions: [...versions, version], currentVersionId: version.id, createdAt: existing?.createdAt || timestamp, updatedAt: timestamp };
