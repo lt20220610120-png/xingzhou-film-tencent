@@ -155,6 +155,7 @@ export function applyFrameworkCommand(project,command){
  case 'idea.update':patchNode(find(f.ideas,c.id,'灵感'),c.patch);break;
  case 'idea.remove':find(f.ideas,c.id,'灵感');f.ideas=f.ideas.filter(v=>v.id!==c.id);break;
  case 'idea.summary':f.ideaSummary=text(c.text);break;
+ case 'idea.draft':f.ideaDraft=text(c.text);break;
  case 'settings.propose':{
   if(!Array.isArray(c.items)||!c.items.length)fail('INVALID','请提供待检查设定。');
   for(const value of c.items){if(!text(value.text).trim())fail('INVALID','设定内容不能为空。');const id=value.id||uid();if(f.settings.pending.some(v=>v.id===id))fail('INVALID','待决设定编号重复。');
@@ -201,6 +202,16 @@ export function applyFrameworkCommand(project,command){
   if(!f.groups.length||f.groups.some(g=>!text(g.title).trim()))fail('INVALID','请先填写每个大事件名称。');
   f.mainline.orderConfirmed=true;break;
  }
+ case 'mainline.confirmAll':{
+  settingsGate(f);const chain=groupedRows(f);
+  if(!chain.length||f.groups.some(g=>!chain.some(r=>r.group.id===g.id))||chain.some(r=>!text(r.event.story||r.event.summary).trim()))fail('UNCONFIRMED','请先写好每个大事件下的小事件内容。');
+  for(const row of chain)if(!row.event.confirmed){editable(f,row.event.id);row.event.confirmed=true;}
+  const ids=new Set(chain.map(r=>r.event.id));
+  if(f.mainline.links.some(l=>!ids.has(l.fromId)||!ids.has(l.toId)))fail('INVALID','旧衔接包含已移除事件，请在衔接记录中移除后再确认。');
+  for(let i=1;i<chain.length;i++)if(!f.mainline.links.some(l=>l.fromId===chain[i-1].event.id&&l.toId===chain[i].event.id))f.mainline.links.push({id:uid(),fromId:chain[i-1].event.id,toId:chain[i].event.id,notes:'人工确认当前卡片顺序与衔接',confirmed:true,stale:false});
+  f.mainline.links.forEach(l=>{l.confirmed=true;l.stale=false;});
+  f.mainline.confirmed=true;f.mainline.orderConfirmed=true;break;
+ }
  case 'mainline.confirm':{
   skeletonGate(f);const chain=groupedRows(f);
   for(let i=1;i<chain.length;i++)if(!f.mainline.links.some(l=>l.fromId===chain[i-1].event.id&&l.toId===chain[i].event.id))fail('UNCONFIRMED',`${chain[i-1].code} → ${chain[i].code} 缺少衔接，请补充并人工复核。`);
@@ -246,9 +257,9 @@ export function applyFrameworkCommand(project,command){
   f.groups=proposed.groups;f.looseEvents=proposed.looseEvents;s.adopted=true;s.adoptedAt=now();break;
  }
  case 'plan.add':{
-  skeletonGate(f);if(!f.mainline.confirmed)fail('UNCONFIRMED','请先人工确认完整主线，再生成集纲版本。');
+  if(!c.draft){skeletonGate(f);if(!f.mainline.confirmed)fail('UNCONFIRMED','请先人工确认完整主线，再生成集纲版本。');}
   if(!c.plan||!Array.isArray(c.plan.episodes)||!c.plan.episodes.length)fail('INVALID','集纲版本必须包含分集。');
-  const pnew=plan({...c.plan,eventSnapshot:clone(f.groups),looseEventSnapshot:clone(f.looseEvents),settingsRevision:f.settings.revision,stale:false},c.plan.id||uid());
+  const pnew=plan({...c.plan,eventSnapshot:clone(f.groups),looseEventSnapshot:clone(f.looseEvents),settingsRevision:f.settings.revision,stale:!!c.draft&&!f.mainline.confirmed},c.plan.id||uid());
   for(const e of pnew.episodes)for(const id of list(e.eventIds))if(!groupedRows(f).some(r=>r.event.id===id))fail('INVALID','分集引用了不存在或尚未归组的事件。');
   f.plans.push(pnew);break;
  }
@@ -295,7 +306,7 @@ export function applyFrameworkCommand(project,command){
  }
  assertIds(f);lockGuard(before,f,lockException);
  // Explicit review/confirmation actions are the only way to clear a stale mark.
- if(!['mainline.confirm','mainline.review','version.restore','node.lock'].includes(c.type))invalidate(before,f);
+ if(!['mainline.confirm','mainline.confirmAll','mainline.review','version.restore','node.lock'].includes(c.type))invalidate(before,f);
  const active=f.plans.find(v=>v.id===f.activePlanId);p.episodes=active?clone(active.episodes):[];
  p.updatedAt=now();return p;
 }

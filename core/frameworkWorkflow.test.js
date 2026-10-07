@@ -230,3 +230,35 @@ test('adapted reference major components insert their full child sequence with p
  assert.equal(frameworkState(p).mainline.confirmed,false);
  assert.equal(frameworkState(p).components[0].rawText,'原作');
 });
+
+
+test('one story review confirms populated cards and creates adjacency without form filling',()=>{
+ let p=setup();p=cmd(p,{type:'event.update',id:'a',patch:{summary:'完整行动',confirmed:false}});
+ p=cmd(p,{type:'mainline.unlink',id:'l'});p=cmd(p,{type:'mainline.confirmAll'});
+ const f=frameworkState(p);assert.equal(f.mainline.confirmed,true);assert.equal(f.mainline.links.length,1);
+ assert.deepEqual(f.mainline.links.map(l=>[l.fromId,l.toId,l.confirmed,l.stale]),[['a','b',true,false]]);
+ assert.ok(frameworkEvents(p).every(r=>r.event.confirmed));
+ assert.doesNotThrow(()=>cmd(p,{type:'plan.add',plan:{episodes:[{eventIds:['a','b']}]}}));
+});
+test('whole-story review cannot approve missing content, unresolved rules, or locked drafts',()=>{
+ let p=setup();p=cmd(p,{type:'event.update',id:'a',patch:{summary:'',story:'',confirmed:false}});
+ assert.throws(()=>cmd(p,{type:'mainline.confirmAll'}),/小事件内容/);
+ p=cmd(p,{type:'event.update',id:'a',patch:{summary:'行动'}});p=cmd(p,{type:'node.lock',id:'a',locked:true});
+ const before=JSON.stringify(p);assert.throws(()=>cmd(p,{type:'mainline.confirmAll'}),{code:'FRAMEWORK_LOCKED'});assert.equal(JSON.stringify(p),before);
+ p=cmd(setup(),{type:'settings.propose',items:[{text:'待处理新规则'}]});assert.throws(()=>cmd(p,{type:'mainline.confirmAll'}),{code:'FRAMEWORK_SETTINGS_PENDING'});
+});
+test('manual versions can start with one empty episode while formal workflow stays gated',()=>{
+ let p=fresh();assert.throws(()=>cmd(p,{type:'plan.add',plan:{episodes:[{}]}}));
+ p=cmd(p,{type:'plan.add',draft:true,plan:{id:'draft1',name:'手动版',episodes:[{id:'ep-a'}]}});
+ p=cmd(p,{type:'plan.activate',id:'draft1'});p=cmd(p,{type:'episode.update',planId:'draft1',episodeId:'ep-a',draft:true,patch:{result:'我的第一集'}});
+ assert.equal(frameworkState(p).plans[0].stale,true);
+ assert.throws(()=>cmd(p,{type:'episode.update',planId:'draft1',episodeId:'ep-a',draft:true,patch:{finalConfirmed:true}}));
+ p=cmd(p,{type:'plan.add',draft:true,plan:{id:'draft2',episodes:[{id:'ep-b'},{id:'ep-c'}]}});p=cmd(p,{type:'plan.activate',id:'draft2'});
+ p=cmd(p,{type:'plan.update',id:'draft2',patch:{episodes:[...frameworkState(p).plans[1].episodes,{id:'ep-d'}]}});
+ assert.equal(p.episodes.length,3);assert.equal(frameworkState(p).plans[0].episodes[0].result,'我的第一集');
+ p=cmd(p,{type:'plan.activate',id:'draft1'});assert.equal(p.episodes[0].result,'我的第一集');assert.equal(p.episodes.length,1);
+});
+test('unsubmitted inspiration is persisted independently from collected originals',()=>{
+ let p=cmd(fresh(),{type:'idea.draft',text:'未提交的灵感'});p=normalizeFrameworkProject(JSON.parse(JSON.stringify(p)));
+ assert.equal(frameworkState(p).ideaDraft,'未提交的灵感');assert.equal(frameworkState(p).ideas.length,0);
+});

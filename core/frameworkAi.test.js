@@ -149,3 +149,33 @@ test('framework conversations retain prior discussion while screenplay tasks exc
  const current=frameworkTaskContext(p,{task:'frameworkChat',scope:'current',workspaceStage:'settings'});
  assert.ok(!current.includes('完整故事'));assert.match(current,/当前世界规则/);
 });
+
+
+test('contextual simulation adoption applies reviewed cards in one atomic transaction',()=>{
+ let p=normalizeFrameworkProject(project());const target={task:'frameworkSimulate',layer:'groups',mode:'infer'};
+ const output={groups:[...structuredClone(p.creator.framework.groups),{id:'next-group',title:'后续大事件',goal:'后续行动',events:[],middles:[]}],looseEvents:[]};
+ p=attach(p,record(p,target,JSON.stringify(output)));const next=applyFrameworkProjectRecord(p,'record',{activateSimulation:true});
+ assert.equal(next.creator.framework.groups.at(-1).id,'next-group');assert.equal(next.creator.framework.simulations.at(-1).adopted,true);assert.equal(next.creator.records[0].status,'adopted');
+ assert.equal(p.creator.framework.groups.length,1);
+});
+test('contextual adoption still rejects stale and locked-node changes without partial writes',()=>{
+ let p=normalizeFrameworkProject(project());const target={task:'frameworkSimulate',layer:'groups',mode:'reorder'};
+ p.creator.framework.groups[0].locked=true;const output={groups:structuredClone(p.creator.framework.groups),looseEvents:[]};output.groups[0].goal='改写固定目标';
+ p=attach(p,record(p,target,JSON.stringify(output)));const before=JSON.stringify(p);
+ assert.throws(()=>applyFrameworkProjectRecord(p,'record',{activateSimulation:true}),/固定/);assert.equal(JSON.stringify(p),before);
+ p.creator.framework.groups[0].goal='后来的人工改动';assert.throws(()=>applyFrameworkProjectRecord(p,'record',{activateSimulation:true}),/输入已经变化/);
+});
+
+
+test('card organization uses the real task pipeline and only adopts the selected card',()=>{
+ let p=normalizeFrameworkProject(project());p.creator.framework.settings.confirmed=false;
+ const target={task:'frameworkCard',nodeType:'event',nodeId:'e'};
+ assert.doesNotThrow(()=>prepareFrameworkTask(p,target));assert.match(frameworkTaskContext(p,target),/targetCard/);
+ const output={nodeId:'e',title:'整理标题',content:'完整文字，保留行动、对白与结果。'};
+ p=attach(p,record(p,target,JSON.stringify(output)));const next=applyFrameworkProjectRecord(p,'record');
+ const e=next.creator.framework.groups[0].middles[0].events[0];assert.equal(e.story,output.content);assert.equal(e.summary,output.content);assert.equal(e.title,output.title);assert.equal(e.confirmed,false);
+ assert.equal(next.creator.framework.groups[0].goal,p.creator.framework.groups[0].goal);
+ assert.deepEqual(next.creator.framework.plans.map(p=>p.episodes.map(e=>e.result)),p.creator.framework.plans.map(p=>p.episodes.map(e=>e.result)));
+ assert.throws(()=>validateFrameworkOutput(p,target,{...output,nodeId:'wrong'}),/编号/);
+ p.creator.framework.groups[0].locked=true;assert.throws(()=>prepareFrameworkTask(p,target),/固定/);
+});
