@@ -7,6 +7,21 @@ const fresh=()=>normalizeFrameworkProject({id:'components',creator:{mode:'framew
 const story=()=>{let p=cmd(fresh(),{type:'settings.confirm'});for(const [i,title] of ['相遇','相爱','挫折'].entries())p=cmd(p,{type:'group.add',group:{id:`g${i}`,title,events:[{id:`e${i}`,title:`行动${i}`,summary:'前因与结果',confirmed:true}]}});return p;};
 const output=p=>({name:'候选',groups:structuredClone(frameworkState(p).groups),looseEvents:structuredClone(frameworkState(p).looseEvents)});
 
+test('batch macro confirmation confirms content and order without confirming small events or complete story',()=>{
+ let p=fresh();for(let i=0;i<13;i++)p=cmd(p,{type:'group.add',group:{id:'g'+i,title:'阶段'+i,goal:'完整事件内容',events:[{id:'e'+i,title:'具体行动',story:'待确认故事'}]}});
+ const next=cmd(p,{type:'mainline.confirmGroups'}),f=frameworkState(next);
+ assert.ok(f.groups.every(g=>g.confirmed));assert.equal(f.mainline.orderConfirmed,true);assert.equal(f.mainline.confirmed,false);
+ assert.ok(f.groups.every(g=>!g.events[0].confirmed));assert.ok(frameworkState(p).groups.every(g=>!g.confirmed));
+});
+test('batch macro confirmation rejects incomplete or unconfirmed fixed cards atomically',()=>{
+ let p=story();p.creator.framework.groups[1].goal='';const before=JSON.stringify(p);
+ assert.throws(()=>cmd(p,{type:'mainline.confirmGroups'}),/内容|正文/);assert.equal(JSON.stringify(p),before);
+ p.creator.framework.groups.forEach(g=>g.goal='完整事件');p.creator.framework.groups[0].locked=true;p.creator.framework.groups[0].confirmed=false;
+ assert.throws(()=>cmd(p,{type:'mainline.confirmGroups'}),/固定|解锁/);
+ p.creator.framework.groups[0].confirmed=true;const fixed=structuredClone(p.creator.framework.groups[0]);
+ const next=cmd(p,{type:'mainline.confirmGroups'});assert.deepEqual(next.creator.framework.groups[0],normalizeFrameworkProject(p).creator.framework.groups[0]);assert.equal(next.creator.framework.groups[0].goal,fixed.goal);
+});
+
 test('macro order can be confirmed before any small events and stays confirmed as they are added',()=>{
  let p=fresh();p=cmd(p,{type:'group.add',group:{id:'a',title:'相遇'}});p=cmd(p,{type:'group.add',group:{id:'b',title:'相爱'}});
  p=cmd(p,{type:'mainline.orderConfirm'});assert.equal(frameworkState(p).mainline.orderConfirmed,true);assert.equal(frameworkState(p).mainline.confirmed,false);

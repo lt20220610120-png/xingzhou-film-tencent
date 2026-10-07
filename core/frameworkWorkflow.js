@@ -236,6 +236,15 @@ export function applyFrameworkCommand(project,command){
  }
  case 'mainline.unlink':find(f.mainline.links,c.id,'连接');f.mainline.links=f.mainline.links.filter(l=>l.id!==c.id);f.mainline.confirmed=false;break;
  case 'mainline.review':{const link=find(f.mainline.links,c.id,'连接');for(const id of [link.fromId,link.toId])if(!groupedRows(f).some(r=>r.event.id===id))fail('NOT_FOUND','连接事件已经删除或移至收集箱。');link.stale=false;link.confirmed=true;f.mainline.confirmed=false;break;}
+ case 'mainline.confirmGroups':{
+  if(!f.groups.length)fail('INVALID','请先建立大事件。');
+  for(const [i,g] of f.groups.entries()){
+   if(!text(g.title).trim()||!text(g.goal).trim())fail('INVALID',`大事件 ${letters(i)} 的名称或正文内容为空，请先补齐。`);
+   if(g.locked&&!g.confirmed)fail('LOCKED',`大事件 ${letters(i)} 已固定但未确认，请先解锁。`);
+  }
+  for(const g of f.groups)if(!g.confirmed)g.confirmed=true;
+  f.mainline.orderConfirmed=true;break;
+ }
  case 'mainline.orderConfirm':{
   if(!f.groups.length||f.groups.some(g=>!text(g.title).trim()))fail('INVALID','请先填写每个大事件名称。');
   f.mainline.orderConfirmed=true;break;
