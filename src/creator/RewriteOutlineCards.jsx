@@ -3,8 +3,9 @@ import {Plus,ArrowUp,ArrowDown,Trash2,ChevronDown,ChevronRight} from 'lucide-rea
 import {readRewriteOutline,newOutlineGroup,newOutlineEvent,moveOutlineGroup,moveOutlineEvent} from '../../core/rewriteOutline.js';
 import {FormattedText} from '../components/FormattedText.jsx';
 import {outlineGroupCode} from '../../core/rewriteMainline.js';
+import {RewriteEventReferences} from './RewriteEventReferences.jsx';
 
-export function RewriteOutlineCards({value,onChange,readOnly=false,onReferenceGroup,onReferenceEvent}) {
+export function RewriteOutlineCards({value,onChange,readOnly=false,onReferenceGroup,onReferenceEvent,project}) {
  const [openGroups,setOpenGroups]=useState(new Set()),[openEvents,setOpenEvents]=useState(new Set());
  let data,error;try{data=readRewriteOutline(value);}catch(e){error=e;data={groups:[]};}
  if(error)return <p className="creator-error">{error.message}</p>;
@@ -16,7 +17,7 @@ export function RewriteOutlineCards({value,onChange,readOnly=false,onReferenceGr
   {!!data.groups.length&&<div className="rewrite-chain-heading"><strong>全剧大事件链</strong><small>{data.groups.length} 个大事件 · {data.groups.reduce((n,g)=>n+g.events.length,0)} 个小事件</small><button className="ghost" onClick={()=>{setOpenGroups(new Set());setOpenEvents(new Set());}}>收起全部</button></div>}
   {data.groups.map((group,i)=><React.Fragment key={group.id}>
    {i>0&&<div className="rewrite-chain-link" aria-hidden="true"><ArrowDown size={17}/><span>进入 {outlineGroupCode(i)} 组</span></div>}
-   <article className="rewrite-outline-group">
+   <article className={`rewrite-outline-group ${openGroups.has(group.id)?'expanded':''}`}>
     <header><button className="rewrite-chain-node" aria-expanded={openGroups.has(group.id)} onClick={()=>toggle(setOpenGroups,group.id)}><span className="rewrite-group-index">{outlineGroupCode(i)}组</span><strong>{group.title||'未命名大事件'}</strong><small>{group.events.length} 个小事件</small>{openGroups.has(group.id)?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button>
      <div className="rewrite-outline-tools">{onReferenceGroup&&<button className="ghost" onClick={()=>onReferenceGroup(group)}>引用本组</button>}{!readOnly&&<><button className="ghost" aria-label={`上移大事件${i+1}`} disabled={!i} onClick={()=>write(moveOutlineGroup(data,group.id,-1))}><ArrowUp size={13}/></button><button className="ghost" aria-label={`下移大事件${i+1}`} disabled={i===data.groups.length-1} onClick={()=>write(moveOutlineGroup(data,group.id,1))}><ArrowDown size={13}/></button><button className="ghost danger" aria-label={`删除大事件${i+1}`} onClick={()=>{if(window.confirm('删除这个大事件及其小事件？'))write({...data,groups:data.groups.filter(g=>g.id!==group.id)});}}><Trash2 size={13}/></button></>}</div>
     </header>
@@ -32,10 +33,12 @@ export function RewriteOutlineCards({value,onChange,readOnly=false,onReferenceGr
         <div className="rewrite-outline-tools">{onReferenceEvent&&<button className="ghost" onClick={()=>onReferenceEvent(group,event)}>引用此事件</button>}{!readOnly&&<><button className="ghost" aria-label={`上移大事件${i+1}小事件${j+1}`} disabled={!j} onClick={()=>write(moveOutlineEvent(data,group.id,event.id,group.id,-1))}><ArrowUp size={12}/></button><button className="ghost" aria-label={`下移大事件${i+1}小事件${j+1}`} disabled={j===group.events.length-1} onClick={()=>write(moveOutlineEvent(data,group.id,event.id,group.id,1))}><ArrowDown size={12}/></button><button className="ghost danger" aria-label={`删除大事件${i+1}小事件${j+1}`} onClick={()=>groupPatch(group.id,{events:group.events.filter(e=>e.id!==event.id)})}><Trash2 size={12}/></button></>}</div>
        </header>
        {openEvents.has(event.id)&&<div className="rewrite-chain-event-content">{readOnly?<><FormattedText text={event.summary}/><div className="rewrite-outline-purpose"><b>作用与因果</b><FormattedText text={event.purpose}/></div>{event.source&&<small>来源：{event.source}</small>}</>:<><label>小事件名称<input aria-label={`大事件${i+1}小事件${j+1}名称`} value={event.title} onChange={e=>eventPatch(group.id,event.id,{title:e.target.value})}/></label><label>简短提纲<textarea aria-label={`大事件${i+1}小事件${j+1}提纲`} value={event.summary} onChange={e=>eventPatch(group.id,event.id,{summary:e.target.value})}/></label><label>作用与因果<textarea aria-label={`大事件${i+1}小事件${j+1}作用`} value={event.purpose} onChange={e=>eventPatch(group.id,event.id,{purpose:e.target.value})}/></label><label>素材来源及改动<input aria-label={`大事件${i+1}小事件${j+1}来源`} value={event.source||''} onChange={e=>eventPatch(group.id,event.id,{source:e.target.value})}/></label>{data.groups.length>1&&<label>移入大事件<select aria-label={`移动大事件${i+1}小事件${j+1}到其他组`} value={group.id} onChange={e=>write(moveOutlineEvent(data,group.id,event.id,e.target.value))}>{data.groups.map((g,n)=><option key={g.id} value={g.id}>{outlineGroupCode(n)} · {g.title||'未命名大事件'}</option>)}</select></label>}</>}</div>}
+       {project&&openEvents.has(event.id)&&<RewriteEventReferences project={project} event={event} readOnly={readOnly} onChange={references=>eventPatch(group.id,event.id,{references})}/>}
       </section>
      </React.Fragment>)}</div>
      {!!group.events.length&&data.groups[i+1]?.events.length>0&&<p className="rewrite-chain-transition">{outlineGroupCode(i)}{group.events.length} · {group.events.at(-1).title} → {outlineGroupCode(i+1)}1 · {data.groups[i+1].events[0].title}</p>}
      {!readOnly&&<button className="ghost rewrite-outline-add" onClick={()=>{const event=newOutlineEvent();groupPatch(group.id,{events:[...group.events,event]});setOpenEvents(ids=>new Set([...ids,event.id]));}}><Plus size={13}/>添加小事件</button>}
+     <div className="rewrite-group-end">{outlineGroupCode(i)} 组结束 · {group.title}</div>
     </div>}
    </article>
   </React.Fragment>)}

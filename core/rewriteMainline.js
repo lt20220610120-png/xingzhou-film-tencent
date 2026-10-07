@@ -18,9 +18,11 @@ export function readRewriteMainline(raw) {
  }
  data=data.outline||data;
  if(typeof data==='string')return readRewriteMainline(data);
- if(!Array.isArray(data.eventGroups))throw new Error('主线结构需要按小事件归组的逐集提纲。原始结果保留在任务历史。');
- return {legacyText:typeof data.legacyText==='string'?data.legacyText:'',eventGroups:data.eventGroups.map((group,i)=>({
+ if(!Array.isArray(data.eventGroups))throw new Error('主线结构需要按大纲小事件归组。原始结果保留在任务历史。');
+ return {format:data.format,legacyText:typeof data.legacyText==='string'?data.legacyText:'',...(data.archivedEventGroups?.length?{archivedEventGroups:readRewriteMainline({eventGroups:data.archivedEventGroups}).eventGroups}:{}),eventGroups:data.eventGroups.map((group,i)=>({
   id:group.id||`mainline-${i+1}`,groupId:group.groupId||'',eventId:group.eventId||'',title:group.title||'',
+  ...(typeof group.story==='string'?{story:group.story,continuity:typeof group.continuity==='string'?group.continuity:''}:{}),
+  ...(Array.isArray(group.legacyEpisodes)?{legacyEpisodes:group.legacyEpisodes}:{}),
   episodes:(group.episodes||[]).map(ep=>({number:ep.number,title:ep.title||`第${ep.number}集`,outline:ep.outline||'',source:ep.source||''})),
  }))};
 }
@@ -45,7 +47,7 @@ export function rewriteMainlineText(raw,outline) {
  const data=readRewriteMainline(raw);let options=[];try{options=outlineEventOptions(outline);}catch{}
  return [data.legacyText,...data.eventGroups.map(group=>{
   const option=options.find(o=>o.eventId===group.eventId);
-  return [`【${option?.code||'待关联'}：${option?.title||group.title}】`,...group.episodes.map(ep=>`【${ep.title||`第${ep.number}集`}】\n${ep.outline}${ep.source?`\n来源：${ep.source}`:''}`)].join('\n\n');
+  return [`【${option?.code||'待关联'}：${option?.title||group.title}】`,group.story||'',group.continuity?`衔接核对：${group.continuity}`:'',...group.episodes.map(ep=>`【${ep.title||`第${ep.number}集`}】\n${ep.outline}${ep.source?`\n来源：${ep.source}`:''}`)].filter(Boolean).join('\n\n');
  })].filter(Boolean).join('\n\n');
 }
 export const REWRITE_MAINLINE_RULE='主线是按大纲小事件归组的集纲。使用当前大纲真实 groupId 和 eventId，A/B/C 是大事件顺序标签，A1/A2/B1 是对应小事件顺序标签；不能凭标签另造编号。每个小事件组包含它对应的第1集、第2集等逐集提纲，例如 A1 由第1—3集组成。这里只规划本集发生什么、人物行动、因果、转折与衔接，不展开正文对白。输出纯 JSON：{"eventGroups":[{"id":"line-1","groupId":"大纲组的真实id","eventId":"大纲小事件的真实id","title":"小事件名称","episodes":[{"number":1,"title":"第1集","outline":"这一集的具体提纲","source":"拆解时的原文依据"}]}]}。每集只归入一个小事件，保持集号与实际时间顺序；不凭空添加原稿没有的情节或结局。已有大纲缺失时先提示需要拆解或确认大纲，不凭空归组。';

@@ -1,5 +1,6 @@
 import {readWorldCandidate,rewriteWorldInput} from './rewriteWorld.js';
 import {validateRewriteOutline} from './rewriteOutline.js';
+import {storySourceOptions,referenceKey} from './rewriteStory.js';
 import {updateCreatorProject,updateCreatorSection,creatorInputFingerprint} from './creatorWorkspace.js';
 
 const uid=()=>`world-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -13,6 +14,8 @@ export function addWorldSimulationVersion(state,id,recordId) {
  if(versions.some(v=>v.recordId===recordId))return state;
  if(record?.target?.task!=='rewriteWorldSim'||record.status!=='pending')throw new Error('模拟未完成，不能保存为大纲版本。');
  const result=readWorldCandidate(record.output);
+ const sources=storySourceOptions(p).filter(s=>record.target.sourceIds?.includes(s.sourceId));
+ for(const group of result.outline.groups)for(const event of group.events)if(event.references?.some(r=>!sources.some(s=>referenceKey(s)===referenceKey(r))))throw new Error('模拟包含无法对应的参考事件，原始结果已留在历史，请修正引用后重试。');
  const version={id:`world-${recordId}`,number:number(versions),name:result.title,createdAt:record.createdAt,recordId,target:record.target,
   output:JSON.stringify(result.outline),originalOutput:record.output,instruction:record.instruction,
   changeSummary:result.changeSummary,constraintsCheck:result.constraintsCheck,inputFingerprint:record.inputFingerprint,

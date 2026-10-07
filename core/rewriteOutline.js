@@ -19,7 +19,7 @@ export function readRewriteOutline(raw) {
     used.add(key);return key;
   };
   return {groups:data.groups.map((group,i)=>({id:identity(group.id,`group-${i+1}`),title:text(group.title),goal:text(group.goal),source:text(group.source),
-    events:(Array.isArray(group.events)?group.events:[]).map((event,j)=>({id:identity(event.id,`group-${i+1}-event-${j+1}`),...Object.fromEntries(fields.map(key=>[key,text(event[key])]))})),
+    events:(Array.isArray(group.events)?group.events:[]).map((event,j)=>({id:identity(event.id,`group-${i+1}-event-${j+1}`),...Object.fromEntries(fields.map(key=>[key,text(event[key])])),...(Array.isArray(event.references)?{references:event.references.map(r=>({sourceId:text(r.sourceId),groupId:text(r.groupId),eventId:text(r.eventId)}))}:{})})),
   }))};
 }
 export function validateRewriteOutline(raw) {
@@ -29,7 +29,7 @@ export function validateRewriteOutline(raw) {
   }
   return data;
 }
-export const copyOutlineGroups = groups => groups.map(group=>({...group,id:id(),events:group.events.map(event=>({...event,id:id()}))}));
+export const copyOutlineGroups = (groups,sourceId) => groups.map(group=>({...group,id:id(),events:group.events.map(event=>({...event,id:id(),...(sourceId?{references:[{sourceId,groupId:group.id,eventId:event.id}]}:{})}))}));
 export function rewriteOutlineText(raw) {
   if (!raw) return '';
   const data = readRewriteOutline(raw);

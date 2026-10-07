@@ -41,3 +41,5 @@ export function readWorldCandidate(raw) {
  if(typeof value.changeSummary!=='string'||!value.changeSummary.trim()||typeof value.constraintsCheck!=='string'||!value.constraintsCheck.trim()||outline.groups.some(g=>!g.source.trim()||g.events.some(e=>!e.source.trim())))throw new Error('模拟版本需要改动说明、约束检查，以及每个事件的来源或新创作理由。原始输出已留在任务历史。');
  return {outline,title:typeof value.title==='string'&&value.title.trim()?value.title:'模拟新故事',changeSummary:value.changeSummary,constraintsCheck:value.constraintsCheck};
 }
+
+export const REWRITE_WORLD_REFERENCE_RULE='每个新作小事件额外输出 references 数组，精确记录实际参考的原事件：[{"sourceId":"素材库来源ID","groupId":"原大事件真实id","eventId":"原小事件真实id"}]。可关联多个书中事件；只用提供的真实ID，不使用 A1 等显示编号。纯原创使用空数组。保留 source 中文说明来源与改动。后续主线只读取这些关联事件，不会附上未选事件。';

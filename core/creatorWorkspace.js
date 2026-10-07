@@ -1,6 +1,7 @@
 import {readRewriteOutline,validateRewriteOutline,rewriteOutlineText,copyOutlineGroups} from './rewriteOutline.js';
 import {readRewriteMainline,validateRewriteMainline,rewriteMainlineText} from './rewriteMainline.js';
 import {rewriteWorldInput} from './rewriteWorld.js';
+import {rewriteStoryInput,mergeRewriteStory} from './rewriteStory.js';
 import { splitFullScript } from './scriptImport.js';
 import { formatIPScriptText } from './ipScenes.js';
 
@@ -235,7 +236,7 @@ export const creatorInputFingerprint = (project, target = {}) => {
     })).filter(episode => episode.id !== target.episodeId);
   const referenceKey=target.section||'episode',referenceIds=p.creator.rewrite?.selections?.[referenceKey]||[];
   const analysisSource = [p.creator.source,...p.creator.references].find(book => book?.id === target.sourceId);
-  const serialized = JSON.stringify(canonical(target.task==='rewriteWorldSim'?{projectId:p.id,target:activeTarget,input:rewriteWorldInput(p,target)}:target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
+  const serialized = JSON.stringify(canonical(target.task==='rewriteStory'||target.format==='rewriteStory'?{projectId:p.id,target:activeTarget,input:rewriteStoryInput(p,target),selected}:target.task==='rewriteWorldSim'?{projectId:p.id,target:activeTarget,input:rewriteWorldInput(p,target)}:target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
     referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
     rewrite: p.creator.mode==='rewrite' ? {selections:{[referenceKey]:referenceIds},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.mode!=='rewrite'||referenceIds.includes(p.creator.source?.id)?p.creator.source?.analysis||null:null,
@@ -267,7 +268,17 @@ const patchSection = (project, kind, key, patch) => {
   if(patch.accepted===true&&!own(patch,'stale'))next.stale=false;
   if (next.locked && (!next.accepted || !text(next.output).trim())) fail('CREATOR_LOCKED', '请先采用非空成果，再锁定该内容。');
   let updated = { ...project, creator: { ...project.creator, sections: { ...project.creator.sections, [key]: next } } };
-  if (JSON.stringify(adoptedSections(project)) !== JSON.stringify(adoptedSections(updated))) updated = markDerivedSectionsStale(staleEpisodes(updated, kind), [...(SECTION_DEPENDENCIES[key]||[]),...(project.creator.mode==='rewrite'&&key==='outline'?['characters']:[])]);
+  if(project.creator.mode==='rewrite'&&key==='macroOutline'&&own(patch,'output')&&project.creator.rewrite?.eventReferences){
+    try{
+      const before=new Map(readRewriteOutline(previous.output).groups.flatMap(g=>g.events.map(e=>[e.id,e.references])));
+      const overrides={...project.creator.rewrite.eventReferences};
+      for(const e of readRewriteOutline(next.output).groups.flatMap(g=>g.events)){
+        if(Array.isArray(e.references)&&JSON.stringify(e.references)!==JSON.stringify(before.get(e.id)))delete overrides[e.id];
+      }
+      updated={...updated,creator:{...updated.creator,rewrite:{...updated.creator.rewrite,eventReferences:overrides}}};
+    }catch{/* An unfinished manual JSON edit must not discard existing reference choices. */}
+  }
+  if (JSON.stringify(adoptedSections(project)) !== JSON.stringify(adoptedSections(updated))) updated = markDerivedSectionsStale(staleEpisodes(updated, kind), [...(SECTION_DEPENDENCIES[key]||[]),...(project.creator.mode==='rewrite'&&key==='outline'&&!next.output.includes('\"story-v1\"')?['characters']:[])]);
   return updated;
 };
 
@@ -557,11 +568,20 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
   if (stale && !allowStale && record.type !== 'history') fail('CREATOR_STALE_RESULT', '该候选基于旧版输入，请复核后明确采用。');
   if (!target.episodeId && node.locked && !unlock) fail('CREATOR_LOCKED', '该成果已锁定，请明确解锁后采用。');
   const previous = target.episodeId ? text(node[field]) : text(node[target.side]);
+  if((target.task==='rewriteStory'||target.format==='rewriteStory')&&record.type!=='history'){
+    rewriteStoryInput(p,target,{strict:true});
+    const output=mergeRewriteStory(previous,record.output,p.creator.sections.macroOutline?.output,target.eventIds);
+    const history=historyRecord(p,{section:'outline',side:'output'},previous,{previousAccepted:node.accepted,previousLocked:node.locked});
+    const next=patchSection(p,kind,'outline',{output,accepted:false,stale:false,...(unlock?{locked:false}:{})});
+    next.creator.records=[...next.creator.records.map(r=>r.id===recordId?{...r,status:'adopted',adoptedAt:now()}:r),history];
+    return next;
+  }
   const macro = target.section==='macroOutline'&&target.side==='output';
   if(macro&&record.type!=='history')validateRewriteOutline(record.output);
   if(target.format==='rewriteMainline'&&record.type!=='history')validateRewriteMainline(record.output,p.creator.sections.macroOutline?.output);
   const rewriteMainlineTarget=p.creator.mode==='rewrite'&&target.section==='outline'&&target.side==='output';
-  const mainline=rewriteMainlineTarget&&readRewriteMainline(record.output).eventGroups.length>0;
+  const storyHistory=rewriteMainlineTarget&&record.type==='history'&&readRewriteMainline(record.output).format==='story-v1';
+  const mainline=rewriteMainlineTarget&&!storyHistory&&readRewriteMainline(record.output).eventGroups.length>0;
   if(mainline&&record.type!=='history')validateRewriteMainline(record.output,p.creator.sections.macroOutline?.output);
   const output = macro ? JSON.stringify(mode==='append'?{groups:[...readRewriteOutline(previous).groups,...copyOutlineGroups(readRewriteOutline(record.output).groups)]}:readRewriteOutline(record.output)) : mainline&&mode==='append'?JSON.stringify(validateRewriteMainline({legacyText:readRewriteMainline(previous).legacyText,eventGroups:[...readRewriteMainline(previous).eventGroups,...readRewriteMainline(record.output).eventGroups]},p.creator.sections.macroOutline?.output)):mainline?JSON.stringify(record.type==='history'?readRewriteMainline(record.output):validateRewriteMainline(record.output,p.creator.sections.macroOutline?.output)):mode === 'append' ? [previous, record.output].filter(Boolean).join('\n\n') : record.output;
   const history = historyRecord(p, target, previous, { previousAccepted: node.accepted, previousLocked: node.locked });
