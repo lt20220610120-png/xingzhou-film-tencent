@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeFrameworkProject,frameworkState,applyFrameworkCommand as cmd,frameworkEvents,frameworkDraftText} from './frameworkWorkflow.js';
-import {validateFrameworkOutput,prepareFrameworkTask} from './frameworkAi.js';
+import {validateFrameworkOutput,prepareFrameworkTask,frameworkTaskContext} from './frameworkAi.js';
 
 const fresh=()=>normalizeFrameworkProject({id:'components',creator:{mode:'framework',records:[]}});
 const story=()=>{let p=cmd(fresh(),{type:'settings.confirm'});for(const [i,title] of ['相遇','相爱','挫折'].entries())p=cmd(p,{type:'group.add',group:{id:`g${i}`,title,events:[{id:`e${i}`,title:`行动${i}`,summary:'前因与结果',confirmed:true}]}});return p;};
@@ -57,4 +57,10 @@ test('stage exports include real component content and keep outlines separate fr
  const text=frameworkDraftText(p);assert.match(text,/A1 · 行动0/);assert.match(text,/原样保留的完整故事/);
  p.creator.framework.plans=[{id:'plan',episodes:[{title:'第1集',content:'本集行动取舍',hook:'让观众期待后续',result:'不应混入的正文'}]}];p.creator.framework.activePlanId='plan';
  const outline=frameworkDraftText(p,'plan');assert.match(outline,/本集行动取舍/);assert.match(outline,/让观众期待后续/);assert.ok(!outline.includes('不应混入的正文'));
+});
+
+test('current-stage conversation includes events in the new small-event and master workspaces',()=>{
+ const p=story();p.creator.framework.plans=[{id:'plan',episodes:[{id:'ep',content:'当前版集纲',result:'当前版正文'}]}];p.creator.framework.activePlanId='plan';
+ for(const stage of ['smallEvents','master']){const context=frameworkTaskContext(p,{task:'frameworkChat',scope:'current',workspaceStage:stage});assert.match(context,/行动0/);}
+ const master=frameworkTaskContext(p,{task:'frameworkChat',scope:'current',workspaceStage:'master'});assert.match(master,/当前版集纲/);assert.match(master,/当前版正文/);
 });

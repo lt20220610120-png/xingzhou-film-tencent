@@ -76,10 +76,10 @@ function taskInput(project,target={}) {
  const story={selectedOriginalIdeas:selectedIdeas,ideaSummary:f.ideaSummary,settings:{items:f.settings.items,confirmed:f.settings.confirmed,revision:f.settings.revision,unresolvedCount:f.settings.pending.length},groups:f.groups,...(['frameworkSimulate','frameworkChat'].includes(task)?{looseEvents:f.looseEvents}:{}),mainline:f.mainline,characters:f.characters.map(c=>c.confirmed?c:{id:c.id,name:c.name,confirmed:false})};
  if(task==='frameworkChat'){
   const stage=target.workspaceStage,current=target.scope==='current';
-  const includeStory=!current||['events','mainline','characters','simulation'].includes(stage);
+  const includeStory=!current||['events','mainline','smallEvents','master','characters','simulation'].includes(stage);
   const plan=activePlan(f,target);
   return {...base,...story,...(!includeStory?{groups:[],looseEvents:[],mainline:{confirmed:f.mainline.confirmed,links:[]},characters:[]}:{}),
-   ...(!current||['plans','script'].includes(stage)?{currentPlan:plan?{id:plan.id,name:plan.name,episodes:plan.episodes.map(({generationVersions,...e})=>e)}:null}:{}),
+   ...(!current||['plans','script','master'].includes(stage)?{currentPlan:plan?{id:plan.id,name:plan.name,episodes:plan.episodes.map(({generationVersions,...e})=>e)}:null}:{}),
    discussionCandidates:(p.creator.chat||[]).filter(m=>['user','assistant'].includes(m.role)&&['frameworkChat','framework'].includes(m.stage)).slice(-12).map(({role,content})=>({role,content}))};
  }
  if(task==='frameworkSimulate')return {...base,...story,selectedReferenceComponents:selectedComponents(f,target)};
