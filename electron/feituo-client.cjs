@@ -66,7 +66,7 @@ async function submit(input) {
     for (const kind of ['image','video','audio']) payload[`${kind}Urls`] = refs.filter(r => r.kind === kind).map(r => r.url);
     h['Content-Type'] = 'application/json'; body = JSON.stringify(payload);
   }
-  const data = await json(await fetch(`${BASE}/api/open/v1/${model.kind}/generate`, { method: 'POST', headers: h, body, signal: AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000) }));
+  const data = await json(await fetch(`${BASE}/api/open/v1/${model.kind}/generate`, { method: 'POST', headers: h, body, signal: input.signal ? AbortSignal.any([input.signal,AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000)]) : AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000) }));
   if (!data.jobId) throw new Error('提交响应缺少 jobId，请在飞拓任务日志核对后再操作');
   return data;
 }

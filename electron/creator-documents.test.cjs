@@ -128,13 +128,21 @@ test('video import rejects files outside its advertised video formats', async ()
 
 async function desktopApi(dialog, { getPath = () => os.tmpdir() } = {}) {
   const handlers = new Map();
+  let window;
+  class TestWindow {
+    constructor(){window=this;this.webContents={mainFrame:{url:''},on(){},setWindowOpenHandler(){}};}
+    on(){} isDestroyed(){return false;}
+    loadURL(url){this.webContents.mainFrame.url=url;return Promise.resolve();}
+    loadFile(file){this.webContents.mainFrame.url=require('node:url').pathToFileURL(file).href;return Promise.resolve();}
+  }
   const electron = {
+    BrowserWindow:TestWindow,
     app: { isPackaged: false, setName() {}, setAppUserModelId() {}, getPath, commandLine: { appendSwitch() {} }, whenReady: () => new Promise(() => {}), on() {} },
     dialog,
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     protocol: { registerSchemesAsPrivileged() {} },
   };
-  vm.runInNewContext(await fs.readFile(path.join(__dirname, 'main.cjs'), 'utf8'), {
+  vm.runInNewContext((await fs.readFile(path.join(__dirname, 'main.cjs'), 'utf8'))+'\ncreateWindow();', {
     require: name => name === 'electron' ? electron : name === './packaged-smoke.cjs' ? () => false : require(name),
     __dirname, process: { on() {}, platform: process.platform }, Buffer, setTimeout, URL, Response, AbortController,
   }, { filename: 'main.cjs' });
@@ -144,7 +152,7 @@ async function desktopApi(dialog, { getPath = () => os.tmpdir() } = {}) {
       contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } },
       ipcRenderer: { invoke: async (channel, payload) => {
         if (!handlers.has(channel)) throw new Error(`Unregistered test IPC: ${channel}`);
-        return handlers.get(channel)({}, payload);
+        return handlers.get(channel)({sender:window.webContents,senderFrame:window.webContents.mainFrame}, payload);
       } },
     }),
   }, { filename: 'preload.cjs' });

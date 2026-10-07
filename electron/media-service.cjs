@@ -3,6 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { readMediaBytes, isMediaNetworkError } = require('./media-network.cjs');
+const requestSignal=(signal,timeout)=>signal?AbortSignal.any([signal,AbortSignal.timeout(timeout)]):AbortSignal.timeout(timeout);
+function waitForPoll(delay,signal){
+ if(!signal)return new Promise(resolve=>setTimeout(resolve,delay));
+ signal.throwIfAborted();return new Promise((resolve,reject)=>{
+  const abort=()=>{clearTimeout(timer);reject(signal.reason);};
+  const timer=setTimeout(()=>{signal.removeEventListener('abort',abort);resolve();},delay);
+  signal.addEventListener('abort',abort,{once:true});
+ });
+}
 
 function normalizeBase(endpoint = '') {
   return String(endpoint).trim().replace(/\/+$/, '')
@@ -37,20 +46,20 @@ function parseFeituoStatus(data) {
   if (['failed', 'cancelled', 'canceled', 'error'].includes(status)) throw new Error(data.errorMessage || '视频生成失败');
   return { state: 'pending', jobId: data?.jobId || '' };
 }
-async function generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, imageUrls = [], destDir, onStatus = () => {} }) {
+async function generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, imageUrls = [], destDir, signal, onStatus = () => {} }) {
   if (!apiKey?.trim()) throw new Error('请在 API 接口中填写飞拓 API Key');
   if (!model?.trim()) throw new Error('请先选择飞拓视频模型');
   const base = 'https://feituokuajing.com';
   const auth = `Bearer ${apiKey.trim()}`;
-  const create = await fetch(`${base}/api/open/v1/video/generate`, { method: 'POST', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(buildFeituoVideoPayload({ model, prompt, ratio, duration, resolution, imageUrls })), signal: AbortSignal.timeout(120000) });
+  const create = await fetch(`${base}/api/open/v1/video/generate`, { method: 'POST', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(buildFeituoVideoPayload({ model, prompt, ratio, duration, resolution, imageUrls })), signal: requestSignal(signal,120000) });
   const submitted = await readJson(create);
   if (!create.ok || submitted.success === false) throw new Error(submitted.error || submitted.errorMessage || `飞拓提交失败（${create.status}）`);
   if (!submitted.jobId) throw new Error('飞拓接口未返回 jobId');
   onStatus('submitted');
   const deadline = Date.now() + 30 * 60 * 1000;
   while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, 15000));
-    const response = await fetch(`${base}/api/open/v1/video/status?jobId=${encodeURIComponent(submitted.jobId)}&_=${Date.now()}`, { cache: 'no-store', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(60000) });
+    await waitForPoll(15000,signal);
+    const response = await fetch(`${base}/api/open/v1/video/status?jobId=${encodeURIComponent(submitted.jobId)}&_=${Date.now()}`, { cache: 'no-store', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Cache-Control': 'no-cache' }, signal: requestSignal(signal,60000) });
     const result = await readJson(response);
     if (!response.ok || result.success === false) throw new Error(result.error || result.errorMessage || `飞拓状态查询失败（${response.status}）`);
     const parsed = parseFeituoStatus(result); onStatus(parsed.state);
@@ -136,13 +145,13 @@ async function imageReferenceFile(reference, index) {
 
 // OpenAI-compatible APIs use multipart /images/edits when reference images are supplied.
 // https://developers.openai.com/api/reference/resources/images/methods/edit
-async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, references = [], destDir }) {
+async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, references = [], destDir, signal }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置图片生成 API');
   if (!prompt?.trim()) throw new Error('请填写画面描述');
   if (!model?.trim()) throw new Error('请先在 API 接口中填写图片模型名称');
   if(isFeituoEndpoint(endpoint)) {
     const sizes={'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4','1152x768':'3:2','768x1152':'2:3'};
-    const result=await require('./feituo-client.cjs').submit({kind:'image',apiKey,model,prompt,ratio:ratio||sizes[size]||'auto',references});
+    const result=await require('./feituo-client.cjs').submit({kind:'image',apiKey,model,prompt,ratio:ratio||sizes[size]||'auto',references,signal});
     if(!result.resultUrls?.length)throw new Error('飞拓没有返回图片结果');
     return saveGeneratedImage(result.resultUrls[0],destDir);
   }
@@ -162,7 +171,7 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
   let response, data;
   try {
     response = await fetch(`${base}/images/${references.length ? 'edits' : 'generations'}`, {
-      method: 'POST', headers, body, signal: AbortSignal.timeout(300000),
+      method: 'POST', headers, body, signal: requestSignal(signal,300000),
     });
     data = await readJson(response);
   } catch (cause) {
@@ -192,13 +201,13 @@ function buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, 
   return content;
 }
 
-async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, references = [], destDir, onStatus = () => {} }) {
+async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, references = [], destDir, signal, onStatus = () => {} }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置视频生成 API');
   if (!prompt?.trim()) throw new Error('请填写视频描述');
   if(references.length>1 || references.some(r=>r.kind!=='image'))throw new Error('当前自定义视频接口仅支持一张首帧参考，请切换飞拓接口使用多素材参考');
   firstFramePath=firstFramePath||references[0]?.filePath;firstFrameUrl=firstFrameUrl||references[0]?.url;
   const localFrame = firstFramePath && fs.existsSync(firstFramePath) ? `data:image/png;base64,${fs.readFileSync(firstFramePath).toString('base64')}` : '';
-  if (isFeituoEndpoint(endpoint)) return generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, onStatus, destDir, imageUrls: firstFrameUrl || localFrame ? [firstFrameUrl || localFrame] : [] });
+  if (isFeituoEndpoint(endpoint)) return generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, onStatus, destDir, signal, imageUrls: firstFrameUrl || localFrame ? [firstFrameUrl || localFrame] : [] });
   const base = normalizeBase(endpoint);
   let firstFrameDataUrl = '';
   if (firstFramePath && fs.existsSync(firstFramePath)) {
@@ -208,7 +217,7 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
     method: 'POST',
     headers: authHeaders(apiKey),
     body: JSON.stringify({ model: model?.trim() || undefined, audio: audioEnabled, content: buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, firstFrameDataUrl, firstFrameUrl }) }),
-    signal: AbortSignal.timeout(120000),
+    signal: requestSignal(signal,120000),
   });
   const created = await readJson(createResponse);
   if (!createResponse.ok) throw new Error(created?.error?.message || created?.message || `视频接口请求失败（${createResponse.status}）`);
@@ -220,8 +229,8 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   // 轮询任务状态
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    const pollResponse = await fetch(`${base}/contents/generations/tasks/${taskId}`, { headers: authHeaders(apiKey), signal: AbortSignal.timeout(60000) });
+    await waitForPoll(5000,signal);
+    const pollResponse = await fetch(`${base}/contents/generations/tasks/${taskId}`, { headers: authHeaders(apiKey), signal: requestSignal(signal,60000) });
     const task = await readJson(pollResponse);
     if (!pollResponse.ok) throw new Error(task?.error?.message || `任务查询失败（${pollResponse.status}）`);
     const status = String(task.status || '').toLowerCase();

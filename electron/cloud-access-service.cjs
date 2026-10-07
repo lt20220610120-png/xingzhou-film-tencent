@@ -142,12 +142,13 @@ const publicAccount = (row) => row ? ({
   isAdmin: row.is_admin === true, isProducer: row.is_producer === true,
   banned: row.banned === true, createdAt: row.created_at,
 }) : null;
-function createCloudAccessService(userDataDir) {
-  const sessionFile = path.join(userDataDir, 'cloud-session.json');
+function createCloudAccessService(userDataDir, options = {}) {
+  const storage=options.safeStorage || require('electron').safeStorage;
+  const store=require('./session-store.cjs').createSessionStore(userDataDir,storage);
   let sessionEpoch = 0;
-  const readSession = () => { try { return JSON.parse(fs.readFileSync(sessionFile, 'utf8')); } catch { return null; } };
-  const writeSession = (value) => { fs.mkdirSync(path.dirname(sessionFile), { recursive: true }); fs.writeFileSync(sessionFile, JSON.stringify(value, null, 2), 'utf8'); };
-  const clearSession = () => { try { fs.unlinkSync(sessionFile); } catch { /* noop */ } };
+  const readSession = store.read;
+  const writeSession = store.write;
+  const clearSession = () => {store.clear();options.onInvalidSession?.();};
   const token = () => readSession()?.token || '';
   return {
     async session() {
@@ -158,21 +159,22 @@ function createCloudAccessService(userDataDir) {
         const r = await gateway('session', {}, saved.token);
         if (sessionEpoch !== expectedEpoch || token() !== saved.token) return null;
         const a = publicAccount(r.account);
+        if(!a?.id || a.banned){clearSession();return null;}
         writeSession({ token: saved.token, account: a });
         return a;
       } catch (error) {
         // Only an explicit 401 proves that the token is invalid. Temporary
         // network/TLS/5xx failures must not destroy the user's session.
-        if (error?.status === 401 && sessionEpoch === expectedEpoch && token() === saved.token) clearSession();
+        if ([401,403].includes(error?.status) && sessionEpoch === expectedEpoch && token() === saved.token) clearSession();
         return null;
       }
     },
-    async updateProfile(payload){const r=await gateway('profile-update',payload,token());const account=publicAccount(r.account);writeSession({...readSession(),account});return account;},
+    async updateProfile(payload){const expectedEpoch=sessionEpoch,saved=readSession();const r=await gateway('profile-update',payload,saved?.token||'');if(expectedEpoch!==sessionEpoch||token()!==saved?.token)throw new Error('登录状态已变化');const account=publicAccount(r.account);writeSession({...saved,account});return account;},
     async login(payload) { const expectedEpoch = ++sessionEpoch; const r = await gateway('login', payload); if (expectedEpoch !== sessionEpoch) throw new Error('登录已取消'); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
     async logout() { const s = readSession(); sessionEpoch++; clearSession(); if (s?.token) await gateway('logout', {}, s.token).catch(() => {}); return true; },
     async sendEmailCode(payload) { return gateway('send-email-code', payload); },
-    async register(payload) { const r = await gateway('register', payload); const a = publicAccount(r.account); writeSession({ token: r.token, account: a }); return a; },
-    async unlock(payload) { const r = await gateway('unlock', payload, token()); const a = publicAccount(r.account); writeSession({ token: r.token || token(), account: a }); return a; },
+    async register(payload) { const expectedEpoch=++sessionEpoch;const r = await gateway('register', payload);if(expectedEpoch!==sessionEpoch)throw new Error('注册登录已取消');const a = publicAccount(r.account);writeSession({ token: r.token, account: a });return a; },
+    async unlock(payload) { const expectedEpoch=sessionEpoch,saved=readSession();const r = await gateway('unlock', payload, saved?.token||'');if(expectedEpoch!==sessionEpoch||token()!==saved?.token)throw new Error('登录状态已变化');const a = publicAccount(r.account); writeSession({ token: r.token || saved.token, account: a }); return a; },
     async recover(payload) { return gateway('recover', payload); },
     async adminListUsers() { return gateway('admin-list-users', {}, token()); },
     async adminDeleteUser(payload) { return gateway('admin-delete-user', payload, token()); },
@@ -180,7 +182,7 @@ function createCloudAccessService(userDataDir) {
     async adminCreateInvite(payload) { return gateway('admin-create-invite', payload, token()); },
     async adminListInvites() { return gateway('admin-list-invites', {}, token()); },
     async adminDisableInvite(payload) { return gateway('admin-disable-invite', payload, token()); },
-    token, readAccount: () => readSession()?.account || null,
+    token, readSession, readAccount: () => readSession()?.account || null,
   };
 }
 module.exports = { createCloudAccessService, gateway };

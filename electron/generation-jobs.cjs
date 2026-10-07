@@ -83,7 +83,7 @@ function createGenerationJobs(dir) {
       return result;
     },
     async submit(input) {
-      const { apiKey, endpoint, ...snapshot } = input;
+      const { apiKey, endpoint, signal, ...snapshot } = input;
       const job = { ...snapshot, id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
       if (input.model?.startsWith('ft-')) {
         if(new URL(input.endpoint).origin !== 'https://feituokuajing.com')throw new Error('飞拓模型必须使用 https://feituokuajing.com 接口');
