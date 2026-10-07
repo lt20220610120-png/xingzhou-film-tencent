@@ -1,3 +1,5 @@
+import {useMovablePanel} from './useMovablePanel.js';
+import './movable-panel.css';
 import {FormattedText} from '../components/FormattedText.jsx';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -8,7 +10,8 @@ import {frameworkDraftText} from '../../core/frameworkWorkflow.js';
 import { buildCreatorText, archiveCreatorProject } from '../../core/creatorWorkspace.js';
 
 export function CreatorDialog({title,onClose,children,className='',headerActions}) {
- return createPortal(<div className="veil creator-veil" onClick={e=>{if(e.target===e.currentTarget)onClose();}}><section role="dialog" aria-modal="true" aria-label={title} className={`creator-dialog ${className}`}><header><h2>{title}</h2>{headerActions&&<div className="creator-dialog-actions">{headerActions}</div>}<button className="ghost" aria-label="关闭窗口" onClick={onClose}><X size={18}/></button></header>{children}</section></div>,document.body);
+ const floating=useMovablePanel(`xz-panel:creator-dialog:${title}`,title);
+ return createPortal(<div className="veil creator-veil" onClick={e=>{if(e.target===e.currentTarget)onClose();}}><section ref={floating.panelRef} style={floating.style} role="dialog" aria-modal="true" aria-label={title} className={`creator-dialog ${className}`}><header {...floating.handleProps}><h2>{title}</h2>{headerActions&&<div className="creator-dialog-actions">{headerActions}</div>}<button className="ghost" aria-label="关闭窗口" onClick={onClose}><X size={18}/></button></header>{children}</section></div>,document.body);
 }
 export function ExportDialog({project,kind,api,setState,onClose,archive=false,initialSide='output',single=false}) {
  const [contentScope,setContentScope]=useState('script'),[side,setSide]=useState(initialSide),[includeSections,setIncludeSections]=useState(!single&&kind==='script'&&project.creator.mode==='rewrite'),[format,setFormat]=useState('docx'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[success,setSuccess]=useState('');

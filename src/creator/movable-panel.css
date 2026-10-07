@@ -1,0 +1,4 @@
+.movable-panel-handle{cursor:grab;touch-action:none;user-select:none}
+.movable-panel-handle.dragging{cursor:grabbing}
+.movable-panel-handle:focus-visible{outline:2px solid #9984ca;outline-offset:-3px}
+.movable-panel-handle :is(button,input,select,textarea,a){cursor:auto;touch-action:auto;user-select:auto}

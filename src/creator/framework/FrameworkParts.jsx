@@ -1,11 +1,16 @@
 import React, {createContext,useContext,useEffect,useRef,useState} from 'react';
 import {Plus,Check,Lock,Unlock,Trash2,ArrowUp,ArrowDown} from 'lucide-react';
 export const FrameworkDraftContext=createContext('framework');
+export const FrameworkModelContext=createContext(null);
+export function AgentSelect({purpose='',compact=false,label='接口与 Agent'}){
+ const models=useContext(FrameworkModelContext);if(!models)return null;
+ return <label className={`fw-model-select ${compact?'compact':''}`}><span>{compact?'Agent':label}</span><select aria-label={label} value={models.selectionFor(purpose)} onChange={e=>models.select(purpose,e.target.value)} title="选择本步骤使用的接口和模型">{!models.options.length&&<option value="">请先配置接口</option>}{models.options.map(o=><option key={o.selectionId} value={o.selectionId}>{o.name} · {o.model}</option>)}</select></label>;
+}
 const readDraft=(key,value)=>{try{const saved=JSON.parse(localStorage.getItem(key));return saved&&JSON.stringify(saved.base)===JSON.stringify(value)?saved.value:value;}catch{return value;}};
 const writeDraft=(key,base,value)=>{try{localStorage.setItem(key,JSON.stringify({base,value}));}catch{/* The project file writer remains available. */}};
 const clearDraft=key=>{try{localStorage.removeItem(key);}catch{}};
 
-export function Heading({title,help,children}){return <div className="fw-heading"><div><h1>{title}</h1><p>{help}</p></div><div className="fw-actions">{children}</div></div>;}
+export function Heading({title,help,children}){return <div className="fw-heading"><div><h1>{title}</h1><p>{help}</p></div><div className="fw-actions"><AgentSelect/>{children}</div></div>;}
 export function Panel({title,extra,children,className=''}){return <section className={`fw-panel ${className}`}>{title&&<header><h3>{title}</h3><div className="fw-actions">{extra}</div></header>}<div className="fw-panel-body">{children}</div></section>;}
 export function Empty({children}){return <div className="fw-empty">{children}</div>;}
 export function Tag({children,good=false,warn=false}){return <span className={`fw-tag ${good?'good':''} ${warn?'warn':''}`}>{children}</span>;}

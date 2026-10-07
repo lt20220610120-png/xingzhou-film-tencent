@@ -1,7 +1,7 @@
 import React,{useState} from 'react';
 import {Plus,Sparkles,Upload} from 'lucide-react';
 import {SourceDialog} from '../CreatorDialogs.jsx';
-import {Heading,Panel,Empty,Tag,Field} from './FrameworkParts.jsx';
+import {Heading,AgentSelect,Panel,Empty,Tag,Field} from './FrameworkParts.jsx';
 
 export function ReferencesPane({state,api,f,command,run,busy,onError,navigate}){
  const [sourceId,setSourceId]=useState(''),[tab,setTab]=useState('components'),[choose,setChoose]=useState(false);
@@ -25,6 +25,6 @@ export function SimulationPane({f,rows,run,busy,records,review,simulationRequest
  {mode==='infer'&&<label className="fw-field"><span>从这里继续</span><select aria-label="推理起点" value={after} onChange={e=>setAfter(e.target.value)}><option value="">从头推理</option>{(layer==='group'?targetRows.map(r=>({id:r.event.id,title:r.code+' · '+r.event.title})):f.groups).map(n=><option key={n.id} value={n.id}>{n.title}</option>)}</select></label>}
  <Field label="补充要求（可留空）" draftKey={`simulation-${layer}-${groupId||'all'}`} value={goal} onCommit={setGoal} rows={4} placeholder="例如：检查 A 与 B 的因果，或推理相遇后的下一步。"/>
  <details><summary>参考对标卡片（可选）</summary>{f.components.filter(c=>c.confirmed).map(c=><label className="fw-check" key={c.id}><input type="checkbox" checked={components.includes(c.id)} onChange={e=>setComponents(e.target.checked?[...components,c.id]:components.filter(id=>id!==c.id))}/>{c.title}</label>)}{!f.components.some(c=>c.confirmed)&&<p>暂无已确认对标卡片。</p>}</details>
- <button className="primary" disabled={busy||layer==='group'&&!current} onClick={()=>run({task:'frameworkSimulate',layer,mode,...(layer==='group'?{groupId}:{}),componentIds:components,...(mode==='infer'&&after?(layer==='group'?{afterEventId:after}:{afterGroupId:after}):{})},goal)}><Sparkles size={15}/>{mode==='infer'?'推理后续卡片':'模拟排序与衔接'}</button>
+ <AgentSelect purpose="simulation" label="模拟接口与 Agent"/><button className="primary" disabled={busy||layer==='group'&&!current} onClick={()=>run({task:'frameworkSimulate',layer,mode,...(layer==='group'?{groupId}:{}),componentIds:components,...(mode==='infer'&&after?(layer==='group'?{afterEventId:after}:{afterGroupId:after}):{})},goal)}><Sparkles size={15}/>{mode==='infer'?'推理后续卡片':'模拟排序与衔接'}</button>
  <small>固定卡片会保留；新方案先预览，再由你采用。</small>{matching.length>0&&<details><summary>本处模拟记录 · {matching.length}</summary>{matching.slice().reverse().map(r=><div className="fw-note" key={r.id}><button className="secondary" onClick={()=>review(r.id)}>{r.target.mode==='infer'?'向后推理':'排列组合'} · {r.status==='adopted'?'已采用':'查看结果'}</button></div>)}</details>}</div>;
 }
