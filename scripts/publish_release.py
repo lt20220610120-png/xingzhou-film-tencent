@@ -1,7 +1,8 @@
 """Publish xingzhou-film release to GitHub: create release, upload installer, update latest.json."""
-import base64, json, subprocess, urllib.request, urllib.error, os, sys, time, glob
+import base64, json, subprocess, urllib.request, urllib.error, os, sys, time, glob, tempfile, datetime
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+subprocess.run(['node', os.path.join(ROOT, 'scripts', 'sign-update.cjs'), '--check'], check=True)
 PACKAGE = json.load(open(os.path.join(ROOT, 'package.json'), encoding='utf-8'))
 VERSION = sys.argv[1] if len(sys.argv) > 1 else PACKAGE['version']
 NOTES = sys.argv[2] if len(sys.argv) > 2 else ''
@@ -106,7 +107,17 @@ manifest = {'version': VERSION,
             'installerUrl': f'https://github.com/{REPO}/releases/download/{TAG}/{ASSET}',
             'notes': NOTES,
             'sha256': __import__('hashlib').sha256(open(SRC, 'rb').read()).hexdigest(),
-            'size': size}
+            'size': size,
+            'publishedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.json', delete=False) as signing_file:
+    json.dump(manifest, signing_file, ensure_ascii=False)
+    signing_path = signing_file.name
+try:
+    subprocess.run(['node', os.path.join(ROOT, 'scripts', 'sign-update.cjs'), signing_path], check=True)
+    with open(signing_path, encoding='utf-8') as signing_file:
+        manifest = json.load(signing_file)
+finally:
+    os.unlink(signing_path)
 manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
 for manifest_repo in MANIFEST_REPOS:
     st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json')
