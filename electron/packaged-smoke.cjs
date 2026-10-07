@@ -93,7 +93,39 @@ module.exports = function configurePackagedSmoke(app) {
           const restored = await api.artReviewLoadLocal({projectId});
           return {bridge,localRoundTrip:restored?.episodes?.[1]?.state === '睡衣' && restored.episodes[1].pending === true};
         })()`);
-        finish(report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        const {safeStorage}=require('electron');
+        const sessionDir=path.join(root,'encrypted-session-check');
+        fs.mkdirSync(sessionDir,{recursive:true});
+        const sessionFile=path.join(sessionDir,'cloud-session.json');
+        fs.writeFileSync(sessionFile,JSON.stringify({token:'synthetic-smoke-token',account:{id:'synthetic'}}));
+        const secureStore=require('./session-store.cjs').createSessionStore(sessionDir,safeStorage);
+        const restored=secureStore.read();
+        win.webContents.openDevTools({mode:'bottom',activate:false});
+        await new Promise(resolve=>setTimeout(resolve,100));
+        report.security={
+          systemEncryption:safeStorage.isEncryptionAvailable(),
+          migrated:restored?.token==='synthetic-smoke-token' && !fs.readFileSync(sessionFile,'utf8').includes('synthetic-smoke-token'),
+          ipcGenerationDenied:await win.webContents.executeJavaScript("window.xingzhou.aiChat({prompt:'synthetic no-login test'}).then(()=>false,error=>/登录/.test(error.message))"),
+          csp:await win.webContents.executeJavaScript("!!document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]')?.content.includes(\"script-src 'self'\")"),
+          sandbox:win.webContents.getLastWebPreferences().sandbox===true,
+          devToolsDisabled:!win.webContents.isDevToolsOpened(),
+        };
+        const {session}=require('electron');
+        session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:/^https?:/.test(details.url)}));
+        await win.webContents.executeJavaScript("new Promise(resolve=>{const frame=document.createElement('iframe');frame.id='security-canvas-check';frame.onload=()=>resolve(true);frame.onerror=()=>resolve(false);frame.src='xzapp://canvas/index.html#/canvas';document.body.append(frame);setTimeout(()=>resolve(false),5000);})");
+        const embedded=win.webContents.mainFrame.frames.find(frame=>frame.url.startsWith('xzapp://canvas/index.html'));
+        if(embedded){
+          for(let attempt=0;attempt<20;attempt++){
+            const status=await embedded.executeJavaScript("({rendered:document.body.innerText.length>10,bridge:typeof window.xingzhou,title:document.title,body:document.body.innerText.slice(0,100)})");
+            report.canvasDiagnostics=status;
+            if(status.rendered){report.security.canvasEmbedded=status.bridge==='undefined';break;}
+            await new Promise(resolve=>setTimeout(resolve,100));
+          }
+        }
+        report.security.canvasEmbedded=report.security.canvasEmbedded===true;
+        if(!embedded)report.canvasDiagnostics={frames:win.webContents.mainFrame.frames.map(frame=>frame.url)};
+        await win.webContents.executeJavaScript("document.querySelector('#security-canvas-check')?.remove()");
+        finish(Object.values(report.security).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

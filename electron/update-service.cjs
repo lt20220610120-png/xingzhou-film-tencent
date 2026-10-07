@@ -24,10 +24,10 @@ async function verifyInstaller(file,manifest){
 async function downloadInstaller({url,version,sha256,size,destinationDir,onProgress,fetchImpl=fetch}){
  if(!/^https:\/\//i.test(url))throw new Error('安装包地址必须使用 HTTPS');
  if(!/^[a-f0-9]{64}$/.test(sha256)||!Number.isSafeInteger(size)||size<64||size>512*1024*1024)throw new Error('安装包缺少可信校验信息');
- fs.mkdirSync(destinationDir,{recursive:true});const target=path.join(destinationDir,safeName(version));const temp=target+'.download';
+ fs.mkdirSync(destinationDir,{recursive:true});const target=path.join(destinationDir,safeName(version));const temp=target+'.'+crypto.randomUUID()+'.download';
  const response=await trustedDownload(url,fetchImpl);
  const total=size;let transferred=0;const report=createProgressReporter(onProgress);
  const progress=new Transform({transform(chunk,_enc,cb){transferred+=chunk.length;if(transferred>size)return cb(new Error('安装包超过签名清单大小'));report({transferred,total});cb(null,chunk)}});
- try{await pipeline(Readable.fromWeb(response.body),progress,fs.createWriteStream(temp,{flags:'w',mode:0o600}));await verifyInstaller(temp,{sha256,size});fs.renameSync(temp,target);report({transferred,total},true);return target}catch(e){try{fs.unlinkSync(temp)}catch{}throw e}
+ try{await pipeline(Readable.fromWeb(response.body),progress,fs.createWriteStream(temp,{flags:'wx',mode:0o600}));await verifyInstaller(temp,{sha256,size});fs.renameSync(temp,target);report({transferred,total},true);return target}catch(e){try{fs.unlinkSync(temp)}catch{}throw e}
 }
 module.exports={downloadInstaller,safeName,verifyInstaller,trustedDownload};

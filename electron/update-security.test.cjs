@@ -26,6 +26,7 @@ test('下载验证实际字节，失败不留下可安装文件，安装前拒�
   await assert.rejects(()=>downloadInstaller({...manifest,version:'failed',url:manifest.installerUrl,destinationDir:dir,fetchImpl:async()=>new Response(data)}));
   assert.equal(fs.existsSync(path.join(dir,'Xingzhou-Film-Setup-failed.exe')),false);
   assert.equal(fs.existsSync(path.join(dir,'Xingzhou-Film-Setup-failed.exe.download')),false);
+  assert.equal(fs.readdirSync(dir).some(name=>name.endsWith('.download')),false);
  }
 });
 test('只允许 GitHub 发布资产跳转，拒绝外站、HTTP 和无限重定向',async()=>{

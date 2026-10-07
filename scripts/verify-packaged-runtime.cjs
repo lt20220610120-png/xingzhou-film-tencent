@@ -7,6 +7,12 @@ exports.verify = async (exe,version,dependencies={}) => {
   const archive = path.join(path.dirname(exe),'resources/app.asar');
   const bundled = JSON.parse(asar.extractFile(archive,'package.json').toString());
   assert.equal(bundled.version,version);
+  const entries=asar.listPackage(archive);
+  assert.ok(!entries.some(name=>/electron[\\/]access-service\.cjs$|core[\\/]accessControl\.cjs$/.test(name)),'Legacy local permission modules must not ship');
+  const {getCurrentFuseWire,FuseV1Options}=require('@electron/fuses');
+  const fuses=await getCurrentFuseWire(exe);
+  for(const option of [FuseV1Options.EnableEmbeddedAsarIntegrityValidation,FuseV1Options.OnlyLoadAppFromAsar])assert.equal(fuses[option],49,'ASAR integrity fuse must be enabled');
+  for(const option of [FuseV1Options.RunAsNode,FuseV1Options.EnableNodeOptionsEnvironmentVariable,FuseV1Options.EnableNodeCliInspectArguments])assert.equal(fuses[option],48,'Debug/runtime injection fuse must be disabled');
   for (const [name,expected] of Object.entries(dependencies)) {
     const manifest = JSON.parse(asar.extractFile(archive,path.join('node_modules',...name.split('/'),'package.json')).toString());
     assert.equal(manifest.version,expected,`Missing or incorrect runtime package: ${name}`);
