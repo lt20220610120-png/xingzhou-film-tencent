@@ -14,3 +14,5 @@
 - Final full suite: 1712/1712 passed. Final build passes. Browser workflow 122/122 passed, with final additional source-selection, reload and scoped-conversation checks. Console has zero errors. Source is ready for packaging and public release.
 
 - Independent final review found two P2 issues before publication: outline dialog copied stale body/history, and title-derived numbering conflicted with reordered plans. Both fixed; reviewer confirmed. Full suite now 1713/1713. Browser race regression 7/7 passed, including preserving freshly generated bodies/history and allowing stale outline repair. Single-episode generation also temporarily disables the body editor to prevent unsaved typing being displaced by its response.
+
+- Released 2.8.0 from the original repository after fast-forward integration. Source pushed; installer runtime PASS. Public manifests in both update/source repositories match version, URL, 102694505-byte asset and SHA256 c485bcfaa5dd43ecfe525cc203e0142c14815922bc6be589b910183adc7a47e4. GitHub asset digest independently matches. Authorized implementation and release are complete.
