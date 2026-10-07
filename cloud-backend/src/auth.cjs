@@ -15,7 +15,8 @@ async function login(payload, repository) {
   let user;
   try { user = await repository.findUser(username); } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
   if (!user || user.banned || !verifyPassword(password, user.password_hash)) return { status: 401, body: { error: '账号或密码不正确' } };
-  const token = await repository.createSession(user.id, newToken());
+  const token = await repository.createSession(user.id, newToken(), user.password_hash);
+  if(!token)return {status:401,body:{error:'账号状态已变化，请重新登录'}};
   return { status: 200, body: { token, account: publicAccount(user) } };
 }
 
@@ -102,16 +103,17 @@ async function recover(payload, repository) {
     const next = String(payload?.newPassword || '');
     if (next) {
       if (next.length < 6) return { status: 400, body: { error: '密码至少需要 6 位' } };
-      await repository.updatePassword(user.id, hashPassword(next));
+      // Password reset and token revocation must commit together.
+      await repository.resetPasswordAndRevokeSessions(user.id, hashPassword(next), email, hashEmailCode(payload?.emailCode));
     }
     await repository.deleteEmailCode(email);
     return { status: 200, body: { username: user.username } };
-  } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
+  } catch(error) { return error?.code==='AUTH_CODE_USED' ? {status:400,body:{error:'邮箱验证码无效或已过期'}} : { status: 503, body: { error: '账号服务暂时不可用' } }; }
 }
 
 async function session(rawToken, repository) {
   if (!rawToken) return { status: 401, body: { error: '登录已失效，请重新登录' } };
-  try { const user = await repository.findBySession(tokenHash(rawToken)); return user ? { status: 200, body: { account: publicAccount(user) } } : { status: 401, body: { error: '登录已失效，请重新登录' } }; } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
+  try { const user = await repository.findBySession(tokenHash(rawToken)); if(user?.banned)return {status:403,body:{error:'账号已被停用'}};return user ? { status: 200, body: { account: publicAccount(user) } } : { status: 401, body: { error: '登录已失效，请重新登录' } }; } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
 }
 
 module.exports = { login, register, session, sendEmailCode, unlock, recover, publicAccount, tokenHash };
