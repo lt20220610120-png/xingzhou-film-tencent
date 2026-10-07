@@ -51,3 +51,11 @@ test('existing episode editor saves framework bodies into their owning plan acro
  assert.equal(archived.framework.activePlanId,'plan');
  assert.equal(archived.sourcePlanId,'plan');
 });
+
+test('framework scene-number prompt follows adopted plan order after episode reorder',async()=>{
+ const project=normalizeCreatorProject({id:'number-order',mode:'original',creator:{mode:'framework',framework:{version:2,settings:{items:[],pending:[],confirmed:true},groups:[{id:'g',title:'阶段',events:[{id:'e',title:'行动',confirmed:true}]}],plans:[{id:'plan',episodes:[{id:'second',title:'第2集',content:'第二集的纲',eventIds:['e']},{id:'first',title:'第1集',content:'第一集的纲',eventIds:['e']}]}],activePlanId:'plan'}}},'script');
+ let request;
+ await runCreatorTask({project,state:{skills:[]},kind:'script',target:{task:'frameworkEpisode',planId:'plan',episodeId:'second'},profile:{id:'mock',model:'test'},api:{aiChat:async r=>{request=r;return {ok:true,output:'第1集\n1-1 办公室 日 内\n人物：主角\n△主角坐下。'};}},taskId:'order-test'});
+ const prompt=request.messages.map(m=>m.content).join('\n');
+ assert.match(prompt,/分集序号：1/);assert.match(prompt,/分场编号使用 1-1/);assert.ok(!prompt.includes('分场编号使用 2-1'));
+});

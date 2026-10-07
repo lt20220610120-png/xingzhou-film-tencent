@@ -111,7 +111,7 @@ export async function runCreatorTask({api,state,project,kind='script',target={},
  }
  const currentEpisode=project.episodes?.find(e=>e.id===target.episodeId);
  const titleNumber=currentEpisode?.title?.match(/第\s*([\d零〇一二两三四五六七八九十百千]+)\s*集|(?:EP|Episode)\s*(\d+)/i);
- const episodeNumber=currentEpisode?(chineseEpisodeNumber(titleNumber?.[1]||titleNumber?.[2]||'')||project.episodes.filter(e=>e.type!=='settings'&&e.type!=='custom').findIndex(e=>e.id===currentEpisode.id)+1):0;
+ const episodeNumber=currentEpisode?(frameworkTask?project.episodes.findIndex(e=>e.id===currentEpisode.id)+1:chineseEpisodeNumber(titleNumber?.[1]||titleNumber?.[2]||'')||project.episodes.filter(e=>e.type!=='settings'&&e.type!=='custom').findIndex(e=>e.id===currentEpisode.id)+1):0;
  const main=[currentEpisode?`当前节点：${currentEpisode.title}；分集序号：${episodeNumber}。分场编号使用 ${episodeNumber}-1、${episodeNumber}-2……。`:'',segments&&mainRaw.length>8000?'当前主要编辑内容已逐段阅读，以下同名阅读记录为主要工作对象；其他资料仅供参考。':mainRaw].filter(Boolean).join('\n\n');
  const context=frameworkTask?'':buildCreatorContext(project,{kind,target,scope,includeSources:!segments&&!storyTask});
  // In the segmented path own episodes are represented in reading notes as well.

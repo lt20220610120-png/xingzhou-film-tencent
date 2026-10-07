@@ -12,3 +12,5 @@
 - Browser writing workflow: 19 assertions passed, including batch sequential context, manual confirmation, Word export, library archival, independent episode plans, switching, deletion/restoration and locks. Further tooling, cancellation and viewport checks are in progress.
 
 - Final full suite: 1712/1712 passed. Final build passes. Browser workflow 122/122 passed, with final additional source-selection, reload and scoped-conversation checks. Console has zero errors. Source is ready for packaging and public release.
+
+- Independent final review found two P2 issues before publication: outline dialog copied stale body/history, and title-derived numbering conflicted with reordered plans. Both fixed; reviewer confirmed. Full suite now 1713/1713. Browser race regression 7/7 passed, including preserving freshly generated bodies/history and allowing stale outline repair. Single-episode generation also temporarily disables the body editor to prevent unsaved typing being displaced by its response.
