@@ -1,5 +1,5 @@
 import { RewriteWorkspace } from './RewriteWorkspace.jsx';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Plus, BookOpen, FileText, Download, Save, FolderOpen, Lock, History } from 'lucide-react';
 import { ProjectCardHub } from '../v06/ProjectCardHub.jsx';
 import { createProjectGroup,renameProjectGroup,deleteProjectGroup,organizeProject,uid } from '../../core/projectStore.js';
@@ -33,7 +33,7 @@ export function CreatorWorkspace({area,state,setState,getState,api,onNavigate,on
  const switchFinished=tab=>{setFinishedTab(tab);remember('xz-finished-tab',tab);setFruitId('');remember('xz-creator-fruit','');};
  const kind=area==='fruit'?'fruit':'script',selectedId=kind==='fruit'?fruitId:scriptId;
  const rawProject=state[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===selectedId);
- const project=normalizeCreatorProject(rawProject,kind),framework=project?.creator.mode==='framework',rewrite=project?.creator.mode==='rewrite';
+ const project=useMemo(()=>normalizeCreatorProject(rawProject,kind),[rawProject,kind]),framework=project?.creator.mode==='framework',rewrite=project?.creator.mode==='rewrite';
  useEffect(()=>{if(project)setActive(project.creator.mode==='framework'?'inspiration':project.creator.mode==='rewrite'&&!project.creator.source?'source':'master');},[kind,project?.id]);
  const select=(id,selectedKind=kind)=>{const p=state[selectedKind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===id);if(selectedKind==='fruit'){setFruitId(id);remember('xz-creator-fruit',id);}else{setScriptId(id);remember('xz-creator-script',id);if(p){const next=normalizeCreatorProject(p,'script').creator.mode==='rewrite'?'rewrite':'original';setChannel(next);remember('xz-creator-channel',next);}}setActive(p?.creator?.mode==='framework'?'inspiration':p?.mode==='rewrite'&&!p?.creator?.source?'source':p?.episodes?.[0]?.id||'master');setError('');};
  const goBack=()=>{if(kind==='fruit'){setFruitId('');remember('xz-creator-fruit','');}else{setScriptId('');remember('xz-creator-script','');}setActive('master');};

@@ -38,12 +38,16 @@ export function prepareFrameworkTask(project,target={}) {
   if(!['reorder','infer'].includes(target.mode))fail('请选择排列组合或向后推理模式。');
   if(target.componentIds!==undefined)array(target.componentIds,'选定组件编号');
   for(const id of target.componentIds||[])if(!f.components.some(c=>c.id===id&&c.confirmed))fail('所选组件已删除或尚未人工确认。');
+  if(target.layer!==undefined&&!['groups','group'].includes(target.layer))fail('请选择主线或当前大事件的模拟范围。');
+  if(target.layer==='group'&&!f.groups.some(g=>g.id===target.groupId))fail('当前大事件已删除，请重新选择。');
+  if(target.afterGroupId&&!f.groups.some(g=>g.id===target.afterGroupId))fail('推理起点大事件已删除。');
+  if(target.afterEventId){const row=frameworkEvents(p).find(r=>r.event.id===target.afterEventId);if(!row||target.layer==='group'&&row.group?.id!==target.groupId)fail('推理起点小事件不属于当前大事件。');}
  }
  if(target.task==='frameworkPlan') {
   if(target.episodeCount!==undefined&&(!Number.isInteger(target.episodeCount)||target.episodeCount<1))fail('目标集数必须是正整数。');
   if(!f.mainline.confirmed||f.mainline.links.some(l=>l.stale||l.confirmed===false))fail('请先复核并确认完整主线与衔接，再生成集纲。','FRAMEWORK_UNCONFIRMED');
   const events=frameworkEvents(p).filter(row=>row.group);
-  if(!events.length||events.some(row=>!row.event.confirmed))fail('请先确认全部事件骨架，再生成集纲。','FRAMEWORK_UNCONFIRMED');
+  if(!events.length||events.some(row=>!row.event.confirmed)||f.groups.some(g=>!events.some(row=>row.group.id===g.id)))fail('请先为每个大事件展开并确认小事件，再生成集纲。','FRAMEWORK_UNCONFIRMED');
  }
  if(target.task==='frameworkExpand') {
   const row=frameworkEvents(p).find(row=>row.event.id===target.eventId),event=row?.event;
@@ -98,7 +102,7 @@ const rules={
  frameworkIdeas:'整理 selectedOriginalIdeas，保留原始灵感与摘要的区别。返回 {"summary":"整理摘要，区分用户想法与待确认建议"}，不把未选灵感纳入。',
  frameworkSettingsCheck:'逐项比较本次 supplement 与全部 currentSettings。返回 {"items":[{"text":"补充条目","category":"background|premise|rule|ability","conflictsWith":["现有设定id"],"reason":"冲突依据或无冲突说明"}]}。每个冲突必须准确列出原条目稳定 ID；不能替用户选择保留、替换或合并。即使无冲突也只是待审建议。',
  frameworkExtract:'完整阅读唯一 referenceOnly 的原文，按任意数量大事件及组内具体小事件提取，允许可选中事件层；不分集、不补原文不存在的情节。返回 {"groups":[{"id":"来源大事件稳定id","title":"大事件","goal":"事件作用","events":[{"id":"来源小事件稳定id","title":"具体行动","summary":"行动过程与结果","before":"前置状态","after":"结果状态","motive":"动机","actualTime":"真实时间或待确认","source":{"rawText":"原文逐字摘录，必须能在来源中找到"}}],"middles":[{"id":"来源中事件稳定id","title":"中事件","events":[同上小事件]}]}]}。各层ID全局唯一，保留具体行动和原文出处；推断在单独 inference 字段明确标注。',
- frameworkSimulate:'mode=reorder 时排列组合现有事件并检查因果；mode=infer 时依据当前采用规则、固定节点、人物状态和所选对标组件向后推理。只使用 selectedReferenceComponents，将其观察适配为本剧候选，不直接继承来源设定。返回 {"name":"候选名","reasoning":"条件、动机、得失和断点","groups":[完整的大/中/小事件结构],"looseEvents":[完整独立事件]}。已有ID保持；新增ID唯一。锁定节点的全部字段、所属父节点和相对顺序保持；不要省略固定节点。候选是独立版本，不能自称已采用。',
+ frameworkSimulate:'layer=groups 时只排列或推理大事件，已有小事件及中事件原样保留；layer=group 时根据全剧主线展开 groupId 内部的小事件，其他大事件全部字段和全剧大事件顺序原样保留，目标大事件除 events/middles 外的字段原样保留，looseEvents 原样保留。afterGroupId/afterEventId 是向后推理的起点，之前（含起点）的内容原样保留。所有已有节点必须回传输入中的全部字段（包括空值、confirmed、locked 等），不要只回传示意结构。通过行动、结果、动机、因果、铺垫及伏笔建立连贯故事；每项推断说明成立条件。mode=reorder 时排列组合现有事件并检查因果；mode=infer 时依据当前采用规则、固定节点、人物状态和所选对标组件向后推理。只使用 selectedReferenceComponents，将其观察适配为本剧候选，不直接继承来源设定。返回 {"name":"候选名","reasoning":"条件、动机、得失和断点","groups":[完整的大/中/小事件结构],"looseEvents":[完整独立事件]}。已有ID保持；新增ID唯一。锁定节点的全部字段、所属父节点和相对顺序保持；不要省略固定节点。候选是独立版本，不能自称已采用。',
  frameworkPlan:'依据人工确认的完整主线故事稿与事件骨架分集，episodeCount 若提供必须恰好返回该集数，否则按实际故事选择任意正集数。不能机械地一事件等同一集，允许一事件跨多集、一集包含多个事件，每个事件都必须覆盖。返回 {"name":"版本名称","episodes":[{"number":1,"title":"第1集","content":"本集详细集纲，含具体行动、冲突和结果","eventIds":["真实小事件稳定id"],"hook":"结尾悬念","continuity":"知情状态、伏笔与前后衔接"}]}。number 从1连续；不得改写已确认规则与固定事件。',
  frameworkExpand:'只扩写 targetEvent 的完整可表演故事稿，衔接全剧前后状态与人物动机，不提前分集。返回 {"eventId":"目标稳定ID","story":"完整行动、过程、结果、对白要点与心理；禁止几句摘要替代"}。固定事件不可覆盖，不改其已定结果或其他事件。',
  frameworkEpisode:'输出当前集完整可拍摄剧本正文，不输出 JSON、分析、提纲或摘要。只写 currentEpisode，依据当前采用版本全剧集纲、确认设定、完整事件骨架和 earlierEpisodes 的已写事实，不能把未来集正文或其他版本当作过去。格式：第N集，N-1 场景 日/夜 内/外，人物名单，△动作，人物：对白；换地点换场。编号 N 使用当前集在 plan.episodes 中的实际位置，逐场连续。不凭空填未知设定；冲突或缺失在正文清晰标为待确认。',
@@ -180,7 +184,20 @@ export function validateFrameworkOutput(project,target,raw) {
   return {items:items.map(item=>{object(item,'补充设定条目');required(item.text,'补充设定条目');const conflicts=array(item.conflictsWith||[],'冲突设定编号');if(conflicts.some(id=>!f.settings.items.some(s=>s.id===id)))fail('冲突引用了不存在的设定稳定编号。');return {...item,conflictsWith:[...new Set(conflicts)]};})};
  }
  if(task==='frameworkExtract')return validateStructure(result,{source:f.sources.find(s=>s.id===target.sourceId)});
- if(task==='frameworkSimulate')return validateStructure(result,{p,simulation:true});
+ if(task==='frameworkSimulate'){
+  validateStructure(result,{p,simulation:true});
+  if(target.layer==='group'){
+   if(!equal(result.groups.map(g=>g.id),f.groups.map(g=>g.id)))fail('小事件模拟必须保留全剧大事件及其顺序。');
+   for(const g of f.groups){const next=result.groups.find(n=>n.id===g.id);if(g.id!==target.groupId&&!equal(g,next))fail('当前大事件的模拟不能修改其他大事件。');
+    if(g.id===target.groupId){const {events,middles,...major}=g,{events:nextEvents,middles:nextMiddles,...nextMajor}=next;if(!equal(major,nextMajor))fail('小事件模拟不能改变当前大事件的目标和已定结果。');}
+   }
+   if(!equal(result.looseEvents||[],f.looseEvents))fail('当前大事件模拟不能修改未归组事件。');
+  }
+  if(target.layer==='groups')for(const g of f.groups){const next=result.groups.find(n=>n.id===g.id);if(!next||!equal(g.events,next.events||[])||!equal(g.middles,next.middles||[]))fail('大事件模拟须保留已有小事件，局部调整请使用当前大事件模拟。');}
+  if(target.mode==='infer'&&target.afterGroupId){const end=f.groups.findIndex(g=>g.id===target.afterGroupId);if(!equal(result.groups.slice(0,end+1),f.groups.slice(0,end+1)))fail('向后推理须保留起点之前的大事件。');}
+  if(target.mode==='infer'&&target.afterEventId){const old=frameworkEvents(p).filter(r=>r.group?.id===(target.groupId||frameworkEvents(p).find(r=>r.event.id===target.afterEventId)?.group?.id)),end=old.findIndex(r=>r.event.id===target.afterEventId);const next=frameworkEvents({creator:{mode:'framework',framework:{version:2,groups:result.groups}}}).filter(r=>r.group?.id===old[0]?.group?.id);if(!equal(old.slice(0,end+1).map(r=>[r.middle?.id,r.event]),next.slice(0,end+1).map(r=>[r.middle?.id,r.event])))fail('向后推理须保留起点之前的小事件。');}
+  return result;
+ }
  if(task==='frameworkExpand') {if(result.eventId!==target.eventId)fail('扩写输出的事件稳定编号与目标不一致。');return {eventId:result.eventId,story:required(result.story,'完整事件故事稿')};}
  if(task==='frameworkPlan') {
   const episodes=array(result.episodes,'集纲 episodes');if(!episodes.length)fail('集纲至少需要一集。');

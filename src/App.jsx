@@ -1302,19 +1302,41 @@ function App() {
     }).catch(() => setAuthReady(true));
   }, []);
 
-  // 保存状态（debounce）
+  // Coalesce editing updates, but continuous typing must still reach local disk.
+  const saveDeadline = useRef(null), savePending = useRef(false);
+  const persistLocal = useRef(null);
+  persistLocal.current = async () => {
+    if (!savePending.current) return;
+    savePending.current = false;
+    clearTimeout(saveDeadline.current); saveDeadline.current = null;
+    const snapshot = stateRef.current;
+    // The desktop local file is primary; the browser cache is a recovery copy.
+    try { localStorage.setItem(STORAGE, JSON.stringify(snapshot)); }
+    catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
+    try {
+      persistence.enqueue(snapshot); await persistence.flush();
+      setCreatorSaveStatus(savePending.current ? { saving: true } : { saved: true });
+    } catch (error) { setCreatorSaveStatus({ error: error.message }); }
+  };
   useEffect(() => {
     if (!initialized) return;
-    setCreatorSaveStatus({ saving: true });
-    const timer = setTimeout(async () => {
-      // Coalesce parallel reading/progress updates before serializing large
-      // projects. Browser cache quotas must never prevent saving output to disk.
-      try { localStorage.setItem(STORAGE, JSON.stringify(stateRef.current)); } catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
-      try { persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({ saved: true }); }
-      catch(error) { setCreatorSaveStatus({ error: error.message }); }
-    }, 250);
-    return () => { clearTimeout(timer); };
+    savePending.current = true; setCreatorSaveStatus({ saving: true });
+    if (!saveDeadline.current) saveDeadline.current = setTimeout(() => persistLocal.current(), 1000);
+    const timer = setTimeout(() => persistLocal.current(), 250);
+    return () => clearTimeout(timer);
   }, [state, initialized]);
+  useEffect(() => {
+    if (!initialized) return;
+    const flush = () => { document.activeElement?.blur?.(); persistLocal.current(); };
+    const hidden = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', hidden);
+      clearTimeout(saveDeadline.current); saveDeadline.current = null;
+    };
+  }, [initialized]);
 
   // 清理过期会话
   useEffect(() => {

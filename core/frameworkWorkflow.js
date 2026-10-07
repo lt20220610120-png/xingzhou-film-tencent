@@ -69,7 +69,7 @@ export function normalizeFrameworkProject(project){
   settings:{items:[],pending:[],confirmed:false,revision:0,history:[],...old.settings},
   groups:groups.map((g,i)=>group(g,g.id||`${prefix}_group_${i+1}`)),
   looseEvents:(own(old,'looseEvents')?list(old.looseEvents):migratedStory).map((e,i)=>event(e,e.id||`${prefix}_event_${i+1}`)),
-  mainline:{links:[],confirmed:false,...old.mainline},characters:list(old.characters).length?old.characters:initial?list(creator.story?.characters).map(c=>({...c,confirmed:Boolean(c.accepted)})):[],
+  mainline:{links:[],confirmed:false,orderConfirmed:Boolean(old.mainline?.confirmed),...old.mainline},characters:list(old.characters).length?old.characters:initial?list(creator.story?.characters).map(c=>({...c,confirmed:Boolean(c.accepted)})):[],
   sources:list(old.sources),components:list(old.components),simulations:list(old.simulations),plans:list(old.plans).map((p,i)=>plan(p,p.id||`${prefix}_plan_${i+1}`)),
   activePlanId:old.activePlanId||null,archives:list(old.archives),legacy:{...old.legacy},
  };
@@ -92,12 +92,17 @@ export const frameworkState=project=>normalizeFrameworkProject(project)?.creator
 export const frameworkEvents=project=>{const f=frameworkState(project);return f?rows(f):[];};
 export const frameworkEventCode=(project,id)=>frameworkEvents(project).find(row=>row.event.id===id)?.code||'';
 export const frameworkLinks=project=>frameworkState(project)?.mainline.links||[];
+export function frameworkDraftText(project,scope='story'){
+ const f=frameworkState(project);if(!f)return '';
+ if(scope==='plan'){const plan=f.plans.find(p=>p.id===f.activePlanId);return plan?.episodes.map((e,i)=>[`第${i+1}集 · ${e.title||''}`,e.content||e.outline||'',e.hook&&`集尾期待：${e.hook}`,e.continuity&&`衔接：${e.continuity}`].filter(Boolean).join('\n')).join('\n\n')||'';}
+ const events=rows(f);return f.groups.map((g,i)=>[`${letters(i)} · ${g.title}`,g.goal,...events.filter(r=>r.group?.id===g.id).map(r=>`${r.code} · ${r.event.title}\n${r.event.story||r.event.summary||''}`)].filter(Boolean).join('\n\n')).join('\n\n');
+}
 const groupedRows=f=>rows(f).filter(row=>row.group);
 export const frameworkStructureFingerprint=project=>{
  const f=frameworkState(project);return JSON.stringify({settings:f.settings,groups:f.groups,looseEvents:f.looseEvents,characters:f.characters,components:f.components,ideas:f.ideas,ideaSummary:f.ideaSummary,mainline:f.mainline});
 };
 function settingsGate(f){if(f.settings.pending.length)fail('SETTINGS_PENDING','请先处理所有待决设定和冲突。');if(!f.settings.confirmed)fail('UNCONFIRMED','请先人工确认本剧设定。');}
-function skeletonGate(f){settingsGate(f);const adopted=groupedRows(f);if(!adopted.length||adopted.some(r=>!r.event.confirmed))fail('UNCONFIRMED','请先确认事件骨架中的小事件。');}
+function skeletonGate(f){settingsGate(f);const adopted=groupedRows(f);if(!adopted.length||adopted.some(r=>!r.event.confirmed)||f.groups.some(g=>!adopted.some(r=>r.group.id===g.id)))fail('UNCONFIRMED','请先为每个大事件展开并确认小事件。');}
 function lockGuard(before,after,exceptId){
  const next=nodes(after);
  for(const old of nodes(before).filter(n=>n.node.locked&&n.node.id!==exceptId)){
@@ -118,6 +123,7 @@ function patchNode(node,patch){if(['id','locked','events','middles'].some(key=>o
 const settingsContent=f=>JSON.stringify({items:f.settings.items,confirmed:f.settings.confirmed,revision:f.settings.revision});
 const eventSequence=f=>groupedRows(f).map(r=>[r.group.id,r.middle?.id||null,r.event.id]);
 function invalidate(before,f){
+ if(!equal(before.groups.map(g=>[g.id,g.title,g.goal]),f.groups.map(g=>[g.id,g.title,g.goal])))f.mainline.orderConfirmed=false;
  const sequenceChanged=!equal(eventSequence(before),eventSequence(f));
  const settingChanged=settingsContent(before)!==settingsContent(f);
  const charactersChanged=!equal(before.characters,f.characters);
@@ -175,7 +181,7 @@ export function applyFrameworkCommand(project,command){
  case 'event.add':addEvent(f,c);break;
  case 'event.update':{
   const n=editable(f,c.id);if(Array.isArray(n.node.events))fail('INVALID','请选择小事件。');
-  if(own(c.patch,'story')){settingsGate(f);if(!n.node.confirmed)fail('UNCONFIRMED','请先人工确认该事件骨架，再整理完整事件故事。');}
+  if(own(c.patch,'story')&&!c.draft){settingsGate(f);if(!n.node.confirmed)fail('UNCONFIRMED','请先人工确认该事件骨架，再整理完整事件故事。');}
   patchNode(n.node,c.patch);break;
  }
  case 'event.remove':{const n=editable(f,c.id);if(Array.isArray(n.node.events))fail('INVALID','请选择小事件。');snapshotArchive(f,'event',n.node);n.container.splice(n.container.indexOf(n.node),1);break;}
@@ -191,10 +197,14 @@ export function applyFrameworkCommand(project,command){
  }
  case 'mainline.unlink':find(f.mainline.links,c.id,'连接');f.mainline.links=f.mainline.links.filter(l=>l.id!==c.id);f.mainline.confirmed=false;break;
  case 'mainline.review':{const link=find(f.mainline.links,c.id,'连接');for(const id of [link.fromId,link.toId])if(!groupedRows(f).some(r=>r.event.id===id))fail('NOT_FOUND','连接事件已经删除或移至收集箱。');link.stale=false;link.confirmed=true;f.mainline.confirmed=false;break;}
+ case 'mainline.orderConfirm':{
+  if(!f.groups.length||f.groups.some(g=>!text(g.title).trim()))fail('INVALID','请先填写每个大事件名称。');
+  f.mainline.orderConfirmed=true;break;
+ }
  case 'mainline.confirm':{
   skeletonGate(f);const chain=groupedRows(f);
   for(let i=1;i<chain.length;i++)if(!f.mainline.links.some(l=>l.fromId===chain[i-1].event.id&&l.toId===chain[i].event.id))fail('UNCONFIRMED',`${chain[i-1].code} → ${chain[i].code} 缺少衔接，请补充并人工复核。`);
-  if(f.mainline.links.some(l=>l.stale||!l.confirmed))fail('UNCONFIRMED','请先逐条复核事件连接。');f.mainline.confirmed=true;break;
+  if(f.mainline.links.some(l=>l.stale||!l.confirmed))fail('UNCONFIRMED','请先逐条复核事件连接。');f.mainline.confirmed=true;f.mainline.orderConfirmed=true;break;
  }
  case 'character.add':f.characters.push({name:'',description:'',confirmed:false,...c.character,id:c.character?.id||uid()});break;
  case 'character.update':patchNode(find(f.characters,c.id,'人物'),c.patch);break;
@@ -268,7 +278,7 @@ export function applyFrameworkCommand(project,command){
  case 'episode.update':{
   const v=find(f.plans,c.planId,'集纲版本'),e=find(v.episodes,c.episodeId,'分集');
   if(own(c.patch,'eventIds')){if(!Array.isArray(c.patch.eventIds))fail('INVALID','分集事件引用必须是列表。');for(const id of c.patch.eventIds)if(!groupedRows(f).some(r=>r.event.id===id))fail('INVALID','分集引用了不存在或尚未归组的事件。');}
-  if(own(c.patch,'result')||c.patch?.finalConfirmed){settingsGate(f);if(v.stale)fail('STALE','集纲依赖的事件或规则已变化，请先复核集纲。');}
+  if(own(c.patch,'result')&&!c.draft||c.patch?.finalConfirmed){settingsGate(f);if(v.stale)fail('STALE','集纲依赖的事件或规则已变化，请先复核集纲。');}
   if(own(c.patch,'id'))fail('INVALID','不可修改分集编号。');
   if(own(c.patch,'result')&&c.patch.result!==e.result){e.finalConfirmed=false;e.stale=false;for(const following of v.episodes.slice(v.episodes.indexOf(e)+1))if(text(following.result)){following.stale=true;following.finalConfirmed=false;}}
   const outlineChanged=['content','title','eventIds','hook','continuity','duration'].some(key=>own(c.patch,key)&&!equal(c.patch[key],e[key]));
