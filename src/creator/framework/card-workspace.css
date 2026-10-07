@@ -128,3 +128,23 @@
 @media(max-width:700px){.fw-stage-content:has(>.fw-settings-layout){height:auto;display:block}.fw-stage-content>.fw-settings-layout{height:auto}}
 .creator-dialog.fw-bulk-dialog .fw-field>span{display:none}
 .creator-dialog.fw-bulk-dialog .fw-field{display:flex;margin:10px 0}
+
+/* Dialog labels must override the shared column form layout. */
+.creator-dialog:is(.fw-bulk-dialog,.fw-assist-dialog)>footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.creator-dialog:is(.fw-bulk-dialog,.fw-assist-dialog)>footer .fw-model-select{display:flex;flex-direction:row;align-items:center;gap:10px;margin:0 auto 0 0;min-width:0}
+.creator-dialog:is(.fw-bulk-dialog,.fw-assist-dialog)>footer .fw-model-select>span{white-space:nowrap}
+.creator-dialog:is(.fw-bulk-dialog,.fw-assist-dialog)>footer .fw-model-select select{width:220px;min-width:100px;max-width:100%;height:38px}
+.fw-assist-dialog{width:min(850px,calc(100vw - 40px))}
+.fw-assist-dialog .creator-dialog-scroll>p{font-size:15px;line-height:1.85;color:#536477}
+.fw-assist-dialog textarea{width:100%;height:180px;resize:none}
+.fw-assist-dialog .fw-parent-context{margin:12px 0;max-height:200px;overflow:auto}
+.fw-assist-dialog footer button{white-space:nowrap}
+.fw-order-status{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px;color:#77602e;padding:10px 14px;border:1px solid #eadfc8;background:#fffbf2;border-radius:8px;margin-bottom:16px}
+.fw-order-status.confirmed{color:#426e58;background:#f2f9f5;border-color:#d3e5da}
+.fw-order-status>span{font-size:13px;color:#65738a}
+.fw-group-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));width:100%;max-width:none;gap:8px}
+.fw-group-tabs>button{width:100%;max-width:none;min-width:0}
+.fw-topbar,.fw-running,.fw-error{flex-shrink:0}
+.fw-content{overscroll-behavior:contain}
+.fw-stage-content{min-height:0;flex:1 0 0%;align-self:flex-start}
+@media(max-width:700px){.creator-dialog:is(.fw-bulk-dialog,.fw-assist-dialog)>footer .fw-model-select{flex:1}.creator-dialog:is(.fw-bulk-dialog,.fw-assist-dialog)>footer .fw-model-select select{width:100%}.fw-order-status>span{width:100%}}
