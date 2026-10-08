@@ -34,3 +34,17 @@
 - cloud-recycle.cjs：c882c8c5c055fe6edcdfb1c5a496686639b4c9bef42cbb7fcfc2fe0ce4dd0de3
 
 测试/构建/界面/部署证据在 output/playwright/cloud-recycle-2813-*；部署脚本 scripts/deploy-cloud-recycle-2.8.13.sh 包含旧版本校验及回滚保护。
+
+## 安装包与公开发布
+
+实现提交：b046bd5。Windows 安装包实际启动和独立临时目录 IPC 验证通过，保留本地七天回收站、正文恢复、世界模拟、网页模型、号池、画布及安全边界。报告：qa/packaged-smoke-2.8.13-1791492645536/report.json。
+
+两处公开 latest.json 完全相同，客户端读取 2.8.13 并通过 Ed25519 签名验证；完整下载安装包后，大小与 SHA256 均与本地包、GitHub 资产摘要一致。
+
+发布：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.13
+
+安装包：102768988 字节。
+
+SHA256：811cf9d2c76eaa291cd0b9e7ebd1874db2b07afd0dfe52c38273eb0ddb3cf2cc。
+
+公开核验报告：output/playwright/cloud-recycle-2813-public.json。可在软件设置里检查更新；本次发布未替用户在真实资料目录执行安装或清理。
