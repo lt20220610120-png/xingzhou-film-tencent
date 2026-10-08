@@ -1,4 +1,5 @@
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
+import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
@@ -1166,10 +1167,12 @@ function GroupSection({ project, api, account }) {
 /* ================================================================
  * 开启项目对话框：制片从导演工作台项目中选择
  * ================================================================ */
-function DeletedProjects({ projects, api, onChanged }) {
+export function DeletedProjects({ projects, api, account, onChanged }) {
+  const [error,setError]=useState(''),[restoring,setRestoring]=useState(''),pending=useRef(false);
+  const restore=async p=>{if(pending.current||!canManageCloudProject(p,account))return;pending.current=true;setRestoring(p.id);setError('');try{await api.collabRestoreProject({projectId:p.id});await onChanged();}catch(e){setError(String(e.message||'恢复失败，请稍后重试').replace(/^Error invoking remote method '[^']+': Error: /,''));}finally{pending.current=false;setRestoring('');}};
   const deleted = projects.filter((p) => p.deleted_at);
   if (!deleted.length) return null;
-  return <section className="collab-deleted-projects"><h3>最近删除（3天内可恢复）</h3>{deleted.map((p) => <div key={p.id} className="collab-deleted-row"><span><b>{p.name}</b><small>恢复截止：{fmtTime(p.purge_after)}</small></span><button className="secondary" onClick={async () => { await api.collabRestoreProject({ projectId: p.id }); onChanged(); }}>恢复项目</button></div>)}</section>;
+  return <section className="collab-deleted-projects"><h3>最近删除（3天内可恢复）</h3>{error&&<p className="collab-error" role="alert">{error}</p>}{deleted.map((p) => <div key={p.id} className="collab-deleted-row"><span><b>{p.name}</b><small>恢复截止：{fmtTime(p.purge_after)}</small></span>{canManageCloudProject(p,account)?<button className="secondary" disabled={!!restoring} onClick={()=>restore(p)}>{restoring===p.id?'正在恢复…':'恢复项目'}</button>:<small>仅项目负责人可恢复</small>}</div>)}</section>;
 }
 
 function StartProjectDialog({ directorProjects, onClose, onCreate, busy, error }) {
@@ -1405,7 +1408,7 @@ export function CollabWorkspace({ state, api, account }) {
               <p className="api-endpoint">最近更新 {fmtTime(p.updated_at)}</p>
               <div className="collab-card-actions">
                 <button className="primary" onClick={e => { e.stopPropagation(); openProject(p.id); }}>进入项目 <ArrowLeft size={14} className="enter-project-arrow"/></button>
-                {isProducer && <button className="card-delete" title="删除协作项目" aria-label={`删除协作项目 ${p.name}`} onClick={(e) => { e.stopPropagation(); setDeleteError(''); setDeleteTarget(p); }}><Trash2 size={15}/></button>}
+                {canManageCloudProject(p,account) && <button className="card-delete" title="删除协作项目" aria-label={`删除协作项目 ${p.name}`} onClick={(e) => { e.stopPropagation(); setDeleteError(''); setDeleteTarget(p); }}><Trash2 size={15}/></button>}
               </div>
             </article>
           ))}
@@ -1417,9 +1420,9 @@ export function CollabWorkspace({ state, api, account }) {
           <StartProjectDialog directorProjects={state.directorProjects || []} busy={creating} error={createError}
             onClose={() => setDialogOpen(false)} onCreate={createProject} />
         )}
-        <DeletedProjects projects={projects.filter((p) => p.deleted_at)} api={api} onChanged={loadProjects} />
+        <DeletedProjects projects={projects.filter((p) => p.deleted_at)} api={api} account={account} onChanged={loadProjects} />
         {deleteError && <div className="collab-error">删除失败：{deleteError}</div>}
-        <DeleteConfirm open={Boolean(deleteTarget)} title="删除协作项目" name={deleteTarget?.name} detail="项目会进入云端三天恢复期。三天内可恢复；到期后项目及其云端素材将自动清理，是否确定要删除此次项目？" onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget) return; try { await api.collabDeleteProject({ projectId: deleteTarget.id }); setDeleteTarget(null); await loadProjects(); } catch (err) { setDeleteError(err.message || '云端删除请求失败'); } }} />
+        <DeleteConfirm open={Boolean(deleteTarget)} title="删除协作项目" name={deleteTarget?.name} error={deleteError} detail="项目会进入独立云端三天恢复期，关联导演源在此期间受保护。三天内可恢复；到期后项目及数据库关联记录自动清理，是否确定删除？" onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget||!canManageCloudProject(deleteTarget,account)) return; try { await api.collabDeleteProject({ projectId: deleteTarget.id }); setDeleteTarget(null); await loadProjects(); } catch (err) { setDeleteError(err.message || '云端删除请求失败'); } }} />
       </div>
     );
   }

@@ -133,8 +133,10 @@ export const removeDirectorCloudProjection = (localProjects = [], cloudProjectId
   .filter((project) => project.cloudProjectId !== cloudProjectId || project.sourceType !== 'cloud')
   .map((project) => {
     if (project.cloudProjectId !== cloudProjectId) return project;
-    const { cloudProjectId: removedId, cloudRole, cloudLocked, ...localProject } = project;
-    return localProject;
+    // Called only after the authoritative cloud delete succeeds. The server has
+    // already checked live and recoverable collaboration references.
+    const { cloudProjectId: removedId, cloudRole, cloudLocked, collaborationProjectId, ...localProject } = project;
+    return {...localProject,groupId:localProject.groupId==='director-cloud'?'director-workbench':localProject.groupId};
   });
 
 export const canManageDirectorCollab = (project, accountIsProducer = false) => {

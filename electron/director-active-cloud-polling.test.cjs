@@ -15,11 +15,14 @@ assert.ok(loaderStart >= 0 && loaderEnd > loaderStart && effectEnd > effectStart
 const cloudCode = source.slice(loaderStart, loaderEnd) + '\n' + source.slice(effectStart, effectEnd);
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function harness(api) {
-  const timers = new Map(), calls = [], state = { cloud: [], collaboration: [], producer: false };
+function harness(api, projects = [], reconcile = projects => projects) {
+  const timers = new Map(), calls = [], state = { cloud: [], collaboration: [], producer: false, local: { directorProjects: projects } };
   let cleanup, nextTimer = 0;
   const context = vm.createContext({
     api,
+    directorProjectsRef: {current: projects},
+    reconcileDirectorLinks: reconcile,
+    setState: fn => {state.local = fn(state.local);},
     active: false,
     cloudActiveRef: { current: false },
     cloudRequestRef: { current: 0 },
@@ -60,7 +63,7 @@ test('director activation reads immediately and polls; hiding clears and gates q
   h.render(true); await flush();
   assert.equal(reads, 3); assert.equal(h.timers.size, 1);
   assert.equal([...h.timers.values()][0].delay, 12000);
-  assert.equal(h.state.collaboration.length, 1); assert.equal(h.state.collaboration[0].id, 'linked');
+  assert.equal(h.state.collaboration.length, 2); assert.equal(h.state.collaboration[1].id, 'linked');
   const queuedTick = h.queuedTick(); await queuedTick();
   assert.equal(reads, 6);
   h.render(false); await queuedTick(); await flush();
@@ -86,4 +89,14 @@ test('a cloud response from before hiding cannot replace the newly active view',
   finishOld([{ id: 'stale' }]); await flush();
   assert.equal(h.state.cloud[0].id, 'current'); assert.equal(h.calls.length, count);
   h.render(false);
+});
+
+test('actual loader preserves local binding on network error or old-server empty list; releases only matching server decision',async()=>{
+ const {reconcileDirectorLinks}=await import('../core/cloudRecycle.js');
+ const original={id:'local',collaborationProjectId:'copy',groupId:'director-cloud',masterScript:'正文'};
+ let mode='offline';const api={directorCollabListProjects:async payload=>{assert.equal(payload.associations[0].collaborationProjectId,'copy');if(mode==='offline')throw Error('offline');if(mode==='old')return [];return {projects:[],associations:[{projectId:'local',collaborationProjectId:'copy',status:mode}]};},collabListProjects:async()=>[],collabIsProducer:async()=>false};
+ const h=harness(api,[original],reconcileDirectorLinks);h.render(true);await flush();assert.equal(h.state.local.directorProjects[0].collaborationProjectId,'copy');
+ mode='old';await h.queuedTick()();assert.equal(h.state.local.directorProjects[0].collaborationProjectId,'copy');
+ mode='protected';await h.queuedTick()();assert.equal(h.state.local.directorProjects[0].collaborationProjectId,'copy');
+ mode='released';await h.queuedTick()();assert.equal(h.state.local.directorProjects[0].collaborationProjectId,undefined);assert.equal(h.state.local.directorProjects[0].masterScript,'正文');h.render(false);
 });

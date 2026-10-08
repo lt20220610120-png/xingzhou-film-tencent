@@ -26,9 +26,11 @@ test('导演云项目自动进入云端，本地项目不会因云列表缺失�
 test('项目协作开启后导演卡通过导演项目来源ID进入云端固定分组', () => {
   const director = read('src/v06/DirectorWorkspace.jsx');
   assert.match(director, /api\.collabListProjects/);
-  assert.match(director, /project\.director_project_id/);
+  assert.match(director, /reconcileDirectorLinks/);
+  const links = read('core/cloudRecycle.js');
+  assert.match(links, /row\.director_project_id/);
   assert.match(director, /collaborationProjectId/);
-  assert.match(director, /groupId:\s*'director-cloud'/);
+  assert.match(links, /groupId:\s*'director-cloud'/);
 });
 
 test('分组工具栏为操作区保留独立布局，重命名与删除按钮不重叠', () => {

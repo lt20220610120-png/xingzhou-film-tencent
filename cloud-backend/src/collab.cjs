@@ -1,3 +1,4 @@
+const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const DENY = { status: 403, body: { error: '你没有这个项目的操作权限' } };
 const NOT_FOUND = { status: 404, body: { error: '项目不存在或无权访问' } };
 const LOCKED = { status: 423, body: { error: '项目已锁定，暂不可编辑' } };
@@ -162,7 +163,14 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     } catch (error) {if (error.status) return {status:error.status,body:{error:error.message}}; throw error;}
   }
   if (action === 'project-delete') { const r = guard(await repo.softDeleteProject(projectId, user.id)); return r ? ok({ ok: true, purgeAfter: r.purge_after }) : DENY; }
-  if (action === 'project-restore') { const r = guard(await repo.restoreProject(projectId, user.id)); return r ? ok({ ok: true }) : { status: 410, body: { error: '恢复窗口已过期' } }; }
+  if (action === 'project-restore') {
+    if(collabRow.owner_id!==user.id)return DENY;
+    if(sourceProtection(collabRow)==='expired')return {status:410,body:{error:'云端三天恢复期已到期',code:'RECYCLE_EXPIRED'}};
+    const r=guard(await repo.restoreProject(projectId,user.id));
+    if(r)return ok({ok:true});
+    if(sourceProtection(collabRow)==='expired')return {status:410,body:{error:'云端三天恢复期已到期',code:'RECYCLE_EXPIRED'}};
+    return {status:409,body:{error:'关联导演源已不可用或无权访问，项目尚未恢复，请核对源项目和权限',code:'DIRECTOR_SOURCE_UNAVAILABLE'}};
+  }
   if (action === 'project-lock') { const r = guard(await repo.setProjectLocked(projectId, payload.locked !== false, user.id)); return r ? ok({ ok: true }) : DENY; }
   if (action === 'project-link-director') {
     try{const r = guard(await repo.linkDirectorProject(projectId, payload.directorProjectId, user.id)); return r ? ok({ ok: true }) : DENY;}
@@ -194,15 +202,18 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     // “管理协作/开启导演协作”按钮依赖 myRole / locked / collaborationLinked。
     const rows = (await repo.listDirectorProjectRows(user.id)) || [];
     let links = [];
-    try { links = (await repo.listCollabLinks()) || []; } catch { links = []; }
+    try { links = (await repo.listCollabLinks()) || []; } catch { return {status:503,body:{error:'暂时无法确认云端项目关联，请稍后刷新'}}; }
     const out = [];
     for (const row of rows) {
       const member = await repo.findMembership(row.id, user.id);
       const myRole = row.owner_id === user.id ? 'producer' : (member && member.role ? member.role : '');
       if (!myRole) continue;
       const source = row.analysis_output || '';
-      // 被“项目协作”单向引用且该协作项目未进回收站时，禁止直接删除云端导演项目。
-      const collaborationLinked = links.some((link) => collabSource(link.genre) === source && !recycleUntil(link.genre));
+      // Three-day recovery copies must retain the same source protection as live ones.
+      const references=links.filter(link=>referencesDirector(link,row));
+      const protectedStates=references.map(link=>sourceProtection(link)).filter(status=>status!=='expired');
+      const collaborationLinked=protectedStates.length>0;
+      const collaborationProtection=protectedStates.includes('active')?'active':protectedStates.includes('unknown')?'unknown':collaborationLinked?'recycle':'none';
       out.push({
         ...row,
         genre: stripInternalGenre(row.genre),
@@ -210,7 +221,12 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
         myRole,
         locked: String(row.genre || '').includes(LOCK_SENTINEL),
         collaborationLinked,
+        collaborationProtection,
       });
+    }
+    if(payload.associations!==undefined){
+      try{return ok({projects:out,associations:await repo.directorAssociationStates(payload.associations)});}
+      catch(error){return {status:error.status||503,body:{error:error.status?error.message:'暂时无法核验本地项目的云端关联'}};}
     }
     return ok(out);
   }

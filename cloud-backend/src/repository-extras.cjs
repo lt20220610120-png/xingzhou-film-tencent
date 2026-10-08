@@ -2,6 +2,7 @@ const {threeWayMerge}=require('./three-way-merge.cjs');
 const {mergeDirectorEpisodes,patchShot}=require('./storyboard-merge.cjs');
 const {composeDirectorScript, publicGenre, collabGenre, editableCollab, ensureCollabDomain}=require('./collab-episodes.cjs');
 const {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences}=require('./director-source.cjs');
+const {sourceProtection}=require('./cloud-recycle.cjs');
 // 导演协作 / 统计 / 资产图片 的仓储扩展。
 // 说明：导演项目与协作项目共用 collab_projects 表，用 genre 中的哨兵标记区分。
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
@@ -86,12 +87,14 @@ function extendRepository(pool) {
         if(!directorRow(row)){await client.query('ROLLBACK');return null;}
         if(String(row.genre).includes(LOCK_SENTINEL))throw statusError(423,'项目已锁定，不能删除');
         // Both historical local-ID links and cloud-ID links are live references.
-        const linked=(await client.query(`select 1 as ok from collab_projects c where c.id<>$1 and c.deleted_at is null
-          and position('[COLLAB_PROJECT]' in c.genre)>0 and position('[RECYCLE_UNTIL:' in c.genre)=0
+        const links=(await client.query(`select c.id,c.genre,c.deleted_at,c.purge_after from collab_projects c where c.id<>$1
+          and position('[COLLAB_PROJECT]' in c.genre)>0
           and (c.director_project_id=$1::text or ($2<>'' and c.director_project_id=$2) or
+            c.director_project_id='cloud-'||$1::text or
             position('[COLLAB_SOURCE:'||$1::text||']' in c.genre)>0 or
-            ($2<>'' and position('[COLLAB_SOURCE:'||$2||']' in c.genre)>0)) limit 1`,[pid,String(row.analysis_output||'').trim()])).rows[0];
-        if(linked)throw statusError(409,'导演项目仍被有效协作项目引用，请先解除关联');
+            position('[COLLAB_SOURCE:cloud-'||$1::text||']' in c.genre)>0 or
+            ($2<>'' and position('[COLLAB_SOURCE:'||$2||']' in c.genre)>0))`,[pid,String(row.analysis_output||'').trim()])).rows;
+        if(links.some(link=>sourceProtection(link)!=='expired'))throw statusError(409,'导演项目仍被协作项目引用或处于云端三天恢复期，请待关联解除或恢复期到期后删除');
         const removed=(await client.query('delete from collab_projects where id=$1 and owner_id=$2 returning id',[pid,uid])).rows[0]||null;
         await client.query('COMMIT');return removed;
       }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -236,7 +239,21 @@ function extendRepository(pool) {
     },
     // 所有协作项目的引用标记，用于判断导演项目是否被项目协作占用。
     async listCollabLinks() {
-      return many("select id, genre from collab_projects where genre like '%[COLLAB_PROJECT]%'", []);
+      return many("select id, genre,director_project_id,deleted_at,purge_after from collab_projects where genre like '%[COLLAB_PROJECT]%'", []);
+    },
+    async directorAssociationStates(items) {
+      if(!Array.isArray(items)||items.length>200)throw statusError(400,'关联核验最多支持200个本地项目');
+      const states=[];
+      for(const item of items){
+        if(!item||typeof item.projectId!=='string'||typeof item.collaborationProjectId!=='string'||!item.projectId||!item.collaborationProjectId||item.projectId.length>500||item.collaborationProjectId.length>500)throw statusError(400,'关联核验参数无效');
+        // Return a release decision only, never another project's content or owner.
+        const rows=await many(`select id,genre,deleted_at,purge_after from collab_projects
+          where id::text=$1 or analysis_output=$2 or director_project_id=$2 or
+          position('[COLLAB_SOURCE:'||$2||']' in genre)>0`,[item.collaborationProjectId,item.projectId]);
+        const protectedReference=rows.some(row=>!String(row.genre||'').includes('[COLLAB_PROJECT]')||sourceProtection(row)!=='expired');
+        states.push({projectId:item.projectId,collaborationProjectId:item.collaborationProjectId,status:protectedReference?'protected':'released'});
+      }
+      return states;
     },
     async findMembership(pid, uid) {
       return one('select * from collab_members where project_id=$1 and user_id=$2 limit 1', [pid, uid]);
