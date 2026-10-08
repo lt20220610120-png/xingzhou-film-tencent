@@ -25,6 +25,16 @@ ChatGPT 现在使用独立资料目录，在用户当前桌面以最小化状态
 - 独立复核发现首次 `spawn` 失败后无法重试的问题；已清理未启动的失败进程引用。新增无 `exit`、仅 `error/close` 的失败重试测试通过，复核确认修复有效。
 - 浏览器窗口操作管道断开时返回连接错误，不让未处理的管道错误终止应用。
 
-安装包与公开更新验证记录在发布完成后补充。
+## 发布与安装包
+
+- 安装包：`Xingzhou-Film-Tencent-Setup-2.8.9.exe`。
+- 文件大小：102740082 字节。
+- SHA256：`d0555a5fcebf4263214f1db71659a5aaa5cc534eac57e43c43acef5841eb804c`。
+- 实际 Windows 安装包运行验证通过：正文/DOCX、本地媒体、创作桥接、内嵌画布、网页浏览器模块及原有安全保护正常。
+- 两份公开 `latest.json` 一致；安装包资产摘要、完整下载大小与 SHA256 全部与本地匹配，下载 HEAD 返回 200。
+- 固定公钥签名验证通过，真实客户端更新读取函数从官方入口读到 2.8.9。验证程序仅使用环境代理，未改产品网络设置或关闭 TLS。
+- 已发布：[行舟影视 2.8.9](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.9)。
+
+证据：`output/playwright/framework-289-tests.log`、`framework-289-web-tests.log`、`framework-289-retry-tests.log`、`framework-289-ui-result.json`、`framework-289-build.log`、`framework-289-package.log`、`framework-289-public.json`。界面验收控制台无产品错误或警告。
 
 本次窗口测试证明程序可显示与保留网页，不等同于验证外部 ChatGPT/Cloudflare 的真实账号、网络或验证码通过。
