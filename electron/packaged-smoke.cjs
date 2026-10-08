@@ -39,6 +39,15 @@ module.exports = function configurePackagedSmoke(app) {
         const ip = await import(pathToFileURL(path.join(__dirname,'../core/ipWorkspace.js')).href);
         const { IP_BUILTIN_SKILLS } = await import(pathToFileURL(path.join(__dirname,'../core/ipBuiltinSkills.js')).href);
         const { archiveCreatorProject } = await import(pathToFileURL(path.join(__dirname,'../core/creatorWorkspace.js')).href);
+        const worldEngine=await import(pathToFileURL(path.join(__dirname,'../world-simulation/engine.js')).href);
+        const {putWorld}=await import(pathToFileURL(path.join(__dirname,'../core/worldSimulationAdapter.js')).href);
+        const {normalizeState}=await import(pathToFileURL(path.join(__dirname,'../core/projectStore.js')).href);
+        const world=worldEngine.createWorld({characters:[{id:'hero',name:'安装包测试人物'}]},{source:{projectId:'world-smoke'}});
+        const worldProject=putWorld({id:'world-smoke',name:'世界保存验收',creator:{mode:'framework'},episodes:[{id:'old',result:'原正文'}]},world);
+        await win.webContents.executeJavaScript(`window.xingzhou.saveState(${JSON.stringify(normalizeState({scriptProjects:[worldProject]}))})`);
+        const restoredWorld=await win.webContents.executeJavaScript('window.xingzhou.loadState()');
+        const loadedProject=normalizeState(restoredWorld).scriptProjects.find(p=>p.id==='world-smoke');
+        report.worldSimulation={module:true,localRoundTrip:worldEngine.branchState(loadedProject.creator.worldSimulation.worlds[0]).characters.hero.name==='安装包测试人物',originalBody:loadedProject.episodes[0].result==='原正文'};
         let ipState = ip.createIPProject({fruitProjects:[],scriptProjects:[],scriptLibrary:[]},{name:'安装包 IP 验证',duration:60});
         const ipId = ipState.fruitProjects[0].id;
         const novel = '第一章 归还\r\n女主归还包。\r\n第二章 相识\r\n两人相识。';
@@ -125,7 +134,7 @@ module.exports = function configurePackagedSmoke(app) {
         report.security.canvasEmbedded=report.security.canvasEmbedded===true;
         if(!embedded)report.canvasDiagnostics={frames:win.webContents.mainFrame.frames.map(frame=>frame.url)};
         await win.webContents.executeJavaScript("document.querySelector('#security-canvas-check')?.remove()");
-        finish(Object.values(report.security).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

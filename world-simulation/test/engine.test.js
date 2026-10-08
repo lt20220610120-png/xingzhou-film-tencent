@@ -45,3 +45,17 @@ test('JSON persistence can replay every committed state and fingerprints ignore 
 test('branches cannot share mutable memory or adopt candidates of another branch',()=>{
  const w=commit(createWorld(seed()),[rescue()]);let fork=forkAt(w,'main','rescue',{...rescue(),observations:[]},{id:'other'});fork=addCandidate(fork,'main',{id:'c',name:'后续',events:[recruit()]});assert.throws(()=>commitCandidate(fork,'other','c'),/候选/);
 });
+test('resource and relation arrays are rejected before state patches can be lost in JSON',()=>{
+ for(const field of ['resources','relations']){const s=seed();s.characters[0][field]=[];assert.throws(()=>createWorld(s),/对象/);}
+});
+test('butterfly propagation follows a changed target persons state even when that person did not act',()=>{
+ const start={...rescue(),actorIds:['hero'],effects:[],observations:[]};const events=[start,{id:'goal',title:'修改目标',summary:'主角影响将军',time:2,actorIds:['hero'],dependsOn:['rescue'],effects:[{entityId:'general',field:'goal',op:'set',value:'报仇'}]},{id:'revenge',title:'将军报仇',summary:'将军根据变化的目标行动',time:3,actorIds:['general'],effects:[]}];
+ const w=commit(createWorld(seed()),events),fork=forkAt(w,'main','rescue',{...start,summary:'主角改变选择'},{id:'fork'});assert.deepEqual(getPending(fork),['goal','revenge']);
+ function getPending(w){return w.branches.find(b=>b.id==='fork').pending.map(e=>e.id);}
+});
+
+test('unrelated parallel actors do not shorten a characters travel window',()=>{
+ const w=createWorld(seed()),trip={id:'trip',title:'行至北方',summary:'主角行至北方',time:60,duration:60,actorIds:['hero'],effects:[{entityId:'hero',field:'locationId',op:'set',value:'north'}]};
+ const next=commit(w,[{id:'hello',title:'问候',summary:'将军问候朋友',time:59,actorIds:['general']},trip]);assert.equal(branchState(next).characters.hero.locationId,'north');
+ assert.throws(()=>commit(w,[{id:'busy',title:'主角忙碌',summary:'主角仍在城内交谈',time:59,actorIds:['hero']},trip]),/旅行/);
+});

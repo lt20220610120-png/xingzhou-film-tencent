@@ -8,6 +8,11 @@ test('role reasoning has a filtered view, while world arbitration sees facts; ca
  const w=fixture(),requests=[];const result=await proposeNext(w,'main',{actorIds:['hero'],request:async messages=>{requests.push(messages);return requests.length===1?'主角准备寻找线索':response();},horizon:3,maxCalls:2});
  assert.ok(!JSON.stringify(requests[0]).includes('准备背叛'));assert.ok(JSON.stringify(requests[1]).includes('准备背叛'));assert.equal(result.routes.length,1);assert.equal(result.usage.calls,2);assert.equal(branchState(w).time,0);
 });
+test('existing story plans and relationships guide arbitration without becoming actor knowledge or history',async()=>{
+ const w=fixture(),requests=[],authorPlan={groups:[{id:'planned',title:'未来结局',locked:true}],relations:[{fromId:'hero',toId:'other',type:'mother'}]};
+ await proposeNext(w,'main',{authorPlan,actorIds:['hero'],request:async messages=>{requests.push(messages);return requests.length===1?'寻找线索':response();}});
+ assert.ok(!JSON.stringify(requests[0]).includes('未来结局'));assert.deepEqual(JSON.parse(requests[1][1].content).authorPlan,authorPlan);assert.equal(branchState(w).eventIds.length,0);
+});
 test('call budget rejects before making excess calls and cancellation preserves traces',async()=>{
  let calls=0;await assert.rejects(proposeNext(fixture(),'main',{actorIds:['hero','other'],maxCalls:2,request:async()=>{calls++;return response();}}),/预算/);assert.equal(calls,0);
  const controller=new AbortController();await assert.rejects(proposeNext(fixture(),'main',{actorIds:['hero'],signal:controller.signal,request:async()=>{controller.abort();return '已输出';}}),e=>e.code==='STOPPED'&&e.trace.length===1);

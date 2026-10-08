@@ -44,7 +44,7 @@ function copyDependency(name, from) {
 (async()=>{
   if (!fs.existsSync(path.join(root,'dist/index.html'))) throw new Error('Run npm run build before packaging');
   fs.mkdirSync(staging,{recursive:true});
-  for (const folder of ['dist','electron','core','canvas-app','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
+  for (const folder of ['dist','electron','core','world-simulation','canvas-app','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
   copyDependency('mammoth',root);
   const runtime = process.env.XINGZHOU_ELECTRON_DIST || path.join(root,'qa/electron-runtime');
   const config = {...pkg.build, electronVersion:require('electron/package.json').version, directories:{output,buildResources:'build'}, npmRebuild:false};

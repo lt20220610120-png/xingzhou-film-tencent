@@ -9,7 +9,7 @@ import {rewriteOutlineVersions,addWorldSimulationVersion,saveCurrentOutlineVersi
 import {creatorInputFingerprint,updateCreatorProject} from '../../core/creatorWorkspace.js';
 import {creatorModelOptions} from '../../core/creatorAi.js';
 
-export function RewriteWorldSimulation({project,state,setState,getState,agent,profile:defaultProfile,onClose,onError}) {
+export function RewriteWorldSimulation({project,state,setState,getState,agent,profile:defaultProfile,onClose,onError,onOpenWorld}) {
  const latest=useRef(state);latest.current=state;
  const versions=rewriteOutlineVersions(project),books=rewriteSources(project),config=project.creator.rewrite?.worldConfig||{};
  const [selectedId,setSelectedId]=useState(versions.at(-1)?.id||''),[reviewed,setReviewed]=useState(false),[error,setError]=useState('');
@@ -33,7 +33,7 @@ export function RewriteWorldSimulation({project,state,setState,getState,agent,pr
   }catch(e){setError(e.message);onError?.(e.message);}
  };
  return <CreatorDialog title="大世界模拟 · 大纲版本" onClose={onClose} className="rewrite-world-dialog">
-  <div className="rewrite-world-runbar"><label>接口与模型<select aria-label="大世界模拟模型" value={profile?.selectionId||''} onChange={e=>configure({modelSelection:e.target.value})}>{!profile&&<option value="">请先配置接口</option>}{modelOptions.map(o=><option key={o.selectionId} value={o.selectionId}>{o.name} · {o.model}</option>)}</select></label>{running?<button className="secondary" onClick={()=>agent.cancel('script',project.id,{section:'macroOutline',task:'rewriteWorldSim'})}><Square size={14}/>停止模拟</button>:<button className="primary" disabled={!profile||!sourceIds.length} onClick={run}><Sparkles size={15}/>开始模拟新版本</button>}</div>
+  <p className="creator-muted">这里继续重组素材与审阅大纲版本。需要人物持续行动、选择路线与蝴蝶效应时，可打开同项目世界推演。</p>{onOpenWorld&&<button className="secondary" onClick={onOpenWorld}>打开持续世界推演</button>}<div className="rewrite-world-runbar"><label>接口与模型<select aria-label="大世界模拟模型" value={profile?.selectionId||''} onChange={e=>configure({modelSelection:e.target.value})}>{!profile&&<option value="">请先配置接口</option>}{modelOptions.map(o=><option key={o.selectionId} value={o.selectionId}>{o.name} · {o.model}</option>)}</select></label>{running?<button className="secondary" onClick={()=>agent.cancel('script',project.id,{section:'macroOutline',task:'rewriteWorldSim'})}><Square size={14}/>停止模拟</button>:<button className="primary" disabled={!profile||!sourceIds.length} onClick={run}><Sparkles size={15}/>开始模拟新版本</button>}</div>
   <div className="rewrite-world-layout">
    <aside className="rewrite-world-controls">
     <h3>推演设置</h3><p className="creator-muted">每次生成一个独立版本，编辑满意后再采用。</p>

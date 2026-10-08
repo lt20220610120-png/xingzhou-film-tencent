@@ -2,6 +2,7 @@ import {identityMetadata,withoutIdentityProof} from './rewriteIdentityMetadata.j
 const fields = ['title', 'summary', 'purpose', 'source'];
 const text = value => typeof value === 'string' ? value : '';
 const id = () => `outline-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const worldOrigin=value=>Object.fromEntries(['worldProjectId','worldBranchId','worldEventId'].filter(k=>typeof value[k]==='string'&&value[k].length<=200).map(k=>[k,value[k]]));
 export const newOutlineGroup = () => ({id:id(),title:'',goal:'',events:[]});
 export const newOutlineEvent = () => ({id:id(),title:'',summary:'',purpose:'',source:''});
 export function readRewriteOutline(raw) {
@@ -19,7 +20,7 @@ export function readRewriteOutline(raw) {
     if (used.has(key)) throw new Error('大纲事件编号重复，请重新生成或修正。');
     used.add(key);return key;
   };
-  return {groups:data.groups.map((group,i)=>({id:identity(group.id,`group-${i+1}`),title:text(group.title),goal:text(group.goal),source:text(group.source),...identityMetadata(group),
+  return {groups:data.groups.map((group,i)=>({id:identity(group.id,`group-${i+1}`),title:text(group.title),goal:text(group.goal),source:text(group.source),...identityMetadata(group),...worldOrigin(group),
     events:(Array.isArray(group.events)?group.events:[]).map((event,j)=>({id:identity(event.id,`group-${i+1}-event-${j+1}`),...Object.fromEntries(fields.map(key=>[key,text(event[key])])),...identityMetadata(event),...(Array.isArray(event.references)?{references:event.references.map(r=>({sourceId:text(r.sourceId),groupId:text(r.groupId),eventId:text(r.eventId)}))}:{})})),
   }))};
 }
