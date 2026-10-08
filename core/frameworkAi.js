@@ -1,3 +1,4 @@
+import {validateScreenplayEpisode} from './screenplayScenes.js';
 import {normalizeFrameworkProject,normalizeSettingCategory,frameworkState,frameworkEvents,applyFrameworkCommand} from './frameworkWorkflow.js';
 import {analysisGroups,validateEventAnalysis} from './frameworkEventAnalysis.js';
 
@@ -52,7 +53,8 @@ export function prepareFrameworkTask(project,target={}) {
   if(target.afterEventId){const row=frameworkEvents(p).find(r=>r.event.id===target.afterEventId);if(!row||target.layer==='group'&&row.group?.id!==target.groupId)fail('推理起点小事件不属于当前大事件。');}
  }
  if(target.task==='frameworkPlan') {
-  if(target.episodeCount!==undefined&&(!Number.isInteger(target.episodeCount)||target.episodeCount<1))fail('目标集数必须是正整数。');
+  for(const key of ['episodeCount','minEpisodeCount'])if(target[key]!==undefined&&(!Number.isInteger(target[key])||target[key]<1||target[key]>500))fail('集数必须是1至500之间的整数。');
+  if(target.episodeCount!==undefined&&target.minEpisodeCount!==undefined&&target.episodeCount<target.minEpisodeCount)fail('准确集数不能小于至少集数，两项要求冲突。');
   if(!f.mainline.confirmed||f.mainline.links.some(l=>l.stale||l.confirmed===false))fail('请先复核并确认完整主线与衔接，再生成集纲。','FRAMEWORK_UNCONFIRMED');
   const events=frameworkEvents(p).filter(row=>row.group);
   if(!events.length||events.some(row=>!row.event.confirmed)||f.groups.some(g=>!events.some(row=>row.group.id===g.id)))fail('请先为每个大事件展开并确认小事件，再生成集纲。','FRAMEWORK_UNCONFIRMED');
@@ -118,9 +120,9 @@ const rules={
  frameworkSettingsCheck:'逐项比较本次 supplement 与全部 currentSettings。返回 {"items":[{"text":"补充条目","category":"时代与背景|核心脑洞|世界规则|个人金手指","conflictsWith":["现有设定id"],"reason":"冲突依据或无冲突说明"}]}。category 选择一个中文类别。每个冲突必须准确列出原条目稳定 ID；不能替用户选择保留、替换或合并。即使无冲突也只是待审建议。',
  frameworkExtract:'完整阅读唯一 referenceOnly 的原文，按任意数量大事件及组内具体小事件提取，允许可选中事件层；不分集、不补原文不存在的情节。返回 {"groups":[{"id":"来源大事件稳定id","title":"大事件","goal":"事件作用","events":[{"id":"来源小事件稳定id","title":"具体行动","summary":"行动过程与结果","before":"前置状态","after":"结果状态","motive":"动机","actualTime":"真实时间或待确认","source":{"rawText":"原文逐字摘录，必须能在来源中找到"}}],"middles":[{"id":"来源中事件稳定id","title":"中事件","events":[同上小事件]}]}]}。各层ID全局唯一，保留具体行动和原文出处；推断在单独 inference 字段明确标注。',
  frameworkSimulate:'layer=groups 时只排列或推理大事件，已有小事件及中事件原样保留；layer=group 时根据全剧主线展开 groupId 内部的小事件，其他大事件全部字段和全剧大事件顺序原样保留，目标大事件除 events/middles 外的字段原样保留，looseEvents 原样保留。afterGroupId/afterEventId 是向后推理的起点，之前（含起点）的内容原样保留。所有已有节点必须回传输入中的全部字段（包括空值、confirmed、locked 等），不要只回传示意结构。通过行动、结果、动机、因果、铺垫及伏笔建立连贯故事；每项推断说明成立条件。mode=reorder 时排列组合现有事件并检查因果；mode=infer 时依据当前采用规则、固定节点、人物状态和所选对标组件向后推理。只使用 selectedReferenceComponents，将其观察适配为本剧候选，不直接继承来源设定。返回 {"name":"候选名","reasoning":"条件、动机、得失和断点","groups":[完整的大/中/小事件结构],"looseEvents":[完整独立事件]}。已有ID保持；新增ID唯一。锁定节点的全部字段、所属父节点和相对顺序保持；不要省略固定节点。候选是独立版本，不能自称已采用。',
- frameworkPlan:'依据人工确认的完整主线故事稿与事件骨架分集，episodeCount 若提供必须恰好返回该集数，否则按实际故事选择任意正集数。不能机械地一事件等同一集，允许一事件跨多集、一集包含多个事件，每个事件都必须覆盖。返回 {"name":"版本名称","episodes":[{"number":1,"title":"第1集","content":"本集详细集纲，含具体行动、冲突和结果","eventIds":["真实小事件稳定id"],"hook":"结尾悬念","continuity":"知情状态、伏笔与前后衔接"}]}。number 从1连续；不得改写已确认规则与固定事件。',
+ frameworkPlan:'依据人工确认的完整主线故事稿与事件骨架分集，episodeCount 若提供必须恰好返回该集数，minEpisodeCount 如提供，必须至少达到该集数，不得压缩到更少集；在故事行动与冲突中细分节奏，不靠重复或注水凑数，否则按实际故事选择任意正集数。不能机械地一事件等同一集，允许一事件跨多集、一集包含多个事件，每个事件都必须覆盖。返回 {"name":"版本名称","episodes":[{"number":1,"title":"第1集","content":"本集详细集纲，含具体行动、冲突和结果","eventIds":["真实小事件稳定id"],"hook":"结尾悬念","continuity":"知情状态、伏笔与前后衔接"}]}。number 从1连续；不得改写已确认规则与固定事件。',
  frameworkExpand:'只扩写 targetEvent 的完整可表演故事稿，衔接全剧前后状态与人物动机，不提前分集。返回 {"eventId":"目标稳定ID","story":"完整行动、过程、结果、对白要点与心理；禁止几句摘要替代"}。固定事件不可覆盖，不改其已定结果或其他事件。',
- frameworkEpisode:'输出当前集完整可拍摄剧本正文，不输出 JSON、分析、提纲或摘要。只写 currentEpisode，依据当前采用版本全剧集纲、确认设定、完整事件骨架和 earlierEpisodes 的已写事实，不能把未来集正文或其他版本当作过去。格式：第N集，N-1 场景 日/夜 内/外，人物名单，△动作，人物：对白；换地点换场。编号 N 使用当前集在 plan.episodes 中的实际位置，逐场连续。不凭空填未知设定；冲突或缺失在正文清晰标为待确认。',
+ frameworkEpisode:'输出当前集完整可拍摄剧本正文，不输出 JSON、分析、提纲或摘要。只写 currentEpisode，依据当前采用版本全剧集纲、确认设定、完整事件骨架和 earlierEpisodes 的已写事实，不能把未来集正文或其他版本当作过去。格式：第N集，N-1 场景 日/夜 内/外，人物名单，△动作，人物：对白；换地点换场。编号 N 使用当前集在 plan.episodes 中的实际位置，逐场连续。你承担剧本化创作：即使集纲没有对白、动作、具体场景，也必须依据已确认人物、目标、前后因果和本集结果主动设计合理场景、日夜内外、可表演动作和原创对白，把故事展示出来，不能返回摘要、反问或因这些细节缺失停止。可以补全不改变已确认设定及结果的执行细节，不新增违背世界规则的能力、身份、关键结局或提前兑现后集剧情。每场均有人物名单及动作或对白，换地点换场。',
  frameworkCheck:'输出逐项衔接检查报告，定位当前采用版本的具体集、事件稳定ID或场次，检查因果、真实时间与叙事顺序、人物动机及知情、规则冲突、伏笔兑现、场次格式。每项包含证据和可选修改；缺证据标待确认，不自动改稿。',
  frameworkChat:'结合本次要求讨论框架故事，区分已确认事实、原始灵感、参考素材与你的候选建议。给具体建议与依据，未采用建议不当作正式故事。输出中文讨论正文。',
 };
@@ -183,13 +185,8 @@ function validateLocks(p,result) {
 export function validateFrameworkOutput(project,target,raw) {
  const p=prepareFrameworkTask(project,target),f=frameworkState(p),task=target.task;
  if(task==='frameworkEpisode') {
-  const output=required(raw,'完整分场剧本'),plan=activePlan(f,target),number=plan.episodes.findIndex(e=>e.id===target.episodeId)+1;
-  const scenes=[...output.matchAll(/^\s*(\d+)\s*[-－—]\s*(\d+)\s+[^\n]+/gm)];
-  const hasAction=/^\s*[△▲][^\n]+/m.test(output),hasDialogue=/^\s*(?!人物\s*[：:])[^\n：:]{1,15}[：:][^\n]+/m.test(output);
-  if(!scenes.length||(!hasAction&&!hasDialogue)||!/^\s*人物\s*[：:][^\n]+/m.test(output)||scenes.some(m=>!/(?:日|夜|时间待确认)/.test(m[0])||!/(?:内|外|内外待确认)/.test(m[0])))fail('正文需要完整分场剧本、场次地点日夜内外、人物及动作或对白，不能采用故事摘要。');
-  if(scenes.some((m,i)=>Number(m[1])!==number||Number(m[2])!==i+1))fail('剧本集号或场次编号与当前版本的目标集不一致，场次应从本集-1连续编号。');
-  const heading=output.match(/^\s*第\s*(\d+)\s*集/m);if(heading&&Number(heading[1])!==number)fail('剧本标题集号与目标集不一致。');
-  return output;
+  const plan=activePlan(f,target),number=plan.episodes.findIndex(e=>e.id===target.episodeId)+1;
+  return validateScreenplayEpisode(raw,number);
  }
  if(task==='frameworkChat'||task==='frameworkCheck')return required(raw,'讨论或检查报告');
  const result=parseFrameworkObject(raw,task);
@@ -223,6 +220,7 @@ export function validateFrameworkOutput(project,target,raw) {
  if(task==='frameworkPlan') {
   const episodes=array(result.episodes,'集纲 episodes');if(!episodes.length)fail('集纲至少需要一集。');
   if(target.episodeCount!==undefined&&episodes.length!==target.episodeCount)fail(`集数与目标 ${target.episodeCount} 集不一致。`);
+  if(target.minEpisodeCount!==undefined&&episodes.length<target.minEpisodeCount)fail(`至少需要 ${target.minEpisodeCount} 集，当前仅返回 ${episodes.length} 集。`);
   const eventIds=new Set(frameworkEvents(p).filter(row=>row.group).map(row=>row.event.id)),coverage=new Set();
   const ids=new Set();result.episodes=episodes.map((episode,index)=>{
    object(episode,'每集集纲');

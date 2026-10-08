@@ -32,7 +32,7 @@ export function useCreatorAgent({state,setState,getState,api}) {
    updateRecord(kind,projectId,id,{output:result.output,status:'pending',meta:result.meta,finishedAt:new Date().toISOString()});
    if(chat)setState(s=>{const p=s[kind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===projectId);if(!p)return s;return updateCreatorProject(s,kind,projectId,{chat:[...(p.creator?.chat||[]),{id:uid(),role:'assistant',content:result.output,recordId:id,stage:target.section||target.episodeId,model:profile.model,createdAt:new Date().toISOString()}]});});
    return id;
-  }catch(error){updateRecord(kind,projectId,id,{status:job.cancelled?'cancelled':'failed',error:error.message,output:error.partialText||'',finishedAt:new Date().toISOString()});throw error;}
+  }catch(error){updateRecord(kind,projectId,id,{status:job.cancelled?'cancelled':'failed',error:error.message,errorCode:error.code,output:error.partialText||'',...(error.meta?{meta:error.meta}:{}),finishedAt:new Date().toISOString()});throw error;}
   finally{jobs.current.delete(slot);setActivity(a=>({...a,[slot]:{running:false}}));}
  };
  const cancel=async(kind,projectId,target)=>{

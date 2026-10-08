@@ -9,7 +9,7 @@ import { prepareRewriteTask, REWRITE_ANALYSIS_RULE, REWRITE_PLAN_RULE } from './
 import { buildSkillMessages } from './skillContext.js';
 import { assertMessageCapacity } from './skillExecution.js';
 import { chineseEpisodeNumber } from './collabEpisodes.js';
-import { isFrameworkTask, prepareFrameworkTask, frameworkTaskContext, frameworkTaskRule } from './frameworkAi.js';
+import { isFrameworkTask, prepareFrameworkTask, frameworkTaskContext, frameworkTaskRule, validateFrameworkOutput } from './frameworkAi.js';
 
 export const CREATOR_TASK_RULES = {
  rewriteIdentity:REWRITE_IDENTITY_RULE, rewriteConvert:REWRITE_CONVERSION_RULE,
@@ -130,6 +130,19 @@ export async function runCreatorTask({api,state,project,kind='script',target={},
  let messages=skill?buildSkillMessages(skill,prompt,'行舟影视创作协作助手'):[{role:'system',content:'你是行舟影视创作协作助手。遵守用户当前任务和已采用约束，明确区分事实、素材与建议。'}, {role:'user',content:prompt}];
  messages=[...messages.slice(0,-1),...chat,messages.at(-1)];
  onProgress({label:'正在生成候选',completed:segments,total:segments});
- const output=await invoke(messages);
- return {output,meta:{model:profile.model,profileId:profile.id,skillId,skillName:skill?.name||'',totalSkillFiles:skill?1+(skill.files?.length||0):0,readSegments:segments,sourceCharacters:project.creator?.source?.content?.length||0,readDocuments:docs.map(d=>({name:d.name,characters:d.text.length})),scope}};
+ let output=await invoke(messages);const screenplayAttempts=[];
+ if(frameworkTask&&task==='frameworkEpisode'){
+  for(let attempt=0;attempt<3;attempt++){
+   checkStop(output);
+   try{output=validateFrameworkOutput(project,target,output);screenplayAttempts.push({attempt:attempt+1,output,valid:true});break;}
+   catch(error){
+    if(error.code!=='FRAMEWORK_EPISODE_FORMAT')throw error;
+    screenplayAttempts.push({attempt:attempt+1,output,valid:false,error:error.message});
+    if(attempt===2)throw Object.assign(new Error('本集已尝试补全分场，但仍未达到剧本格式。原始结果已保存，可换接口继续完善；其他集可继续生成。'),{code:error.code,partialText:output,meta:{screenplayAttempts}});
+    onProgress({label:`正在补全分场剧本 ${attempt+1}/2`,completed:attempt+1,total:2});
+    try{output=await invoke([...messages,{role:'assistant',content:output},{role:'user',content:`请把上一轮内容完整改写为本集可拍摄剧本。校验需要修正：${error.message}。根据原有集纲、已确认人物及前后事件，主动设计缺失的地点、时间、动作和对白，不改变关键剧情或提前后集结果。只返回完整分场正文，不给分析、不向用户索要缺失的对白。`}]);}catch(nextError){throw Object.assign(nextError,{partialText:nextError.partialText||output,meta:{...nextError.meta,screenplayAttempts}});}
+   }
+  }
+ }
+ return {output,meta:{...(screenplayAttempts.length?{screenplayAttempts}:{}),model:profile.model,profileId:profile.id,skillId,skillName:skill?.name||'',totalSkillFiles:skill?1+(skill.files?.length||0):0,readSegments:segments,sourceCharacters:project.creator?.source?.content?.length||0,readDocuments:docs.map(d=>({name:d.name,characters:d.text.length})),scope}};
 }

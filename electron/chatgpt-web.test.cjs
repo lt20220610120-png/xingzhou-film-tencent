@@ -112,3 +112,12 @@ test('a verification page replacing a sent response reports verification rather 
  browser.evaluate=async expression=>expression.includes('function inspectChatGPTResponse')?{anchored:false,text:'',streaming:false,finished:false,challenge:true}:evaluate(expression);
  const service=createChatGPTWebService({...state,browserFactory:()=>browser});await assert.rejects(service.request({model:'auto',messages:[{role:'user',content:'Hello'}],timeout:1000}),e=>e.code==='WEB_VERIFICATION_REQUIRED');await service.close();
 });
+
+
+test('a new conversation uses the website control without programmatic navigation',async()=>{
+ const state=fake(),browser=state.browserFactory();let hasMessages=true,navigations=0,newChats=0;const evaluate=browser.evaluate;
+ browser.navigate=async()=>{navigations++;};
+ browser.evaluate=async expression=>{if(expression.includes('function startNewChat')){newChats++;hasMessages=false;return {ok:true};}if(expression.includes('function inspectChatGPTPage')&&!expression.includes('inspectChatGPTResponse'))return {ready:'complete',loggedIn:true,hasMessages};return evaluate(expression);};
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser});assert.equal(await service.request({model:'auto',messages:[{role:'user',content:'新任务'}]}),'连接成功');
+ assert.equal(navigations,0);assert.equal(newChats,1);await service.close();
+});

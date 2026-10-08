@@ -40,7 +40,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
  async function ensure(signal){
   check(signal);if(closed)throw new Error(`${name} 服务已停止`);
   if(connection?.socket.readyState===1&&session&&targetId)return;
-  if(visible&&child?.exitCode==null){
+  if(child&&child.exitCode==null){
    const stale=connection;connection=null;session=null;targetId=null;stale?.disconnect();
    try{await attach(signal,Date.now()+startupTimeoutMs);}catch(error){
     // An open socket alone is not an attached page. Discard failed transport
@@ -77,7 +77,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
    throw new Error(`${name} 网页加载超时，请检查网络`);
   },
   openLogin:async()=>{
-   if(visible&&child?.exitCode==null){await ensure();const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal'}},null,{timeout:5000});await command('Page.bringToFront',{},session,{timeout:5000});return;}
+   if(child&&child.exitCode==null){await ensure();visible=true;const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal'}},null,{timeout:5000});await command('Page.bringToFront',{},session,{timeout:5000});return;}
    await closeBrowser();if(closed)throw new Error(`${name} 服务已停止`);
    const executable=locate();if(!executable)throw new Error('本机未找到 Edge 或 Chrome');fs.mkdirSync(profile,{recursive:true});
    try{fs.unlinkSync(path.join(profile,'DevToolsActivePort'));}catch{}
@@ -87,7 +87,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   backgroundLogin:async(signal)=>{if(!visible||!connection||!targetId)return;const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{signal,timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}},null,{signal,timeout:5000});},
   // A timed-out check must not interrupt the user's explicit verification
   // window. Reconnect its transport on the next refresh without a restart.
-  reset:async()=>{if(visible&&child?.exitCode==null){const own=connection;connection=null;session=null;targetId=null;own?.disconnect();return;}await closeBrowser();},
+  reset:async()=>{if(child&&child.exitCode==null){const own=connection;connection=null;session=null;targetId=null;own?.disconnect();return;}await closeBrowser();},
   close:()=>{closed=true;return closeBrowser();}
  };
 }

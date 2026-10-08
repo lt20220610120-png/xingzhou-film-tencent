@@ -43,3 +43,15 @@ test('failed page attachment reconnects without closing the explicit login windo
   await browser.ensure();assert.equal(await browser.evaluate('true'),'connected');assert.equal(attachments,2);assert.equal(launches,1);assert.equal(sockets.length,2);assert.equal(commands.find(c=>c.method==='Runtime.evaluate').sessionId,'recovered');
  }finally{await browser.close();}
 });
+
+test('opening manual verification reuses an already running background browser without reload or restart',async t=>{
+ const profile=fs.mkdtempSync(path.join(os.tmpdir(),'xz-owned-login-test-'));t.after(()=>fs.rmSync(profile,{recursive:true,force:true}));
+ const launches=[],commands=[];let child;
+ class Socket extends EventTarget{
+  constructor(){super();this.readyState=0;queueMicrotask(()=>{this.readyState=1;this.dispatchEvent(new Event('open'));});}
+  send(text){const req=JSON.parse(text);commands.push(req);const result=req.method==='Target.getTargets'?{targetInfos:[{type:'page',url:'https://chatgpt.com/',targetId:'owned'}]}:req.method==='Target.attachToTarget'?{sessionId:'session'}:req.method==='Browser.getWindowForTarget'?{windowId:42}:{};queueMicrotask(()=>{const e=new Event('message');e.data=JSON.stringify({id:req.id,result});this.dispatchEvent(e);if(req.method==='Browser.close'){child.exitCode=0;child.emit('exit',0);}});}
+  close(){this.readyState=3;this.dispatchEvent(new Event('close'));}
+ }
+ const browser=createOwnedWebBrowser({profileDir:profile,url:'https://chatgpt.com/',name:'ChatGPT',WebSocket:Socket,findBrowser:()=>'/owned-browser',spawn:(exe,args,options)=>{launches.push({exe,args,options});child=Object.assign(new EventEmitter(),{exitCode:null,kill(){this.exitCode=0;this.emit('exit',0);}});fs.writeFileSync(path.join(profile,'DevToolsActivePort'),'9000\n/devtools/browser/abc-123');return child;}});
+ try{await browser.ensure();await browser.openLogin();await browser.ensure();assert.equal(launches.length,1);assert.equal(commands.some(c=>c.method==='Browser.close'||c.method==='Page.navigate'),false);await browser.reset();await browser.ensure();assert.equal(launches.length,1);}finally{await browser.close();}
+});
