@@ -1,3 +1,4 @@
+import {groupIdentityReady} from '../../core/rewriteConversion.js';
 import React,{useState} from 'react';
 import {Plus,ArrowUp,ArrowDown,Trash2,ChevronDown,ChevronRight} from 'lucide-react';
 import {readRewriteOutline,newOutlineGroup,newOutlineEvent,moveOutlineGroup,moveOutlineEvent} from '../../core/rewriteOutline.js';
@@ -18,7 +19,7 @@ export function RewriteOutlineCards({value,onChange,readOnly=false,onReferenceGr
   {data.groups.map((group,i)=><React.Fragment key={group.id}>
    {i>0&&<div className="rewrite-chain-link" aria-hidden="true"><ArrowDown size={17}/><span>进入 {outlineGroupCode(i)} 组</span></div>}
    <article className={`rewrite-outline-group ${openGroups.has(group.id)?'expanded':''}`}>
-    <header><button className="rewrite-chain-node" aria-expanded={openGroups.has(group.id)} onClick={()=>toggle(setOpenGroups,group.id)}><span className="rewrite-group-index">{outlineGroupCode(i)}组</span><strong>{group.title||'未命名大事件'}</strong><small>{group.events.length} 个小事件</small>{openGroups.has(group.id)?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button>
+    <header><button className="rewrite-chain-node" aria-expanded={openGroups.has(group.id)} onClick={()=>toggle(setOpenGroups,group.id)}><span className="rewrite-group-index">{outlineGroupCode(i)}组</span><strong>{group.title||'未命名大事件'}</strong><small>{group.events.length} 个小事件</small>{project&&(group.identityState||group.events.some(e=>e.references?.length))&&<span className="rewrite-identity-badge">{groupIdentityReady(project,group)?'新作人物已转换':'待统一人物'}</span>}{openGroups.has(group.id)?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button>
      <div className="rewrite-outline-tools">{onReferenceGroup&&<button className="ghost" onClick={()=>onReferenceGroup(group)}>引用本组</button>}{!readOnly&&<><button className="ghost" aria-label={`上移大事件${i+1}`} disabled={!i} onClick={()=>write(moveOutlineGroup(data,group.id,-1))}><ArrowUp size={13}/></button><button className="ghost" aria-label={`下移大事件${i+1}`} disabled={i===data.groups.length-1} onClick={()=>write(moveOutlineGroup(data,group.id,1))}><ArrowDown size={13}/></button><button className="ghost danger" aria-label={`删除大事件${i+1}`} onClick={()=>{if(window.confirm('删除这个大事件及其小事件？'))write({...data,groups:data.groups.filter(g=>g.id!==group.id)});}}><Trash2 size={13}/></button></>}</div>
     </header>
     {openGroups.has(group.id)&&<div className="rewrite-chain-group-content">
