@@ -1,0 +1,1 @@
+{"name":"@xingzhou/world-simulation","version":"1.0.0","private":true,"type":"module","exports":{".":"./engine.js","./runner":"./runner.js","./store":"./store.mjs"},"scripts":{"test":"node --test test/*.test.js","demo":"node cli.mjs demo"},"engines":{"node":">=22.13"}}
