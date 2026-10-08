@@ -271,7 +271,7 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
     window.addEventListener('scroll', schedule, true);
     // Native content sits above DOM dialogs. Hide it while a visible app modal exists.
     const checkModal = () => {
-      const blocked = Array.from(document.querySelectorAll('[aria-modal="true"], .veil, .drawer-veil, .role-lock-veil, .global-ai'))
+      const blocked = Array.from(document.querySelectorAll('[aria-modal="true"], .veil, .drawer-veil, .role-lock-veil, .global-ai, .role-switch-menu'))
         .some(node => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden');
       if (blocked !== modalBlocked.current) { modalBlocked.current = blocked; schedule(); }
     };

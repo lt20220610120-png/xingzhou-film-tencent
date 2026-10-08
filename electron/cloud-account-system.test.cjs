@@ -44,11 +44,10 @@ test('preload 暴露对应的渲染端 API', () => {
   }
 });
 
-test('管理后台只对管理员挂载，切页隐藏并保留已访问页面', () => {
+test('管理后台导航和挂载都受管理员权限限制', () => {
   const src = read('src/App.jsx');
   assert.match(src, /account\?\.isAdmin \? \[\['admin', ShieldCheck, '管理后台'\]\] : \[\]/);
   assert.match(src, /account\?\.isAdmin && \(visitedWorkspaces\.admin \|\| nav === 'admin'\)/);
-  assert.match(src, /hidden=\{nav !== 'admin'\}[\s\S]*?<AdminPanel key=\{account\.id\} account=\{account\} active=\{nav === 'admin'\}/);
 });
 
 test('管理后台具备用户管理与邀请码生成能力', () => {

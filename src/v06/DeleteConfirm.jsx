@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, AlertTriangle } from 'lucide-react';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 
 /**
  * 删除确认弹窗
@@ -13,10 +14,11 @@ import { X, AlertTriangle } from 'lucide-react';
  * @param {function} props.onConfirm - 确认删除回调
  */
 export function DeleteConfirm({ open, title, name, detail, onCancel, onConfirm, confirmLabel = '确认删除', busy = false, error }) {
+  const workspaceActive=useWorkspaceActive();
   const modalRef = React.useRef(null);
   const latest = React.useRef({ onCancel, busy }); latest.current = { onCancel, busy };
   React.useEffect(() => {
-    if (!open) return;
+    if (!open||!workspaceActive) return;
     const previous = document.activeElement;
     modalRef.current?.querySelector('button')?.focus();
     const keyDown = event => {
@@ -29,11 +31,11 @@ export function DeleteConfirm({ open, title, name, detail, onCancel, onConfirm, 
     };
     document.addEventListener('keydown', keyDown);
     return () => { document.removeEventListener('keydown', keyDown); previous?.focus(); };
-  }, [open]);
+  }, [open,workspaceActive]);
   if (!open) return null;
 
   return createPortal((
-    <div className="veil delete-confirm-veil">
+    <div className="veil delete-confirm-veil" hidden={!workspaceActive} style={workspaceActive?undefined:{display:'none'}} inert={!workspaceActive}>
       <div ref={modalRef} className="modal delete-confirm" role="dialog" aria-modal="true" aria-label={title} aria-busy={busy}>
         <div className="delete-confirm-icon">
           <AlertTriangle size={36} />

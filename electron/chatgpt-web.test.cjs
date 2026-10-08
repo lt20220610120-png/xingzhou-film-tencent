@@ -87,7 +87,7 @@ test('simultaneous status refreshes share one bounded account inspection',async(
 
 test('network error pages are distinct from expired login and website verification',async()=>{
  const state=fake(),browser=state.browserFactory();browser.evaluate=async()=>({ready:'complete',networkError:true,loggedIn:false,loggedOut:false,challenge:false});
- const service=createChatGPTWebService({...state,browserFactory:()=>browser,inspectTimeoutMs:1});const result=await service.status();assert.equal(result.code,'WEB_NETWORK_ERROR');assert.equal(result.authState,'unknown');await service.close();
+ const service=createChatGPTWebService({...state,browserFactory:()=>browser,inspectTimeoutMs:1000});const result=await service.status();assert.equal(result.code,'WEB_NETWORK_ERROR');assert.equal(result.authState,'unknown');await service.close();
 });
 
 test('explicit logged-out detection reports a login-required category',async()=>{

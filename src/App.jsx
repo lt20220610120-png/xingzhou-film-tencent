@@ -1,6 +1,9 @@
 import {FormattedEditor} from './components/FormattedText.jsx';
 import {UserProfile} from './v06/UserProfile.jsx';
 import {SidebarGroup} from './components/SidebarGroup.jsx';
+import {QuickRoleSwitch} from './components/QuickRoleSwitch.jsx';
+import {WorkspacePresence,WorkspaceActiveContext} from './components/WorkspacePresence.jsx';
+import {navigationForRole,SHARED_WORKSPACES,ROLE_WORKSPACES} from '../core/workspaceNavigation.js';
 import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
@@ -1220,6 +1223,8 @@ function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir
 function App() {
   const [role, setRole] = useState(null);
   const [nav, setNav] = useState('fruit');
+  const lastRole=useRef('creator'),rolePages=useRef({creator:'fruit',director:'director'});
+  if(role){lastRole.current=role;if(ROLE_WORKSPACES[role]?.includes(nav))rolePages.current[role]=nav;}
   const [creatorDestination,setCreatorDestination]=useState(null),[creatorSection,setCreatorSection]=useState({});
   const chooseCreatorSection=(area,tab)=>{setCreatorDestination({area,tab,id:crypto.randomUUID()});setNav(area);};
   const rememberCreatorSection=useCallback(section=>setCreatorSection(current=>current[section.area]===section.tab?current:{...current,[section.area]:section.tab}),[]);
@@ -1231,7 +1236,7 @@ function App() {
   const [visitedWorkspaces, setVisitedWorkspaces] = useState({});
   const [creatorSaveStatus, setCreatorSaveStatus] = useState({ saved: false });
   useEffect(() => {
-    if (nav === 'director' || nav === 'collab' || nav === 'admin' || ['fruit', 'studio', 'scripts'].includes(nav)) {
+    if (nav === 'director' || nav === 'collab' || SHARED_WORKSPACES.includes(nav) || ['fruit', 'studio', 'scripts'].includes(nav)) {
       const key = ['fruit', 'studio', 'scripts'].includes(nav) ? 'creator' : nav;
       setVisitedWorkspaces((current) => current[key] ? current : { ...current, [key]: true });
     }
@@ -1351,9 +1356,11 @@ function App() {
 
   // 角色选择
   const enterRole = (r) => {
+    const nextNav=navigationForRole({account,targetRole:r,currentNav:nav,remembered:rolePages.current[r]});
+    document.activeElement?.blur?.();
     setRole(r);
     localStorage.setItem('xz-role', r);
-    setNav(r === 'director' ? 'director' : 'fruit');
+    setNav(nextNav);
   };
 
   const handleRoleSelect = (r) => {
@@ -1367,7 +1374,7 @@ function App() {
     setAccount(safeAccount);
     setRegisterRole(null);
     const nextRole = safeAccount.roles.includes(requestedRole) ? requestedRole : safeAccount.activeRole;
-    enterRole(nextRole);
+    setRole(nextRole);localStorage.setItem('xz-role',nextRole);setNav(nextRole==='director'?'director':'fruit');
   };
 
   const handleLogout = async () => {
@@ -1376,6 +1383,7 @@ function App() {
     setAccount(null);
     setRole(null);
     setRegisterRole(null);
+    setVisitedWorkspaces({});setCanvasVisited(false);rolePages.current={creator:'fruit',director:'director'};
     localStorage.removeItem('xz-role');
   };
 
@@ -1387,7 +1395,7 @@ function App() {
   }
 
   // 角色选择界面
-  if (!role) {
+  if (!role&&!account) {
     return (
       <StudioRoleScreen account={account} onSelect={handleRoleSelect} onLogout={handleLogout}>
         {lockedRole && <LockedRoleDialog targetRole={lockedRole} onClose={() => setLockedRole(null)} onUnlocked={(nextAccount) => { setAccount(nextAccount); const nextRole = lockedRole; setLockedRole(null); enterRole(nextRole); }} />}
@@ -1411,14 +1419,16 @@ function App() {
     ['collab', Users, '项目协作'],
     ['generation', Sparkles, '图视生成'],
     ['canvas', Palette, '画布'],
-    ...toolsNav,
   ];
 
   const adminNav = account?.isAdmin ? [['admin', ShieldCheck, '管理后台']] : [];
-  const navItems = [...(role === 'director' ? directorNav : [...creatorNav, ...toolsNav]), ...adminNav];
+  const workspaceRole=role||lastRole.current;
+  const navItems=workspaceRole==='director'?directorNav:creatorNav;
+  const sharedNav=[...toolsNav,...adminNav];
+  const unlockRole=nextAccount=>{const r=lockedRole;setAccount(nextAccount);setLockedRole(null);document.activeElement?.blur?.();setRole(r);localStorage.setItem('xz-role',r);setNav(navigationForRole({account:nextAccount,targetRole:r,currentNav:nav,remembered:rolePages.current[r]}));};
 
   return (
-    <div className="app v06-app"><GenerationMonitor state={state} api={api} account={account}/>
+    <><WorkspaceActiveContext.Provider value={!!role}><div key={account?.id} className="app v06-app" hidden={!role} style={role?undefined:{display:'none'}}><GenerationMonitor state={state} api={api} account={account}/>
       {/* 侧边导航栏 */}
       <nav className="sidebar" id="app-sidebar">
         <BrandLogo compact />
@@ -1429,10 +1439,10 @@ function App() {
             <span>{label}</span>
           </button>
         ))}
+        <span className="shared-tools-label">共用工具</span>
+        {sharedNav.map(([key,Icon,label])=><button key={key} aria-label={label} title={label} className={nav===key?'active':''} onClick={()=>setNav(key)}><Icon size={19}/><span>{label}</span></button>)}
         <div className="side-bottom">
-          <button aria-label="切换身份" title="切换身份" onClick={() => { setRole(null); localStorage.removeItem('xz-role'); }}>
-            <UserRound size={18} /> <span>切换身份</span>
-          </button>
+          <QuickRoleSwitch role={role} account={account} onSelect={handleRoleSelect} onChooseScreen={()=>{document.activeElement?.blur?.();setRole(null);localStorage.removeItem('xz-role');}}/>
           <button aria-label="退出登录" title="退出登录" onClick={handleLogout}>
             <LogOut size={18} /> <span>退出登录</span>
           </button>
@@ -1448,10 +1458,10 @@ function App() {
         )}
 
         {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
-        {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
-        {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
-        {nav === 'settings' && <SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} />}
-        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <div className="workspace-preserved" hidden={nav !== 'admin'}><AdminPanel key={account.id} account={account} active={nav === 'admin'} /></div>}
+        {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
+        {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
+        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
+        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} active={!!role&&nav==='admin'}/></WorkspacePresence>}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
@@ -1460,7 +1470,7 @@ function App() {
         {(visitedWorkspaces.director || nav === 'director') && <div className="workspace-preserved" hidden={nav !== 'director'}>
           <DirectorWorkspace
             key={account?.id}
-            active={nav === 'director'}
+            active={!!role&&nav === 'director'}
             accountId={account?.id}
             state={state}
             setState={setState}
@@ -1473,14 +1483,14 @@ function App() {
 
       {/* 全局 AI 持久会话抽屉 */}
       <PersistentChat
-        open={aiOpen}
+        open={!!role&&aiOpen}
         onClose={() => { setAiOpen(false); setAiAttachment(null); }}
         state={state}
         setState={setState}
         api={api}
         attachment={aiAttachment}
       />
-    </div>
+    </div></WorkspaceActiveContext.Provider>{!role&&<StudioRoleScreen account={account} onSelect={handleRoleSelect} onLogout={handleLogout}/>}{lockedRole&&<LockedRoleDialog targetRole={lockedRole} onClose={()=>setLockedRole(null)} onUnlocked={unlockRole}/>}</>
   );
 }
 

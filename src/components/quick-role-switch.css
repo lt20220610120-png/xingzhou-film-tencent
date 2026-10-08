@@ -1,0 +1,14 @@
+.quick-role-arrow{margin-left:auto;flex:none}
+.role-switch-menu{position:fixed;z-index:145;width:216px;padding:12px;border:1px solid #e1dced;border-radius:14px;background:#fff;box-shadow:0 12px 36px #33275426;color:#334155;animation:role-menu-enter .16s ease-out}
+.role-switch-menu>strong{display:block;font-size:14px;padding:0 4px}
+.role-switch-menu>small{display:block;color:#8a8398;font-size:11px;margin:5px 4px 10px}
+.role-switch-menu>button{display:flex;align-items:center;gap:9px;border:0;border-radius:9px;width:100%;min-height:42px;background:transparent;color:#52627b;text-align:left;font-size:14px;padding:9px 10px}
+.role-switch-menu>button>span{flex:1}
+.role-switch-menu>button:hover,.role-switch-menu>button:focus-visible{background:#eee8fa;color:#6b51a7}
+.role-switch-menu>button:focus-visible{outline:2px solid #9a85ce;outline-offset:-2px}
+.role-switch-menu>button:disabled{opacity:1;color:#8c7dab;background:#f7f3fc;cursor:default}
+.role-switch-menu>.role-screen-link{border-top:1px solid #ede9f3;border-radius:0;font-size:12px;margin-top:8px;padding-top:12px;color:#8c869c}
+.sidebar .shared-tools-label{display:block;border-top:1px solid #dfdfed;padding:14px 12px 5px;margin-top:10px;color:#9290a4;font-size:11px;letter-spacing:1px;flex:none}
+@keyframes role-menu-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.role-switch-menu{animation:none}}
+@media(max-width:900px){.sidebar .shared-tools-label{text-align:center;padding:10px 0 3px;font-size:10px;letter-spacing:0}.quick-role-arrow{display:none}}

@@ -1,4 +1,5 @@
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import { ChatGPTAccountSetup } from './ChatGPTAccountSetup.jsx';
 import { GeminiAccountSetup } from './GeminiAccountSetup.jsx';
 import { DoubaoWorkAccountSetup } from './DoubaoWorkAccountSetup.jsx';
@@ -38,9 +39,10 @@ export function BrandLogo({ compact = false }) {
  * Dialog - 通用对话框
  * ================================================================ */
 export function Dialog({ open, title, children, onClose }) {
+  const workspaceActive=useWorkspaceActive();
   const modalRef = React.useRef(null);
   React.useEffect(() => {
-    if (!open) return;
+    if (!open||!workspaceActive) return;
     const previous = document.activeElement;
     const focusables = () => [...(modalRef.current?.querySelectorAll('button:not(:disabled), input, select, textarea, [tabindex="0"]') || [])];
     focusables()[0]?.focus();
@@ -53,9 +55,9 @@ export function Dialog({ open, title, children, onClose }) {
     };
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
-  }, [open]);
+  }, [open,workspaceActive]);
   if (!open) return null;
-  return createPortal(<div className="veil" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+  return createPortal(<div className="veil" hidden={!workspaceActive} style={workspaceActive?undefined:{display:'none'}} inert={!workspaceActive} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div ref={modalRef} className="modal form-dialog" role="dialog" aria-modal="true" aria-label={title}>
       <div className="form-dialog-header"><h2>{title}</h2><button className="ghost" aria-label="关闭对话框" onClick={onClose}><X size={18}/></button></div>
       {children}
