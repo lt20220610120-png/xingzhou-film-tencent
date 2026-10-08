@@ -22,6 +22,16 @@ test('batch macro confirmation rejects incomplete or unconfirmed fixed cards ato
  const next=cmd(p,{type:'mainline.confirmGroups'});assert.deepEqual(next.creator.framework.groups[0],normalizeFrameworkProject(p).creator.framework.groups[0]);assert.equal(next.creator.framework.groups[0].goal,fixed.goal);
 });
 
+test('batch macro confirmation preserves an already confirmed story and its episode plan',()=>{
+ let p=cmd(fresh(),{type:'settings.confirm'});
+ p=cmd(p,{type:'group.add',group:{id:'g',title:'相遇',goal:'完整大事件',events:[{id:'e',title:'归还失物',summary:'行动经过和结果',confirmed:true}]}});
+ p=cmd(p,{type:'mainline.confirm'});
+ p=cmd(p,{type:'plan.add',plan:{episodes:[{id:'ep',title:'第1集',result:'已写正文'}]}});
+ const before=frameworkState(p),next=frameworkState(cmd(p,{type:'mainline.confirmGroups'}));
+ assert.equal(before.mainline.confirmed,true);assert.equal(next.mainline.confirmed,true);
+ assert.deepEqual(next.plans,before.plans);assert.deepEqual(next.groups[0].events,before.groups[0].events);
+});
+
 test('macro order can be confirmed before any small events and stays confirmed as they are added',()=>{
  let p=fresh();p=cmd(p,{type:'group.add',group:{id:'a',title:'相遇'}});p=cmd(p,{type:'group.add',group:{id:'b',title:'相爱'}});
  p=cmd(p,{type:'mainline.orderConfirm'});assert.equal(frameworkState(p).mainline.orderConfirmed,true);assert.equal(frameworkState(p).mainline.confirmed,false);

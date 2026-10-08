@@ -70,7 +70,7 @@ export function changeRewriteIdentity(project,command){
  p.creator.rewrite={...p.creator.rewrite};p.creator.sections={...p.creator.sections};
  if(c.type==='draft'){p.creator.rewrite.identityDraft=text(c.text);return p;}
  if(p.creator.sections.characters?.locked)fail('人物资料已锁定，请先解锁再修改或确认。');
- let next;
+ let next,legacyText;
  if(c.type==='candidate')next=validateIdentityCandidate(p,c.value);
  else{
   next=clone(prior);
@@ -99,6 +99,7 @@ export function changeRewriteIdentity(project,command){
    const entry=prior.history.find(h=>h.id===c.id);if(!entry)fail('找不到人物历史。');
    const base={...p,creator:{...p.creator,rewrite:{...p.creator.rewrite,identity:entry.snapshot}}};
    next={...(entry.snapshot.people.length?validateIdentityCandidate(base,entry.snapshot):rewriteIdentity(base)),accepted:false,history:prior.history};
+   if(!next.people.length)legacyText=entry.characterText||'';
   }else fail('未知人物操作。');
   if(c.type!=='confirm'){next.revision=prior.revision+1;next.accepted=false;}
  }
@@ -108,7 +109,7 @@ export function changeRewriteIdentity(project,command){
   p.episodes=list(p.episodes).map(e=>({...e,...(text(e.result).trim()?{stale:true}:{})}));
  }
  p.creator.rewrite.identity=next;
- p.creator.sections.characters={...p.creator.sections.characters,output:identitySummary(next),accepted:next.accepted,stale:false};
+ p.creator.sections.characters={...p.creator.sections.characters,output:legacyText??identitySummary(next),accepted:next.accepted,stale:false};
  return p;
 }
 

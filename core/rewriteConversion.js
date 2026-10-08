@@ -32,8 +32,10 @@ export function conversionScope(p,target={}){
  const outline=readRewriteOutline(p.creator.sections.macroOutline?.output),groupIds=target.groupIds,eventIds=target.eventIds;
  if(groupIds&&(!Array.isArray(groupIds)||!groupIds.length||new Set(groupIds).size!==groupIds.length||groupIds.some(id=>!outline.groups.some(g=>g.id===id))))fail('要转换的大事件范围已变化。');
  if(eventIds&&(!Array.isArray(eventIds)||!eventIds.length||new Set(eventIds).size!==eventIds.length||eventIds.some(id=>!outline.groups.some(g=>g.events.some(e=>e.id===id)))))fail('要转换的小事件范围已变化。');
- const selected=outline.groups.filter(g=>(!groupIds||groupIds.includes(g.id))&&(!eventIds||g.events.some(e=>eventIds.includes(e.id)))&&(!target.onlyPending||!groupIdentityReady(p,g))).map(g=>({...g,events:g.events.filter(e=>!eventIds||eventIds.includes(e.id))}));
- return {outline,groups:selected};
+ const pending=outline.groups.filter(g=>(!groupIds||groupIds.includes(g.id))&&(!eventIds||g.events.some(e=>eventIds.includes(e.id)))&&(!target.onlyPending||!groupIdentityReady(p,g)));
+ const skipped=target.onlyPending&&!groupIds&&!eventIds?pending.filter(g=>g.locked||g.events.some(e=>e.locked)):[];
+ const selected=pending.filter(g=>!skipped.includes(g)).map(g=>({...g,events:g.events.filter(e=>!eventIds||eventIds.includes(e.id))}));
+ return {outline,groups:selected,skipped:skipped.map(g=>({id:g.id,title:g.title,reason:'大事件或组内小事件已固定，整组跳过'}))};
 }
 export function conversionTaskInput(p,target={}, {strict=false}={}){
  const identity=rewriteIdentity(p),scope=conversionScope(p,target),books=identityBooks(p);

@@ -353,7 +353,7 @@ export function applyFrameworkCommand(project,command){
  }
  assertIds(f);lockGuard(before,f,lockException);
  // Explicit review/confirmation actions are the only way to clear a stale mark.
- if(!['mainline.confirm','mainline.confirmAll','mainline.review','version.restore','node.lock'].includes(c.type))invalidate(before,f);
+ if(!['mainline.confirm','mainline.confirmAll','mainline.confirmGroups','mainline.review','version.restore','node.lock'].includes(c.type))invalidate(before,f);
  const active=f.plans.find(v=>v.id===f.activePlanId);p.episodes=active?clone(active.episodes):[];
  p.updatedAt=now();return p;
 }

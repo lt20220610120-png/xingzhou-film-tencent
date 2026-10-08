@@ -8,6 +8,8 @@ import {changeRewriteIdentity} from './rewriteIdentity.js';
 import {applyIdentityConversion,assertCanonicalRewriteProse} from './rewriteConversion.js';
 import {addRewritePlan,applyRewriteVersion} from './rewriteWorkflow.js';
 import * as storyIdentity from './rewriteStory.js';
+import {adoptOutlineVersion} from './rewriteWorldVersions.js';
+import {readRewriteOutline} from './rewriteOutline.js';
 
 test('identity and conversion run through actual task construction and adoption without automatic confirmation',async()=>{
  let p=normalizeCreatorProject(identityProject(),'script'),state={scriptProjects:[p],skills:[]};let request;
@@ -56,4 +58,12 @@ test('partial story refresh stamps only the rewritten entry and leaves other sta
  stamped.eventGroups[0].story='夏宁归还失物';const refreshed=storyIdentity.stampStoryIdentity(p,stamped,['e']);
  assert.equal(storyIdentity.storyIdentityCurrent(p,refreshed.eventGroups[0]),true);assert.equal(storyIdentity.storyIdentityCurrent(p,refreshed.eventGroups[1]),false);
  assert.throws(()=>assertCanonicalRewriteProse(p,refreshed.eventGroups[1].story),/旧名|姓名|名字/);
+});
+
+test('legacy outline version restoration never borrows a confirmed cast from the current version',()=>{
+ const p=confirmedIdentityProject(),oldOutline=identityProject().creator.sections.macroOutline.output;
+ p.creator.rewrite.outlineVersions=[{id:'legacy',number:1,output:oldOutline,target:{section:'macroOutline',task:'rewriteWorldSim',sourceIds:[]}}];
+ const restored=adoptOutlineVersion({scriptProjects:[p]},p.id,'legacy',{allowStale:true}).scriptProjects[0];
+ assert.equal(restored.creator.rewrite.identity,null);assert.equal(restored.creator.sections.characters.accepted,false);
+ assert.equal(restored.creator.sections.macroOutline.accepted,false);assert.deepEqual(readRewriteOutline(restored.creator.sections.macroOutline.output),readRewriteOutline(oldOutline));
 });

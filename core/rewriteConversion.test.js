@@ -5,6 +5,16 @@ import {changeRewriteIdentity,rewriteIdentity} from './rewriteIdentity.js';
 import {readRewriteOutline,copyOutlineGroups} from './rewriteOutline.js';
 import {conversionTaskInput,validateIdentityConversion,applyIdentityConversion,assertRewriteIdentityReady} from './rewriteConversion.js';
 import {conversionCandidate} from './test-support/rewriteConversion.test.js';
+import {conversionScope} from './rewriteConversion.js';
+
+test('bulk pending conversion skips fixed groups without changing them while explicit conversion rejects them',()=>{
+ const p=confirmedIdentityProject(),outline=readRewriteOutline(p.creator.sections.macroOutline.output);
+ const fixed={...structuredClone(outline.groups[0]),id:'fixed',locked:true,events:[{...structuredClone(outline.groups[0].events[0]),id:'fixed-e'}]};
+ outline.groups.push(fixed);p.creator.sections.macroOutline.output=JSON.stringify(outline);
+ const scope=conversionScope(p,{onlyPending:true});assert.deepEqual(scope.groups.map(g=>g.id),['g']);assert.equal(scope.skipped.length,1);
+ const next=applyIdentityConversion(p,{onlyPending:true},conversionCandidate());assert.deepEqual(readRewriteOutline(next.creator.sections.macroOutline.output).groups[1],fixed);
+ assert.throws(()=>conversionTaskInput(p,{groupIds:['fixed']},{strict:true}),/锁定|解锁/);
+});
 test('conversion preserves IDs, source references and canonical metadata through normalization',()=>{
  const p=confirmedIdentityProject(),before=readRewriteOutline(p.creator.sections.macroOutline.output),next=applyIdentityConversion(p,{},conversionCandidate()),after=readRewriteOutline(next.creator.sections.macroOutline.output);
  assert.equal(after.groups[0].id,'g');assert.equal(after.groups[0].events[0].id,'e');assert.deepEqual(after.groups[0].events[0].references,before.groups[0].events[0].references);

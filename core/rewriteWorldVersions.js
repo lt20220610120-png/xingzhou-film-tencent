@@ -47,8 +47,10 @@ export function adoptOutlineVersion(state,id,versionId,{allowStale=false}={}) {
  const previous=p.creator.sections.macroOutline?.output;
  if(previous?.trim()&&!versions.some(v=>v.output===previous))nextVersions=[...versions,{id:uid(),number:number(versions),name:'采用前的大纲备份',createdAt:new Date().toISOString(),output:previous,target:version.target,
   inputFingerprint:creatorInputFingerprint(p,version.target),inputSnapshot:rewriteWorldInput(p,version.target),changeSummary:'保留采用新版本之前的人工大纲。',identitySnapshot:p.creator.rewrite?.identity?JSON.parse(JSON.stringify(p.creator.rewrite.identity)):null}];
- let base=state;if(Object.hasOwn(version,'identitySnapshot')){const cast=version.identitySnapshot;base=updateCreatorProject(state,'script',id,{rewrite:{...p.creator.rewrite,identity:cast},...(cast?{sections:{characters:{...p.creator.sections.characters,output:identitySummary(cast),accepted:!!cast.accepted,stale:false}}}:{})});}
- const restored=project(base,id),needsConversion=!!restored.creator.rewrite?.identity&&!validateRewriteOutline(output).groups.every(g=>groupIdentityReady(restored,g));
+ const cast=version.identitySnapshot||null;
+ let base=state;
+ if(cast||p.creator.rewrite?.identity)base=updateCreatorProject(state,'script',id,{rewrite:{...p.creator.rewrite,identity:cast},sections:{characters:{...p.creator.sections.characters,output:cast?identitySummary(cast):'',accepted:!!cast?.accepted,stale:!cast}}});
+ const restored=project(base,id),needsConversion=!!p.creator.rewrite?.identity&&!cast||!!cast&&!validateRewriteOutline(output).groups.every(g=>groupIdentityReady(restored,g));
  let next=updateCreatorSection(base,'script',id,'macroOutline',{output,accepted:!needsConversion,stale:false});
  return save(next,id,nextVersions.map(v=>v.id===versionId?{...v,adoptedAt:new Date().toISOString()}:v),{activeOutlineVersionId:versionId});
 }

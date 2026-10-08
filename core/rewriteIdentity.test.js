@@ -56,3 +56,11 @@ test('ensemble leads remain separate identities instead of being merged by gende
  const c=identityCandidate();c.people.push({id:'hero2',name:'林昭',role:'femaleLead'});c.relations.push({id:'mother-edge2',fromId:'hero2',toId:'mother',type:'mother'});c.bindings[2].personId='hero2';
  assert.equal(validateIdentityCandidate(identityProject(),c).people.length,3);
 });
+
+test('restoring legacy character history retains its text without inventing confirmed identities',()=>{
+ const old=identityProject();old.creator.sections.characters.output='旧版人物分析原文';
+ const p=changeRewriteIdentity(old,{type:'candidate',value:identityCandidate()});
+ const restored=changeRewriteIdentity(p,{type:'restore',id:p.creator.rewrite.identity.history[0].id});
+ assert.equal(restored.creator.sections.characters.output,'旧版人物分析原文');
+ assert.equal(rewriteIdentity(restored).people.length,0);assert.equal(rewriteIdentity(restored).accepted,false);
+});
