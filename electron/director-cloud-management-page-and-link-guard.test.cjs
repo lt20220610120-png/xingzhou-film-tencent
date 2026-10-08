@@ -38,8 +38,11 @@ test('旧导演云记录即使缺少类型标记也可按稳定导演项目ID删
   assert.doesNotMatch(remove, /!String\(p\.genre\|\|''\)\.includes\(DIRECTOR_PROJECT_SENTINEL\)/);
 });
 
-test('普通项目卡不再直接删除已上云导演项目，统一进入云端管理', () => {
+test('普通项目卡不直接删除任一云端关联导演项目，统一进入云端管理', async () => {
   const director = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(director, /canDeleteProject=\{\(project\) => !project\.cloudProjectId\}/);
+  assert.match(director, /canDeleteProject=\{isLocalRecyclableDirector\}/);
+  const {isLocalRecyclableDirector}=await import('../core/projectRecycle.js');
+  assert.equal(isLocalRecyclableDirector({id:'local'}),true);
+  for(const marker of [{cloudProjectId:'cloud'},{collaborationProjectId:'collab'},{sourceType:'cloud'}])assert.equal(isLocalRecyclableDirector({id:'linked',...marker}),false);
   assert.match(director, /canDeleteProject, onOpenCloudManager/);
 });

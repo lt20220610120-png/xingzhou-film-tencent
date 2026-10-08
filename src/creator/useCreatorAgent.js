@@ -9,7 +9,7 @@ export function useCreatorAgent({state,setState,getState,api}) {
  const latest=useRef(state);latest.current=state; const jobs=useRef(new Map()); const [activity,setActivity]=useState({});
  const updateRecord=(kind,projectId,recordId,patch)=>setState(s=>{
   const project=s[kind==='fruit'?'fruitProjects':'scriptProjects']?.find(p=>p.id===projectId);if(!project)return s;
-  return updateCreatorProject(s,kind,projectId,{records:(project.creator?.records||[]).map(r=>r.id===recordId?{...r,...patch}:r)});
+  return updateCreatorProject(s,kind,projectId,{records:(project.creator?.records||[]).map(r=>r.id===recordId&&r.status==='running'?{...r,...patch}:r)});
  });
  const run=async({kind,projectId,target,instruction,profile,skillId,scope='project',chat=false,displayInstruction})=>{
   target={...target,scope};

@@ -1,3 +1,4 @@
+import {recycleProject,recycleState,isRecycled} from './projectRecycle.js';
 // ============================================================
 // projectStore.js — 行舟影视 领域逻辑
 // 所有函数均为纯函数：接收 state，返回新的 state（浅拷贝）
@@ -68,17 +69,46 @@ export const normalizeState = (partial) => {
   const customIds = new Set(customGroups.map((group) => group.id));
   return {
     ...merged,
-    fruitProjects: merged.fruitProjects.filter(Boolean).map(project => normalizeCreatorProject(project, 'fruit')),
-    scriptProjects: merged.scriptProjects.filter(Boolean).map(project => normalizeCreatorProject(project, 'script')),
+    projectRecycle: recycleState(merged),
+    fruitProjects: merged.fruitProjects.filter(p=>p&&!isRecycled(merged,'fruit',p.id)).map(project => normalizeCreatorProject(project, 'fruit')),
+    scriptLibrary: merged.scriptLibrary.filter(p=>p&&!isRecycled(merged,'library',p.id)),
+    scriptProjects: merged.scriptProjects.filter(p=>p&&!isRecycled(merged,'script',p.id)).map(project => normalizeCreatorProject(project, 'script')),
     directorGroups: [...DIRECTOR_FIXED_GROUPS.map((group) => ({ ...group })), ...customGroups],
-    directorProjects: merged.directorProjects.filter(Boolean).map((project) => ({ ...project, groupId: directorGroupId(project, customIds) })),
+    directorProjects: merged.directorProjects.filter(p=>p&&!isRecycled(merged,'director',p.id)).map((project) => ({ ...project, groupId: directorGroupId(project, customIds) })),
   };
 };
 
-export const mergePersistedState = (current, saved) => {
+// Both files can lag independently. Never replace the complete main-file array
+// with an empty or stale secondary array before applying recycle tombstones.
+export const mergeDirectorSnapshot = (saved, secondary) => {
+  if(!Array.isArray(secondary))return saved;
+  const byId=new Map((saved?.directorProjects||[]).filter(Boolean).map(p=>[p.id,p]));
+  for(const project of secondary.filter(Boolean)){
+    const main=byId.get(project.id);
+    if(!main||(Date.parse(project.updatedAt||project.createdAt)||0)>(Date.parse(main.updatedAt||main.createdAt)||0))byId.set(project.id,project);
+  }
+  return {...(saved||{}),directorProjects:[...byId.values()]};
+};
+
+export const mergePersistedState = (current, saved, { recoverRecycle = true } = {}) => {
   if (!saved) return normalizeState(current);
   const local = normalizeState(current);
   const disk = normalizeState(saved);
+  // The main file and browser cache are replicas from one serialized writer.
+  // Recover the newest recycle transaction as a whole (including purges and
+  // restores); unioning snapshots would bring permanently cleared items back.
+  // Directory switching opts out: the destination owns its recycle history.
+  const localBin=local.projectRecycle,diskBin=disk.projectRecycle;
+  const lt=Date.parse(localBin.updatedAt)||0,dt=Date.parse(diskBin.updatedAt)||0;
+  const newerLocal=recoverRecycle&&(lt>dt||lt===dt&&(localBin.revision||0)>(diskBin.revision||0));
+  const projectRecycle=newerLocal?localBin:diskBin;
+  const recoveredCollections={};
+  if(newerLocal)for(const [kind,collection] of Object.entries({script:'scriptProjects',fruit:'fruitProjects',library:'scriptLibrary'})){
+    const lastActions=new Map(localBin.audit.filter(a=>a.kind===kind).map(a=>[a.projectId,a.action]));
+    const restored=local[collection].filter(p=>lastActions.get(p.id)==='restored');
+    const restoredById=new Map(restored.map(p=>[p.id,p]));
+    recoveredCollections[collection]=[...disk[collection].filter(p=>!restoredById.has(p.id)),...restored];
+  }
   const byId = new Map((disk.directorProjects || []).map((project) => [project.id, project]));
   for (const project of local.directorProjects || []) {
     const existing = byId.get(project.id);
@@ -88,7 +118,7 @@ export const mergePersistedState = (current, saved) => {
   }
   const localWorkflow=local.generationWorkflow,diskWorkflow=disk.generationWorkflow;
   const generationWorkflow=(Date.parse(localWorkflow?.updatedAt||0)||0)>(Date.parse(diskWorkflow?.updatedAt||0)||0)?localWorkflow:diskWorkflow;
-  return normalizeState({ ...disk, generationWorkflow, directorProjects: [...byId.values()] });
+  return normalizeState({ ...disk, ...recoveredCollections, projectRecycle, generationWorkflow, directorProjects: [...byId.values()] });
 };
 
 // ---------- 通用不可变更新辅助 ----------
@@ -155,10 +185,7 @@ export const setRating = (state, projectId, rating) => {
   return { ...state, fruitProjects: projects };
 };
 
-export const deleteFruitProject = (state, projectId) => ({
-  ...state,
-  fruitProjects: state.fruitProjects.filter(p => p.id !== projectId),
-});
+export const deleteFruitProject = (state, projectId) => recycleProject(state,'fruit',projectId);
 
 const groupKeys = { fruit: ['fruitGroups', 'fruitProjects'], script: ['scriptGroups', 'scriptProjects'] };
 export const createProjectGroup = (state, kind, name) => {
@@ -228,10 +255,7 @@ export const createScriptProject = (state, name, mode = 'rewrite') => {
   return { ...state, scriptProjects: [...state.scriptProjects, project] };
 };
 
-export const deleteScriptProject = (state, projectId) => ({
-  ...state,
-  scriptProjects: state.scriptProjects.filter(p => p.id !== projectId),
-});
+export const deleteScriptProject = (state, projectId) => recycleProject(state,'script',projectId);
 
 export const updateScriptProject = (state, projectId, updates) => {
   const projects = state.scriptProjects.map(p =>
@@ -303,10 +327,7 @@ export const archiveScript = (state, name, sourceMode, content) => ({
   ],
 });
 
-export const deleteScriptLibraryItem = (state, id) => ({
-  ...state,
-  scriptLibrary: state.scriptLibrary.filter(item => item.id !== id),
-});
+export const deleteScriptLibraryItem = (state, id) => recycleProject(state,'library',id);
 
 // ==============================
 //  Skills CRUD
@@ -472,10 +493,7 @@ export const importDirectorProject = (state, sourceId, sourceType, masterScript)
   return { ...state, directorProjects: [...state.directorProjects, project] };
 };
 
-export const deleteDirectorProject = (state, projectId) => ({
-  ...state,
-  directorProjects: state.directorProjects.filter(p => p.id !== projectId),
-});
+export const deleteDirectorProject = (state, projectId) => recycleProject(state,'director',projectId);
 
 export const updateDirectorProject = (state, projectId, updates) => ({
   ...state,

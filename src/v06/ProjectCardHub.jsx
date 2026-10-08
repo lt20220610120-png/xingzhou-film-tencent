@@ -6,12 +6,14 @@ import { defaultProjectGroupName } from '../../core/projectGroups.js';
 
 export function ProjectCardHub({
   title, subtitle, projects, onCreate, onOpen, onDelete, kind = 'project',
-  onLibraryCollab, canLibraryCollab=false, onImportLibrary, onUpload, onUploadCompleted, library, headerExtra,
+  deleteDetail, onLibraryCollab, canLibraryCollab=false, onImportLibrary, onUpload, onUploadCompleted, library, headerExtra,
   groups = [], onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup,
   onManageCollab, canManageCollab = () => false, canDeleteProject = () => true,
 }) {
   const isDirector = !!onUpload && !!library;
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
+  const trash=async()=>{if(deleting||!deleteTarget)return;setDeleting(true);setDeleteError('');try{await onDelete?.(deleteTarget.id);setDeleteTarget(null);}catch(e){setDeleteError(e.message||'项目未能移入回收站，请重试');}finally{setDeleting(false);}};
   const [searchQuery, setSearchQuery] = useState('');
   const groupMemoryKey = `xz-cardhub-group-${kind}`;
   const readGroup = () => {
@@ -151,7 +153,7 @@ export function ProjectCardHub({
           </article>;
         })}
       </div>
-      <DeleteConfirm open={!!deleteTarget} title="删除项目" name={deleteTarget?.name} detail="项目及其中所有分集内容都会删除，此操作无法恢复。" onCancel={() => setDeleteTarget(null)} onConfirm={() => { onDelete?.(deleteTarget.id); setDeleteTarget(null); }}/>
+      <DeleteConfirm open={!!deleteTarget} title="删除项目" name={deleteTarget?.name} detail={deleteDetail||'项目及完整内容会移入本地回收站，可按回收站规则恢复。'} confirmLabel="移入回收站" busy={deleting} error={deleteError} onCancel={() => {setDeleteTarget(null);setDeleteError('');}} onConfirm={trash}/>
       {groupDialog && createPortal(<div className="veil group-dialog-veil" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null); }}>
           <form className="modal group-dialog" onSubmit={submitGroup}>
             <h2>{groupDialog.mode === 'rename' ? '重命名分组' : '新建分组'}</h2>

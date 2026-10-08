@@ -1,3 +1,4 @@
+import {recycleDeleteDetail,isLocalRecyclableDirector} from '../../core/projectRecycle.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { prepareLibraryDirector } from '../../core/directorLibrary.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
@@ -38,7 +39,7 @@ import { directorSettingsHash } from '../../core/directorQuickStore.js';
 /* ================================================================
  * ProjectCards - 导演工作台项目选择页
  * ================================================================ */
-function ProjectCards({ projects, groups, library, onOpen, onDelete, onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup, onImportLibrary, onUpload, onManageCollab, canManageCollab, canDeleteProject, onOpenCloudManager, onLibraryCollab, canLibraryCollab }) {
+function ProjectCards({ deleteDetail, projects, groups, library, onOpen, onDelete, onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup, onImportLibrary, onUpload, onManageCollab, canManageCollab, canDeleteProject, onOpenCloudManager, onLibraryCollab, canLibraryCollab }) {
   return (
     <ProjectCardHub
       title="选择一部剧本开始导演创作"
@@ -49,6 +50,7 @@ function ProjectCards({ projects, groups, library, onOpen, onDelete, onRename, o
       kind="director"
       onOpen={onOpen}
       onDelete={onDelete}
+      deleteDetail={deleteDetail}
       onRename={onRename}
       onMoveToGroup={onMoveToGroup}
       onCreateGroup={onCreateGroup}
@@ -1040,6 +1042,9 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   // 处理删除项目
   const handleDeleteProject = async (id) => {
     const target = directorProjects.find((project) => project.id === id);
+    if(target&&!target.cloudProjectId&&!isLocalRecyclableDirector(target))throw new Error('该项目关联云端协作，请使用云端项目管理。');
+    const jobPrefix=JSON.stringify([accountId,id]).slice(0,-1)+',';
+    if(directorJobs.entries().some(([key,job])=>key.startsWith(jobPrefix)&&job.status==='running')||quickGeneration?.isProjectBatchActive(id)||quickGeneration?.runs.some(run=>run.snapshot.projectId===id&&isQuickRunActive(run)))throw new Error('本项目仍在生成，请先停止任务或等待完成，再移入回收站。');
     if (target?.cloudProjectId) {
       try {
         await api.directorCollabDeleteProject({ projectId: target.cloudProjectId });
@@ -1049,10 +1054,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         return;
       }
     }
-    setState((s) => ({
-      ...s,
-      directorProjects: s.directorProjects.filter((p) => p.id !== id && (!target?.cloudProjectId || p.cloudProjectId !== target.cloudProjectId)),
-    }));
+    setState(s=>target?.cloudProjectId?{...s,directorProjects:s.directorProjects.filter((p) => p.id !== id && (!target?.cloudProjectId || p.cloudProjectId !== target.cloudProjectId))}:deleteDirectorProject(s,id));
     if (selectedProjectId === id) {
       setSelectedProjectId(null);
       setActivePane('master');
@@ -1080,6 +1082,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           library={scriptLibrary}
           onOpen={handleOpenProject}
           onDelete={handleDeleteProject}
+          deleteDetail={recycleDeleteDetail(state)}
           onRename={(id, name) => setState((s) => updateDirectorProject(s, id, { name }))}
           onMoveToGroup={(id, groupId) => setState((s) => updateDirectorProject(s, id, { groupId }))}
           onCreateGroup={(name) => setState((s) => createDirectorGroup(s, name))}
@@ -1091,7 +1094,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           onUpload={handleUpload}
           onManageCollab={(project) => setCollabTarget({ project, cloud: cloudForProject(project) })}
           canManageCollab={(project) => canManageDirectorCollab(project, isProducer)}
-          canDeleteProject={(project) => !project.cloudProjectId}
+          canDeleteProject={isLocalRecyclableDirector}
           onOpenCloudManager={isProducer ? () => setCloudManagerOpen(true) : null}
         />
         {collabTarget && <DirectorCollabDialog project={collabTarget.project} cloudProject={collabTarget.cloud} canManage={isProducer && (!collabTarget.cloud || collabTarget.cloud.myRole === 'producer')} api={api} onClose={() => setCollabTarget(null)} onChanged={changeCollab} />}
@@ -1167,7 +1170,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         open={!!deleteTarget}
         title="删除导演项目"
         name={deleteTarget?.name}
-        detail="项目中的分集和全部导演提示词都会删除。"
+        detail={recycleDeleteDetail(state)} confirmLabel="移入回收站"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
           handleDeleteProject(deleteTarget.id);

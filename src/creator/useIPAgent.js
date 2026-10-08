@@ -15,14 +15,15 @@ export function useIPAgent({state,setState,getState,api}){
   const id=`ip-task-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,job={id,cancelled:false,current:id,active:new Set()};jobs.current.set(projectId,job);
   const record={id,type:'ip-task',target:{episodeId},task,model:profile?.model,instruction,createdAt:new Date().toISOString(),status:'running',generation:{status:'running',stage:task},output:'',diagnostics:[]};
   let outcome={status:'failed',stage:task,label:'任务未完成'};
-  const patch=delta=>setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,records:p.creator.records.map(r=>r.id===id?{...r,...delta}:r)}})));
+  const patch=delta=>setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,records:p.creator.records.map(r=>r.id===id&&r.status==='running'?{...r,...delta}:r)}})));
   setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,records:[...p.creator.records,record]}})));
   try{
    const result=await runIPTask({api,project,task,episodeId,profile,instruction,taskId:id,isCancelled:()=>job.cancelled,allowReviewedPrevious:fromQueue,firstDraftMode,
     onRequestStart:taskId=>job.active.add(taskId),onRequestEnd:taskId=>job.active.delete(taskId),
     onProgress:a=>{job.current=a.taskId;setActivity(s=>({...s,[projectId]:{...a,running:true,status:'running',stage:task}}));},
-    onRead:r=>setState(s=>mutateIP(s,projectId,p=>p.creator.ip.source?.id!==r.sourceId?p:{...p,creator:{...p.creator,ip:{...p.creator.ip,reading:[...(p.creator.ip.reading||[]).filter(old=>!(old.start===r.start&&old.end===r.end)),r].sort((a,b)=>a.start-b.start||a.end-b.end)}}})),
+    onRead:r=>{if(!job.cancelled)setState(s=>mutateIP(s,projectId,p=>p.creator.ip.source?.id!==r.sourceId?p:{...p,creator:{...p.creator,ip:{...p.creator.ip,reading:[...(p.creator.ip.reading||[]).filter(old=>!(old.start===r.start&&old.end===r.end)),r].sort((a,b)=>a.start-b.start||a.end-b.end)}}}));},
     onDraft:v=>{
+     if(job.cancelled)return;
      if(v.type==='version'){
       let changed=false;
       setState(s=>{const target=v.episodeId||episodeId,p=getIPProject(s,projectId),unchanged=ipFingerprint(p,target)===v.fingerprint;changed=!unchanged;return appendIPVersion(s,projectId,target,{...v,model:profile.model,stale:!unchanged},{activate:task==='firstDraft'&&unchanged,invalidateLater:false});});

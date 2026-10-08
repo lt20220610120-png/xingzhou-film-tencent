@@ -1,4 +1,4 @@
-export const SHARED_WORKSPACES=['skills','apis','settings','admin'];
+export const SHARED_WORKSPACES=['skills','apis','settings','recycle','admin'];
 export const ROLE_WORKSPACES={creator:['fruit','studio','scripts'],director:['director','collab','generation','canvas']};
 
 export function navigationForRole({account,targetRole,currentNav,remembered}){

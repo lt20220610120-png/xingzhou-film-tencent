@@ -48,6 +48,28 @@ module.exports = function configurePackagedSmoke(app) {
         const restoredWorld=await win.webContents.executeJavaScript('window.xingzhou.loadState()');
         const loadedProject=normalizeState(restoredWorld).scriptProjects.find(p=>p.id==='world-smoke');
         report.worldSimulation={module:true,localRoundTrip:worldEngine.branchState(loadedProject.creator.worldSimulation.worlds[0]).characters.hero.name==='安装包测试人物',originalBody:loadedProject.episodes[0].result==='原正文'};
+        const recycle=await import(pathToFileURL(path.join(__dirname,'../core/projectRecycle.js')).href);
+        const {mergePersistedState,mergeDirectorSnapshot}=await import(pathToFileURL(path.join(__dirname,'../core/projectStore.js')).href);
+        const localDirector={id:'recycle-director',name:'回收站导演验收',episodes:[{id:'scene',prompts:[{text:'保留提示词'}]}]};
+        let trashed=normalizeState({...restoredWorld,directorProjects:[localDirector]});
+        trashed=recycle.recycleProject(trashed,'script','world-smoke');trashed=recycle.recycleProject(trashed,'director',localDirector.id);
+        await win.webContents.executeJavaScript(`window.xingzhou.saveState(${JSON.stringify(trashed)})`);
+        await win.webContents.executeJavaScript(`window.xingzhou.saveDirectorProjects(${JSON.stringify([localDirector])})`);
+        const binSaved=await win.webContents.executeJavaScript('window.xingzhou.loadState()');
+        const staleDirectors=await win.webContents.executeJavaScript('window.xingzhou.loadDirectorProjects()');
+        const mergedBin=mergePersistedState({}, mergeDirectorSnapshot(binSaved,staleDirectors));
+        const item=recycle.recycleState(mergedBin).items.find(i=>i.kind==='script');
+        const restoredBin=recycle.restoreRecycledProject(mergedBin,item.id);
+        await win.webContents.executeJavaScript(`window.xingzhou.saveState(${JSON.stringify(restoredBin)})`);
+        const savedRestore=normalizeState(await win.webContents.executeJavaScript('window.xingzhou.loadState()'));
+        const directorItem=savedRestore.projectRecycle.items.find(i=>i.kind==='director');
+        const restoredDirector=recycle.restoreRecycledProject(savedRestore,directorItem.id);
+        await win.webContents.executeJavaScript(`window.xingzhou.saveState(${JSON.stringify(restoredDirector)})`);
+        await win.webContents.executeJavaScript('window.xingzhou.saveDirectorProjects([])');
+        const restoredMain=await win.webContents.executeJavaScript('window.xingzhou.loadState()');
+        const emptySecondary=await win.webContents.executeJavaScript('window.xingzhou.loadDirectorProjects()');
+        const reopenedDirector=mergePersistedState(trashed,mergeDirectorSnapshot(restoredMain,emptySecondary));
+        report.projectRecycle={sevenDays:recycle.recycleState(binSaved).policy.retentionDays===7,fullSnapshot:item.project.episodes[0].result==='原正文',secondaryFileSuppressed:mergedBin.directorProjects.length===0,restoredId:savedRestore.scriptProjects[0].id==='world-smoke',restoredBody:savedRestore.scriptProjects[0].episodes[0].result==='原正文',audit:recycle.recycleState(savedRestore).audit.some(r=>r.action==='restored'),mainRestoreSurvivesEmptySecondary:reopenedDirector.directorProjects[0]?.id===localDirector.id};
         let ipState = ip.createIPProject({fruitProjects:[],scriptProjects:[],scriptLibrary:[]},{name:'安装包 IP 验证',duration:60});
         const ipId = ipState.fruitProjects[0].id;
         const novel = '第一章 归还\r\n女主归还包。\r\n第二章 相识\r\n两人相识。';
@@ -134,7 +156,7 @@ module.exports = function configurePackagedSmoke(app) {
         report.security.canvasEmbedded=report.security.canvasEmbedded===true;
         if(!embedded)report.canvasDiagnostics={frames:win.webContents.mainFrame.frames.map(frame=>frame.url)};
         await win.webContents.executeJavaScript("document.querySelector('#security-canvas-check')?.remove()");
-        finish(Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && Object.values(report.projectRecycle).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

@@ -6,7 +6,7 @@ const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
 
 test('本地导演项目刷新后以函数式合并加载，不能被启动时旧 state 覆盖', () => {
   const app = read('src/App.jsx');
-  assert.match(app, /mergePersistedState\(current, directorProjects \? \{/);
+  assert.match(app, /mergePersistedState\(current, mergeDirectorSnapshot\(saved,directorProjects\)/);
   assert.doesNotMatch(app, /api\.saveState\(state\);/);
 });
 

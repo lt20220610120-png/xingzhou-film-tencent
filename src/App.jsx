@@ -1,3 +1,5 @@
+import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
+import {cleanupRecycle} from '../core/projectRecycle.js';
 import {FormattedEditor} from './components/FormattedText.jsx';
 import {UserProfile} from './v06/UserProfile.jsx';
 import {SidebarGroup} from './components/SidebarGroup.jsx';
@@ -20,7 +22,7 @@ import {
   cleanupChatSessions, createInitialState, createProject, createScriptProject,
   createProjectGroup, renameProjectGroup, deleteProjectGroup, organizeProject,
   deleteFruitProject, deleteScriptProject, deleteScriptLibraryItem,
-  normalizeState, mergePersistedState,
+  normalizeState, mergePersistedState, mergeDirectorSnapshot,
   setRating, updateEpisode, updateScriptEpisode,
   updateScriptProject,
 } from '../core/projectStore.js';
@@ -1105,7 +1107,8 @@ function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir
       const result = await (api.applyDataDir?api.applyDataDir(savedSnapshot || state):api.selectDataDir(savedSnapshot || state));
       if (result) {
         setStorageInfo(result.info);
-        if (result.state) setState((current) => mergePersistedState(current, result.directorProjects ? { ...result.state, directorProjects: result.directorProjects } : result.state));
+        if (result.state) setState((current) => mergePersistedState(current, mergeDirectorSnapshot(result.state,result.directorProjects),{recoverRecycle:false}));
+        try { if(result.info?.dataDir)localStorage.setItem(STORAGE+'-data-dir',result.info.dataDir); } catch { /* disk remains primary */ }
       }
     }catch(e){setDirectoryError(e.message||'切换资料位置失败');}
     finally{if(holding)afterSelectDataDir?.();setSelectingDirectory(false);}
@@ -1289,8 +1292,11 @@ function App() {
   // 加载持久化状态
   const loadSavedState = useCallback(async () => {
     try {
-      const [saved, directorProjects] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null)]);
-      setState(current => recoverCreatorTasks(mergePersistedState(current, directorProjects ? { ...(saved || {}), directorProjects } : saved)));
+      const [saved, directorProjects, info] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null), api.storageInfo()]);
+      const cachedDirectory=localStorage.getItem(STORAGE+'-data-dir');
+      const recoverRecycle=!cachedDirectory||cachedDirectory===info.dataDir;
+      setState(current => recoverCreatorTasks(mergePersistedState(current, mergeDirectorSnapshot(saved,directorProjects),{recoverRecycle})));
+      try { localStorage.setItem(STORAGE+'-data-dir',info.dataDir); } catch { /* disk remains primary */ }
       setStorageLoadError('');
       setInitialized(true);
     } catch (error) { setInitialized(false); setStorageLoadError(error.message || '本地资料读取失败'); }
@@ -1354,6 +1360,8 @@ function App() {
     }
   }, [initialized]);
 
+  useEffect(()=>{if(!initialized)return;const check=()=>setState(s=>cleanupRecycle(s));check();const timer=setInterval(check,60*60*1000);return()=>clearInterval(timer);},[initialized,setState]);
+
   // 角色选择
   const enterRole = (r) => {
     const nextNav=navigationForRole({account,targetRole:r,currentNav:nav,remembered:rolePages.current[r]});
@@ -1413,6 +1421,7 @@ function App() {
     ['skills', Library, 'Skill 库'],
     ['apis', KeyRound, 'API 接口'],
     ['settings', Settings, '设置'],
+    ['recycle', Trash2, '回收站'],
   ];
   const directorNav = [
     ['director', Film, '导演工作台'],
@@ -1460,6 +1469,7 @@ function App() {
         {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
         {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
+        {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
         {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} active={!!role&&nav==='admin'}/></WorkspacePresence>}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
