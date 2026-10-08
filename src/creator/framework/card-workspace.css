@@ -154,9 +154,14 @@
 .content:has(>.workspace-preserved:not([hidden]) .fw-workspace){height:100dvh;min-height:0;overflow:clip}
 .workspace-preserved:has(>.fw-workspace){height:100dvh;min-height:0;overflow:clip}
 .fw-workspace{height:100dvh;max-height:100dvh}
-.fw-scene-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0;color:#596b82;font-size:14px}
-.fw-scene-toolbar>label{display:flex;align-items:center;gap:10px;min-width:0}
-.fw-scene-toolbar select{width:min(420px,100%);max-width:100%}
+.fw-scene-toolbar{margin:10px 0;color:#596b82;font-size:14px;flex:none}
+.fw-scene-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.fw-scene-heading small{color:#8490a4}
+.fw-scene-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:8px;width:100%}
+.fw-scene-cards button{min-height:42px;min-width:0;border:1px solid #dce2ed;border-radius:8px;background:#fff;color:#596b82;font-size:14px;font-variant-numeric:tabular-nums;padding:8px 5px}
+.fw-scene-cards button:hover{border-color:#b6a4df;background:#faf7ff}
+.fw-scene-cards button.active{border-color:#b6a4df;background:#eee7fa;color:#66509c;font-weight:600}
+.fw-scene-cards button:focus-visible{outline:2px solid #8a74ca;outline-offset:2px}
 .fw-scene-reading{flex:1;min-height:180px;max-height:58vh;overflow:auto;border:1px solid #dce2ed;border-radius:8px;padding:18px;font-size:16px;line-height:1.9;white-space:pre-wrap}
 .fw-script-stats{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:#65738a;font-size:14px;margin:8px 0}
 .fw-script-stats small{font-size:12px}
@@ -165,4 +170,4 @@
 .fw-plan-count-options input{width:110px}
 .creator-dialog.fw-plan-requirements>footer .fw-model-select{display:flex;flex-direction:row;align-items:center;margin-right:auto;gap:8px;min-width:0}
 
-.fw-scene-toolbar>label{flex:1 1 300px;max-width:100%}.fw-scene-toolbar>label>span{white-space:nowrap;flex:none}.fw-scene-toolbar select{flex:1;min-width:0}.fw-scene-reading .formatted-text{font-size:16px;line-height:1.9}
+.fw-scene-reading .formatted-text{font-size:16px;line-height:1.9}

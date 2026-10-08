@@ -5,7 +5,7 @@ const {spawnBackgroundBrowser}=require('./windows-background-browser.cjs');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const abortError=()=>Object.assign(new Error('任务已停止'),{name:'AbortError'});
 const check=signal=>{if(signal?.aborted)throw abortError();};
-function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrowser,spawn=nativeSpawn,WebSocket=global.WebSocket,startupTimeoutMs=30000}={}){
+function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrowser,spawn=nativeSpawn,WebSocket=global.WebSocket,startupTimeoutMs=30000,interactiveBackground=false}={}){
  if(!profileDir||!url||!name)throw new Error('独立浏览器配置缺失');
  const profile=path.resolve(profileDir);
  if(/[/\\](?:Microsoft[/\\]Edge|Google[/\\]Chrome)[/\\]User Data(?:[/\\]|$)/i.test(profile))throw new Error('必须使用行舟影视独立浏览器资料目录');
@@ -54,9 +54,10 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   fs.mkdirSync(profile,{recursive:true});const portFile=path.join(profile,'DevToolsActivePort');
   try{fs.unlinkSync(portFile);}catch{}
   try{
-  child=spawnBackgroundBrowser(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling',url],{spawn});
+  child=spawnBackgroundBrowser(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling',url],{spawn,interactiveDesktop:interactiveBackground});
   const launched=child;launched.once('error',()=>{launched.launchFailed=true;});
   await attach(signal,Date.now()+startupTimeoutMs);
+  if(interactiveBackground&&!visible){const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{signal,timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}},null,{signal,timeout:5000});}
   }catch(error){
    // A failed initial connection must release the owned browser/profile now,
    // so a later refresh or explicit login does not inherit a stale lock.
@@ -68,6 +69,11 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   check(signal);const r=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},session,{signal,timeout});
   if(r.exceptionDetails)throw new Error(`${name} 网页执行失败，请重新检查连接`);return r.result?.value;
  }
+ async function revealLogin(){
+  await ensure();const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{timeout:5000});
+  await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal'}},null,{timeout:5000});
+  await command('Page.bringToFront',{},session,{timeout:5000});await child?.changeWindowState?.('show');visible=true;
+ }
  return {loginMessage,installed:()=>!!locate(),ensure,evaluate,
   command:(method,params={},options={})=>command(method,params,session,options),
   navigate:async(target=url,signal)=>{
@@ -77,14 +83,22 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
    throw new Error(`${name} 网页加载超时，请检查网络`);
   },
   openLogin:async()=>{
-   if(child&&child.exitCode==null){await ensure();visible=true;const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal'}},null,{timeout:5000});await command('Page.bringToFront',{},session,{timeout:5000});return;}
+   if(child&&child.exitCode==null){await revealLogin();return;}
    await closeBrowser();if(closed)throw new Error(`${name} 服务已停止`);
    const executable=locate();if(!executable)throw new Error('本机未找到 Edge 或 Chrome');fs.mkdirSync(profile,{recursive:true});
    try{fs.unlinkSync(path.join(profile,'DevToolsActivePort'));}catch{}
    const own=spawn(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling',url],{windowsHide:false,shell:false,stdio:'ignore'});child=own;visible=true;
-   own.once('exit',()=>{if(child===own){child=null;visible=false;}});own.once('error',()=>{if(child===own){child=null;visible=false;}});
+   own.once('exit',()=>{if(child===own){child=null;visible=false;}});own.once('error',()=>{own.launchFailed=true;});
+   // Do not report success before the process has an attached, restored window.
+   try{await revealLogin();}catch(error){
+    // A spawn error can emit close without exit, leaving exitCode null even
+    // though no browser process exists. Keep real verification windows, but
+    // discard that failed launch so the user's next click can try again.
+    if(own.launchFailed&&!own.pid&&child===own){child=null;visible=false;const stale=connection;connection=null;session=null;targetId=null;stale?.disconnect();}
+    throw error;
+   }
   },
-  backgroundLogin:async(signal)=>{if(!visible||!connection||!targetId)return;const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{signal,timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}},null,{signal,timeout:5000});},
+  backgroundLogin:async(signal)=>{if(!visible||!connection||!targetId)return;const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{signal,timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}},null,{signal,timeout:5000});await child?.changeWindowState?.('minimize');},
   // A timed-out check must not interrupt the user's explicit verification
   // window. Reconnect its transport on the next refresh without a restart.
   reset:async()=>{if(child&&child.exitCode==null){const own=connection;connection=null;session=null;targetId=null;own?.disconnect();return;}await closeBrowser();},

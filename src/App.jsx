@@ -1,5 +1,6 @@
 import {FormattedEditor} from './components/FormattedText.jsx';
 import {UserProfile} from './v06/UserProfile.jsx';
+import {SidebarGroup} from './components/SidebarGroup.jsx';
 import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
@@ -1219,6 +1220,9 @@ function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir
 function App() {
   const [role, setRole] = useState(null);
   const [nav, setNav] = useState('fruit');
+  const [creatorDestination,setCreatorDestination]=useState(null),[creatorSection,setCreatorSection]=useState({});
+  const chooseCreatorSection=(area,tab)=>{setCreatorDestination({area,tab,id:crypto.randomUUID()});setNav(area);};
+  const rememberCreatorSection=useCallback(section=>setCreatorSection(current=>current[section.area]===section.tab?current:{...current,[section.area]:section.tab}),[]);
   const lastCreatorArea=useRef('fruit');
   if(['fruit','studio','scripts'].includes(nav))lastCreatorArea.current=nav;
   const [canvasRoute, setCanvasRoute] = useState(() => localStorage.getItem('xz-canvas-last-route') || '#/canvas');
@@ -1419,7 +1423,7 @@ function App() {
       <nav className="sidebar" id="app-sidebar">
         <BrandLogo compact />
         <UserProfile account={account} api={api} onUpdate={setAccount} role={role}/>
-        {navItems.map(([key, Icon, label]) => (
+        {navItems.map(([key, Icon, label]) => ['fruit','studio'].includes(key)?<SidebarGroup key={key} label={label} Icon={Icon} active={nav===key} selected={creatorSection[key]} items={key==='fruit'?[{id:'fruit',label:'果子库'},{id:'ip',label:'IP 库'}]:[{id:'rewrite',label:'洗稿'},{id:'original',label:'原创'}]} onNavigate={()=>setNav(key)} onSelect={tab=>chooseCreatorSection(key,tab)}/>:(
           <button key={key} aria-label={label} title={label} className={nav === key ? 'active' : ''} onClick={() => setNav(key)}>
             <Icon size={19} />
             <span>{label}</span>
@@ -1443,7 +1447,7 @@ function App() {
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
-        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
+        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
         {nav === 'skills' && <SkillLibrary state={state} setState={setState} />}
         {nav === 'apis' && <ApiLibrary state={state} setState={setState} />}
         {nav === 'settings' && <SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} />}

@@ -70,7 +70,10 @@ function startNewChat(){
 }
 
 function createChatGPTWebService(options={}){
- const browser=(options.browserFactory||createOwnedWebBrowser)({...options,url:URL,name:'ChatGPT'});
+ // Manual verification must be reachable on the user's Windows desktop.
+ // Start minimized there; a window on a separate desktop cannot be revealed
+ // by CDP's restore/bringToFront commands.
+ const browser=(options.browserFactory||createOwnedWebBrowser)({...options,url:URL,name:'ChatGPT',interactiveBackground:true});
  let queue=Promise.resolve(),closed=false,pendingOperations=0,statusPromise,lastState;
  const busyState=()=>({...lastState,installed:browser.installed(),loggedIn:lastState?.loggedIn??false,authState:lastState?.authState||'unknown',models:lastState?.models||[],running:true,code:'WEB_BUSY',message:'ChatGPT 正在处理已有任务，请等待任务结束或停止任务后刷新连接。'});
  const serialized=(fn,signal)=>{

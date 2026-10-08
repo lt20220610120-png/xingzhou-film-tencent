@@ -20,7 +20,7 @@ import { useIPAgent } from './useIPAgent.js';
 const readMemory=(key,fallback)=>{try{return localStorage.getItem(key)||fallback;}catch{return fallback;}};
 const remember=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 const names={fruit:'果子库',rewrite:'洗稿',free:'原创·自由创作',framework:'原创·框架式创作'};
-export function CreatorWorkspace({area,state,setState,getState,api,onNavigate,onSave,saveStatus}) {
+export function CreatorWorkspace({area,destination,onSectionChange,state,setState,getState,api,onNavigate,onSave,saveStatus}) {
  const [channel,setChannel]=useState(readMemory('xz-creator-channel','rewrite')),[originalFilter,setOriginalFilter]=useState('all');
  const [fruitId,setFruitId]=useState(readMemory('xz-creator-fruit','')),[scriptId,setScriptId]=useState(readMemory('xz-creator-script','')),[active,setActive]=useState('master');
  const [create,setCreate]=useState(false),[name,setName]=useState(''),[newMode,setNewMode]=useState('free'),[newGroup,setNewGroup]=useState(''),[exportOpen,setExportOpen]=useState(false),[archiveOpen,setArchiveOpen]=useState(false),[sourceOpen,setSourceOpen]=useState(false),[pendingSource,setPendingSource]=useState(null),[error,setError]=useState(''),[addNode,setAddNode]=useState(false),[nodeTitle,setNodeTitle]=useState(''),[nodeType,setNodeType]=useState('episode'),[materials,setMaterials]=useState(false),[collapsed,setCollapsed]=useState(false);
@@ -38,6 +38,15 @@ export function CreatorWorkspace({area,state,setState,getState,api,onNavigate,on
  const select=(id,selectedKind=kind)=>{const p=state[selectedKind==='fruit'?'fruitProjects':'scriptProjects'].find(p=>p.id===id);if(selectedKind==='fruit'){setFruitId(id);remember('xz-creator-fruit',id);}else{setScriptId(id);remember('xz-creator-script',id);if(p){const next=normalizeCreatorProject(p,'script').creator.mode==='rewrite'?'rewrite':'original';setChannel(next);remember('xz-creator-channel',next);}}setActive(p?.creator?.mode==='framework'?'inspiration':p?.mode==='rewrite'&&!p?.creator?.source?'source':p?.episodes?.[0]?.id||'master');setError('');};
  const goBack=()=>{if(kind==='fruit'){setFruitId('');remember('xz-creator-fruit','');}else{setScriptId('');remember('xz-creator-script','');}setActive('master');};
  const setMode=next=>{setChannel(next);remember('xz-creator-channel',next);setScriptId('');remember('xz-creator-script','');};
+ // A sidebar category opens its project list even if a project of another
+ // category is currently selected. Do not remount the persistent workspace.
+ useEffect(()=>{
+  if(!destination||destination.area!==area)return;
+  if(area==='fruit'&&['fruit','ip'].includes(destination.tab))switchFinished(destination.tab);
+  if(area==='studio'&&['rewrite','original'].includes(destination.tab)){setMode(destination.tab);setOriginalFilter('all');}
+  setActive('master');setError('');
+ },[destination?.id]);
+ useEffect(()=>{if(['fruit','studio'].includes(area))onSectionChange?.({area,tab:area==='fruit'?finishedTab:channel});},[area,finishedTab,channel,onSectionChange]);
  const runStage=async(section,instruction='',analysis=false)=>{try{
   const saved=project.creator.runConfig?.[section]||project.creator.runConfig?.[active]||{},options=creatorModelOptions(state.apiProfiles,state.activeApiId),choice=options.find(p=>p.selectionId===saved.selection)||options[0];if(!choice)throw new Error('先在 API 接口中添加模型');
   const profile=choice;
