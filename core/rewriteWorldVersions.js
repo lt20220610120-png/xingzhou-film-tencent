@@ -1,3 +1,5 @@
+import {identitySummary} from './rewriteIdentity.js';
+import {groupIdentityReady} from './rewriteConversion.js';
 import {readWorldCandidate,rewriteWorldInput} from './rewriteWorld.js';
 import {validateRewriteOutline} from './rewriteOutline.js';
 import {storySourceOptions,referenceKey} from './rewriteStory.js';
@@ -19,14 +21,14 @@ export function addWorldSimulationVersion(state,id,recordId) {
  const version={id:`world-${recordId}`,number:number(versions),name:result.title,createdAt:record.createdAt,recordId,target:record.target,
   output:JSON.stringify(result.outline),originalOutput:record.output,instruction:record.instruction,
   changeSummary:result.changeSummary,constraintsCheck:result.constraintsCheck,inputFingerprint:record.inputFingerprint,
-  inputSnapshot:record.worldInputSnapshot||rewriteWorldInput(p,record.target)};
+  inputSnapshot:record.worldInputSnapshot||rewriteWorldInput(p,record.target),identitySnapshot:record.worldInputSnapshot?.identity||null};
  return save(state,id,[...versions,version]);
 }
 export function saveCurrentOutlineVersion(state,id,{versionId=uid()}={}) {
  const p=project(state,id),versions=rewriteOutlineVersions(p),output=JSON.stringify(validateRewriteOutline(p.creator.sections.macroOutline?.output));
  const target={section:'macroOutline',side:'output',task:'rewriteWorldSim',sourceIds:[],baseVersionId:'current'};
  const version={id:versionId,number:number(versions),name:'人工保存的大纲',createdAt:new Date().toISOString(),output,target,
-  inputFingerprint:creatorInputFingerprint(p,target),inputSnapshot:rewriteWorldInput(p,target),changeSummary:'人工保存当前大纲，保留名称、顺序及事件细节。'};
+  inputFingerprint:creatorInputFingerprint(p,target),inputSnapshot:rewriteWorldInput(p,target),changeSummary:'人工保存当前大纲，保留名称、顺序及事件细节。',identitySnapshot:p.creator.rewrite?.identity?JSON.parse(JSON.stringify(p.creator.rewrite.identity)):null};
  return save(state,id,[...versions,version]);
 }
 export function updateOutlineVersion(state,id,versionId,patch) {
@@ -44,8 +46,10 @@ export function adoptOutlineVersion(state,id,versionId,{allowStale=false}={}) {
  let nextVersions=versions;
  const previous=p.creator.sections.macroOutline?.output;
  if(previous?.trim()&&!versions.some(v=>v.output===previous))nextVersions=[...versions,{id:uid(),number:number(versions),name:'采用前的大纲备份',createdAt:new Date().toISOString(),output:previous,target:version.target,
-  inputFingerprint:creatorInputFingerprint(p,version.target),inputSnapshot:rewriteWorldInput(p,version.target),changeSummary:'保留采用新版本之前的人工大纲。'}];
- let next=updateCreatorSection(state,'script',id,'macroOutline',{output,accepted:true,stale:false});
+  inputFingerprint:creatorInputFingerprint(p,version.target),inputSnapshot:rewriteWorldInput(p,version.target),changeSummary:'保留采用新版本之前的人工大纲。',identitySnapshot:p.creator.rewrite?.identity?JSON.parse(JSON.stringify(p.creator.rewrite.identity)):null}];
+ let base=state;if(Object.hasOwn(version,'identitySnapshot')){const cast=version.identitySnapshot;base=updateCreatorProject(state,'script',id,{rewrite:{...p.creator.rewrite,identity:cast},...(cast?{sections:{characters:{...p.creator.sections.characters,output:identitySummary(cast),accepted:!!cast.accepted,stale:false}}}:{})});}
+ const restored=project(base,id),needsConversion=!!restored.creator.rewrite?.identity&&!validateRewriteOutline(output).groups.every(g=>groupIdentityReady(restored,g));
+ let next=updateCreatorSection(base,'script',id,'macroOutline',{output,accepted:!needsConversion,stale:false});
  return save(next,id,nextVersions.map(v=>v.id===versionId?{...v,adoptedAt:new Date().toISOString()}:v),{activeOutlineVersionId:versionId});
 }
 export function deleteOutlineVersion(state,id,versionId) {

@@ -1,7 +1,9 @@
+import {isRewriteIdentityTask,rewriteIdentityTaskInput,applyRewriteIdentityRecord} from './rewriteIdentityTasks.js';
+import {assertRewriteIdentityReady,assertCanonicalRewriteProse} from './rewriteConversion.js';
 import {readRewriteOutline,validateRewriteOutline,rewriteOutlineText,copyOutlineGroups} from './rewriteOutline.js';
 import {readRewriteMainline,validateRewriteMainline,rewriteMainlineText} from './rewriteMainline.js';
 import {rewriteWorldInput} from './rewriteWorld.js';
-import {rewriteStoryInput,mergeRewriteStory} from './rewriteStory.js';
+import {rewriteStoryInput,mergeRewriteStory,stampStoryIdentity} from './rewriteStory.js';
 import { splitFullScript } from './scriptImport.js';
 import { formatIPScriptText } from './ipScenes.js';
 import { normalizeFrameworkProject, applyFrameworkCommand } from './frameworkWorkflow.js';
@@ -245,10 +247,10 @@ export const creatorInputFingerprint = (project, target = {}) => {
     })).filter(episode => episode.id !== target.episodeId);
   const referenceKey=target.section||'episode',referenceIds=p.creator.rewrite?.selections?.[referenceKey]||[];
   const analysisSource = [p.creator.source,...p.creator.references].find(book => book?.id === target.sourceId);
-  const serialized = JSON.stringify(canonical(target.task==='rewriteStory'||target.format==='rewriteStory'?{projectId:p.id,target:activeTarget,input:rewriteStoryInput(p,target),selected}:target.task==='rewriteWorldSim'?{projectId:p.id,target:activeTarget,input:rewriteWorldInput(p,target)}:target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
+  const serialized = JSON.stringify(canonical(isRewriteIdentityTask(target)?{projectId:p.id,target:activeTarget,input:rewriteIdentityTaskInput(p,target)}:target.task==='rewriteStory'||target.format==='rewriteStory'?{projectId:p.id,target:activeTarget,input:rewriteStoryInput(p,target),selected}:target.task==='rewriteWorldSim'?{projectId:p.id,target:activeTarget,input:rewriteWorldInput(p,target)}:target.task === 'rewriteAnalyze' ? {projectId:p.id,target:activeTarget,source:analysisSource?{id:analysisSource.id,name:analysisSource.name,content:analysisSource.content,...(target.analysisStage==='outline'?{macroOutline:analysisSource.analysis?.macroOutline}: {})}:null} : { projectId: p.id, mode: p.creator.mode, target: activeTarget, selected,
     sections: adoptedSections(p), story: adoptedStory(p), source, episodeContext,
     referenceAnalyses:activeTarget.scope==='project'&&p.creator.mode==='rewrite'?Object.fromEntries(Object.entries(p.creator.sections).filter(([,value])=>value.input.trim()&&!value.inputStale).map(([key,value])=>[key,value.input])):{},
-    rewrite: p.creator.mode==='rewrite' ? {selections:{[referenceKey]:referenceIds},activeVersionId:p.creator.rewrite?.activeVersionId||null} : null, sourceAnalyses: p.creator.mode!=='rewrite'||referenceIds.includes(p.creator.source?.id)?p.creator.source?.analysis||null:null,
+    rewrite: p.creator.mode==='rewrite' ? {selections:{[referenceKey]:referenceIds},activeVersionId:p.creator.rewrite?.activeVersionId||null,...(p.creator.rewrite?.identity?{identity:rewriteIdentityTaskInput(p,{task:'rewriteIdentity'}).currentIdentity}:{})} : null, sourceAnalyses: p.creator.mode!=='rewrite'||referenceIds.includes(p.creator.source?.id)?p.creator.source?.analysis||null:null,
     references: p.creator.references.filter(reference => reference.enabled !== false).map(reference => ({ id: reference.id, content: reference.content, analysis: p.creator.mode!=='rewrite'||referenceIds.includes(reference.id)?reference.analysis:undefined })),
   }));
   let hash = 2166136261;
@@ -269,6 +271,7 @@ export const createCreatorProject = (state, { name, mode = 'free', groupId = nul
 
 const patchSection = (project, kind, key, patch) => {
   const previous = project.creator.sections[key] || normalizeSection();
+  if(project.creator.mode==='rewrite'&&key==='macroOutline'&&patch.accepted===true&&(project.creator.rewrite?.identity||String(patch.output??previous.output).includes('identityState')))assertRewriteIdentityReady({...project,creator:{...project.creator,sections:{...project.creator.sections,macroOutline:{...previous,...patch}}}});
   if (previous.locked && patch.locked !== false && (own(patch, 'input') || own(patch, 'output') || patch.accepted === false)) {
     fail('CREATOR_LOCKED', '该成果已锁定，请明确解锁后修改。');
   }
@@ -287,7 +290,7 @@ const patchSection = (project, kind, key, patch) => {
       updated={...updated,creator:{...updated.creator,rewrite:{...updated.creator.rewrite,eventReferences:overrides}}};
     }catch{/* An unfinished manual JSON edit must not discard existing reference choices. */}
   }
-  if (JSON.stringify(adoptedSections(project)) !== JSON.stringify(adoptedSections(updated))) updated = markDerivedSectionsStale(staleEpisodes(updated, kind), [...(SECTION_DEPENDENCIES[key]||[]),...(project.creator.mode==='rewrite'&&key==='outline'&&!next.output.includes('\"story-v1\"')?['characters']:[])]);
+  if (JSON.stringify(adoptedSections(project)) !== JSON.stringify(adoptedSections(updated))) updated = markDerivedSectionsStale(staleEpisodes(updated, kind), [...(SECTION_DEPENDENCIES[key]||[]).filter(k=>!(project.creator.mode==='rewrite'&&project.creator.rewrite?.identity&&['macroOutline','outline'].includes(key)&&k==='characters')),...(project.creator.mode==='rewrite'&&!project.creator.rewrite?.identity&&key==='outline'&&!next.output.includes('\"story-v1\"')?['characters']:[])]);
   return updated;
 };
 
@@ -558,6 +561,10 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
   if (!record) fail('CREATOR_RECORD_MISSING', '找不到该候选或历史版本。');
   if (record.projectId && record.projectId !== id) fail('CREATOR_PROJECT_MISMATCH', '候选记录与目标项目不一致。');
   if (p.creator.mode === 'framework' && isFrameworkTask(record.target)) return applyFrameworkProjectRecord(p, recordId, {mode,side,allowStale,unlock});
+  if(p.creator.mode==='rewrite'&&isRewriteIdentityTask(record.target)){
+    if(record.inputFingerprint!==creatorInputFingerprint(p,record.target))fail('CREATOR_STALE_RESULT','人物或来源依据已变化，此候选保留在历史，请重新生成。');
+    return applyRewriteIdentityRecord(p,record);
+  }
   if (record.type === 'story-history') {
     const history = storyHistoryRecord(p, 'restore', record.itemType || 'event');
     const next = applyStory(p, normalizeStory(record.storySnapshot, id), history);
@@ -581,9 +588,12 @@ export const adoptCreatorRecord = (state, kind, id, recordId, { mode = 'replace'
   if (stale && !allowStale && record.type !== 'history') fail('CREATOR_STALE_RESULT', '该候选基于旧版输入，请复核后明确采用。');
   if (!target.episodeId && node.locked && !unlock) fail('CREATOR_LOCKED', '该成果已锁定，请明确解锁后采用。');
   const previous = target.episodeId ? text(node[field]) : text(node[target.side]);
+  if(p.creator.mode==='rewrite'&&target.episodeId&&record.type!=='history'){assertRewriteIdentityReady(p);assertCanonicalRewriteProse(p,record.output);}
   if((target.task==='rewriteStory'||target.format==='rewriteStory')&&record.type!=='history'){
     rewriteStoryInput(p,target,{strict:true});
-    const output=mergeRewriteStory(previous,record.output,p.creator.sections.macroOutline?.output,target.eventIds);
+    const merged=mergeRewriteStory(previous,record.output,p.creator.sections.macroOutline?.output,target.eventIds);
+    const output=JSON.stringify(stampStoryIdentity(p,readRewriteMainline(merged),target.eventIds));
+    assertCanonicalRewriteProse(p,readRewriteMainline(record.output).eventGroups.map(e=>[e.story,e.continuity].join('\n')).join('\n'),target.eventIds);
     const history=historyRecord(p,{section:'outline',side:'output'},previous,{previousAccepted:node.accepted,previousLocked:node.locked});
     const next=patchSection(p,kind,'outline',{output,accepted:false,stale:false,...(unlock?{locked:false}:{})});
     next.creator.records=[...next.creator.records.map(r=>r.id===recordId?{...r,status:'adopted',adoptedAt:now()}:r),history];

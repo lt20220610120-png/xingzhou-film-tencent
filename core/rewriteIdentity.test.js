@@ -2,9 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {rewriteIdentity,validateIdentityCandidate,changeRewriteIdentity,identityTaskInput} from './rewriteIdentity.js';
 
-export const identityProject=()=>({id:'identity-project',episodes:[],creator:{mode:'rewrite',records:[],sections:{settings:{output:'现代城市。新作女主夏初雪，男主陆舟。',accepted:true},characters:{output:'旧性格命运分析',accepted:true},macroOutline:{output:JSON.stringify({groups:[{id:'g',title:'相遇',goal:'宋馨雅与林宁的经历用于新作相遇',events:[{id:'e',title:'归还失物',summary:'宋馨雅归还失物，王梅邀请她赴宴。',purpose:'引出相遇',references:[{sourceId:'b1',groupId:'sg',eventId:'se'},{sourceId:'b2',groupId:'sg',eventId:'se'}]}]}]}),accepted:false}},rewrite:{},source:{id:'b1',name:'书一',content:'宋馨雅归还失物。王梅是宋馨雅母亲。',analysis:{macroOutline:{groups:[{id:'sg',title:'相遇',goal:'原书目标',events:[{id:'se',title:'归还失物',summary:'原书行动',purpose:'相遇'}]}]}}},references:[{id:'b2',name:'书二',content:'林宁归还失物。王梅是林宁母亲。',analysis:{macroOutline:{groups:[{id:'sg',title:'相遇',goal:'另一原书目标',events:[{id:'se',title:'归还失物',summary:'另一原书行动',purpose:'相遇'}]}]}}}]}});
-export const identityCandidate=()=>({people:[{id:'hero',name:'夏初雪',role:'femaleLead'},{id:'mother',label:'女主母亲',role:'support'}],relations:[{id:'mother-edge',fromId:'hero',toId:'mother',type:'mother'}],sourceActors:[{sourceId:'b1',id:'lead',name:'宋馨雅',role:'femaleLead',evidence:'宋馨雅归还失物。',appearances:[{groupId:'sg',eventId:'se'}]},{sourceId:'b1',id:'mom',name:'王梅',role:'support',anchorActorId:'lead',relation:'mother',evidence:'王梅是宋馨雅母亲。',appearances:[{groupId:'sg',eventId:'se'}]},{sourceId:'b2',id:'lead',name:'林宁',role:'femaleLead',evidence:'林宁归还失物。',appearances:[{groupId:'sg',eventId:'se'}]},{sourceId:'b2',id:'mom',name:'王梅',role:'support',anchorActorId:'lead',relation:'mother',evidence:'王梅是林宁母亲。',appearances:[{groupId:'sg',eventId:'se'}]}],bindings:[{sourceId:'b1',actorId:'lead',personId:'hero'},{sourceId:'b1',actorId:'mom',personId:'mother'},{sourceId:'b2',actorId:'lead',personId:'hero'},{sourceId:'b2',actorId:'mom',personId:'mother'}]});
-export const confirmedIdentityProject=()=>changeRewriteIdentity(changeRewriteIdentity(identityProject(),{type:'candidate',value:identityCandidate()}),{type:'confirm'});
+import {identityProject,identityCandidate,confirmedIdentityProject} from './test-support/rewriteIdentity.test.js';
 
 test('same source names and actor IDs across books remain independent bindings to one canonical cast',()=>{
  const r=validateIdentityCandidate(identityProject(),identityCandidate());assert.equal(r.sourceActors.length,4);assert.equal(r.bindings.length,4);assert.equal(r.accepted,false);
@@ -38,4 +36,23 @@ test('removed source keeps existing cast and historical bindings but cannot crea
 });
 test('identity context uses source namespaces, current settings and actual referenced event evidence',()=>{
  const input=identityTaskInput(identityProject(),{});const raw=JSON.stringify(input);assert.match(raw,/夏初雪/);assert.match(raw,/书一/);assert.match(raw,/书二/);assert.match(raw,/b1/);assert.match(raw,/b2/);
+});
+test('a source mother cannot silently become a different canonical relationship',()=>{
+ const c=identityCandidate();c.relations[0].type='继母';let p=changeRewriteIdentity(identityProject(),{type:'candidate',value:c});
+ p=changeRewriteIdentity(p,{type:'confirm'});assert.equal(rewriteIdentity(p).bindings[1].status,'unresolved');assert.equal(rewriteIdentity(p).bindings[1].conflict,true);
+ p=changeRewriteIdentity(p,{type:'binding.update',sourceId:'b1',actorId:'mom',personId:'mother',approveRelationshipChange:true});p=changeRewriteIdentity(p,{type:'confirm'});
+ assert.equal(rewriteIdentity(p).bindings[1].status,'confirmed');assert.equal(rewriteIdentity(p).bindings[3].status,'unresolved');
+});
+test('reorganizing cast cannot silently discard existing source actors and their name checks',()=>{
+ const p=confirmedIdentityProject(),c=identityCandidate();c.sourceActors.pop();c.bindings.pop();
+ assert.throws(()=>validateIdentityCandidate(p,c),/来源角色|保留/);
+});
+test('a changed source display name keeps its old name as an alias of the same source identity',()=>{
+ const p=confirmedIdentityProject();p.creator.source.content=p.creator.source.content.replaceAll('宋馨雅','宋新雅');const c=identityCandidate();
+ c.sourceActors[0].name='宋新雅';c.sourceActors[0].evidence='宋新雅归还失物。';c.sourceActors[1].evidence='王梅是宋新雅母亲。';
+ const value=validateIdentityCandidate(p,c);assert.equal(value.sourceActors[0].id,'lead');assert.ok(value.sourceActors[0].aliases.includes('宋馨雅'));
+});
+test('ensemble leads remain separate identities instead of being merged by gender labels',()=>{
+ const c=identityCandidate();c.people.push({id:'hero2',name:'林昭',role:'femaleLead'});c.relations.push({id:'mother-edge2',fromId:'hero2',toId:'mother',type:'mother'});c.bindings[2].personId='hero2';
+ assert.equal(validateIdentityCandidate(identityProject(),c).people.length,3);
 });

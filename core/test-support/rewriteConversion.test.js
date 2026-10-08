@@ -1,0 +1,2 @@
+const refs=[{sourceId:'b1',actorId:'lead'},{sourceId:'b1',actorId:'mom'},{sourceId:'b2',actorId:'lead'},{sourceId:'b2',actorId:'mom'}];
+export const conversionCandidate=()=>({reasoning:'按同一女主及其母亲转换',groups:[{groupId:'g',title:'相遇',goal:'夏初雪归还失物，女主母亲邀请她赴宴。',participantIds:['hero','mother'],sourceActorRefs:refs,events:[{eventId:'e',title:'归还失物',summary:'夏初雪归还失物，女主母亲邀请她赴宴。',purpose:'引出男女主相遇',participantIds:['hero','mother'],sourceActorRefs:refs}]}]});

@@ -1,3 +1,4 @@
+import {identityMetadata,withoutIdentityProof} from './rewriteIdentityMetadata.js';
 const fields = ['title', 'summary', 'purpose', 'source'];
 const text = value => typeof value === 'string' ? value : '';
 const id = () => `outline-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -18,8 +19,8 @@ export function readRewriteOutline(raw) {
     if (used.has(key)) throw new Error('大纲事件编号重复，请重新生成或修正。');
     used.add(key);return key;
   };
-  return {groups:data.groups.map((group,i)=>({id:identity(group.id,`group-${i+1}`),title:text(group.title),goal:text(group.goal),source:text(group.source),
-    events:(Array.isArray(group.events)?group.events:[]).map((event,j)=>({id:identity(event.id,`group-${i+1}-event-${j+1}`),...Object.fromEntries(fields.map(key=>[key,text(event[key])])),...(Array.isArray(event.references)?{references:event.references.map(r=>({sourceId:text(r.sourceId),groupId:text(r.groupId),eventId:text(r.eventId)}))}:{})})),
+  return {groups:data.groups.map((group,i)=>({id:identity(group.id,`group-${i+1}`),title:text(group.title),goal:text(group.goal),source:text(group.source),...identityMetadata(group),
+    events:(Array.isArray(group.events)?group.events:[]).map((event,j)=>({id:identity(event.id,`group-${i+1}-event-${j+1}`),...Object.fromEntries(fields.map(key=>[key,text(event[key])])),...identityMetadata(event),...(Array.isArray(event.references)?{references:event.references.map(r=>({sourceId:text(r.sourceId),groupId:text(r.groupId),eventId:text(r.eventId)}))}:{})})),
   }))};
 }
 export function validateRewriteOutline(raw) {
@@ -29,7 +30,7 @@ export function validateRewriteOutline(raw) {
   }
   return data;
 }
-export const copyOutlineGroups = (groups,sourceId) => groups.map(group=>({...group,id:id(),events:group.events.map(event=>({...event,id:id(),...(sourceId?{references:[{sourceId,groupId:group.id,eventId:event.id}]}:{})}))}));
+export const copyOutlineGroups = (groups,sourceId) => groups.map(group=>({...withoutIdentityProof(group),id:id(),...(sourceId?{identityState:'pending'}:{}),events:group.events.map(event=>({...withoutIdentityProof(event),id:id(),...(sourceId?{references:[{sourceId,groupId:group.id,eventId:event.id}],identityState:'pending'}:{})}))}));
 export function rewriteOutlineText(raw) {
   if (!raw) return '';
   const data = readRewriteOutline(raw);

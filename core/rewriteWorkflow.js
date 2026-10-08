@@ -2,12 +2,14 @@ import {validateRewriteOutline,REWRITE_OUTLINE_RULE} from './rewriteOutline.js';
 import {validateRewriteMainline,REWRITE_MAINLINE_RULE} from './rewriteMainline.js';
 import {prepareRewriteWorldProject} from './rewriteWorld.js';
 import {prepareRewriteStoryProject} from './rewriteStory.js';
+import {prepareRewriteIdentityProject} from './rewriteIdentity.js';
+import {prepareRewriteConversionProject,assertRewriteIdentityReady,assertCanonicalRewriteProse} from './rewriteConversion.js';
 import { normalizeCreatorProject,addCreatorEpisode,updateCreatorEpisode,removeCreatorNode,adoptCreatorRecord } from './creatorWorkspace.js';
 import { splitFullScript } from './scriptImport.js';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const uid = () => `rewrite-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-export const REWRITE_STAGES = [{key:'settings',label:'设定'},{key:'macroOutline',label:'大纲'},{key:'outline',label:'主线'},{key:'characters',label:'人物'},{key:'detail',label:'细纲'}];
+export const REWRITE_STAGES = [{key:'settings',label:'设定'},{key:'macroOutline',label:'大纲'},{key:'characters',label:'人物与关系'},{key:'outline',label:'主线'},{key:'detail',label:'细纲'}];
 export const rewriteSources = project => [project.creator?.source,...(project.creator?.references||[])].filter(Boolean).map((book,index)=>{
   if(index!==0||book.analysis)return book;
   const sections=project.creator?.sections||{},analysis={settings:sections.settings?.input||'',outline:sections.outline?.input||sections.events?.input||'',characters:sections.characters?.input||''};
@@ -68,7 +70,7 @@ export function validateRewritePlan(raw) {
   }
   return copy(plan);
 }
-const snapshot=p=>({sections:copy(p.creator.sections),episodes:copy(p.episodes),selections:copy(rewriteState(p).selections),eventReferences:copy(p.creator.rewrite?.eventReferences||{})});
+const snapshot=p=>({sections:copy(p.creator.sections),episodes:copy(p.episodes),selections:copy(rewriteState(p).selections),eventReferences:copy(p.creator.rewrite?.eventReferences||{}),identity:copy(p.creator.rewrite?.identity||null),identityConversions:copy(p.creator.rewrite?.identityConversions||[])});
 const planText=plan=>[
   ...plan.majorEvents.map(e=>`【${e.title}：第${e.startEpisode}—${e.endEpisode}集】\n${e.events||''}\n${e.timeline||''}`),
   ...plan.episodes.map(e=>`【${e.title||`第${e.number}集`}】\n${e.outline}\n悬念与伏笔：${e.hook||''}\n连续性：${e.continuity||''}`),
@@ -77,9 +79,9 @@ const saveActive=p=>{
   const w=rewriteState(p);return {...w,versions:w.versions.map(v=>v.id===w.activeVersionId?{...v,snapshot:snapshot(p)}:v)};
 };
 export const addRewritePlan=(state,id,raw)=>change(state,id,p=>{
-  const plan=validateRewritePlan(raw),w=saveActive(p);
+  const plan=validateRewritePlan(raw),w=saveActive(p);assertRewriteIdentityReady(p);assertCanonicalRewriteProse(p,planText(plan));
   const sections={...copy(p.creator.sections),detail:{...p.creator.sections.detail,output:planText(plan),accepted:true,stale:false,locked:false}};
-  const version={id:uid(),number:Math.max(0,...w.versions.map(v=>v.number||0))+1,createdAt:new Date().toISOString(),plan,snapshot:{sections,selections:copy(w.selections),eventReferences:copy(p.creator.rewrite?.eventReferences||{}),episodes:plan.episodes.map(ep=>({id:uid(),type:'episode',title:ep.title||`第${ep.number}集`,content:ep.outline,result:'',outline:ep.outline,hook:ep.hook||'',continuity:ep.continuity||'',eventIds:ep.eventIds,sourceEpisodeIds:[],generationVersions:[],generationVersion:0,finalConfirmed:false,stale:false}))}};
+  const version={id:uid(),number:Math.max(0,...w.versions.map(v=>v.number||0))+1,createdAt:new Date().toISOString(),plan,snapshot:{sections,selections:copy(w.selections),eventReferences:copy(p.creator.rewrite?.eventReferences||{}),identity:copy(p.creator.rewrite?.identity||null),identityConversions:copy(p.creator.rewrite?.identityConversions||[]),episodes:plan.episodes.map(ep=>({id:uid(),type:'episode',title:ep.title||`第${ep.number}集`,content:ep.outline,result:'',outline:ep.outline,hook:ep.hook||'',continuity:ep.continuity||'',eventIds:ep.eventIds,sourceEpisodeIds:[],generationVersions:[],generationVersion:0,finalConfirmed:false,stale:false}))}};
   return {...p,creator:{...p.creator,rewrite:{...w,versions:[...w.versions,version]}}};
 });
 export const applyRewriteVersion=(state,id,versionId)=>change(state,id,p=>{
@@ -88,7 +90,7 @@ export const applyRewriteVersion=(state,id,versionId)=>change(state,id,p=>{
   if(w.activeVersionId===versionId)return {...p,creator:{...p.creator,rewrite:w}};
   // Preserve even pre-upgrade manuscripts before the first edition is applied.
   if(!w.activeVersionId&&p.episodes.some(e=>e.result?.trim()||e.content?.trim()))w={...w,versions:[...w.versions,{id:uid(),number:Math.max(0,...w.versions.map(v=>v.number||0))+1,name:'原有稿件',createdAt:new Date().toISOString(),plan:null,snapshot:snapshot(p)}]};
-  return {...p,episodes:copy(version.snapshot.episodes),creator:{...p.creator,sections:copy(version.snapshot.sections),rewrite:{...w,activeVersionId:versionId,selections:copy(version.snapshot.selections),eventReferences:copy(version.snapshot.eventReferences||{})}}};
+  return {...p,episodes:copy(version.snapshot.episodes),creator:{...p.creator,sections:copy(version.snapshot.sections),rewrite:{...w,activeVersionId:versionId,selections:copy(version.snapshot.selections),eventReferences:copy(version.snapshot.eventReferences||{}),identity:copy(version.snapshot.identity||null),identityConversions:copy(version.snapshot.identityConversions||[])}}};
 });
 export const deleteRewriteVersion=(state,id,versionId)=>change(state,id,p=>{
   const w=rewriteState(p);if(w.activeVersionId===versionId)throw new Error('当前采用版本不能删除，请先切换');
@@ -96,6 +98,9 @@ export const deleteRewriteVersion=(state,id,versionId)=>change(state,id,p=>{
 });
 export function prepareRewriteTask(project,target={}) {
   if(project.creator?.mode!=='rewrite')return project;
+  if(target.task==='rewriteIdentity')return prepareRewriteIdentityProject(project,target);
+  if(target.task==='rewriteConvert')return prepareRewriteConversionProject(project,target);
+  if(target.task==='rewritePlan'||target.episodeId)assertRewriteIdentityReady(project);
   if(target.task==='rewriteWorldSim')return prepareRewriteWorldProject(project,target);
   if(target.task==='rewriteStory'||target.format==='rewriteStory')return prepareRewriteStoryProject(project,target);
   const books=rewriteSources(project),w=rewriteState(project);

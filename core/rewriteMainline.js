@@ -1,4 +1,5 @@
 import {readRewriteOutline} from './rewriteOutline.js';
+import {identityMetadata} from './rewriteIdentityMetadata.js';
 
 export function outlineGroupCode(index) {
  let code='';for(let n=index+1;n>0;n=Math.floor((n-1)/26))code=String.fromCharCode(65+(n-1)%26)+code;
@@ -21,6 +22,7 @@ export function readRewriteMainline(raw) {
  if(!Array.isArray(data.eventGroups))throw new Error('主线结构需要按大纲小事件归组。原始结果保留在任务历史。');
  return {format:data.format,legacyText:typeof data.legacyText==='string'?data.legacyText:'',...(data.archivedEventGroups?.length?{archivedEventGroups:readRewriteMainline({eventGroups:data.archivedEventGroups}).eventGroups}:{}),eventGroups:data.eventGroups.map((group,i)=>({
   id:group.id||`mainline-${i+1}`,groupId:group.groupId||'',eventId:group.eventId||'',title:group.title||'',
+  ...identityMetadata(group),
   ...(typeof group.story==='string'?{story:group.story,continuity:typeof group.continuity==='string'?group.continuity:''}:{}),
   ...(Array.isArray(group.legacyEpisodes)?{legacyEpisodes:group.legacyEpisodes}:{}),
   episodes:(group.episodes||[]).map(ep=>({number:ep.number,title:ep.title||`第${ep.number}集`,outline:ep.outline||'',source:ep.source||''})),

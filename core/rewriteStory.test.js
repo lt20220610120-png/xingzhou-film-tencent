@@ -1,3 +1,5 @@
+import {changeRewriteIdentity} from './rewriteIdentity.js';
+import {applyIdentityConversion} from './rewriteConversion.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createInitialState,normalizeState} from './projectStore.js';
@@ -10,10 +12,20 @@ import {runCreatorTask} from './creatorAi.js';
 import * as storyHelpers from './rewriteStory.js';
 
 const macro={groups:[{id:'g1',title:'相遇',goal:'建立认识',events:[{id:'e1',title:'捡包',summary:'路边拾包',purpose:'找到失主'},{id:'e2',title:'归还',summary:'核实后归还',purpose:'为答谢留因'}]},{id:'g2',title:'相爱',goal:'共同选择',events:[{id:'e3',title:'答谢',summary:'表达谢意',purpose:'推进认识'}]}]};
+const confirmFixtureIdentity=p=>{
+ const books=[p.creator.source,...p.creator.references];
+ if(!p.creator.rewrite?.identity){p=changeRewriteIdentity(p,{type:'candidate',value:{people:[{id:'hero',label:'女主',role:'femaleLead',notes:'女主谨慎，先核对失主身份'}],relations:[],sourceActors:books.map(b=>({sourceId:b.id,id:'lead',name:'女主',role:'femaleLead',evidence:'原剧本正文',appearances:macro.groups.flatMap(g=>g.events.map(e=>({groupId:g.id,eventId:e.id})))})),bindings:books.map(b=>({sourceId:b.id,actorId:'lead',personId:'hero'}))}});p=changeRewriteIdentity(p,{type:'confirm'});}
+ const own=readRewriteOutline(p.creator.sections.macroOutline.output),refs=e=>(p.creator.rewrite?.eventReferences?.[e.id]??e.references??[]).map(r=>({sourceId:r.sourceId,actorId:'lead'}));
+ const unique=rows=>rows.filter((r,i)=>rows.findIndex(x=>x.sourceId===r.sourceId)===i);
+ const converted=applyIdentityConversion(p,{}, {groups:own.groups.map(g=>({groupId:g.id,title:g.title,goal:g.goal,participantIds:['hero'],sourceActorRefs:unique(g.events.flatMap(refs)),events:g.events.map(e=>({eventId:e.id,title:e.title,summary:e.summary,purpose:e.purpose,participantIds:['hero'],sourceActorRefs:unique(refs(e))}))}))});
+ converted.creator.sections.macroOutline.accepted=true;
+ return converted;
+};
 const setup=()=>{let s=createCreatorProject(createInitialState(),{mode:'rewrite',name:'不分集故事'});const id=s.scriptProjects[0].id;
  for(const name of ['选中素材','未选书秘密']){s=addRewriteSource(s,id,{name,content:'第1集\n原剧本正文不应整本进入故事推演'});const b=[s.scriptProjects[0].creator.source,...s.scriptProjects[0].creator.references].at(-1);s=saveRewriteAnalysis(s,id,b.id,{macroOutline:macro},'macroOutline');}
  const own={groups:copyOutlineGroups(macro.groups,s.scriptProjects[0].creator.source.id)};
- for(const [key,output] of Object.entries({settings:'已确认未来城市，无魔法',macroOutline:JSON.stringify(own),characters:'女主谨慎，先核对失主身份'}))s=updateCreatorSection(s,'script',id,key,{output,accepted:true,stale:false});
+ for(const [key,output] of Object.entries({settings:'已确认未来城市，无魔法',macroOutline:JSON.stringify(own),characters:'女主谨慎，先核对失主身份'}))s=updateCreatorSection(s,'script',id,key,{output,accepted:key!=='macroOutline',stale:false});
+ s.scriptProjects[0]=confirmFixtureIdentity(s.scriptProjects[0]);own.groups=readRewriteOutline(s.scriptProjects[0].creator.sections.macroOutline.output).groups;
  return {s,id,own,p:s.scriptProjects[0],target:{section:'outline',side:'output',task:'rewriteStory',format:'rewriteStory',eventIds:[own.groups[0].events[0].id]}};
 };
 const result=(own,index=0,story='女主先在原地等候，发现无人返回，转而寻找失主的联系方式。')=>({format:'story-v1',eventGroups:[{id:'story-'+index,eventId:own.groups[0].events[index].id,groupId:own.groups[0].id,title:'捡包',story,continuity:'为下一事件核对身份提供线索。'}]});
@@ -31,7 +43,7 @@ test('story input includes full new chain and confirmed constraints but only exp
 });
 test('explicit no-reference overrides old prose; multi-book reference selections are precise',()=>{
  const {p,target,own}=setup(),event=own.groups[0].events[0],second=p.creator.references[0];
- p.creator.rewrite={eventReferences:{[event.id]:[]}};assert.deepEqual(resolveStoryReferences(p,event),{references:[],unresolved:false});
+ p.creator.rewrite={...p.creator.rewrite,eventReferences:{[event.id]:[]}};assert.deepEqual(resolveStoryReferences(p,event),{references:[],unresolved:false});
  p.creator.rewrite.eventReferences[event.id]=[...event.references,{sourceId:second.id,groupId:'g2',eventId:'e3'}];
  assert.equal(resolveStoryReferences(p,event).references.length,2);assert.equal(rewriteStoryInput(p,target).selectedReferences.length,4);
  p.creator.rewrite.eventReferences[event.id]=[{sourceId:'removed',groupId:'g1',eventId:'e1'}];assert.throws(()=>rewriteStoryInput(p,target,{strict:true}),/核对参考/);
@@ -91,7 +103,7 @@ test('deleted outline events remain archived without blocking confirmation or en
 
 test('long story requests preserve exact complete constraints and event identities instead of summary-only context',async()=>{
  const {s,p,target,own}=setup();const required='精确约束：门禁号码 627314，只能在主人确认后归还。';
- p.creator.sections.settings.output=required.repeat(1000);let request;
+ p.creator.sections.settings.output=required.repeat(1000);Object.assign(p,confirmFixtureIdentity(p));let request;
  const response=await runCreatorTask({api:{aiChat:async r=>{request=r;return r.taskId.includes(':read-')?'摘要省略了门禁号码':JSON.stringify(result(own));}},state:s,project:p,target,profile:{id:'mock',model:'mock',endpoint:'https://mock.invalid'},taskId:'long-story'});
  const prompt=request.messages.map(m=>m.content).join('\n');assert.ok(prompt.includes(required));assert.ok(prompt.includes(target.eventIds[0]));assert.equal(response.meta.readSegments,0);
 });
@@ -109,9 +121,9 @@ test('restoring a detail version restores its story source selections rather tha
  let {s,id,own}=setup();const eid=own.groups[0].events[0].id;
  const plan={majorEvents:[{id:'a',title:'相遇',startEpisode:1,endEpisode:1}],episodes:[{number:1,outline:'归还后认识',eventIds:['a']}]};
  s=updateCreatorProject(s,'script',id,{rewrite:{eventReferences:{[eid]:[]}}});
- s=addRewritePlan(s,id,plan);const a=s.scriptProjects[0].creator.rewrite.versions[0].id;
+ s.scriptProjects[0]=confirmFixtureIdentity(s.scriptProjects[0]);s=addRewritePlan(s,id,plan);const a=s.scriptProjects[0].creator.rewrite.versions[0].id;
  s=updateCreatorProject(s,'script',id,{rewrite:{...s.scriptProjects[0].creator.rewrite,eventReferences:{[eid]:[{sourceId:s.scriptProjects[0].creator.references[0].id,groupId:'g2',eventId:'e3'}]}}});
- s=addRewritePlan(s,id,plan);const b=s.scriptProjects[0].creator.rewrite.versions[1].id;
+ s.scriptProjects[0]=confirmFixtureIdentity(s.scriptProjects[0]);s=addRewritePlan(s,id,plan);const b=s.scriptProjects[0].creator.rewrite.versions[1].id;
  s=applyRewriteVersion(s,id,b);assert.equal(resolveStoryReferences(s.scriptProjects[0],own.groups[0].events[0]).references.length,1);
  s=applyRewriteVersion(s,id,a);assert.deepEqual(resolveStoryReferences(s.scriptProjects[0],own.groups[0].events[0]).references,[]);
  s=applyRewriteVersion(s,id,b);assert.equal(resolveStoryReferences(s.scriptProjects[0],own.groups[0].events[0]).references[0].eventId,'e3');
