@@ -25,4 +25,13 @@
 - 追加真实页面验收：各身份上次功能恢复；隐藏页面的 API 编辑 portal 不遮挡新页面，草稿再次进入时仍保留。1920、1120、820 宽度下浮窗完全处于视口内；截图已检查。
 - 移除旧测试对管理后台私有 JSX 包装结构的限定，挂载/隐藏/卸载契约由真实 App 与原生视图测试验证；原管理员权限限定仍检查。修正既有网络错误分类测试的 1ms 时限，避免全套测试并行时连检查分支都未执行就超时，产品时限未改动。
 
-安装包与公开更新验证在发布时记录。QA 夹具不随安装包分发。
+## 发布验证
+
+- Windows 安装包实际运行验证通过：创作/DOCX、本地媒体、号池桥接、内嵌画布及原安全保护保留。
+- 安装包：`Xingzhou-Film-Tencent-Setup-2.8.10.exe`，102734045 字节。
+- SHA256：`73c97132ce30480c2a8556adf18a1235f3c5e04e97e79dc9ca58eb07572b5c4b`。
+- 两个公开更新清单一致；公开资产摘要、完整下载大小和 SHA256 与本地安装包一致，HEAD 返回 200。
+- 更新清单固定公钥签名验证通过，实际客户端读取函数从官方入口读到 2.8.10。
+- 已公开发布：[行舟影视 2.8.10](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.10)。
+
+证据：`output/playwright/roles-2810-red.log`、`roles-2810-core.log`、`roles-2810-ui.json`、`roles-2810-native.json`、`roles-2810-extra.json`、`roles-2810-tests.log`、`roles-2810-package.log`、`roles-2810-public.json`。原生测试不使用真实账号，QA 夹具不随安装包分发。
