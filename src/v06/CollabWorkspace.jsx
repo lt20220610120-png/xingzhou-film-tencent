@@ -755,7 +755,17 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
     }
   };
   const wholeControls=<><button className="primary" disabled={!canEdit||batchBusy||!imagePlan().length||generatingAssetIds.size>0} onClick={()=>setWholeDialog(true)}><Sparkles size={14}/> 一键生成全剧图片</button>{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>停止后续生成</button>}</>;
-  const wholeModal=wholeDialog&&createPortal(<div className="veil"><div className="modal art-image-batch-modal" role="dialog" aria-modal="true" aria-label="确认生成全剧图片"><header><h2>生成全剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setWholeDialog(false)}><X size={18}/></button></header><p>人物、场景、道具共 {imagePlan().length} 项待完成。已有图片跳过，跨集复用资产只生成一次；先完成基准，再生成差异造型。</p><p>待下载结果优先恢复，不重新生图。新图片会调用所选接口并产生费用。</p><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} label="全剧生图模型"/><label>生成画幅<select aria-label="全剧生成画幅" value={batchSize} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(f=><option key={f.value} value={f.size}>{f.label}</option>)}</select></label><label>并发数量<select aria-label="全剧图片并发数量" value={imageConcurrency} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张同时处理</option>)}</select></label><small>默认 2 张；可停止后续任务，已经开始的任务会完成并保存。失败项不会自动重复付费生成。</small><div className="modal-actions"><button className="secondary" onClick={()=>setWholeDialog(false)}>取消</button><button className="primary" disabled={!batchProfile} onClick={()=>generateBatch(true)}>确认开始生成</button></div></div></div>,document.body);
+  const wholeModal=wholeDialog&&createPortal(
+    <div className="veil"><div className="modal art-image-batch-modal" role="dialog" aria-modal="true" aria-label="确认生成全剧图片">
+      <header><h2>生成全剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setWholeDialog(false)}><X size={18}/></button></header>
+      <div className="art-image-batch-summary"><strong>待完成 {imagePlan().length} 项 · 人物 / 场景 / 道具</strong><p>已有图片跳过，跨集复用资产只生成一次；先完成基准，再生成差异造型。</p><p>待下载结果优先恢复。新图片会调用所选接口并产生费用。</p></div>
+      <div className="art-image-batch-fields">
+        <ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} label="全剧生图模型" displayLabel="生图模型"/>
+        <label><span>生成画幅</span><select aria-label="全剧生成画幅" value={batchSize} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(f=><option key={f.value} value={f.size}>{f.label}</option>)}</select></label>
+        <label><span>并发数量</span><select aria-label="全剧图片并发数量" value={imageConcurrency} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张同时处理</option>)}</select></label>
+      </div>
+      <footer className="art-image-batch-footer"><small>默认 2 张；可停止后续任务，已经开始的任务会完成并保存。失败项不会自动重复付费生成。</small><div className="modal-actions"><button className="secondary" onClick={()=>setWholeDialog(false)}>取消</button><button className="primary" disabled={!batchProfile} onClick={()=>generateBatch(true)}>确认开始生成</button></div></footer>
+    </div></div>,document.body);
 
   if (episode === null) {
     return (
@@ -831,9 +841,8 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
             <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{label}</button>
           ))}
-        </div></div>
+        </div><div className="art-whole-generation art-whole-generation-inline">{wholeControls}</div></div>
         <div className="collab-art-head-right"><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{batchFormats.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(allPendingSelected ? [] : pendingEpisodeJobs.map((asset) => asset.id))}>{allPendingSelected ? '取消全选' : '全选未生成'}</button><button className="primary" onClick={()=>generateBatch(false)} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
-        <div className="art-whole-generation">{wholeControls}</div>
       </div>
       {wholeModal}
       {exportError && <div className="collab-error">{exportError}</div>}
