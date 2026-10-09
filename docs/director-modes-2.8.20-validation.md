@@ -12,4 +12,10 @@
 
 安装包实际启动验证通过：qa/packaged-smoke-2.8.20-1791557256328。文档导入、美术账本、世界模拟、回收站、网页模型、号池、画布与权限边界检查通过。
 
-全量测试与公开发布验证结果在完成后补充。验证日志：output/playwright/director-modes-2820-*。
+实现提交：271ee7b。npm test 首轮有两项失败（本地测试接口连接、Windows 测试进程清理）；相关 25 项单独复查全部通过。第二轮全量仅测试进程清理失败。按相同 scripts/test.cjs 套件列表，以 --test-concurrency=1 顺序执行，1,882 项、13 套件全部通过。没有修改或跳过测试。
+
+安装包大小：102777400 字节。SHA256：171c6314f1643cd3799d7a48079e1b102ab76663dee7e578346c6e9a4f78925a。
+
+发布：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.20。
+
+两处公开 latest.json 完全一致，完整下载公开安装包的大小和 SHA256 与本地及 GitHub 资产摘要一致。实际客户端读取 2.8.20，Ed25519 签名验证通过。报告：output/playwright/director-modes-2820-public.json。验证日志：output/playwright/director-modes-2820-*。
