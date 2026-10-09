@@ -1,0 +1,12 @@
+const path=require('node:path'),fs=require('node:fs');const{execFileSync}=require('node:child_process');
+async function run(){const pid=execFileSync('systemctl',['show','xingzhou-cloud-backend','-p','MainPID','--value'],{encoding:'utf8'}).trim(),url=fs.readFileSync(`/proc/${pid}/environ`,'utf8').split('\0').find(v=>v.startsWith('DATABASE_URL='))?.slice(13);if(!url)throw Error('Database configuration unavailable');
+ if(process.argv.includes('--admin')){
+  const parsed=new URL(url);if(!['localhost','127.0.0.1','::1','[::1]'].includes(parsed.hostname))throw Error('Admin migration requires the existing local database');
+  const sql=fs.readFileSync(path.join(__dirname,'20261009-image-composition.sql'),'utf8');
+  const check="DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='collab_projects' AND column_name='image_composition' AND data_type='text' AND is_nullable='NO' AND column_default='''portrait-four''::text') THEN RAISE EXCEPTION 'Unexpected composition column'; END IF; END $$;";
+  execFileSync('runuser',['-u','postgres','--','psql','-X','-v','ON_ERROR_STOP=1','-d',decodeURIComponent(parsed.pathname.slice(1))],{input:`BEGIN; SET LOCAL lock_timeout='5s'; ${sql}\n${check}\nCOMMIT;`,encoding:'utf8',stdio:['pipe','pipe','pipe']});
+  console.log('ART_COMPOSITION_MIGRATION_PASS: local database administrator; additive column, legacy four-grid default; application privileges unchanged.');return;
+ }
+ const{Pool}=require(path.resolve(process.argv[2]||'/opt/xingzhou-cloud-backend/node_modules/pg'));const pool=new Pool({connectionString:url}),client=await pool.connect();
+ try{await client.query('BEGIN');await client.query("set local lock_timeout='5s'");await client.query(fs.readFileSync(path.join(__dirname,'20261009-image-composition.sql'),'utf8'));const field=(await client.query("select data_type,column_default,is_nullable from information_schema.columns where table_schema='public' and table_name='collab_projects' and column_name='image_composition'")).rows[0];if(field?.data_type!=='text'||field.is_nullable!=='NO'||field.column_default!=="'portrait-four'::text")throw Error('Unexpected existing composition column');await client.query('COMMIT');console.log('ART_COMPOSITION_MIGRATION_PASS: additive column, existing projects default to four-grid.');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();await pool.end();}
+}run().catch(e=>{console.error('ART_COMPOSITION_MIGRATION_FAILED:',e.message);process.exitCode=1;});

@@ -1,4 +1,5 @@
 const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
+const {validateImageComposition}=require('./image-composition.cjs');
 const DENY = { status: 403, body: { error: '你没有这个项目的操作权限' } };
 const NOT_FOUND = { status: 404, body: { error: '项目不存在或无权访问' } };
 const LOCKED = { status: 423, body: { error: '项目已锁定，暂不可编辑' } };
@@ -147,17 +148,20 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     const myRole = await roleOf(projectId, user, repo);
     if (!myRole) return DENY;
     const scope = String(payload.scope || '');
-    if (!['', 'director-sync', 'storyboard'].includes(scope)) return DENY;
+    if (!['', 'director-sync', 'storyboard','art-image-settings'].includes(scope)) return DENY;
     if (scope === 'director-sync' && myRole !== 'producer') return DENY;
     if (!scope && myRole !== 'producer') return DENY;
     if (scope === 'storyboard' && !['producer', 'collaborator', 'artist_collaborator'].includes(myRole)) return DENY;
+    if (scope === 'art-image-settings' && !['producer','artist','artist_collaborator'].includes(myRole)) return DENY;
     const keys = scope === 'director-sync' ? ['script', 'episodes']
       : scope === 'storyboard' ? ['episodes']
+      : scope === 'art-image-settings' ? ['image_composition']
       : ['name', 'style', 'genre', 'script', 'analysis_output', 'episodes'];
     const updates = payload.updates || payload;
     const allowed = {};
     for (const k of keys) if (k in updates) allowed[k] = updates[k];
     try {
+      if('image_composition' in allowed)validateImageComposition(allowed.image_composition);
       const saved = guard(scope === 'director-sync' && repo.syncDirectorSnapshot ? await repo.syncDirectorSnapshot(projectId,allowed,user.id) : await repo.updateProjectFields(projectId, allowed,user.id,scope));
       return saved ? ok(await attachRole(saved, user, repo)) : DENY;
     } catch (error) {if (error.status) return {status:error.status,body:{error:error.message}}; throw error;}

@@ -1,0 +1,8 @@
+.project-composition-control{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;padding:12px 14px;margin:10px 0 14px;border:1px solid #e1e5f1;border-radius:10px;background:#f8f9ff;min-width:0}
+.project-composition-control>label{display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-width:0}
+.project-composition-control b{font-size:13px;white-space:nowrap;color:#53627e}
+.project-composition-control select,.art-composition-select select{max-width:100%;width:290px;min-width:0;padding:7px 9px;border:1px solid #dae0f0;border-radius:7px;background:white;color:#44516b}
+.project-composition-control>small{font-size:12px;color:#7d88a3;line-height:1.6;flex:1;min-width:180px}
+.project-composition-control>.collab-error{flex-basis:100%;margin:0}
+.art-composition-select{flex-wrap:wrap}
+.art-composition-select select{width:250px}

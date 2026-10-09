@@ -3,6 +3,7 @@ const {mergeDirectorEpisodes,patchShot}=require('./storyboard-merge.cjs');
 const {composeDirectorScript, publicGenre, collabGenre, editableCollab, ensureCollabDomain}=require('./collab-episodes.cjs');
 const {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences}=require('./director-source.cjs');
 const {sourceProtection}=require('./cloud-recycle.cjs');
+const {validateImageComposition}=require('./image-composition.cjs');
 // 导演协作 / 统计 / 资产图片 的仓储扩展。
 // 说明：导演项目与协作项目共用 collab_projects 表，用 genre 中的哨兵标记区分。
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
@@ -215,15 +216,16 @@ function extendRepository(pool) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const allowedRoles=scope==='storyboard'?['producer','collaborator','artist_collaborator']:['producer'];
+        const allowedRoles=scope==='storyboard'?['producer','collaborator','artist_collaborator']:scope==='art-image-settings'?['producer','artist','artist_collaborator']:['producer'];
         const row=await lockAuthorizedProject(client,pid,uid,allowedRoles);
         if (!uid || !editableCollab(row)) {await client.query('ROLLBACK'); return null;}
         if (scope !== 'storyboard' && 'genre' in (fields||{}) && !String(row.genre||'').includes('[COLLAB_PROJECT]')
           && !await lockDirectorReferences(client, row, uid)) {await client.query('ROLLBACK'); return null;}
         const cols = [], vals = [pid];
-        const keys = scope === 'storyboard' ? ['episodes'] : ['name','style','genre','script','analysis_output','episodes'];
+        const keys = scope === 'storyboard' ? ['episodes'] : scope==='art-image-settings'?['image_composition']:['name','style','genre','script','analysis_output','episodes'];
         for (const [k, v] of Object.entries(fields || {})) {
           if (!keys.includes(k)) continue;
+          if(k==='image_composition')validateImageComposition(v);
           vals.push(k === 'episodes' ? JSON.stringify(v || []) : k === 'genre' ? collabGenre(v, row.genre) : v);
           cols.push(k + '=$' + vals.length);
         }

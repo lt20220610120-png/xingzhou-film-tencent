@@ -32,7 +32,7 @@ create table if not exists collab_projects (
   id uuid primary key default gen_random_uuid(), name text not null,
   owner_id uuid not null, owner_name text default '', style text default '', genre text default '',
   script text default '', analysis_output text default '', episodes jsonb default '[]'::jsonb,
-  director_project_id text default '',
+  director_project_id text default '', image_composition text not null default 'portrait-four' check(image_composition in ('portrait-four','portrait-five')),
   deleted_at timestamptz, purge_after timestamptz,
   created_at timestamptz default now(), updated_at timestamptz default now()
 );
@@ -83,3 +83,4 @@ create index if not exists collab_media_project_idx on collab_media(project_id, 
 -- 幂等迁移：老库补列
 alter table collab_projects add column if not exists director_project_id text default '';
 alter table collab_projects add column if not exists analysis_output text default '';
+alter table collab_projects add column if not exists image_composition text not null default 'portrait-four' check(image_composition in ('portrait-four','portrait-five'));

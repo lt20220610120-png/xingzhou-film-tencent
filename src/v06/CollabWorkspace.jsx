@@ -1,3 +1,5 @@
+import ProjectCompositionControl from './ProjectCompositionControl.jsx';
+import{CHARACTER_COMPOSITIONS,projectCharacterComposition,readComposedAssetPrompt as readAssetPrompt,serializeComposedAssetPrompt as serializeAssetPrompt,defaultComposedAssetPromptPrefix as defaultAssetPromptPrefix,buildComposedImagePrompt as buildImagePrompt}from'../../core/artImageComposition.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
@@ -31,8 +33,8 @@ import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
   sectionsForRole, parseAssetName, findBaseMates, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
-  buildImagePrompt, summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
-  ASSET_PROMPT_MODES, readAssetPrompt, serializeAssetPrompt, defaultAssetPromptPrefix, normalizeArtAssets,
+  summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
+  ASSET_PROMPT_MODES, normalizeArtAssets,
 } from '../../core/collabStore.js';
 import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
@@ -141,7 +143,7 @@ function ImageLightbox({ image, alt, onClose }) {
 /* ================================================================
  * 信息读取：剧本 + 画风/题材 + 分析模型 + 内置Skill分析
  * ================================================================ */
-function InfoSection({ project, assets, refresh, api, state, canEdit, accountId, onOpenReview }) {
+function InfoSection({ project, assets, refresh, api, state, canEdit, accountId, onOpenReview, onProjectChange }) {
   const [script, setScript] = useState(project.script || '');
   const [genre, setGenre] = useState(project.genre || '');
   const [selectedStyle, setSelectedStyle] = useState(project.style || '');
@@ -186,6 +188,7 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
               onClick={() => { const next = selectedStyle === s ? '' : s; setSelectedStyle(next); saveInfo({ style: next }); }}>{s}</button>
           ))}
         </div>
+        <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
         <div className="collab-panel-title"><FileText size={15} /> 题材</div>
         <textarea className="collab-genre-input" aria-label="剧本题材与时代" value={genre} disabled={!canEdit}
           onChange={(e) => setGenre(e.target.value)} onBlur={() => canEdit && genre !== (project.genre || '') && saveInfo({ genre })}
@@ -349,7 +352,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     setError(''); setBusy(true);
     try {
       if (beforeGenerate) await beforeGenerate();
-      const prompt = buildImagePrompt(asset, refAsset, project.style);
+      const prompt = buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project));
       const generationProfile = profile || {};
       if (onGenerateImage) {
         const attached = await onGenerateImage({ asset, profile: generationProfile, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
@@ -406,7 +409,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {error && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
-      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
+      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project))} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
       <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
@@ -428,7 +431,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const [instruction, setInstruction] = useState('');
   const [modifying, setModifying] = useState(false);
   const [modifyError, setModifyError] = useState('');
-  const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style);
+  const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style, projectCharacterComposition(project));
   useEffect(() => {
     draftStore.reconcile(project.id, asset);
     const pending = draftStore.read(project.id, asset.id);
@@ -446,17 +449,19 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   };
 
   const editContent = (content) => {
-    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style);
+    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style, projectCharacterComposition(project));
     edit(current.customized ? serializeAssetPrompt({ ...current, content }) : content);
   };
   const editSettings = (updates) => {
-    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style);
-    edit(serializeAssetPrompt({ ...current, ...updates }));
+    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style, projectCharacterComposition(project));
+    edit(serializeAssetPrompt({ ...current, ...updates, ...('prefix' in updates&&!('composition' in updates)?{composition:'custom'}:{}) }));
   };
   const changePromptMode = (mode) => {
-    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style);
-    editSettings({ mode, prefix: defaultAssetPromptPrefix({ ...asset, description: current.content }, project.style, mode) });
+    const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style, projectCharacterComposition(project));
+    editSettings({ mode, composition:'project', prefix: defaultAssetPromptPrefix({ ...asset, description: current.content }, project.style, mode, projectCharacterComposition(project)) });
   };
+
+  const changeComposition=composition=>{const current=readAssetPrompt({...asset,description:draftRef.current},project.style,projectCharacterComposition(project));editSettings({composition,prefix:composition==='custom'?current.prefix:defaultAssetPromptPrefix({...asset,description:current.content},project.style,current.mode,composition==='project'?projectCharacterComposition(project):composition)});};
 
   const save = async () => {
     const content = draftRef.current;
@@ -500,8 +505,9 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         <FormattedEditor aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings">
-          <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.customized ? '已自定义' : '自动识别 · 可修改'}</small></div>
-          <details className="art-prefix-editor"><summary>编辑前置 <span>{promptSettings.mode === 'group' ? '同图多人，各有不同' : promptSettings.prefix ? '查看并调整构图与画风要求' : '无额外前置'}</span></summary><textarea aria-label="生图前置" value={promptSettings.prefix} readOnly={!canEdit || modifying} onChange={event => editSettings({ prefix: event.target.value })} onBlur={() => save().catch(() => {})} placeholder="可自由填写，也可清空。不会再自动追加隐藏前置。" /><button type="button" className="ghost" disabled={!canEdit || modifying} onClick={() => changePromptMode(promptSettings.mode)}>恢复当前画风默认前置</button></details>
+          <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.composition==='custom'?'手写前置 · 已保留':promptSettings.composition==='project'?'跟随项目默认':'本卡独立构图'}</small></div>
+          {asset.category==='character'&&promptSettings.mode==='single'&&<label className="art-prompt-mode art-composition-select"><b>人物构图</b><select aria-label="人物图片构图" value={promptSettings.composition} disabled={!canEdit||modifying} onChange={e=>changeComposition(e.target.value)} onBlur={()=>save().catch(()=>{})}><option value="project">跟随项目默认</option>{Object.entries(CHARACTER_COMPOSITIONS).map(([id,item])=><option key={id} value={id}>{item.label}</option>)}<option value="custom">手写前置（保留原文）</option></select><small>{promptSettings.composition==='project'?CHARACTER_COMPOSITIONS[projectCharacterComposition(project)].label:'单卡选择优先于项目默认'}</small></label>}
+          <details className="art-prefix-editor"><summary>编辑前置 <span>{promptSettings.mode === 'group' ? '同图多人，各有不同' : promptSettings.prefix ? '查看并调整构图与画风要求' : '无额外前置'}</span></summary><textarea aria-label="生图前置" value={promptSettings.prefix} readOnly={!canEdit || modifying} onChange={event => editSettings({ prefix: event.target.value })} onBlur={() => save().catch(() => {})} placeholder="可自由填写，也可清空。不会再自动追加隐藏前置。" /><button type="button" className="ghost" disabled={!canEdit || modifying} onClick={() => changePromptMode(promptSettings.mode)}>恢复项目默认前置</button></details>
         </div>
         <div className="collab-asset-actions">
           <button className="primary" onClick={() => save().catch(() => {})} disabled={!canEdit || saving || modifying}><Save size={14} /> {saving ? '保存中…' : '保存提示词'}</button>
@@ -716,7 +722,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         const refAsset = resolveAssetReference(asset, assets, referenceChoice);
         if(requiresCharacterReference(asset, assets)&&!refAsset&&referenceChoice!=='')throw new Error('请先生成或选择人物基准参考图，或明确选择不引用参考');
         const references = refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [];
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style), size: batchSize, references });
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
         if (generated?.filePath) { await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath }); clearAssetImageRecovery(project.id, asset.id); }
       }));
       const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].name}：${result.reason?.message || '生成失败'}`] : []);
@@ -732,6 +738,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   if (episode === null) {
     return (
       <div className="collab-art-overview">
+        <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
         {exportChoiceOpen&&createPortal(
           <div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}>
@@ -804,6 +811,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         <div className="collab-art-head-right"><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{batchFormats.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(allPendingSelected ? [] : pendingEpisodeJobs.map((asset) => asset.id))}>{allPendingSelected ? '取消全选' : '全选未生成'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
       </div>
       {exportError && <div className="collab-error">{exportError}</div>}
+      <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="art-workbench-subhead"><span>{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项</span><AssetQuickNav entries={locations} locator={locator} /><input type="search" aria-label="搜索本集资产" placeholder="搜索资产名称" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
       <div className="collab-art-body art-workbench-rows">
         {list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${batchSelectedIds.includes(selected.id) ? 'is-selected' : ''}`} aria-label={selected.name}>
@@ -817,7 +825,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
     </div>
   );
 }
-function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore, accountId }) {
+function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore, accountId, onProjectChange }) {
   const analysisJob=useCollabAnalysisJob(project,api,accountId,assets);
   const syncPanel=<>{analysisJob?.notice&&<p className="collab-notice">{analysisJob.notice}</p>}{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}<AnalysisSyncDetails job={analysisJob}/></>;
   const [category, setCategory] = useState('character');
@@ -856,6 +864,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   return (
     <div ref={locator.root} className="collab-art art-workbench asset-library-workbench">
       {syncPanel}
+      <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="collab-art-head">
         <b><Box size={16} /> 资产总览</b>
         {!!archivedAssets.length&&<button className="secondary" onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
@@ -1453,10 +1462,10 @@ export function CollabWorkspace({ state, api, account }) {
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
-        {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
+        {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={()=>setSection('art-review')} />}
         {section === 'art-review' && <ArtReviewEntry key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
-        {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} />}
+        {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}

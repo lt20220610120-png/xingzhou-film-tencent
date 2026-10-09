@@ -97,6 +97,8 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
     ? [null, headerMatch[1], normalizedRaw.slice(headerEnd + 1, contentAt), normalizedRaw.slice(contentAt + contentMarker.length)]
     : null;
   if (saved) {
+    const compositionBinding = saved[2].match(/^【构图绑定 · (project|custom|portrait-four|portrait-five)】\n/);
+    if (compositionBinding) saved[2] = saved[2].slice(compositionBinding[0].length);
     const mode = Object.keys(ASSET_PROMPT_MODES).find(key => ASSET_PROMPT_MODES[key] === saved[1]);
     const legacyStyle = Object.keys(LEGACY_CHARACTER_PROMPT_PREFIXES)
       .find(key => saved[2] === LEGACY_CHARACTER_PROMPT_PREFIXES[key]);
@@ -125,7 +127,7 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
         if (prefix === currentDefault.replace(currentVisual, previousVisual)) prefix = currentDefault;
       }
     }
-    return { mode, prefix, content: saved[3], customized: true };
+    return { mode, prefix, content: saved[3], customized: !compositionBinding || compositionBinding[1] === 'custom' };
   }
   const mode = inferAssetPromptMode(asset);
   const prefix = defaultAssetPromptPrefix(asset, style, mode);
@@ -369,7 +371,7 @@ export const normalizeArtAssets = (assets) => {
     if (asset.category === 'scene') {
       const identity = sceneIdentity(asset.name);
       if (!identity || sceneBaselines.get(identity.key)?.index === index || readAssetPrompt(asset).customized) return asset;
-      const generationDescription = sceneVariantDifference(asset, asset.description);
+      const generationDescription = sceneVariantDifference(asset, readAssetPrompt(asset).content);
       return generationDescription && generationDescription !== asset.description
         ? { ...asset, generationDescription, generationDescriptionSource: asset.description }
         : asset;
@@ -379,7 +381,7 @@ export const normalizeArtAssets = (assets) => {
     if (baseline?.index === index) return asset;
     const relatedAsset = { ...asset, characterBaselineName: asset.characterBaselineName || baseline.asset.name };
     if (readAssetPrompt(asset).customized) return relatedAsset;
-    const generationDescription = characterVariantDifference(asset.description);
+    const generationDescription = characterVariantDifference(readAssetPrompt(asset).content);
     return generationDescription !== asset.description
       ? { ...relatedAsset, generationDescription, generationDescriptionSource: asset.description }
       : relatedAsset;
@@ -547,10 +549,13 @@ export const episodeNumbersFromAssets = (assets) => {
 };
 
 // ---------- @引用：把同角色/同地点参考资产的描述并入生图提示词 ----------
-export const buildImagePrompt = (asset, refAsset, style) => {
+export const buildImagePrompt = (asset, refAsset, style, options) => {
   const parts = [];
   const settings = readAssetPrompt(asset, style);
-  if (settings.prefix) parts.push(settings.prefix);
+  // Historical callers pass an analysis genre as the fourth argument. It must
+  // remain ignored; only the typed option explicitly overrides the prefix.
+  const prefix=typeof options?.prefix==='string'?options.prefix:settings.prefix;
+  if (prefix) parts.push(prefix);
   if (style) parts.push(`画风：${style}`);
   if (refAsset) {
     const hasReferenceImage = Boolean(refAsset.image_url || refAsset.images?.some((image) => image.url));
