@@ -204,13 +204,17 @@ const referenceGroup = (asset) => {
 const firstEpisodeOf = (asset) => Number(asset.first_episode
   ?? Math.min(...(asset.episodes || []).map(Number).filter(Number.isFinite))) || Number.MAX_SAFE_INTEGER;
 
-export const resolveAssetReference = (asset, assets, selectedId = null) => {
-  const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
+export const assetReferencePeers = (asset, assets) => {
   const group = referenceGroup(asset);
   const peers = (assets || []).map((item, index) => ({ item, index }))
     .filter(({ item }) => item.category === asset.category && referenceGroup(item) === group)
     .sort((a, b) => firstEpisodeOf(a.item) - firstEpisodeOf(b.item) || a.index - b.index)
     .map(({ item }) => item);
+  return peers;
+};
+export const resolveAssetReference = (asset, assets, selectedId = null) => {
+  const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
+  const peers=assetReferencePeers(asset,assets);
   if (selectedId !== null) return peers.find((item) => item.id !== asset.id && item.id === selectedId && hasImage(item)) || null;
   if (asset.category !== 'character' && (asset.category !== 'scene' || !sceneIdentity(asset.name))) return null;
   const first = peers.find(hasImage);

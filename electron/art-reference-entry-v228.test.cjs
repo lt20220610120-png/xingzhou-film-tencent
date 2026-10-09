@@ -12,7 +12,7 @@ function declaration(source,name){
   return match[0];
 }
 function entry(source,name){
-  const match=source.match(new RegExp(`const ${name} = async \\(\\) => \\{[\\s\\S]*?\\n  \\};`));
+  const match=source.match(new RegExp(`const ${name} = async \\([^)]*\\) => \\{[\\s\\S]*?\\n  \\};`));
   assert.ok(match,`real UI entry ${name} exists`);
   return match[0];
 }
@@ -23,7 +23,7 @@ function compileEntry(core,scope,kind){
   const values=Object.values({...core,...scope});
   const body=kind==='single'
     ? [referencePrelude,declaration(singleSource,'refAsset'),declaration(singleSource,'referenceRequired'),declaration(singleSource,'explicitlyNoReference'),entry(singleSource,'generate'),'return generate;'].join('\n')
-    : [referencePrelude,entry(batchSource,'generateBatch'),'return generateBatch;'].join('\n');
+    : [referencePrelude,declaration(batchSource,'imagePlan'),entry(batchSource,'generateBatch'),'return generateBatch;'].join('\n');
   return new Function(...names,body)(...values);
 }
 async function fixture(kind,{cancel=false,baseImage=false,baseline=false,mode='single',composition='portrait-four',factory=false}={}){
@@ -32,6 +32,7 @@ async function fixture(kind,{cancel=false,baseImage=false,baseline=false,mode='s
   const core={...baseCore,projectCharacterComposition:composed.projectCharacterComposition,buildImagePrompt:composed.buildComposedImagePrompt};
   const references=await import('../core/generationReferences.js');
   const recovery=await import('../core/assetImageRecovery.js');
+  const batch=await import('../core/artImageBatch.js');
   const output='### 第1集\n人物：\n- 【林夏-常服】（实际出镜，首次）脸型：圆脸；发型：黑发；服装：白衬衣。\n场景：\n- 无（本集未出现）\n道具：\n- 无（本集未出现）\n### 第2集\n人物：\n- 【林夏-礼服】（实际出镜，首次，换装）脸型：圆脸；发型：黑发；服装与鞋履：红色礼服与银色鞋履；妆造差异：红唇。\n场景：\n- 无（本集未出现）\n道具：\n- 无（本集未出现）';
   const rows=core.buildAssetRows(core.parseArtAnalysis(output)).map((row,index)=>({...row,id:index?'gown':'base',images:[]}));
   if(baseImage)rows[0].images=[{id:'real-baseline',url:'https://example.test/base.png'}];
@@ -43,11 +44,12 @@ async function fixture(kind,{cancel=false,baseImage=false,baseline=false,mode='s
   let busyIds=new Set();
   const setGeneratingAssetIds=update=>{busyIds=update(busyIds);};
   const scope={
-    ...references,...recovery,pendingImage:null,project:{id:'ui-offline',style:'AI真人',image_composition:composition},asset,assets,refId:cancel?'':null,
+    ...references,...recovery,...batch,pendingImage:null,project:{id:'ui-offline',style:'AI真人',image_composition:composition},asset,assets,refId:cancel?'':null,
     localStorage:{getItem:()=>cancel?'':null},generating:false,busy:false,canEdit:true,size:'1024x1024',
     profile:{id:'offline',model:'mock'},batchProfile:{id:'offline',model:'mock'},batchSize:'1024x1024',episode:baseline?1:2,
     batchSelectedIds:[asset.id],batchBusy:false,generatingAssetIdsRef:{current:new Set()},setGeneratingAssetIds,
     setError:value=>errors.push(value),setExportError:value=>errors.push(value),setBusy:value=>busyStates.push(value),setBatchBusy:()=>{},
+    setWholeDialog:()=>{},setImageProgress:()=>{},stopImages:{current:false},imageConcurrency:2,
     readableCloudError:error=>error.message,beforeGenerate:null,onGenerateImage:null,refresh:async()=>{},
     draftStore:{read:()=>null,save:async()=>{throw new Error('fixture has no draft');}},
     api:{mediaGenerateImage:async payload=>{calls.push(payload);return {};},collabAttachGeneratedAssetImage:async()=>{throw new Error('fixture must not attach');}},

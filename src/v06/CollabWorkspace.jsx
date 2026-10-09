@@ -3,6 +3,7 @@ import{CHARACTER_COMPOSITIONS,projectCharacterComposition,readComposedAssetPromp
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
+import {planArtImageBatch,runArtImageBatch} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
@@ -378,7 +379,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const uploadLocal = async () => {
     if (busy || !canEdit) return;
     setBusy(true); setError('');
-    try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== r.id), r]); setSelectedImageId(r.id); } if (r) await refresh(); }
+    try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r?.url) { clearAssetImageRecovery(project.id,asset.id); setLocalImages((current) => [...current.filter((item) => item.id !== r.id), r]); setSelectedImageId(r.id); } if (r) await refresh(); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -408,7 +409,8 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{formats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         {(mates.length > 0||referenceRequired) && <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?'等待人物基准参考图':"默认（不引用参考）"}</option><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
-        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : pendingImage?.receiptId ? '重试下载（不重新生图）' : pendingImage?.filePath ? '继续保存图片' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || !canEdit}><Upload size={14} /> 上传</button></div>
+        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit || pendingImage?.reason==='expired'}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : pendingImage?.reason==='expired'?'结果链接不可用':pendingImage?.receiptId ? '重试下载（不重新生图）' : pendingImage?.filePath ? '继续保存图片' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || generating || !canEdit}><Upload size={14} /> 上传</button></div>
+        {pendingImage?.receiptId&&<div className="image-recovery-actions"><button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开生成结果。保存原图后可点击上传，不会重新生图。');}catch(e){setError(e.message);}}}>打开已生成结果</button><button className="ghost" disabled={busy||generating||!canEdit} onClick={()=>{if(window.confirm('放弃这张待下载结果？原恢复记录仍保留在本机；之后点击生成图片会重新调用接口并可能产生费用。')){clearAssetImageRecovery(project.id,asset.id);setError('已解除旧结果的重试状态，可上传原图，或点击生成图片重新付费生成。');}}}>放弃旧结果</button></div>}
         {refAsset && <small className="collab-ref-hint">{asset.category==='scene'?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`将参考 ${refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态`}</small>}
         {referenceRequired&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
         {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">请先生成或选择人物基准参考图，避免差异造型生成另一张脸。</small>}
@@ -659,6 +661,10 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const [batchSelectedIds, setBatchSelectedIds] = useState([]);
   const previousBatchAssets = useRef({ episode: null, assets: [] });
   const [batchBusy, setBatchBusy] = useState(false);
+  const [wholeDialog,setWholeDialog]=useState(false);
+  const [imageConcurrency,setImageConcurrency]=useState(2);
+  const [imageProgress,setImageProgress]=useState(null);
+  const stopImages=useRef(false);
   const batchFormats = imageModelFormats(batchProfile);
   const [preferredBatchSize, setBatchSize] = useState(IMAGE_FORMATS[0].size);
   const batchSize = batchFormats.some(f=>f.size===preferredBatchSize)?preferredBatchSize:batchFormats[0].size;
@@ -710,40 +716,52 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
       setGeneratingAssetIds((current) => { const next = new Set(current); next.delete(asset.id); return next; });
     }
   }, [api, project.id, refresh]);
-  const generateBatch = async () => {
+  const imagePlan=()=>planArtImageBatch(assets,{readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
+  const generateBatch = async (whole=false) => {
     const profile=batchProfile;
-    const jobs = buildAssetGenerationJobs(assets, episode, ['character', 'scene', 'prop']).filter((asset) => batchSelectedIds.includes(asset.id) && !generatingAssetIdsRef.current.has(asset.id));
+    const jobs = imagePlan().filter(({asset})=>(whole||batchSelectedIds.includes(asset.id))&&!generatingAssetIdsRef.current.has(asset.id));
     if (!profile || !jobs.length || batchBusy || !canEdit) return;
-    setBatchBusy(true);
-    jobs.forEach((asset) => generatingAssetIdsRef.current.add(asset.id));
-    setGeneratingAssetIds((current) => new Set([...current, ...jobs.map((asset) => asset.id)]));
+    setWholeDialog(false);setExportError('');setBatchBusy(true);stopImages.current=false;setImageProgress({total:jobs.length,completed:0,failed:0});
+    jobs.forEach(({asset}) => generatingAssetIdsRef.current.add(asset.id));
+    setGeneratingAssetIds((current) => new Set([...current, ...jobs.map(({asset}) => asset.id)]));
+    let liveAssets=[...assets];
     try {
-      const results = await Promise.allSettled(jobs.map(async (asset) => {
+      const outcome = await runArtImageBatch(jobs,{concurrency:imageConcurrency,isStopped:()=>stopImages.current,onProgress:setImageProgress,generate:async (asset) => {
         const draft = draftStore.read(project.id, asset.id);
         if (draft) {
           await draftStore.save(api, project.id, asset.id, draft.content);
           asset = { ...asset, description: draft.content };
         }
         const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
-        const refAsset = resolveAssetReference(asset, assets, referenceChoice);
-        if(requiresCharacterReference(asset, assets)&&!refAsset&&referenceChoice!=='')throw new Error('请先生成或选择人物基准参考图，或明确选择不引用参考');
+        const refAsset = resolveAssetReference(asset, liveAssets, referenceChoice);
+        if(!readAssetImageRecovery(project.id,asset.id)&&requiresCharacterReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error('请先生成或选择人物基准参考图，或明确选择不引用参考');
         const references = refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [];
         const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
-        if (generated?.filePath) { await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode, filePath: generated.filePath }); clearAssetImageRecovery(project.id, asset.id); }
-      }));
-      const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].name}：${result.reason?.message || '生成失败'}`] : []);
-      setExportError(failed.length ? `${failed.length} 项未完成：${failed.join('；')}` : '');
+        if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
+        const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||episode||0, filePath: generated.filePath });
+        if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');
+        clearAssetImageRecovery(project.id, asset.id);
+        liveAssets=liveAssets.map(a=>a.id===asset.id?{...a,images:[...(a.images||[]),attached]}:a);
+        return attached;
+      }});
+      const failed = outcome.results.flatMap(result => result.status === 'rejected' ? [`${result.asset.name}：${result.reason?.message || '生成失败'}`] : []);
+      setExportError([outcome.remaining?`已暂停，剩余 ${outcome.remaining} 项未开始；进行中的结果已保存。`:'',failed.length ? `${failed.length} 项未完成：${failed.join('；')}` : ''].filter(Boolean).join(' '));
       await refresh();
+    } catch(error){setExportError(readableCloudError(error));
     } finally {
-      jobs.forEach((asset) => generatingAssetIdsRef.current.delete(asset.id));
-      setGeneratingAssetIds((current) => { const next = new Set(current); jobs.forEach((asset) => next.delete(asset.id)); return next; });
+      jobs.forEach(({asset}) => generatingAssetIdsRef.current.delete(asset.id));
+      setGeneratingAssetIds((current) => { const next = new Set(current); jobs.forEach(({asset}) => next.delete(asset.id)); return next; });
       setBatchBusy(false);
     }
   };
+  const wholeControls=<><button className="primary" disabled={!canEdit||batchBusy||!imagePlan().length||generatingAssetIds.size>0} onClick={()=>setWholeDialog(true)}><Sparkles size={14}/> 一键生成全剧图片</button>{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>停止后续生成</button>}</>;
+  const wholeModal=wholeDialog&&createPortal(<div className="veil"><div className="modal art-image-batch-modal" role="dialog" aria-modal="true" aria-label="确认生成全剧图片"><header><h2>生成全剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setWholeDialog(false)}><X size={18}/></button></header><p>人物、场景、道具共 {imagePlan().length} 项待完成。已有图片跳过，跨集复用资产只生成一次；先完成基准，再生成差异造型。</p><p>待下载结果优先恢复，不重新生图。新图片会调用所选接口并产生费用。</p><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} label="全剧生图模型"/><label>生成画幅<select aria-label="全剧生成画幅" value={batchSize} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(f=><option key={f.value} value={f.size}>{f.label}</option>)}</select></label><label>并发数量<select aria-label="全剧图片并发数量" value={imageConcurrency} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张同时处理</option>)}</select></label><small>默认 2 张；可停止后续任务，已经开始的任务会完成并保存。失败项不会自动重复付费生成。</small><div className="modal-actions"><button className="secondary" onClick={()=>setWholeDialog(false)}>取消</button><button className="primary" disabled={!batchProfile} onClick={()=>generateBatch(true)}>确认开始生成</button></div></div></div>,document.body);
 
   if (episode === null) {
     return (
       <div className="collab-art-overview">
+        <div className="art-whole-generation">{wholeControls}</div>{wholeModal}
+        {exportError&&<div className="collab-error" role="alert">{exportError}</div>}
         <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
         {exportChoiceOpen&&createPortal(
@@ -809,13 +827,15 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
       {analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}
       {analysisJob?.notice&&<div className="collab-notice">{analysisJob.notice}</div>}
       <div className="collab-art-head">
-        <div className="collab-art-head-left"><button className="ghost" onClick={() => setEpisode(null)}><ArrowLeft size={15} /> 全部集数</button><b>第 {episode} 集</b><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button><div className="collab-cat-tabs">
+        <div className="collab-art-head-left"><button className="ghost" onClick={() => setEpisode(null)}><ArrowLeft size={15} /> 全部集数</button><label className="art-episode-picker">选集<select aria-label="美术选集" value={episode} onChange={e=>{setEpisode(Number(e.target.value));setSearch('');setExportError('');}}>{episodes.map(n=><option value={n} key={n}>第 {n} 集{episodeDetails.get(n)?.title&&episodeDetails.get(n).title!==`第${n}集`?` · ${episodeDetails.get(n).title}`:''}</option>)}</select></label><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 添加资产</button><div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
             <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{label}</button>
           ))}
         </div></div>
-        <div className="collab-art-head-right"><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{batchFormats.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(allPendingSelected ? [] : pendingEpisodeJobs.map((asset) => asset.id))}>{allPendingSelected ? '取消全选' : '全选未生成'}</button><button className="primary" onClick={generateBatch} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
+        <div className="collab-art-head-right"><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{batchFormats.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(allPendingSelected ? [] : pendingEpisodeJobs.map((asset) => asset.id))}>{allPendingSelected ? '取消全选' : '全选未生成'}</button><button className="primary" onClick={()=>generateBatch(false)} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
+        <div className="art-whole-generation">{wholeControls}</div>
       </div>
+      {wholeModal}
       {exportError && <div className="collab-error">{exportError}</div>}
       <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="art-workbench-subhead"><span>{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项</span><AssetQuickNav entries={locations} locator={locator} /><input type="search" aria-label="搜索本集资产" placeholder="搜索资产名称" value={search} onChange={(event) => setSearch(event.target.value)} /></div>

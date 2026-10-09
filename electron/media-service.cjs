@@ -87,6 +87,11 @@ function imageReceiptPath(receiptId, destDir) {
 }
 
 const pendingImageDownloads = new Map();
+function pendingImageSource(receiptId,destDir){
+ let receipt;try{receipt=JSON.parse(fs.readFileSync(imageReceiptPath(receiptId,destDir),'utf8'));}catch{throw new Error('图片结果记录不存在，请检查本地资料目录');}
+ if(!/^https?:\/\//i.test(receipt.source))throw new Error('该结果为内嵌图片，请继续保存或手动上传');
+ return receipt.source;
+}
 function retryImageDownload(receiptId, destDir) {
   const receiptPath = imageReceiptPath(receiptId, destDir);
   if (pendingImageDownloads.has(receiptPath)) return pendingImageDownloads.get(receiptPath);
@@ -99,8 +104,10 @@ function retryImageDownload(receiptId, destDir) {
       fs.unlinkSync(receiptPath);
       return filePath;
     } catch (cause) {
-      throw Object.assign(new Error(`图片已生成，但下载或保存未完成：${cause.message}。结果已保留，请点击“重试下载”恢复，不会再次调用生图接口。`), {
-        cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId,
+      const reason=[401,403,404,410].includes(cause.status)?'expired':isMediaNetworkError(cause)||isMediaNetworkError(cause.cause)?'network':'save';
+      const advice=reason==='expired'?'服务商结果链接不可用，请到服务商任务记录找回原图后上传；继续重试相同地址无法恢复。':reason==='network'?'请检查系统代理或网络；也可打开已生成结果，在浏览器保存原图后上传。':'请检查本地资料目录、磁盘空间或权限后继续保存。';
+      throw Object.assign(new Error(`图片已生成，但下载或保存未完成：${cause.message}。${advice} 不会自动重新生图。`), {
+        cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId, downloadReason:reason,
       });
     }
   })().finally(() => pendingImageDownloads.delete(receiptPath));
@@ -183,7 +190,7 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
     throw new Error(references.length ? `参考图生成失败：${reason}。请确认该接口与模型支持 /images/edits 图片编辑协议` : reason);
   }
   const item = data?.data?.[0] || {};
-  const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
+  const url = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url || '';
   if (!url) throw new Error('接口已响应，但没有返回图片');
   return await saveGeneratedImage(url, destDir);
 }
@@ -247,4 +254,4 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   throw new Error('视频生成超时（10 分钟），请稍后在服务商控制台查看任务');
 }
 
-module.exports = { downloadToFile, retryImageDownload, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };
+module.exports = { downloadToFile, retryImageDownload, pendingImageSource, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };

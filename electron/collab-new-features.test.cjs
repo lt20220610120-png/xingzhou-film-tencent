@@ -17,6 +17,6 @@ test('美术按集支持全选、取消全选和并发批量生成', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
   assert.match(ui, /一键生成/);
   assert.match(ui, /取消全选/);
-  assert.match(ui, /Promise\.allSettled\(jobs\.map/);
+  assert.match(ui, /runArtImageBatch\(jobs,\{concurrency:imageConcurrency/);
   assert.match(ui, /checked=\{batchSelectedIds\.includes/);
 });

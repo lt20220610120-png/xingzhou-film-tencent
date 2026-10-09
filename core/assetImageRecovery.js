@@ -16,9 +16,10 @@ export function clearAssetImageRecovery(projectId, assetId) {
 export async function requestAssetImage(api, projectId, assetId, payload) {
   const pending = readAssetImageRecovery(projectId, assetId);
   if (pending?.filePath) return pending;
+  if (pending?.reason==='expired') throw new Error('服务商结果链接已不可用，请找回原图后上传，或明确放弃旧结果后重新生图。');
   const result = pending?.receiptId ? await api.mediaRetryImageDownload({receiptId:pending.receiptId}) : await api.mediaGenerateImage(payload);
   if (result?.pendingDownload) {
-    remember(projectId, assetId, {receiptId:result.pendingDownload.id});
+    remember(projectId, assetId, {receiptId:result.pendingDownload.id,reason:result.pendingDownload.reason||'network'});
     throw new Error(result.error || '图片已生成，下载未完成；可重试下载，不会重新生图');
   }
   if (result?.filePath) remember(projectId, assetId, {filePath:result.filePath});

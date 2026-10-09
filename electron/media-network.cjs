@@ -9,6 +9,10 @@ function isMediaNetworkError(error) {
 }
 
 let imageCache;
+let mediaFetch;
+// Electron's Chromium network stack follows the desktop's system proxy/PAC.
+// Node fetch does not, which can make generation succeed but result GETs fail.
+function configureMediaFetch(fetcher) { mediaFetch = fetcher; }
 let cacheScope = () => '';
 function configureMediaCache(cache, scope) { imageCache = cache; cacheScope = scope || (()=>''); }
 async function readMediaBytes(url, options = {}) {
@@ -17,7 +21,7 @@ async function readMediaBytes(url, options = {}) {
   if (imageCache && !options.signal) return imageCache.read(url, cacheScope(), () => downloadMediaBytes(url, options));
   return downloadMediaBytes(url, options);
 }
-async function downloadMediaBytes(url, { fetchFn = globalThis.fetch, timeoutMs = 60000, attempts = 3, delayMs = 400, signal, label = '媒体下载' } = {}) {
+async function downloadMediaBytes(url, { fetchFn = mediaFetch || globalThis.fetch, timeoutMs = 60000, attempts = 3, delayMs = 400, signal, label = '媒体下载' } = {}) {
   if (!/^https?:\/\//i.test(String(url))) throw new Error(`${label}地址无效`);
   const maxAttempts = Math.max(1, Math.min(3, attempts));
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -54,4 +58,4 @@ async function downloadMediaBytes(url, { fetchFn = globalThis.fetch, timeoutMs =
   }
 }
 
-module.exports = { readMediaBytes, isMediaNetworkError, configureMediaCache };
+module.exports = { readMediaBytes, isMediaNetworkError, configureMediaCache, configureMediaFetch };

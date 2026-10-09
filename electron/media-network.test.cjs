@@ -1,6 +1,22 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {readMediaBytes}=require('./media-network.cjs');
+test('desktop media transport downloads with system proxy without forwarding provider credentials',async()=>{
+ const {configureMediaFetch}=require('./media-network.cjs');let requests=0;
+ configureMediaFetch(async(url,options)=>{requests++;assert.equal(url,'https://result.test/a');assert.equal(options.method,'GET');assert.equal(options.headers,undefined);return new Response('desktop-image');});
+ try{assert.equal((await readMediaBytes('https://result.test/a')).bytes.toString(),'desktop-image');assert.equal(requests,1);}finally{configureMediaFetch(null);}
+});
+test('expired result is identified rather than asking for endless retries; embedded result takes priority',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-image-result-')),original=globalThis.fetch;
+ globalThis.fetch=async()=>Response.json({data:[{url:'https://dead.test/image',b64_json:Buffer.from('embedded-image').toString('base64')}]});
+ try{
+  const {generateImage,retryImageDownload,pendingImageSource}=require('./media-service.cjs');
+  const file=await generateImage({endpoint:'https://provider.test/v1',model:'image',prompt:'test',destDir:dir});assert.equal(fs.readFileSync(file,'utf8'),'embedded-image');
+  globalThis.fetch=async(url,options)=>options?.method==='POST'?Response.json({data:[{url:'https://dead.test/image'}]}):new Response('',{status:403});
+  let id;await assert.rejects(generateImage({endpoint:'https://provider.test/v1',model:'image',prompt:'test',destDir:dir}),e=>{id=e.downloadReceiptId;return e.downloadReason==='expired'&&/继续重试相同地址无法恢复/.test(e.message);});
+  assert.equal(pendingImageSource(id,dir),'https://dead.test/image');assert.throws(()=>retryImageDownload('../secret',dir),/恢复记录无效/);
+ }finally{globalThis.fetch=original;fs.rmSync(dir,{recursive:true,force:true});}
+});
 test('GET retries interrupted bodies, but does not retry missing objects',async()=>{
  let calls=0;
  const result=await readMediaBytes('https://image.test/a',{delayMs:0,fetchFn:async()=>{calls++;return calls===1?{ok:true,arrayBuffer:async()=>{throw Error('terminated');}}:new Response('png');}});
