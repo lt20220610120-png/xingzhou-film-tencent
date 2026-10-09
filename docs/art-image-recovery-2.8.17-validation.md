@@ -1,6 +1,6 @@
 # 图片下载恢复、选集与全剧生图 / 2.8.17
 
-日期：2026-10-09。
+日期：2026-10-09。实现提交：8f70818。
 
 问题原因：只读取得待下载记录，对同一结果地址分别用 Node fetch 与 Electron Chromium net.fetch 做 GET。Node 通道连接超时，Chromium 通道返回 200、有效 PNG。媒体读取统一使用系统浏览器网络通道，兼容桌面系统代理/PAC；媒体重试只重试 GET，不重放付费生成 POST。
 
@@ -20,4 +20,10 @@
 
 Windows 安装包实际启动验证通过：qa/packaged-smoke-2.8.17-1791550128005。文档导入、美术账本、世界模拟、回收站、网页模型、号池、画布和权限边界通过。
 
-发布与公开下载验证完成后补录。
+发布：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.17
+
+安装包：102786165 字节。
+
+SHA256：b999d716e06d0a83f1022262227f759c04208ddaa2a1be759328bb4819265eca。
+
+两处公开 latest.json 完全一致；完整下载公开安装包后大小、SHA256 与本地及 GitHub 资产摘要一致。实际客户端解析读到 2.8.17，Ed25519 签名验证通过。报告：output/playwright/download-2817-public.json。
