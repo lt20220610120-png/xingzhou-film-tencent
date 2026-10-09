@@ -1,6 +1,7 @@
 .formatted-text{font:14px/1.8 var(--studio-font,sans-serif);color:inherit;overflow-wrap:anywhere;white-space:normal;min-width:0}
-.director-stage .quick-scene-textarea.formatted-editor,
-.director-stage .quick-scene-textarea.formatted-editor *{color:#000!important;-webkit-text-fill-color:#000}
+.director-stage .director-script-body.formatted-editor{background:#fff!important}
+.director-stage .director-script-body.formatted-editor,
+.director-stage .director-script-body.formatted-editor *{color:#000!important;-webkit-text-fill-color:#000}
 .formatted-text p{margin:0 0 .5em;white-space:pre-wrap;max-height:none;overflow:visible;font:inherit}
 .formatted-text :is(h1,h2,h3,h4,h5,h6){margin:.9em 0 .45em;font-family:inherit;line-height:1.5;font-weight:650;color:inherit}
 .formatted-text>:first-child{margin-top:0}

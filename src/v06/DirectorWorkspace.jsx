@@ -581,7 +581,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             <div className="creative-dual-panels">
               <article className="creative-script-panel">
                 <div className="creative-panel-title"><BookOpen size={16}/> 场景 {currentScene} · 剧本内容 <span className="readonly-badge">只读</span></div>
-                <FormattedEditor value={currentSceneContent} readOnly aria-label="当前场景剧本内容" />
+                <FormattedEditor className="director-script-body" value={currentSceneContent} readOnly aria-label="当前场景剧本内容" />
               </article>
               <article className="creative-vision-panel">
                 <div className="creative-panel-title"><Sparkles size={16}/> 场景 {currentScene} · 导演构想</div>
@@ -673,7 +673,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
                 {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><FormattedText key={index} text={reply.output}/>)}</details>}
                 <FormattedEditor
-                  className="quick-scene-textarea"
+                  className="quick-scene-textarea director-script-body"
                   value={quickSettings.segmentationMode==='auto'&&sourceView==='plan'?autoSceneText:currentSceneContent}
                   readOnly={Boolean(project.cloudLocked)||(quickSettings.segmentationMode==='auto'&&sourceView==='plan')}
                   onChange={(e) => saveQuickScene(currentScene, e.target.value)}
