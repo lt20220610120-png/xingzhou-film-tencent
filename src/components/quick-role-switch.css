@@ -12,3 +12,4 @@
 @keyframes role-menu-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.role-switch-menu{animation:none}}
 @media(max-width:900px){.sidebar .shared-tools-label{text-align:center;padding:10px 0 3px;font-size:10px;letter-spacing:0}.quick-role-arrow{display:none}}
+.sidebar .sidebar-main-label{border-top:0;margin-top:0;padding-top:0}

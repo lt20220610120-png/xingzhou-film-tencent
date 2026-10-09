@@ -1442,13 +1442,14 @@ function App() {
       <nav className="sidebar" id="app-sidebar">
         <BrandLogo compact />
         <UserProfile account={account} api={api} onUpdate={setAccount} role={role}/>
+        <span className="shared-tools-label sidebar-main-label">常用</span>
         {navItems.map(([key, Icon, label]) => ['fruit','studio'].includes(key)?<SidebarGroup key={key} label={label} Icon={Icon} active={nav===key} selected={creatorSection[key]} items={key==='fruit'?[{id:'fruit',label:'果子库'},{id:'ip',label:'IP 库'}]:[{id:'rewrite',label:'洗稿'},{id:'original',label:'原创'}]} onNavigate={()=>setNav(key)} onSelect={tab=>chooseCreatorSection(key,tab)}/>:(
           <button key={key} aria-label={label} title={label} className={nav === key ? 'active' : ''} onClick={() => setNav(key)}>
             <Icon size={19} />
             <span>{label}</span>
           </button>
         ))}
-        <span className="shared-tools-label">共用工具</span>
+        <span className="shared-tools-label">更多</span>
         {sharedNav.map(([key,Icon,label])=><button key={key} aria-label={label} title={label} className={nav===key?'active':''} onClick={()=>setNav(key)}><Icon size={19}/><span>{label}</span></button>)}
         <div className="side-bottom">
           <QuickRoleSwitch role={role} account={account} onSelect={handleRoleSelect} onChooseScreen={()=>{document.activeElement?.blur?.();setRole(null);localStorage.removeItem('xz-role');}}/>
