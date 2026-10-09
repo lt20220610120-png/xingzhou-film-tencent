@@ -156,10 +156,10 @@ test('CAS conflict preserves local draft; explicit cloud choice archives it',asy
  const f=fixture(1);await runArtReviewAnalysis(f.args);f.remote[1]={...structuredClone(f.disk.episodes[1]),version:1};f.project.analysis_progress[1]={review:structuredClone(f.remote[1])};await f.store.update(1,r=>editArtReview(r,{type:'remove',sceneId:'1-1',itemId:r.scenes[0].items[0].id}));await f.store.update(1,r=>editArtReview(r,{type:'approve',sceneId:'1-1'}));assert.equal(f.disk.episodes[1].syncError,undefined);await assert.rejects(f.store.publish(1,['1-1']),/冲突/);assert.match(f.disk.episodes[1].syncError,/冲突/);assert.equal(f.disk.episodes[1].scenes[0].items.length,1);
  await f.store.useCloud(1,f.project);assert.ok(f.disk.episodes[1].history.some(h=>h.reason.includes('冲突本地版本')&&h.previous.scenes[0].items.length===1));
 });
-test('partial model result is saved and next episodes continue; mapping-only retry reuses inventory',async()=>{
+test('partial model result pauses later episodes; mapping-only retry reuses inventory before continuing',async()=>{
  const f=fixture(2),original=f.api.aiChat;f.api.aiChat=async p=>{if(!f.calls.length){f.calls.push(p);return {ok:false,error:'截断',output:output(1).split('【逐场资产对应表】')[0]};}return original(p);};
- const result=await runArtReviewAnalysis(f.args);assert.equal(result.errors.length,1);assert.ok(f.disk.episodes[1].rawOutput);assert.equal(f.disk.episodes[2].status,'generated');assert.equal(f.publishCalls.length,0);
- f.api.aiChat=original;await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,3);assert.match(f.calls[2].messages.at(-1).content,/只补齐对应表/);assert.equal(f.disk.episodes[1].status,'generated');
+ const result=await runArtReviewAnalysis(f.args);assert.equal(result.errors.length,1);assert.ok(f.disk.episodes[1].rawOutput);assert.equal(f.disk.episodes[2].status,'empty');assert.equal(f.publishCalls.length,0);
+ f.api.aiChat=original;await runArtReviewAnalysis(f.args);assert.equal(f.calls.length,3);assert.match(f.calls[1].messages.at(-1).content,/只补齐对应表/);assert.equal(f.disk.episodes[1].status,'generated');assert.equal(f.disk.episodes[2].status,'generated');
 });
 test('target correction omits earlier scripts and future scenes; concurrent deletion wins over returning model',async()=>{
  const f=fixture(3);await runArtReviewAnalysis(f.args);await f.store.update(1,r=>editArtReview(r,{type:'approve-episode'}));

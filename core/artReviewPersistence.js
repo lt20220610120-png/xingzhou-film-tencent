@@ -1,5 +1,6 @@
 import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignature} from './artReview.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
+import {artWorkflowState} from './artWorkflow.js';
 
 const stores=new Map();
 const fullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(scene=>record.published?.[scene.id]?.signature===reviewSceneSignature(scene)));
@@ -55,6 +56,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  const store={
   snapshot:()=>ledger,
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},
   async load(project,assets=[]){return enqueue(async()=>{
    const next=loaded?structuredClone(ledger):await api.artReviewLoadLocal({projectId})||{episodes:{}};next.episodes||={};
    for(const [n,p]of Object.entries(project.analysis_progress||{}))if(p.review){
@@ -133,5 +135,5 @@ export function getArtReviewStore({api,projectId,accountId=''}){
 }
 export function summarizeArtReview(ledger,project){
  const records=Object.entries(ledger.episodes||{}).filter(([,r])=>r.status!=='empty'),published=records.filter(([,r])=>!r.pending&&fullyPublished(r)),pending=records.filter(([,r])=>r.pending||!fullyPublished(r));
- return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>r.warnings||[]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),stale:project?listCollabEpisodes(project.episodes).filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0};
+ return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>r.warnings||[]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),stale:project?listCollabEpisodes(project.episodes).filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
 }

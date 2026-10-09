@@ -93,8 +93,9 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     if(!initialized||!accountId)return;
     for(const project of state.directorProjects||[]){
       if(!project.cloudProjectId||!project.cloudBase||project.cloudLocked||project.cloudConflict)continue;
-      const signature=JSON.stringify({name:project.name,script:project.masterScript||'',episodes:project.episodes||[]});
-      if(signature===JSON.stringify(project.cloudBase)||cloudScheduledRef.current.get(project.id)===signature)continue;
+      const document={name:project.name,script:project.masterScript||'',episodes:project.episodes||[]};
+      const signature=JSON.stringify({document,base:project.cloudBase});
+      if(JSON.stringify(document)===JSON.stringify(project.cloudBase)||cloudScheduledRef.current.get(project.id)===signature)continue;
       cloudScheduledRef.current.set(project.id,signature);cloudSync.enqueue(project.id);
     }
   },[state.directorProjects,accountId,initialized]);

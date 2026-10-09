@@ -43,6 +43,8 @@ import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
 import { collabEpisodeNumber, inspectCollabEpisodes, listCollabEpisodes, nextCollabEpisodeNumber } from '../../core/collabEpisodes.js';
 import '../art-workbench.css';
+import ArtWorkflowControl from './ArtWorkflowControl.jsx';
+import {artWorkflowState} from '../../core/artWorkflow.js';
 
 const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, assets: Box, storyboard: Clapperboard, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
@@ -94,8 +96,8 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
     const result = await runAnalysis({ project, genre, profile, api, job,
       targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, detailsOnly, accountId,
       onProgress: () => {} });
-    job.status = job.cancelled ? 'stopped' : 'completed'; job.taskId = '';
-    Object.assign(job,result);job.notice = artSyncNotice(result);job.error=(result.errors||[]).join('\n');
+    job.status = job.cancelled ? 'stopped' : result.errors?.length ? 'paused' : result.workflow?.phase==='review' ? 'awaiting-review' : 'completed'; job.taskId = '';
+    Object.assign(job,result);job.notice = `${artSyncNotice(result)} ${result.workflow?.message||''}`;job.error=(result.errors||[]).join('\n');
   } catch (error) {
     job.taskId = '';
     if (job.cancelled || String(error.message || '').includes('任务已停止')) {
@@ -154,6 +156,8 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
   const [modelId,setModelId,profile]=useWindowModel(`analysis:${project.id}`,apiProfiles,state.activeApiId);
   const analysisJob = useCollabAnalysisJob(project,api,accountId,assets);
   const analyzing = ['running','stopping'].includes(analysisJob?.status);
+  const reviewStore=getArtReviewStore({api,projectId:project.id,accountId});
+  const workflow=artWorkflowState(reviewStore.snapshot(),project);
 
   useEffect(() => { setScript(project.script || ''); }, [project.id]);
   useEffect(() => { setGenre(project.genre || ''); }, [project.id]);
@@ -172,7 +176,8 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
     setError(''); setNotice('');
     try {
       if (genre !== (project.genre || '')) api.collabUpdateProject({ projectId: project.id, updates: { genre } }).catch(()=>{});
-      await startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, accountId });
+      const result=await startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, accountId });
+      if(result.workflow?.mode==='guided'&&result.workflow.phase==='review')onOpenReview(result.workflow.episodeNumber);
     } catch (e) { setError(readableCloudError(e)); }
   };
 
@@ -204,9 +209,10 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
           <b>{COLLAB_ART_SKILL_NAME}</b>
         </div>
         <div className="art-config-execution">
+        <ArtWorkflowControl workflow={workflow} onChange={mode=>reviewStore.setWorkflow(mode)} disabled={!canEdit||analyzing} onOpenReview={onOpenReview}/>
         <div className="collab-analysis-actions">
-          <button className="primary collab-analyze-btn" onClick={runAllAnalysis} disabled={!canEdit || analyzing || !profile}>
-            {analyzing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />} {analyzing ? '分析中…' : '分析 / 继续未完成'}
+          <button className="primary collab-analyze-btn" onClick={runAllAnalysis} disabled={!canEdit || analyzing || !profile || workflow.mode==='guided'&&workflow.phase!=='generate'}>
+            {analyzing ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />} {analyzing ? '分析中…' : workflow.mode==='guided'?workflow.phase==='generate'?`生成第 ${workflow.episodeNumber} 集`:workflow.phase==='review'?`等待核实第 ${workflow.episodeNumber} 集`:'全剧已完成':'分析 / 继续未完成'}
           </button>
           {analyzing && <button className="danger" onClick={() => stopAnalysis({ projectId: project.id, api, accountId })}><X size={16} /> 停止分析</button>}
         </div>
@@ -1462,7 +1468,7 @@ export function CollabWorkspace({ state, api, account }) {
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
-        {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={()=>setSection('art-review')} />}
+        {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
         {section === 'art-review' && <ArtReviewEntry key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}

@@ -104,6 +104,7 @@ const fromCloud = (cloud, existing = {}) => {
   id: existing.id || cloudLocalId(cloud),
   name: merged.name || existing.name || '未命名导演项目',
   cloudBase:conflict?existing.cloudBase:remote,cloudConflict:conflict,cloudRemote:remote,
+  cloudSyncError:!conflict&&/同时被修改|协作冲突|版本.*不一致/.test(existing.cloudSyncError||'')?'':existing.cloudSyncError||'',
   sourceType: existing.sourceType || 'cloud',
   sourceId: existing.sourceId || cloud.analysis_output || null,
   cloudProjectId: cloud.id,

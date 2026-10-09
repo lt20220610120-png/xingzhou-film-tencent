@@ -1,8 +1,10 @@
 import {parseArtAnalysis,parseAssetName,readAssetPrompt} from './collabStore.js';
 import {parseDirectorScenesReadonly} from './scriptImport.js';
+import {episodeNumbersInText} from './collabEpisodes.js';
 
 export const ART_REVIEW_SCHEMA=1;
 export const ART_REVIEW_MAP_MARKER='【逐场资产对应表】';
+export const artMappingHasOtherEpisode=(mapping,number)=>(mapping||[]).some(row=>{const id=String(typeof row==='string'?row:row?.sceneId||row?.id||'');const match=id.match(/^(\d+)\s*[-—－]/);return match&&Number(match[1])!==Number(number);});
 export const ART_REVIEW_CATEGORIES={character:'人物',scene:'场景',prop:'道具'};
 export const reviewAssetKey=item=>`${item.category}\u0000${item.name}`;
 export const reviewName=name=>String(name||'').replace(/^【|】$/g,'');
@@ -55,8 +57,11 @@ export function decodeArtReviewOutput(raw,number,available=[]){
   const tail=text.slice(offset+ART_REVIEW_MAP_MARKER.length).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,'').trim();
   try{const data=JSON.parse(tail);mapping=Array.isArray(data)?data:data.scenes;if(!Array.isArray(mapping))mapping=[];}catch{warnings.push('逐场对应表尚未完整返回，已保存清单；继续分析可单独补齐对应表。');}
  }else warnings.push('已保存美术清单，尚需补齐逐场对应表。');
- const complete=['人物','场景','道具'].every(cat=>new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?${cat}[：:]\\s*(?:\\n|$)`).test(inventory))&&parseArtAnalysis(inventory).episodes.some(e=>e.episode===number);
- return {inventory,items,mapping,warnings,complete};
+ const detected=episodeNumbersInText(text);
+ const crossEpisode=detected.some(n=>n!==Number(number))||artMappingHasOtherEpisode(mapping,number);
+ const complete=!crossEpisode&&detected.length===1&&detected[0]===Number(number)&&['人物','场景','道具'].every(cat=>new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?${cat}[：:]\\s*(?:\\n|$)`).test(inventory))&&parseArtAnalysis(inventory).episodes.some(e=>e.episode===number);
+ if(crossEpisode)warnings.push('模型返回其他集的清单或场次，已保留原稿；本集需重新核对。');
+ return {inventory,items,mapping,warnings,complete,crossEpisode};
 }
 export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',taskId='',dependencies={},requestRoster}={}){
  const next=clone(record||newArtReview(episode));

@@ -290,6 +290,11 @@
 .collab-append-import>small { min-width:0; overflow:hidden; color:#61738d; text-overflow:ellipsis; white-space:nowrap; }
 .collab-append-import>span { margin-left:auto; flex-shrink:0; color:#71829a; font-size:12px; }
 .collab-append-episode-modal>footer { display:flex; justify-content:flex-end; gap:9px; padding-top:4px; }
+.art-workflow-control { display:flex; flex-direction:column; gap:8px; min-width:0; margin:12px 0; padding:12px; border:1px solid #ded9ed; border-radius:10px; background:#faf9ff; color:#435777; }
+.art-workflow-control label { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-weight:600; }
+.art-workflow-control select { min-width:0; max-width:100%; padding:8px 10px; border:1px solid #d8deed; border-radius:7px; background:#fff; color:#34435d; }
+.art-workflow-control small,.art-workflow-control p { margin:0; line-height:1.6; font-size:13px; }
+.art-workflow-control button { align-self:flex-start; }
 .collab-force-analysis-veil { z-index:370; }
 .collab-force-analysis-modal { width:min(470px,calc(100vw - 40px)); text-align:center; }
 .collab-force-analysis-modal>svg { color:#b26938; }
