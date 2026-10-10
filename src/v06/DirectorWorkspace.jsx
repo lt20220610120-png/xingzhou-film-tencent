@@ -1,3 +1,4 @@
+const rememberPreference=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 import {useDirectorRealtime} from './useDirectorRealtime.js';
 import {recycleDeleteDetail,isLocalRecyclableDirector} from '../../core/projectRecycle.js';
 import {reconcileDirectorLinks} from '../../core/cloudRecycle.js';
@@ -27,7 +28,7 @@ import {
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble, displayProjectStyle
 } from '../../core/projectStore.js';
 import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterSetting } from '../../core/scriptImport.js';
-import { getSceneVision, buildScenePromptRecords, buildNumberedSceneTasks, buildWholeSceneSubmission, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
+import { getSceneVision, buildScenePromptRecords, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
@@ -302,9 +303,9 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   let quickSettings;try{quickSettings=JSON.parse(settingsJson);}catch{quickSettings={};}
   quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=0&&quickSettings.maxDurationSeconds<=35?quickSettings.maxDurationSeconds:30};
   const [sourceView,setSourceView]=useState('source');
-  const manualOutputKey = sceneLabel => `xz-director-manual-output:${accountId}:${project.id}:${episode.id}:${sceneLabel}`;
-  const [manualOutputRevision,setManualOutputRevision]=useState(0);
-  const manualOutputs=(()=>{try{return JSON.parse(localStorage.getItem(manualOutputKey(currentScene))||'[]');}catch{return [];}})();
+  const manualOutputRevision=(episode.manualSceneReplies||[]).length;
+  const savedReplies=(episode.manualSceneReplies||[]).filter(reply=>reply.sceneLabel===currentScene);
+  const manualOutputs=[...savedReplies,...(quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
   const [autoError,setAutoError]=useState('');
   const localRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
@@ -325,10 +326,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   useEffect(()=>{setSourceView('source');setAutoError('');},[currentScene]);
 
   const saveSceneVision = (sceneLabel, content) => {
-    setState((s) => updateDirectorEpisode(s, project.id, episode.id, {
-      sceneVisions: { ...(episode.sceneVisions || {}), [sceneLabel]: content },
-      status: content.trim() ? '导演构想中' : episode.status,
-    }));
+    setState((s) => updateDirectorEpisode(s, project.id, episode.id, current=>({
+      sceneVisions: { ...(current.sceneVisions || {}), [sceneLabel]: content },
+      status: content.trim() ? '导演构想中' : current.status,
+    })));
   };
 
   // 运行 Skill 生成提示词（大模型先读取项目风格与画幅，再执行 Skill）
@@ -337,7 +338,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     setRunning(true);
     try {
       const skillId = currentSkill?.id;
-      if (skillId) localStorage.setItem('xz-last-used-skill', skillId);
+      if (skillId) {try{rememberPreference('xz-last-used-skill', skillId);}catch{}}
       const preamble = buildProjectPreamble(project);
       const finalInput = preamble ? `${preamble}\n\n${inputText}` : inputText;
       const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
@@ -370,7 +371,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     if (!vision.trim()) return;
     markSceneRunning(sceneLabel, true);
     try {
-      if (currentSkill.id) localStorage.setItem('xz-last-used-skill', currentSkill.id);
+      if (currentSkill.id) {try{rememberPreference('xz-last-used-skill', currentSkill.id);}catch{}}
       const preamble = buildProjectPreamble(project);
       const sourceText = `${preamble ? `${preamble}\n\n` : ''}【导演构想】\n${vision}`;
       const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
@@ -405,40 +406,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     markSceneRunning(sceneLabel, true);
     try {
       const skillId = currentSkill?.id;
-      if (skillId) localStorage.setItem('xz-last-used-skill', skillId);
-      const preamble = buildProjectPreamble(project);
-      const tasks = buildNumberedSceneTasks(inputText, sceneLabel);
-      const sourceText = preamble ? `${preamble}\n\n${inputText}` : inputText;
-      // 括号划分提交时段；整场一次预演与一次输出，不拆成独立请求。
-      const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId,
-        input: buildWholeSceneSubmission({ sourceText, expectedLabels: tasks.map(task => task.label) }),
-        assistantRole: '行舟影视导演提示词助手', requestOptions: {maxOutputTokens:32768} });
-      // Keep the paid whole-scene reply even when its numbering needs review.
-      const replyKey=manualOutputKey(sceneLabel);
-      const replies=JSON.parse(localStorage.getItem(replyKey)||'[]');
-      localStorage.setItem(replyKey,JSON.stringify([...replies,{output:result.output,sourceText,skillId,profileId:directorProfile?.id,createdAt:new Date().toISOString()}]));
-      setManualOutputRevision(value=>value+1);
-      const parsed = splitNumberedPromptOutput(result.output);
-      if (parsed.length !== tasks.length) throw new Error(`整场应输出 ${tasks.length} 条提示词，接口返回 ${parsed.length} 条，请检查完整回包后重试。`);
-      const generatedParts = parsed.map((part,index)=>{
-        const label=tasks[index].label;
-        if (/^\d+-\d+-\d+$/.test(part.label)&&part.label!==label) throw new Error(`整场输出编号 ${part.label} 与原分段 ${label} 不一致`);
-        if (!/^\d+-\d+-\d+$/.test(part.label)&&part.label!==label.split('-').at(-1)) throw new Error(`整场括号编号 ${part.label} 与原分段 ${label} 不一致`);
-        const hasCanonicalLabel=/^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\d+-\d+-\d+(?:\*\*|__)?\s*$/.test(part.content.split('\n',1)[0]);
-        return {label,content:hasCanonicalLabel?part.content:`${label}\n${part.content}`};
-      });
-      const newPrompts = buildScenePromptRecords({
-        sceneLabel,
-        parts: generatedParts,
-        generationMode: 'quick',
-        existing: episode.prompts || [],
-        skill: currentSkill?.name || '',
-        sourceText,
-      });
-      setState((s) => appendDirectorPromptHistory(appendDirectorEpisodePrompts(s, project.id, episode.id, newPrompts, {
-        status: '已生成提示词',
-        lastUsedSkill: currentSkill?.name || '',
-      }), project.id, newPrompts));
+      if (skillId) {try{rememberPreference('xz-last-used-skill', skillId);}catch{}}
+      if(!quickGeneration?.startManualScene)throw new Error('生成服务尚未就绪，请稍后重试');
+      const result=await quickGeneration.startManualScene({project,episode,sceneLabel,inputText,skill:currentSkill,profile:directorProfile,maxDurationSeconds:quickSettings.maxDurationSeconds});
+      if(result.phase!=='completed')throw new Error(result.errors?.map(e=>e.message).join('；')||'本场尚未完成，已返回内容已保留');
     } catch (e) {
       directorJobs.finish(jobKey(sceneLabel),e.message || '生成失败');
       console.error('快速模式运行失败:', e);
@@ -607,7 +578,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 <Sparkles size={16}/><span>选择 Skill</span>
                 <select value={selectedSkillId} onChange={(event) => {
                   setSelectedSkillId(event.target.value);
-                  localStorage.setItem('xz-last-used-skill', event.target.value);
+                  try{rememberPreference('xz-last-used-skill', event.target.value);}catch{}
                 }}>
                   {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                 </select>
@@ -662,7 +633,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                       <span>Skill</span>
                       <select value={selectedSkillId} onChange={(event) => {
                         setSelectedSkillId(event.target.value);
-                        localStorage.setItem('xz-last-used-skill', event.target.value);
+                        try{rememberPreference('xz-last-used-skill', event.target.value);}catch{}
                       }}>
                         {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                       </select>
@@ -896,12 +867,12 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
 
   // 记忆持久化：选中项目/面板变化时写入，项目已不存在时清理记忆避免卡在空白页。
   React.useEffect(() => {
-    if (selectedProjectId && selectedProject) localStorage.setItem('xz-director-last-project', selectedProjectId);
+    if (selectedProjectId && selectedProject) rememberPreference('xz-director-last-project', selectedProjectId);
     if (!selectedProjectId) localStorage.removeItem('xz-director-last-project');
   }, [selectedProjectId, selectedProject]);
   React.useEffect(() => {
-    if (activePane) localStorage.setItem('xz-director-last-pane', activePane);
-    if (selectedProjectId && activePane) localStorage.setItem(`xz-director-pane:${accountId}:${selectedProjectId}`, activePane);
+    if (activePane) rememberPreference('xz-director-last-pane', activePane);
+    if (selectedProjectId && activePane) rememberPreference(`xz-director-pane:${accountId}:${selectedProjectId}`, activePane);
   }, [activePane, selectedProjectId, accountId]);
   React.useEffect(() => {
     if (selectedProjectId && directorProjects.length && !selectedProject) {
@@ -1148,7 +1119,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const resolveCloudConflict=choice=>{
     const remote=selectedProject.cloudRemote;
     const local={name:selectedProject.name,script:selectedProject.masterScript||'',episodes:selectedProject.episodes||[]};
-    localStorage.setItem(`xz-director-conflict-backup:${selectedProject.id}`,JSON.stringify(local));
+    setState(current=>updateDirectorProject(current,selectedProject.id,{localCollaborationVersions:[...(current.directorProjects.find(p=>p.id===selectedProject.id)?.localCollaborationVersions||[]),{id:crypto.randomUUID(),createdAt:new Date().toISOString(),document:local}]}));
     const merged=selectedProject.cloudBaselineMissing?(choice==='remote'?remote:local):threeWayMerge(selectedProject.cloudBase,local,remote,'文档',choice);
     setState(current=>updateDirectorProject(current,selectedProject.id,{name:merged.name,masterScript:merged.script,episodes:merged.episodes,cloudBase:remote,cloudBaselineMissing:false,cloudConflict:'',cloudSyncError:''}));
     setMasterDraft(merged.script);
@@ -1167,7 +1138,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     <div className="director-shell">
       {selectedProject.cloudProjectId&&<div className={`director-live-status ${realtime.stage==='error'?'warning':''}`} role="status">{({connecting:'连接多人协作中…',synced:'多人协作 · 已同步',syncing:'多人协作 · 正在同步',locked:'多人协作 · 项目已锁定',error:'多人协作暂未同步'})[realtime.stage]}{realtime.message&&`：${realtime.message}`}<span> 修改先保留本地，再自动同步；无需手动上传。</span></div>}
       {selectedProject.cloudConflict&&dismissedConflict!==selectedProject.cloudConflict&&<Dialog open title="导演项目存在协作冲突" onClose={()=>setDismissedConflict(selectedProject.cloudConflict)}><p>{selectedProject.cloudConflict}</p><p>本地修改已保留。已上传的冲突版本可由项目制片在“协作版本”中选择。</p><button className="secondary" onClick={()=>{setDismissedConflict(selectedProject.cloudConflict);setVersionsOpen(true);}}>查看协作版本</button><button className="secondary" onClick={()=>resolveCloudConflict('remote')}>本地采用云端内容</button>{selectedProject.cloudRole==='producer'&&<button className="primary" onClick={()=>resolveCloudConflict('local')}>制片保留我的修改待上传</button>}</Dialog>}
-      {versionsOpen&&<DirectorVersions key={`${accountId}:${selectedProject.cloudProjectId}`} project={selectedProject} api={api} onClose={()=>setVersionsOpen(false)} onCloud={cloud=>setState(current=>({...current,directorProjects:reconcileDirectorCloudProjects(current.directorProjects||[],[cloud])}))} onLocal={recoverLocalVersion}/>}
+      {versionsOpen&&<DirectorVersions key={`${accountId}:${selectedProject.cloudProjectId}`} project={selectedProject} api={api} onClose={()=>setVersionsOpen(false)} onCloud={cloud=>realtime.adoptRestored(cloud)} onLocal={recoverLocalVersion}/>}
       <DirectorRail
         project={selectedProject}
         active={activePane}
@@ -1202,7 +1173,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           key={`${selectedProject.id}:${activeEpisode.id}`}
           accountId={accountId}
           quickGeneration={quickGeneration}
-          onJumpToScene={(episodeId,sceneLabel)=>{localStorage.setItem(`xz-director-scene:${accountId}:${selectedProject.id}:${episodeId}`,sceneLabel);setActivePane(episodeId);}}
+          onJumpToScene={(episodeId,sceneLabel)=>{rememberPreference(`xz-director-scene:${accountId}:${selectedProject.id}:${episodeId}`,sceneLabel);setActivePane(episodeId);}}
           project={selectedProject}
           episode={activeEpisode}
           episodeNumber={Math.max(1, (selectedProject.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').findIndex((episode) => episode.id === activeEpisode.id) + 1)}

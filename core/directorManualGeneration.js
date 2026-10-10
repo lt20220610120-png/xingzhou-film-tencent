@@ -34,7 +34,7 @@ export function commitManualSceneRun(state,run){
  const records=run.prompts.map((p,i)=>({...p,id:run.promptIds[i],sceneLabel:s.sceneLabel,generationMode:'quick',segmentationMode:'manual',generationRunId:run.id,skillId:s.skillId,profileId:s.profileId,skill:state.skills?.find(x=>x.id===s.skillId)?.name||'',sourceText:run.sourceText,sourceHash:s.sourceHash,createdAt:run.createdAt}));
  for(const p of records)for(const old of [current.find(x=>x.id===p.id),history.find(x=>x.id===p.id)])if(old&&(old.generationRunId!==run.id||old.content!==p.content))return fail('已生成内容被人工修改，保留修改和原始回包');
  const merge=list=>[...list,...records.filter(p=>!list.some(old=>old.id===p.id))];
- const next={...project,promptHistory:merge(history),episodes:project.episodes.map(e=>e.id===episode.id?{...e,prompts:merge(current),status:'已生成提示词'}:e)};
+ const next={...project,promptHistory:merge(history),episodes:project.episodes.map(e=>e.id===episode.id?{...e,prompts:merge(current),manualSceneReplies:[...(e.manualSceneReplies||[]),...(!(e.manualSceneReplies||[]).some(r=>r.id===run.id)&&run.output?[{id:run.id,sceneLabel:s.sceneLabel,output:run.output,sourceText:run.sourceText,createdAt:run.createdAt}]:[])],status:'已生成提示词'}:e)};
  return{state:{...state,directorProjects:state.directorProjects.map(p=>p.id===project.id?next:p)},applied:true};
 }
 

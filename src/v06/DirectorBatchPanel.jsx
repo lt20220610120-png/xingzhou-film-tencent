@@ -26,7 +26,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const rowStatus={pending:'待处理',running:'处理中',completed:'已保存',skipped:'跳过',stale:'需重新建立任务',failed:'失败，可继续',paused:'已暂停'};
  return <div className="director-batch-launcher"><button className="primary" onClick={open} disabled={!quickGeneration}>{active?`整本生成 · ${batch.targets.filter(t=>t.status==='completed').length}/${batch.targets.filter(t=>t.status!=='skipped').length}`:'一键生成整本提示词'}</button>
  <Dialog open={opened} title="生成整本提示词" onClose={()=>setOpened(false)} className="director-batch-dialog"><section className="director-batch-panel" aria-label="整本剧本生成">
-  <p>{segmentationMode==='manual'?'沿用人工划分的集、场景和（1）（2）分段；每场一次运行所选完整 Skill，不重新拆分。没有分段标记的场景生成一条。':'沿用已划分的集与场景，各场自动分析视频分段后生成提示词。'}生成结果先保存本地，云协作项目须点击“上传云端”后共享。</p>
+  <p>{segmentationMode==='manual'?'沿用人工划分的集、场景和（1）（2）分段；每场一次运行所选完整 Skill，不重新拆分。没有分段标记的场景生成一条。':'沿用已划分的集与场景，各场自动分析视频分段后生成提示词。'}生成结果先保存本地，实时协作连接后自动同步给项目成员。</p>
   <div className="director-batch-heading"><div className="director-batch-purpose"><strong>整本提示词</strong><small>按场景并发生成，进度自动保存，中断后可继续。</small></div>
    <div className="director-batch-settings">
     {segmentationMode==='auto'&&<label><span>最高视频时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled} onChange={e=>changeSettings({maxDurationSeconds:Number(e.target.value)})}>{Array.from({length:36},(_,i)=>i).map(n=><option key={n} value={n}>{n===0?'0 · 自动估算（最高35秒）':`${n} 秒`}</option>)}</select></label>}

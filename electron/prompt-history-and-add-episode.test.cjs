@@ -21,8 +21,9 @@ test('历史提示词页签存在，且生成路径都会写入项目级 promptH
   const ui = read('src/v06/DirectorWorkspace.jsx');
   assert.match(ui, /历史提示词/);
   assert.match(ui, /mode === 'history'/);
+  assert.match(read('core/directorManualGeneration.js'),/promptHistory:merge\(history\)/);
   const calls = ui.match(/appendDirectorPromptHistory\(/g) || [];
-  assert.ok(calls.length >= 3, `runSkill/runCreativeScene/runQuickScene 三条生成路径都要调用 appendDirectorPromptHistory（实际 ${calls.length} 处）`);
+  assert.ok(calls.length >= 2, `runSkill/runCreativeScene/runQuickScene 三条生成路径都要调用 appendDirectorPromptHistory（实际 ${calls.length} 处）`);
 });
 
 test('删除/编辑提示词必须同时作用于分集与历史（deleteDirectorPromptsEverywhere）', () => {

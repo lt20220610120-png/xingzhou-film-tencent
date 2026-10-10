@@ -1,3 +1,4 @@
+import {directorWorkPreview} from '../../core/directorWorkPreview.js';
 import React,{useEffect,useRef,useState} from 'react';
 import {Dialog} from './GlobalTools.jsx';
 import {useMemo} from 'react';
@@ -8,9 +9,9 @@ const labels={baseline:'共享基准',accepted:'已上传',conflict:'冲突待�
 const versionTime=v=>{const d=new Date(v.created_at||v.createdAt);return Number.isNaN(d.getTime())?'时间未记录':d.toLocaleString();};
 export function DirectorVersions({project,api,onClose,onCloud,onLocal}){
  const [rows,setRows]=useState([]),[before,setBefore]=useState(null),[selected,setSelected]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirm,setConfirm]=useState(''),[tab,setTab]=useState('cloud');
- const [page,setPage]=useState(0);
- const pages=useMemo(()=>versionPreviewPages((selected?.published_document||selected?.document)?.script||''),[selected]);
- useEffect(()=>setPage(0),[selected?.id]);
+ const [page,setPage]=useState(0),[previewKind,setPreviewKind]=useState('work');
+ const pages=useMemo(()=>versionPreviewPages(previewKind==='work'?directorWorkPreview(selected?.published_document||selected?.document):((selected?.published_document||selected?.document)?.script||'')),[selected,previewKind]);
+ useEffect(()=>setPage(0),[selected?.id,previewKind]);
  const live=useRef(true),request=useRef(0);
  useEffect(()=>{live.current=true;load();return()=>{live.current=false;request.current++;};},[project.cloudProjectId]);
  async function load(cursor){setBusy(true);setError('');try{const result=await api.directorCollabListVersions({projectId:project.cloudProjectId,...(cursor?{before:cursor}:{})});if(!live.current)return;setRows(old=>cursor?[...old,...result.versions]:result.versions);setBefore(result.nextBefore);}catch(e){if(live.current)setError(e.message);}finally{if(live.current)setBusy(false);}}
@@ -20,11 +21,11 @@ export function DirectorVersions({project,api,onClose,onCloud,onLocal}){
    const current=await api.directorCollabGetProject({projectId:project.cloudProjectId});
    if(!live.current||request.current!==operation)return;
    const restored=await api.directorCollabRestoreVersion({projectId:project.cloudProjectId,versionId:selected.id,mode:confirm,currentDocument:{name:current.name,script:current.script||'',episodes:current.episodes||[]}});
-   if(!live.current)return;onCloud(restored);setConfirm('');await load();
+   if(!live.current)return;await onCloud(restored);setConfirm('');await load();
   }catch(e){if(live.current)setError(e.message);}finally{if(live.current)setBusy(false);}}
  const local=[...(project.localCollaborationVersions||[])].reverse();
  return <Dialog open title="协作版本" onClose={busy?()=>{}:onClose} className="director-version-dialog">
-   <p>实时协作会自动同步文字改动；历史检查点和旧版上传、冲突版本继续保留。只有项目制片可恢复共享历史。历史版本不会按回收站期限清理。</p>
+   <p>实时协作会自动同步快速模式编辑、导演构想、提示词及创作记录；历史检查点和旧版上传、冲突版本继续保留。只有项目制片可恢复共享历史。历史版本不会按回收站期限清理。</p>
    <div className="director-version-tabs"><button disabled={busy} className={tab==='cloud'?'primary':'secondary'} onClick={()=>{setTab('cloud');setSelected(null);setConfirm('');}}>云端版本</button><button disabled={busy} className={tab==='local'?'primary':'secondary'} onClick={()=>{setTab('local');setSelected(null);setConfirm('');}}>我的本地版本</button><button className="secondary" disabled={busy} onClick={()=>load()}>刷新版本</button></div>
    {error&&<p role="alert">{error}</p>}
    <div className="director-version-layout"><div className="director-version-list">
@@ -34,9 +35,9 @@ export function DirectorVersions({project,api,onClose,onCloud,onLocal}){
      {tab==='cloud'&&before&&<button className="secondary" disabled={busy} onClick={()=>load(before)}>更早版本</button>}
      {!(tab==='cloud'?rows:local).length&&<p>{busy?'读取中…':'暂无版本；首次上传后会保留共享基准和成员版本。'}</p>}
    </div><div className="director-version-preview">
-     {selected?<><h3>{selected.document.name}</h3><p>{selected.document.episodes?.length||0} 集 · {selected.document.script?.length||0} 字</p><div className="version-preview-pages"><button className="secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>上一页</button><span>第 {page+1} / {pages.length} 页 · 完整内容分页显示</span><button className="secondary" disabled={page>=pages.length-1} onClick={()=>setPage(p=>p+1)}>下一页</button></div><FormattedText text={pages[page]||''}/>
-       {tab==='local'?<button className="secondary" disabled={busy} onClick={()=>setConfirm('local')}>取回到我的本地副本</button>:project.cloudRole==='producer'&&!project.cloudLocked?<div className="director-version-actions">{selected.status==='conflict'&&<button className="primary" disabled={busy} onClick={()=>setConfirm('resolve')}>采用此人的冲突修改</button>}<button className="secondary" disabled={busy} onClick={()=>setConfirm('restore')}>恢复整份历史版本</button></div>:<p>可查看版本；云端采用由项目制片决定。</p>}
-     </>:<p>选择版本查看完整剧本。每人的提交和共享结果分别保留。</p>}
+     {selected?<><h3>{selected.document.name}</h3><p>{selected.document.episodes?.length||0} 集 · {selected.document.script?.length||0} 字</p><div className="director-version-tabs"><button className={previewKind==='work'?'primary':'secondary'} onClick={()=>setPreviewKind('work')}>导演创作内容</button><button className={previewKind==='script'?'primary':'secondary'} onClick={()=>setPreviewKind('script')}>原剧本</button></div><div className="version-preview-pages"><button className="secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>上一页</button><span>第 {page+1} / {pages.length} 页 · 完整内容分页显示</span><button className="secondary" disabled={page>=pages.length-1} onClick={()=>setPage(p=>p+1)}>下一页</button></div><FormattedText text={pages[page]||''}/>
+       {tab==='local'?<button className="secondary" disabled={busy} onClick={()=>setConfirm('local')}>取回到我的本地副本</button>:project.cloudRole==='producer'&&!project.cloudLocked?<div className="director-version-actions">{selected.status==='conflict'&&<button className="primary" disabled={busy} onClick={()=>setConfirm('resolve')}>采用此人的冲突修改</button>}<button className="secondary" disabled={busy} onClick={()=>setConfirm('restore')}>恢复此版本的项目与导演创作</button></div>:<p>可查看版本；云端采用由项目制片决定。</p>}
+     </>:<p>选择版本查看快速编辑、导演构想及生成的提示词。每人的提交和共享结果分别保留。</p>}
    </div></div>
    {confirm&&<div className="director-version-confirm"><p>{confirm==='resolve'?'采用此人的冲突修改，保留其他位置的无冲突改动。':confirm==='local'?(project.cloudLive?'另建独立的历史本地副本，当前共享项目保持不变。':'取回到自己的本地副本，当前本地内容会先另存版本，云端保持不变。'):'将共享项目恢复为这份完整历史版本。恢复前的共享内容会另存版本，本地未上传修改仍保留。'}</p><button className="secondary" disabled={busy} onClick={()=>setConfirm('')}>取消</button><button className="primary" disabled={busy} onClick={adopt}>{busy?'处理中…':'确认采用'}</button></div>}
  </Dialog>;

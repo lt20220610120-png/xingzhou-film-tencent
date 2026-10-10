@@ -14,8 +14,9 @@ test('云端管理按钮只对制片显示，受邀用户不可见', () => {
 // 2. 提示词闪跳修复：生成路径必须走原子追加，不能整组覆盖
 test('生成提示词使用 appendDirectorEpisodePrompts 原子追加，云端轮询不会覆盖', () => {
   const director = read('src/v06/DirectorWorkspace.jsx');
+  assert.match(read('core/directorManualGeneration.js'),/prompts:merge\(current\)/);
   const calls = director.match(/appendDirectorEpisodePrompts\(s, project\.id, episode\.id, newPrompts/g) || [];
-  assert.ok(calls.length >= 3, `三条生成路径都要用原子追加（实际 ${calls.length} 处）`);
+  assert.ok(calls.length >= 2, `三条生成路径都要用原子追加（实际 ${calls.length} 处）`);
   assert.doesNotMatch(director, /prompts: updatedPrompts/);
 });
 

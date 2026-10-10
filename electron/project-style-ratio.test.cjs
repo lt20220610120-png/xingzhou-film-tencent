@@ -38,8 +38,9 @@ test('导演台头部渲染项目设定功能区，创造/快速模式共用', (
 test('三种运行路径都会先注入项目风格与画幅再执行 Skill', () => {
   const src = ui();
   // runSkill / runCreativeScene / runQuickScene 都调用 buildProjectPreamble
+  assert.match(fs.readFileSync(path.join(__dirname,'../core/directorManualGeneration.js'),'utf8'),/buildProjectPreamble\(context.project\)/);
   const matches = src.match(/buildProjectPreamble\(project\)/g) || [];
-  assert.ok(matches.length >= 3, `应有至少3处调用 buildProjectPreamble，实际 ${matches.length}`);
+  assert.ok(matches.length >= 2, `应有至少3处调用 buildProjectPreamble，实际 ${matches.length}`);
   // preamble 拼在输入文本之前
   assert.match(src, /preamble \? `\$\{preamble\}\\n\\n\$\{inputText\}` : inputText/);
   // 创造模式只送“导演构想”（可编辑框），不再注入左侧只读剧本展示框。

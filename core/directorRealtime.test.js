@@ -48,3 +48,13 @@ test('version checkpoint queues behind a poll and initial shared document round-
  const f=fixture();let project={id:'local',...structuredClone(original),masterScript:original.script},release,hold=false;const requests=[];
  const c=createDirectorRealtime({readProject:()=>project,applyProject:d=>{project={...project,...d,masterScript:d.script}},call:async p=>{requests.push(p);if(hold){hold=false;await new Promise(r=>{release=r;});}return f.call(p);}});await c.start();hold=true;const poll=c.sync();await new Promise(r=>setTimeout(r,0));const archive=c.sync({checkpoint:true});release();await Promise.all([poll,archive]);assert.equal(requests.filter(p=>p.checkpoint).length,1);await c.stop();
 });
+
+test('three members see independent creative work and a producer restore without changing source script',async()=>{
+ const f=fixture(),clients=[];
+ for(let i=0;i<3;i++){let project={id:'p'+i,masterScript:original.script,...structuredClone(original)};const c=createDirectorRealtime({readProject:()=>project,applyProject:d=>{project={...project,...d,masterScript:d.script}},call:f.call});await c.start();clients.push({c,read:()=>project,edit:fields=>{project={...project,episodes:[{...project.episodes[0],...fields}]}}});}
+ clients[0].edit({quickSceneEdits:{'1-1':'人工分段修改'}});clients[1].edit({sceneVisions:{'1-1':'从低角度看人物'}});clients[2].edit({prompts:[{id:'r1',content:'成果提示词',generationMode:'creative'}],manualSceneReplies:[{id:'raw1',sceneLabel:'1-1',output:'付费原始回包'}]});
+ for(let i=0;i<2;i++)await Promise.all(clients.map(x=>x.c.sync()));const chosen=readDocument(f.server);
+ for(const x of clients){assert.deepEqual(x.read().episodes,chosen.episodes);assert.equal(x.read().masterScript,original.script);}
+ clients[0].edit({quickSceneEdits:{'1-1':'之后改动'}});await clients[0].c.sync();editDocument(f.server,readDocument(f.server),chosen,'restore');
+ for(const x of clients){await x.c.sync();assert.equal(x.read().episodes[0].quickSceneEdits['1-1'],'人工分段修改');assert.equal(x.read().episodes[0].sceneVisions['1-1'],'从低角度看人物');assert.equal(x.read().episodes[0].prompts[0].content,'成果提示词');await x.c.stop();}
+});

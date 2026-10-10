@@ -157,7 +157,8 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(prompts.some(pr=>current.some(old=>old.id===pr.id&&old.content!==pr.content&&old.durationStatus==='needs-review')))return fail(state,'已生成提示词被手工修改，保留修改并停止覆盖');
   const replacements=new Map(prompts.map(pr=>[pr.id,pr]));
   const merge=existing=>[...existing.map(pr=>replacements.get(pr.id)||pr),...prompts.filter(pr=>!existing.some(old=>old.id===pr.id))];
-  const nextEpisode={...episode,...(!partial?{status:'已生成提示词'}:{}),prompts:merge(current),quickScenePlans:existingPlan ? episode.quickScenePlans : [...(episode.quickScenePlans || []),plan],activeQuickScenePlanIds:{...(episode.activeQuickScenePlanIds || {}),[snapshot.sceneLabel]:plan.id}};
+  const replies=(run.wholeSceneResponses||[]).map((r,i)=>({id:`${run.id}:response:${r.requestGroupId||i}:${i}`,sceneLabel:snapshot.sceneLabel,output:r.output,complete:r.complete,createdAt:r.at}));
+  const nextEpisode={...episode,manualSceneReplies:[...(episode.manualSceneReplies||[]),...replies.filter(r=>!(episode.manualSceneReplies||[]).some(old=>old.id===r.id))],...(!partial?{status:'已生成提示词'}:{}),prompts:merge(current),quickScenePlans:existingPlan ? episode.quickScenePlans : [...(episode.quickScenePlans || []),plan],activeQuickScenePlanIds:{...(episode.activeQuickScenePlanIds || {}),[snapshot.sceneLabel]:plan.id}};
   const nextProject={...project,episodes:project.episodes.map(ep=>ep.id===episode.id?nextEpisode:ep),promptHistory:merge(history),updatedAt:timestamp};
   return {state:{...state,directorProjects:state.directorProjects.map(p=>p.id===project.id?nextProject:p)},applied:true};
 }

@@ -109,6 +109,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   const batches=batchController.entries().filter(batch=>batch.snapshot.accountId===accountId);
   const assertNoSingleWork=projectId=>{const prefix=JSON.stringify([accountRef.current,projectId]).slice(0,-1)+',';if(directorJobs.entries().some(([key,job])=>key.startsWith(prefix)&&job.status==='running')||[...controller.entries(),...manualController.entries()].some(r=>r.snapshot.accountId===accountRef.current&&r.snapshot.projectId===projectId&&isQuickRunActive(r)))throw new Error('本项目有场景正在生成，请等待完成或停止后继续整本任务');};
   return {
+    startManualScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):manualController.start({...request,accountId}),
     startScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):controller.start({...request,accountId}),resume:runId=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):controller.resume(runId),stop:runId=>controller.stop(runId),
     runs,restoreError,
     getManualSceneRun:id=>manualController.get(id),

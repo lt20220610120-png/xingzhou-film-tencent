@@ -157,3 +157,6 @@
 .veil,.delete-confirm-veil,.director-collab-veil{backdrop-filter:none!important}
 
 .director-version-preview .formatted-text,.director-version-preview .formatted-text *{color:#111!important}
+
+/* Portalled batch dialog: keep control baselines independent of stage styles. */
+.director-batch-dialog .director-batch-settings{align-items:flex-end!important}.director-batch-dialog .director-batch-settings>label{margin:0!important;padding:0!important}.director-batch-dialog .director-batch-settings>button,.director-batch-dialog .director-batch-settings select{height:44px!important;min-height:44px!important;max-height:44px;box-sizing:border-box;margin:0!important;align-self:flex-end}.director-version-tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}

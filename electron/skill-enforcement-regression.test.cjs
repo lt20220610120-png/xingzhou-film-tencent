@@ -12,7 +12,8 @@ test('全软件所有Skill生成入口统一经过强制执行协议',()=>{
  assert.match(app,/executeSkillWithAi/);
  assert.match(app,/createSkillExecution/);
  assert.match(director,/executeSkillWithAi/);
- assert.equal((director.match(/executeSkillWithAi\(/g)||[]).length,3);
+ assert.equal((director.match(/executeSkillWithAi\(/g)||[]).length,2);
+ assert.match(read('src/v06/useDirectorQuickGeneration.js'),/manualControllerRef.current=createDirectorManualController[\s\S]*executeSkillWithAi/);
 });
 
 test('导演三级标题拆卡且卡片标题和正文第一行同时保留编号',async()=>{

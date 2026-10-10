@@ -1,3 +1,4 @@
+import {migrateDirectorReplies,retireDirectorReplies} from '../core/directorLegacyReplies.js';
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
 import {cleanupRecycle} from '../core/projectRecycle.js';
 import {FormattedEditor} from './components/FormattedText.jsx';
@@ -1276,6 +1277,13 @@ function App() {
     saveDirectorProjects: projects => api.saveDirectorProjects?.(projects),
   });
   const persistence = persistenceRef.current;
+  useEffect(()=>{
+    if(!initialized||storageLoadError||!account?.id||!window.xingzhou)return;
+    const migrated=migrateDirectorReplies(stateRef.current,account.id,localStorage);
+    if(!migrated.retired.length)return;
+    setState(migrated.state);persistence.enqueue(stateRef.current);
+    persistence.flush().then(()=>retireDirectorReplies(migrated.retired,localStorage)).catch(()=>{/* Original recovery keys stay until a successful retry. */});
+  },[initialized,account?.id,storageLoadError]);
   const quickGeneration = useDirectorQuickGeneration({ state, stateRef, setState, api, accountId:account?.id, persistence, initialized });
 
   useEffect(()=>{
