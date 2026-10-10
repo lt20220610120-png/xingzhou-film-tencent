@@ -1,5 +1,7 @@
 import React, {createContext,useContext,useEffect,useRef,useState} from 'react';
 import {Plus,Check,Lock,Unlock,Trash2,ArrowUp,ArrowDown} from 'lucide-react';
+import {createEditBuffer} from '../../../core/editBuffer.js';
+import {queueDraft,readQueuedDraft,flushDraftCache,registerEditor} from '../../editing.js';
 export const FrameworkDraftContext=createContext('framework');
 export const FrameworkModelContext=createContext(null);
 export function AgentSelect({purpose='',compact=false,label='接口与 Agent'}){
@@ -7,12 +9,10 @@ export function AgentSelect({purpose='',compact=false,label='接口与 Agent'}){
  return <label className={`fw-model-select ${compact?'compact':''}`}><span>{compact?'Agent':label}</span><select aria-label={label} value={models.selectionFor(purpose)} onChange={e=>models.select(purpose,e.target.value)} title="选择本步骤使用的接口和模型">{!models.options.length&&<option value="">请先配置接口</option>}{models.options.map(o=><option key={o.selectionId} value={o.selectionId}>{o.name} · {o.model}</option>)}</select></label>;
 }
 // Keep keystrokes in memory first; write after a short pause, blur or page exit.
-const pendingDrafts=new Map();let draftTimer;
-export function flushFrameworkDrafts(){clearTimeout(draftTimer);for(const [key,value] of pendingDrafts){try{if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,JSON.stringify(value));pendingDrafts.delete(key);}catch{/* Keep the in-memory draft for retry. */}}}
-if(typeof window!=='undefined'){window.addEventListener('pagehide',flushFrameworkDrafts);window.addEventListener('visibilitychange',()=>{if(document.hidden)flushFrameworkDrafts();});}
-const readDraft=(key,value)=>{try{const saved=pendingDrafts.has(key)?pendingDrafts.get(key):JSON.parse(localStorage.getItem(key));return saved&&JSON.stringify(saved.base)===JSON.stringify(value)?saved.value:value;}catch{return value;}};
-const writeDraft=(key,base,value)=>{pendingDrafts.set(key,{base,value});clearTimeout(draftTimer);draftTimer=setTimeout(flushFrameworkDrafts,250);};
-const clearDraft=key=>{pendingDrafts.set(key,null);clearTimeout(draftTimer);draftTimer=setTimeout(flushFrameworkDrafts,250);};
+export const flushFrameworkDrafts=flushDraftCache;
+const readDraft=(key,value)=>{try{const queued=readQueuedDraft(key),saved=queued.found?queued.value:JSON.parse(localStorage.getItem(key));return saved&&JSON.stringify(saved.base)===JSON.stringify(value)?saved.value:value;}catch{return value;}};
+const writeDraft=(key,base,value)=>queueDraft(key,{base,value});
+const clearDraft=key=>queueDraft(key,null);
 
 export function Heading({title,help,children}){return <div className="fw-heading"><div><h1>{title}</h1><p>{help}</p></div><div className="fw-actions"><AgentSelect/>{children}</div></div>;}
 export function Panel({title,extra,children,className=''}){return <section className={`fw-panel ${className}`}>{title&&<header><h3>{title}</h3><div className="fw-actions">{extra}</div></header>}<div className="fw-panel-body">{children}</div></section>;}
@@ -20,13 +20,14 @@ export function Empty({children}){return <div className="fw-empty">{children}</d
 export function Tag({children,good=false,warn=false}){return <span className={`fw-tag ${good?'good':''} ${warn?'warn':''}`}>{children}</span>;}
 export function Field({label,value='',draftKey,onCommit,onDraftChange,multiline=true,rows=3,disabled=false,...rest}){
  const scope=useContext(FrameworkDraftContext),key=`xz-field:${scope}:${draftKey||label}`,base=value??'';
- const [draft,setDraft]=useState(()=>readDraft(key,base)),latest=useRef({}),timer=useRef(null),previous=useRef({key,base}),composing=useRef(false),submitted=useRef(null);
+ const [draft,setDraft]=useState(()=>readDraft(key,base)),latest=useRef({}),buffer=useRef(null),previous=useRef({key,base}),composing=useRef(false),submitted=useRef(null);
  latest.current={draft,base,onCommit,key,disabled};
- const commit=()=>{clearTimeout(timer.current);const current=latest.current;if(!composing.current&&!current.disabled&&current.draft!==current.base&&current.draft!==submitted.current){submitted.current=current.draft;const result=current.onCommit?.(current.draft);if(result===false)submitted.current=null;}flushFrameworkDrafts();};
+ const commit=()=>{const current=latest.current;if(!composing.current&&!current.disabled&&current.draft!==current.base&&current.draft!==submitted.current){submitted.current=current.draft;const result=current.onCommit?.(current.draft);if(result===false)submitted.current=null;}flushFrameworkDrafts();};
+ if(!buffer.current)buffer.current=createEditBuffer({read:()=>latest.current.draft,commit});
  useEffect(()=>{const old=previous.current;if(old.key===key&&old.base===base)return;previous.current={key,base};if(old.key!==key){submitted.current=null;setDraft(readDraft(key,base));}else if(base===submitted.current&&latest.current.draft!==base){writeDraft(key,base,latest.current.draft);submitted.current=null;}else {submitted.current=null;setDraft(base);clearDraft(key);}},[key,base]);
- useEffect(()=>{if(draft!==base&&!disabled){timer.current=setTimeout(commit,800);}return ()=>clearTimeout(timer.current);},[draft,base,disabled]);
- useEffect(()=>{onDraftChange?.(latest.current.draft);return ()=>{commit();};},[]);
- const props={...rest,'aria-label':label,value:draft,disabled,onChange:e=>{const text=e.target.value;writeDraft(key,base,text);latest.current.draft=text;setDraft(text);onDraftChange?.(text);},onCompositionStart:()=>{composing.current=true;clearTimeout(timer.current);},onCompositionEnd:()=>{composing.current=false;timer.current=setTimeout(commit,800);},onBlur:commit};
+ useEffect(()=>{if(draft!==base&&!disabled)buffer.current.input();else buffer.current.cancel();},[draft,base,disabled]);
+ useEffect(()=>{onDraftChange?.(latest.current.draft);const unregister=registerEditor(commit,()=>{const c=latest.current;return !c.disabled&&c.draft!==c.base&&c.draft!==submitted.current;});return ()=>{commit();buffer.current.cancel();unregister();};},[]);
+ const props={...rest,'aria-label':label,value:draft,disabled,onChange:e=>{const text=e.target.value;writeDraft(key,base,text);latest.current.draft=text;setDraft(text);onDraftChange?.(text);},onCompositionStart:()=>{composing.current=true;buffer.current.compositionStart();},onCompositionEnd:()=>{composing.current=false;buffer.current.compositionEnd();},onBlur:()=>{buffer.current.cancel();commit();}};
  return <label className="fw-field"><span>{label}</span>{multiline?<textarea {...props} rows={rows}/>:<input {...props}/>}</label>;
 }
 export function NodeTools({node,locked,command,type,index,count,edit,add}){return <div className="fw-actions fw-node-tools"><button className="ghost" title={node.locked?'解锁':'固定'} aria-label={`${node.title||'事件'}${node.locked?'解锁':'固定'}`} onClick={()=>command({type:'node.lock',id:node.id,locked:!node.locked})}>{node.locked?<Lock size={14}/>:<Unlock size={14}/>}</button>{edit&&<button className="secondary" disabled={locked} onClick={edit}>编辑</button>}{add&&<button className="ghost" disabled={locked} onClick={add}><Plus size={14}/></button>}{index!==undefined&&<><button className="ghost" disabled={locked||index===0} aria-label="向前移动" onClick={()=>command({type:`${type}.move`,id:node.id,index:index-1})}><ArrowUp size={14}/></button><button className="ghost" disabled={locked||index===count-1} aria-label="向后移动" onClick={()=>command({type:`${type}.move`,id:node.id,index:index+1})}><ArrowDown size={14}/></button></>}<button className="ghost" disabled={locked} title="确认内容" onClick={()=>command({type:'node.confirm',id:node.id,confirmed:true})}><Check size={14}/></button><button className="ghost danger" disabled={locked} title="删除" aria-label={`删除${node.title||'事件'}`} onClick={()=>{if(window.confirm('删除此项？关联资料与版本正文会保留，相关内容需重新复核。'))command({type:`${type}.remove`,id:node.id});}}><Trash2 size={14}/></button></div>;}

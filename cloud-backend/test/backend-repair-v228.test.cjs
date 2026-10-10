@@ -274,7 +274,7 @@ test('episode provenance: a director numbered collision leaves the entire collab
 });
 
 
-test('domain isolation: generic collaboration entry points refuse director documents, while explicit director update keeps three-way authorization', async () => {
+test('domain isolation denies generic writes and old automatic director updates require the versioned manual upload client', async () => {
   const row=director({owner_id:'alice'}),repo=actionRepo(row),writes=[];
   Object.assign(repo,{patchStoryboard:async()=>{writes.push('patch');return row;},softDeleteProject:async()=>{writes.push('delete');return row;},setProjectLocked:async()=>{writes.push('lock');return row;},linkDirectorProject:async()=>{writes.push('link');return row;},listAssets:async()=>[],listAssetImages:async()=>[],getStatsBundle:async()=>({}),refreshDirectorPrompts:async()=>row});
   for(const action of ['project-get','storyboard-patch','project-delete','project-lock','project-link-director','assets-list','stats-get']) {
@@ -285,7 +285,7 @@ test('domain isolation: generic collaboration entry points refuse director docum
   const pool=fixturePool([row]);
   const base={name:row.name,script:row.script,episodes:row.episodes};
   const result=await handleAction('director-project-update',{projectId:'source',base,updates:{script:'合法三方保存'}},{id:'alice'},extendRepository(pool));
-  assert.equal(result.status,200);assert.equal(result.body.script,'合法三方保存');assert.equal(result.body.genre,row.genre);
+  assert.equal(result.status,426);assert.match(result.body.error,/手动上传/);
   const outsider=fixturePool([row]);
   assert.equal(await extendRepository(outsider).updateDirectorProject('source',{base,updates:{script:'外人覆盖'}},'mallory'),null);
 });

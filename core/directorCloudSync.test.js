@@ -20,3 +20,12 @@ test('locked projects and account changes stop cloud writes and retain local dat
  const task=sync.flush('local');for(let i=0;i<100&&!calls;i++)await new Promise(r=>setTimeout(r,2));accountId='b';resolve();await task;
  assert.equal(acks,0);assert.equal(projects[0].masterScript,'B');sync.dispose();
 });
+
+test('manual upload publishes only its captured snapshot; typing in flight stays local until another upload',async()=>{
+ let projects=[{id:'local',cloudProjectId:'cloud',name:'项目',masterScript:'B',episodes:[],cloudBase:{name:'项目',script:'A',episodes:[]}}],resolve;
+ const calls=[],pending=new Promise(done=>resolve=done);
+ const submission={id:'manual-uuid',document:{name:'项目',script:'B',episodes:[]},base:projects[0].cloudBase};
+ const sync=createDirectorCloudSync({manualOnly:true,getContext:()=>({accountId:'a',projects}),updateProject:async args=>{calls.push(args);await pending;return{id:'cloud',...args.updates};},acknowledge:({cloud,submitted})=>{projects=acknowledgeDirectorCloudSave(projects,cloud,submitted);}});
+ const uploading=sync.flush('local',submission);projects=[{...projects[0],masterScript:'C'}];resolve();await uploading;
+ assert.equal(calls.length,1);assert.equal(calls[0].submissionId,submission.id);assert.equal(calls[0].updates.script,'B');assert.equal(projects[0].masterScript,'C');assert.equal(projects[0].cloudBase.script,'B');sync.dispose();
+});

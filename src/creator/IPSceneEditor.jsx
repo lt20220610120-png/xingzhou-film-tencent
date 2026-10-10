@@ -13,7 +13,7 @@ export function IPSceneEditor({content='',onChange,onFocus,onBlur,readOnly=false
  return <div className="ip-scene-editor">
   {controlsTarget?createPortal(controls,controlsTarget):controls}
   {editingScene&&!compactControls&&<div className="ip-scene-edit-title">场景 {scene.label}<small>{readOnly?'版本只读':'编辑此场，总稿与分集同步'}</small></div>}
-  <FormattedEditor aria-label={label} readOnly={readOnly} value={editingScene?scene.content:content} onFocus={onFocus} onBlur={onBlur} onChange={e=>onChange?.(editingScene?replaceIPScene(content,scene.id,e.target.value,{preserveLineEndings:true}):e.target.value)} placeholder={settings?'设定与小传在这里，也可直接编辑…':'转写后自动识别场景，在这里逐场编辑…'}/>
+  <FormattedEditor key={label+String(editingScene?scene.id:"whole")} commitDelay={1200} aria-label={label} readOnly={readOnly} value={editingScene?scene.content:content} onFocus={onFocus} onBlur={onBlur} onChange={e=>onChange?.(editingScene?replaceIPScene(content,scene.id,e.target.value,{preserveLineEndings:true}):e.target.value)} placeholder={settings?'设定与小传在这里，也可直接编辑…':'转写后自动识别场景，在这里逐场编辑…'}/>
   <div className="ip-text-stats" aria-label={`${label}字符统计`}><span>{readOnly?'所选版本 · ':''}{settings?'设定与小传':'整集'} <strong>{stats.total.toLocaleString()}</strong> 字符{stats.scene!==null&&<> · 当前场景 <strong>{stats.scene.toLocaleString()}</strong> 字符</>}</span><small>{saveHint||'含空白，不计标题格式标记'}</small></div>
  </div>;
 }

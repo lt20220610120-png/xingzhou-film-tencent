@@ -131,3 +131,25 @@
   .skill-list-toolbar { align-items:flex-start; flex-direction:column; }
   .skill-list-toolbar input { width:100%; max-width:none; }
 }
+
+/* Shared director history: fixed document preview, scrollable version list. */
+.modal.director-version-dialog{width:min(1100px,94vw);max-height:90vh;overflow:auto}
+.director-version-tabs,.director-version-actions,.director-version-confirm{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0}
+.director-version-layout{display:grid;grid-template-columns:290px minmax(0,1fr);gap:18px;min-height:320px}
+.director-version-list{display:flex;flex-direction:column;gap:8px;max-height:55vh;overflow:auto}
+.director-version-list button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;white-space:normal;gap:5px;padding:12px}
+.director-version-list button.selected{border-color:#7964bb;background:#f0eafa}
+.director-version-list span{font-size:12px;color:#596579}
+.director-version-preview{min-width:0}.director-version-preview .formatted-text{max-height:42vh;overflow:auto;color:#111;background:white;padding:16px;border:1px solid #e5e9f2;border-radius:10px}
+.director-version-confirm{padding:14px;border:1px solid #d9d1ee;border-radius:10px;background:#f8f5ff}.director-version-confirm p{flex-basis:100%}
+@media(max-width:760px){.director-version-layout{grid-template-columns:1fr}.director-version-list{max-height:22vh}}
+
+.director-master>header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.director-master .master-title-tools{flex:1 1 420px;min-width:0}.director-master .master-title-tools>div{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.director-master .master-title-tools h1{min-width:160px;margin:0;overflow-wrap:anywhere}.director-master .director-refresh-notice{flex-basis:100%;display:block;white-space:normal}
+.director-master .master-editor-toolbar{display:flex;flex:0 1 auto;flex-wrap:wrap;gap:8px}.director-master .master-editor-toolbar button{white-space:nowrap;flex-shrink:0;width:auto}
+.director-stage .editor-head-actions{flex-wrap:wrap}
+
+.director-config-model-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:16px}.director-config-model-row .window-model-select{min-width:0}.director-config-model-row .window-model-select select{width:100%;min-width:0}.director-batch-launcher>button{white-space:nowrap}.director-batch-dialog{width:min(900px,calc(100vw - 48px))}.director-batch-dialog .director-batch-panel{margin:0;border:0;padding:0;min-width:0}.director-batch-dialog .director-batch-settings{flex-wrap:wrap}.director-batch-dialog .director-batch-scenes{max-height:260px;overflow:auto}.director-batch-dialog .director-batch-scenes small{overflow-wrap:anywhere}.director-batch-dialog .director-batch-preview select{max-width:100%}@media(max-width:900px){.director-config-model-row{grid-template-columns:minmax(0,1fr)}.director-batch-launcher>button{width:100%}}
+
+.director-batch-dialog .director-batch-heading .director-batch-settings{display:flex;flex-direction:row;align-items:end;gap:12px;flex-wrap:wrap;width:100%;justify-content:flex-start}.director-batch-dialog .director-batch-settings label{display:flex;flex-direction:column;align-items:stretch;gap:6px;white-space:nowrap;flex:0 1 200px}.director-batch-dialog .director-batch-preview label{display:grid;grid-template-columns:100px minmax(0,1fr);gap:12px}.director-batch-dialog .director-batch-preview select,.director-batch-dialog .director-batch-settings select{height:44px;min-height:44px;padding:8px 12px;line-height:1.5;font-size:14px;margin:0;box-sizing:border-box}.director-batch-dialog .director-batch-settings>button{min-height:44px}.director-batch-dialog .director-batch-heading{margin:16px 0}

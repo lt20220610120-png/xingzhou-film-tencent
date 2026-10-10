@@ -1,6 +1,7 @@
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
 import {cleanupRecycle} from '../core/projectRecycle.js';
 import {FormattedEditor} from './components/FormattedText.jsx';
+import {flushEditing} from './editing.js';
 import {UserProfile} from './v06/UserProfile.jsx';
 import {SidebarGroup} from './components/SidebarGroup.jsx';
 import {QuickRoleSwitch} from './components/QuickRoleSwitch.jsx';
@@ -1318,11 +1319,20 @@ function App() {
   }, []);
 
   // Coalesce editing updates, but continuous typing must still reach local disk.
-  const saveDeadline = useRef(null), savePending = useRef(false);
+  const saveDeadline = useRef(null), saveQuiet = useRef(null), savePending = useRef(false), typingUntil = useRef(0), inputComposing = useRef(false);
   const persistLocal = useRef(null);
-  persistLocal.current = async () => {
+  const scheduleSaveDeadline = () => {
+    if (!saveDeadline.current) saveDeadline.current = setTimeout(() => { saveDeadline.current = null; persistLocal.current(true); }, 15000);
+  };
+  persistLocal.current = async (force = false) => {
+    if (inputComposing.current) return;
+    if (!force && Date.now() < typingUntil.current) {
+      clearTimeout(saveQuiet.current); saveQuiet.current = setTimeout(() => persistLocal.current(), typingUntil.current - Date.now()); return;
+    }
+    flushEditing();
     if (!savePending.current) return;
     savePending.current = false;
+    clearTimeout(saveQuiet.current); saveQuiet.current = null;
     clearTimeout(saveDeadline.current); saveDeadline.current = null;
     const snapshot = stateRef.current;
     // The desktop local file is primary; the browser cache is a recovery copy.
@@ -1335,20 +1345,35 @@ function App() {
   };
   useEffect(() => {
     if (!initialized) return;
-    savePending.current = true; setCreatorSaveStatus({ saving: true });
-    if (!saveDeadline.current) saveDeadline.current = setTimeout(() => persistLocal.current(), 1000);
-    const timer = setTimeout(() => persistLocal.current(), 250);
-    return () => clearTimeout(timer);
+    savePending.current = true; setCreatorSaveStatus(current => current.saving ? current : { saving: true });
+    scheduleSaveDeadline();
+    clearTimeout(saveQuiet.current); saveQuiet.current = setTimeout(() => persistLocal.current(), 1200);
+    return () => clearTimeout(saveQuiet.current);
   }, [state, initialized]);
   useEffect(() => {
     if (!initialized) return;
-    const flush = () => { document.activeElement?.blur?.(); persistLocal.current(); };
+    const flush = () => { document.activeElement?.blur?.(); flushEditing(); savePending.current = true; persistLocal.current(true); };
+    const input = event => {
+      if (!event.target?.matches?.('input,textarea,[contenteditable=true]')) return;
+      savePending.current = true; scheduleSaveDeadline();
+      typingUntil.current = Date.now() + 1200;
+      clearTimeout(saveQuiet.current); saveQuiet.current = setTimeout(() => persistLocal.current(), 1200);
+    };
+    const composing = () => { inputComposing.current = true; clearTimeout(saveQuiet.current); };
+    const composed = event => { inputComposing.current = false; if (savePending.current) scheduleSaveDeadline(); input(event); };
     const hidden = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', hidden);
+    document.addEventListener('input', input, true);
+    document.addEventListener('compositionstart', composing, true);
+    document.addEventListener('compositionend', composed, true);
     return () => {
       window.removeEventListener('pagehide', flush);
       document.removeEventListener('visibilitychange', hidden);
+      document.removeEventListener('input', input, true);
+      document.removeEventListener('compositionstart', composing, true);
+      document.removeEventListener('compositionend', composed, true);
+      clearTimeout(saveQuiet.current);
       clearTimeout(saveDeadline.current); saveDeadline.current = null;
     };
   }, [initialized]);
@@ -1467,7 +1492,7 @@ function App() {
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
-        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
+        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { flushEditing(); setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
         {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}

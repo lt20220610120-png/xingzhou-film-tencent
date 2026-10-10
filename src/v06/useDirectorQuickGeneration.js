@@ -6,6 +6,9 @@ import { parseDirectorScenes } from '../../core/scriptImport.js';
 import { createDirectorBatchPlan, createDirectorBatchController, isDirectorBatchActive } from '../../core/directorBatchGeneration.js';
 import { createDirectorCloudSync } from '../../core/directorCloudSync.js';
 import { acknowledgeDirectorCloudSave } from '../../core/directorCloudProjects.js';
+import {flushEditing} from '../editing.js';
+import {createDirectorManualController,commitManualSceneRun} from '../../core/directorManualGeneration.js';
+import {directorJobs} from '../../core/backgroundJobs.js';
 
 function browserCheckpoints(accountRef) {
   const key=()=>`xz-director-quick-runs:${accountRef.current || 'signed-out'}`;
@@ -23,6 +26,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   const [,render]=useState(0);
   const [restoreError,setRestoreError]=useState('');
   const controllerRef=useRef(null);
+  const manualControllerRef=useRef(null);
   const batchControllerRef=useRef(null),cloudSyncRef=useRef(null),cloudScheduledRef=useRef(new Map());
   if(!controllerRef.current){
     const getContext=target=>{
@@ -72,13 +76,23 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       },
       commitProgress:run=>commit(run,true),commitRun:run=>commit(run),
     });
-    batchControllerRef.current=createDirectorBatchController({sceneController:controllerRef.current,checkpoints,getContext,onChange:()=>render(n=>n+1)});
+    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,onChange:()=>render(n=>n+1),cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
+      executeSkill:async({input,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,assistantRole:'行舟影视导演提示词助手',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
+      commitRun:async run=>{if(accountRef.current!==run.snapshot.accountId)return{applied:false,conflict:'账号已切换'};let result;setState(current=>{result=commitManualSceneRun({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};},
+    });
+    const childFor=id=>manualControllerRef.current.get(id)?manualControllerRef.current:controllerRef.current;
+    const batchScenes={get:id=>childFor(id).get(id),start:(context,opts)=>(context.segmentationMode==='manual'?manualControllerRef.current:controllerRef.current).start(context,opts),
+      resume:async id=>((await checkpoints.load({runId:id}))?.kind==='manual-scene'?manualControllerRef.current:controllerRef.current).resume(id),
+      stop:id=>childFor(id).stop(id),pauseAfterRequest:id=>childFor(id).pauseAfterRequest(id)};
+    batchControllerRef.current=createDirectorBatchController({sceneController:batchScenes,checkpoints,getContext,onChange:()=>render(n=>n+1)});
   }
   const controller=controllerRef.current;
+  const manualController=manualControllerRef.current;
   const batchController=batchControllerRef.current;
   if(!cloudSyncRef.current)cloudSyncRef.current=createDirectorCloudSync({
+    manualOnly:true,
     getContext:()=>({accountId:accountRef.current,projects:stateRef.current.directorProjects||[]}),
-    updateProject:args=>api.directorCollabUpdateProject(args),
+    updateProject:args=>api.directorCollabPublishVersion(args),
     acknowledge:({cloud,submitted,projectId})=>setState(current=>({...current,directorProjects:acknowledgeDirectorCloudSave(current.directorProjects||[],cloud,submitted).map(p=>p.id===projectId?{...p,cloudSyncError:''}:p)})),
     onConflict:({projectId,message})=>setState(current=>({...current,directorProjects:(current.directorProjects||[]).map(p=>p.id===projectId?{...p,cloudSyncError:message}:p)})),
   });
@@ -86,35 +100,44 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   useEffect(()=>{
     if(!initialized||!accountId)return;
     let live=true;
-    Promise.all([controller.restore(),batchController.restore()]).catch(e=>{if(live)setRestoreError(e.message);});
-    return()=>{live=false;cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});};
+    Promise.all([controller.restore(),manualController.restore(),batchController.restore()]).catch(e=>{if(live)setRestoreError(e.message);});
+    return()=>{live=false;cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
   },[accountId,initialized]);
-  useEffect(()=>{
-    if(!initialized||!accountId)return;
-    for(const project of state.directorProjects||[]){
-      if(!project.cloudProjectId||!project.cloudBase||project.cloudLocked||project.cloudConflict)continue;
-      const document={name:project.name,script:project.masterScript||'',episodes:project.episodes||[]};
-      const signature=JSON.stringify({document,base:project.cloudBase});
-      if(JSON.stringify(document)===JSON.stringify(project.cloudBase)||cloudScheduledRef.current.get(project.id)===signature)continue;
-      cloudScheduledRef.current.set(project.id,signature);cloudSync.enqueue(project.id);
-    }
-  },[state.directorProjects,accountId,initialized]);
-  useEffect(()=>{controller.activate();batchController.activate();cloudSync.activate();return()=>{batchController.dispose();controller.dispose();cloudSync.dispose();};},[]);
-  const runs=controller.entries().filter(run=>run.snapshot.accountId===accountId);
+  // Editing is local. Only an explicit upload publishes a captured version.
+  useEffect(()=>{controller.activate();manualController.activate();batchController.activate();cloudSync.activate();return()=>{batchController.dispose();controller.dispose();manualController.dispose();cloudSync.dispose();};},[]);
+  const runs=[...controller.entries(),...manualController.entries()].filter(run=>run.snapshot.accountId===accountId);
   const batches=batchController.entries().filter(batch=>batch.snapshot.accountId===accountId);
+  const assertNoSingleWork=projectId=>{const prefix=JSON.stringify([accountRef.current,projectId]).slice(0,-1)+',';if(directorJobs.entries().some(([key,job])=>key.startsWith(prefix)&&job.status==='running')||[...controller.entries(),...manualController.entries()].some(r=>r.snapshot.accountId===accountRef.current&&r.snapshot.projectId===projectId&&isQuickRunActive(r)))throw new Error('本项目有场景正在生成，请等待完成或停止后继续整本任务');};
   return {
     startScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):controller.start({...request,accountId}),resume:runId=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):controller.resume(runId),stop:runId=>controller.stop(runId),
     runs,restoreError,
+    getManualSceneRun:id=>manualController.get(id),
     previewBatch:request=>createDirectorBatchPlan({...request,accountId}),
-    startBatch:plan=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换')):batchController.start(plan),
-    resumeBatch:id=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换')):batchController.resume(id),
+    startBatch:async plan=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');assertNoSingleWork(plan.snapshot.projectId);return batchController.start(plan);},
+    resumeBatch:async id=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');const batch=batchController.get(id);if(!batch)throw new Error('找不到整本任务');if(!isDirectorBatchActive(batch))assertNoSingleWork(batch.snapshot.projectId);return batchController.resume(id);},
     pauseBatch:id=>batchController.pause(id),cancelBatch:id=>batchController.cancel(id),
     getProjectBatch:projectId=>batches.filter(b=>b.snapshot.projectId===projectId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null,
     isProjectBatchActive:projectId=>batches.some(b=>b.snapshot.projectId===projectId&&isDirectorBatchActive(b)),
-    isCloudSaving:cloudSync.isSaving,retryCloudSync:id=>cloudSync.flush(id),
-    getSceneRun:(projectId,episodeId,sceneLabel)=>runs.filter(run=>run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null,
-    pauseAndFlush:async()=>{await batchController.pauseAll();await controller.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
-    prepareDirectorySwitch:async()=>{directorySwitchRef.current=true;try{await batchController.pauseAll();await controller.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
+    isCloudSaving:cloudSync.isSaving,getCloudProject:id=>stateRef.current.directorProjects?.find(p=>p.id===id),
+    uploadCloudProject:async id=>{
+      if(directorySwitchRef.current)throw new Error('资料位置正在切换，请稍后上传');
+      flushEditing();
+      const account=accountRef.current;
+      const project=stateRef.current.directorProjects?.find(p=>p.id===id);
+      if(!project?.cloudBase&&!project?.cloudRemote)throw new Error('尚未取得云端版本，请刷新后重试');
+      if(project.cloudLocked||project.canWrite===false||project.permissions?.canWrite===false)throw new Error('项目已锁定或没有写入权限，本地版本已保留');
+      const document={name:project.name,script:project.masterScript||'',episodes:project.episodes||[]},previous=project.pendingCloudSubmission,base=project.cloudBase||project.cloudRemote;
+      const submission=previous&&JSON.stringify(previous.document)===JSON.stringify(document)&&JSON.stringify(previous.base)===JSON.stringify(base)?previous:{id:crypto.randomUUID(),document:structuredClone(document),base:structuredClone(base),conflictOnly:Boolean(project.cloudConflict),createdAt:new Date().toISOString()};
+      setState(current=>({...current,directorProjects:current.directorProjects.map(p=>p.id===id?{...p,pendingCloudSubmission:submission,localCollaborationVersions:previous?.id===submission.id?p.localCollaborationVersions:[...(p.localCollaborationVersions||[]),submission]}:p)}));
+      persistence.enqueue(stateRef.current);await persistence.flush();
+      if(account!==accountRef.current)throw new Error('账号已切换，本地版本已保留');
+      if(directorySwitchRef.current||stateRef.current.directorProjects?.find(p=>p.id===id)?.cloudProjectId!==project.cloudProjectId)throw new Error('项目或资料位置已变化，本地版本已保留，请重新上传');
+      const result=await cloudSync.flush(id,submission);
+      if(!result?.acknowledged)throw new Error('上传未确认，本地版本已保留，请刷新后核对');
+    },
+    getSceneRun:(projectId,episodeId,sceneLabel)=>runs.filter(run=>run.kind!=='manual-scene'&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null,
+    pauseAndFlush:async()=>{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
+    prepareDirectorySwitch:async()=>{directorySwitchRef.current=true;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
     finishDirectorySwitch:()=>{try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();}finally{directorySwitchRef.current=false;}},
     active:runs.some(isQuickRunActive)||batches.some(isDirectorBatchActive),
   };

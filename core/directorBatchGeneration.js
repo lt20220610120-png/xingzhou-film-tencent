@@ -1,5 +1,6 @@
 import {parseDirectorScenes} from './scriptImport.js';
 import {createSceneSnapshot,directorSceneInput} from './directorQuickStore.js';
+import {manualSceneTasks} from './directorManualGeneration.js';
 
 const clone=value=>structuredClone(value);
 const active=new Set(['running','pausing']);
@@ -7,14 +8,15 @@ const finished=new Set(['completed','skipped','stale']);
 export const isDirectorBatchActive=batch=>Boolean(batch&&active.has(batch.phase));
 const fault=(message,code='FAILED')=>Object.assign(new Error(message),{code});
 const fingerprintFields=['accountId','projectId','episodeId','sceneLabel','sourceHash','settingsHash','skillId','skillHash','profileId','profileHash'];
-const contextFor=(context,target)=>({...context,inputText:context.inputText??directorSceneInput(context.project,context.episode,target.sceneLabel),sceneLabel:target.sceneLabel,maxDurationSeconds:target.maxDurationSeconds});
+const contextFor=(context,target)=>({...context,inputText:context.inputText??directorSceneInput(context.project,context.episode,target.sceneLabel),sceneLabel:target.sceneLabel,maxDurationSeconds:target.maxDurationSeconds,segmentationMode:target.segmentationMode||'auto'});
 const concurrencyOf=value=>{
  if(value==null||value==='all')return 'all';
  if(Number.isInteger(value)&&value>0)return value;
  throw fault('并发场景数必须是全部场景或正整数');
 };
 
-export async function createDirectorBatchPlan({accountId,project,skill,profile,maxDurationSeconds,existingPolicy='missing-only',concurrency='all'}){
+export async function createDirectorBatchPlan({accountId,project,skill,profile,maxDurationSeconds,existingPolicy='missing-only',concurrency='all',segmentationMode='auto'}){
+ if(!['auto','manual'].includes(segmentationMode))throw fault('分段方式无效');
  if(!['missing-only','append-all'].includes(existingPolicy))throw fault('已有结果处理方式无效');
  concurrency=concurrencyOf(concurrency);
  if(!project||project.cloudLocked||project.cloudConflict||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false)throw fault('当前项目不能生成提示词');
@@ -26,14 +28,15 @@ export async function createDirectorBatchPlan({accountId,project,skill,profile,m
    const snapshot=await createSceneSnapshot({accountId,project,episode,sceneLabel:scene.label,inputText:source,skill,profile,maxDurationSeconds});
    const existing=(episode.prompts||[]).filter(p=>String(p.label||'').startsWith(`${scene.label}-`));
    const skip=!source?.trim()||existingPolicy==='missing-only'&&existing.length>0;
-   targets.push({episodeId:episode.id,episodeNumber:index+1,episodeTitle:episode.title||`第${index+1}集`,sceneLabel:scene.label,
+   const manualCount=segmentationMode==='manual'&&!skip?manualSceneTasks(source,scene.label).length:0;
+   targets.push({episodeId:episode.id,episodeNumber:index+1,episodeTitle:episode.title||`第${index+1}集`,sceneLabel:scene.label,manualCount,
     fingerprint:Object.fromEntries(fingerprintFields.map(key=>[key,snapshot[key]])),existingCount:existing.length,
     status:skip?'skipped':'pending',reason:!source?.trim()?'场景为空':skip?'已有提示词，跳过；未判定完整性':'',sceneRunId:null});
   }
  }
  if(!targets.length)throw fault('项目没有可生成的场景');
  return {id:crypto.randomUUID(),kind:'batch',schemaVersion:2,phase:'preview',createdAt:new Date().toISOString(),revision:0,concurrency,
-  snapshot:{accountId,projectId:project.id,skillId:skill.id,profileId:profile.id,maxDurationSeconds},
+  snapshot:{accountId,projectId:project.id,skillId:skill.id,profileId:profile.id,maxDurationSeconds,segmentationMode},manualPromptCount:targets.reduce((n,t)=>n+t.manualCount,0),
   projectName:project.name,skillName:skill.name,modelName:profile.name||profile.model,existingPolicy,episodeCount:episodes.length,targets,errors:[]};
 }
 

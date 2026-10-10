@@ -53,7 +53,9 @@ const attachPlans = (episode,local={},cloud={},base) => {
 };
 
 const withoutPlans = (document) => ({...document,episodes:(document?.episodes || []).map(episode=>{
-  const {quickScenePlans,activeQuickScenePlanIds,quickScenePlanConflicts,...rest}=episode;return rest;
+  const {quickScenePlans,activeQuickScenePlanIds,quickScenePlanConflicts,...rest}=episode;
+  if(!rest.deletedPromptIds?.length)delete rest.deletedPromptIds;
+  return rest;
 })});
 
 // 合并本地与云端的分集：结构以云端为准，提示词按 id 取并集（同 id 取较新版本），
@@ -84,11 +86,23 @@ export const mergeCloudEpisodes = (localEpisodes = [], cloudEpisodes = []) => {
 };
 
 const fromCloud = (cloud, existing = {}) => {
+ // A list request begun before our save can arrive after the newer receipt.
+ // Keep the newer document and baseline; the next poll fetches live permissions.
+ if(existing.cloudUpdatedAt && cloud.updated_at && Date.parse(cloud.updated_at)<Date.parse(existing.cloudUpdatedAt))return existing;
  const remote={name:cloud.name,script:cloud.script||'',episodes:cloud.episodes||[]};
  let merged=remote,conflict='';
  const local={name:existing.name,script:existing.masterScript||'',episodes:existing.episodes||[]};
+ const missingBaselineConflict=!existing.cloudBase&&Boolean(existing.id)&&(
+   Boolean(local.script)&&local.script!==remote.script ||
+   local.episodes.some(ep=>remote.episodes.some(other=>other.id===ep.id&&(
+     Boolean(ep.content)&&other.content!==ep.content ||
+     ['quickSceneEdits','sceneVisions'].some(field=>Object.keys(ep[field]||{}).some(key=>Object.hasOwn(other[field]||{},key)&&!same(ep[field][key],other[field][key]))) ||
+     (ep.prompts||[]).some(prompt=>(other.prompts||[]).some(candidate=>candidate.id===prompt.id&&!same(prompt,candidate)))
+   )))
+ );
+ if(missingBaselineConflict){merged=local;conflict='旧协作项目缺少同步基准，双端剧本不同；本地内容已保留，请核对并选择版本';}
  if(existing.cloudBase)try{merged=threeWayMerge(withoutPlans(existing.cloudBase),withoutPlans(local),withoutPlans(remote));}catch(error){merged=local;conflict=error.message;}
- let episodes=existing.cloudBase ? (merged.episodes || []).map(episode=>{
+ let episodes=missingBaselineConflict?local.episodes:existing.cloudBase ? (merged.episodes || []).map(episode=>{
    const localEp=local.episodes.find(ep=>ep.id===episode.id) || {},cloudEp=remote.episodes.find(ep=>ep.id===episode.id) || {},baseEp=existing.cloudBase.episodes?.find(ep=>ep.id===episode.id);
    const tombstones=unionTombstones(unionTombstones(localEp.deletedPromptIds,cloudEp.deletedPromptIds),existing.deletedPromptIds);
    return attachPlans({...episode,deletedPromptIds:tombstones,prompts:(episode.prompts || []).filter(prompt=>!tombstones.includes(prompt.id))},localEp,cloudEp,baseEp);
@@ -104,7 +118,8 @@ const fromCloud = (cloud, existing = {}) => {
   id: existing.id || cloudLocalId(cloud),
   name: merged.name || existing.name || '未命名导演项目',
   cloudBase:conflict?existing.cloudBase:remote,cloudConflict:conflict,cloudRemote:remote,
-  cloudSyncError:!conflict&&/同时被修改|协作冲突|版本.*不一致/.test(existing.cloudSyncError||'')?'':existing.cloudSyncError||'',
+  cloudBaselineMissing:missingBaselineConflict,
+  cloudSyncError:!conflict&&(same(withoutPlans({name:merged.name,script:merged.script||'',episodes}),withoutPlans(remote))||/同时被修改|协作冲突|版本.*不一致/.test(existing.cloudSyncError||''))?'':existing.cloudSyncError||'',
   sourceType: existing.sourceType || 'cloud',
   sourceId: existing.sourceId || cloud.analysis_output || null,
   cloudProjectId: cloud.id,
@@ -115,6 +130,7 @@ const fromCloud = (cloud, existing = {}) => {
   episodes,quickScenePlanConflicts,
   promptHistory:[...history.values()],
   updatedAt: cloud.updated_at || existing.updatedAt || new Date().toISOString(),
+  cloudUpdatedAt: cloud.updated_at || existing.cloudUpdatedAt,
 });
 };
 

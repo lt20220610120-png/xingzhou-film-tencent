@@ -38,16 +38,17 @@ export function BrandLogo({ compact = false }) {
 /* ================================================================
  * Dialog - 通用对话框
  * ================================================================ */
-export function Dialog({ open, title, children, onClose }) {
+export function Dialog({ open, title, children, onClose,className='' }) {
   const workspaceActive=useWorkspaceActive();
   const modalRef = React.useRef(null);
+  const closeRef=React.useRef(onClose);closeRef.current=onClose;
   React.useEffect(() => {
     if (!open||!workspaceActive) return;
     const previous = document.activeElement;
     const focusables = () => [...(modalRef.current?.querySelectorAll('button:not(:disabled), input, select, textarea, [tabindex="0"]') || [])];
     focusables()[0]?.focus();
     const onKey = event => {
-      if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
+      if (event.key === 'Escape') { event.stopPropagation(); closeRef.current(); }
       if (event.key !== 'Tab') return;
       const nodes = focusables(), first = nodes[0], last = nodes.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -58,7 +59,7 @@ export function Dialog({ open, title, children, onClose }) {
   }, [open,workspaceActive]);
   if (!open) return null;
   return createPortal(<div className="veil" hidden={!workspaceActive} style={workspaceActive?undefined:{display:'none'}} inert={!workspaceActive} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div ref={modalRef} className="modal form-dialog" role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={modalRef} className={`modal form-dialog ${className}`} role="dialog" aria-modal="true" aria-label={title}>
       <div className="form-dialog-header"><h2>{title}</h2><button className="ghost" aria-label="关闭对话框" onClick={onClose}><X size={18}/></button></div>
       {children}
     </div>

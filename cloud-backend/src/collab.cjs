@@ -188,7 +188,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   }
 
   // ---- 导演项目 ----
-  const DIRECTOR_ACTIONS = ['director-project-get','director-project-update','director-project-delete','director-project-lock',
+  const DIRECTOR_ACTIONS = ['director-project-get','director-project-update','director-project-delete','director-project-lock','director-version-list','director-version-get','director-version-publish','director-version-restore',
     'director-members-list','director-member-add','director-member-remove'];
   if (DIRECTOR_ACTIONS.includes(action)) {
     const pid = payload.directorProjectId || projectId;
@@ -235,7 +235,17 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return ok(out);
   }
   if (action === 'director-project-get') { const r = guard(await repo.getDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok(r) : NOT_FOUND; }
-  if (action === 'director-project-update') { try { const r = guard(await repo.updateDirectorProject(payload.directorProjectId || projectId, payload, user.id)); return r ? ok(r) : DENY; } catch(error) { if(error.status)return {status:error.status,body:{error:error.message}};throw error; } }
+  if(action === 'director-version-list' || action === 'director-version-get' || action === 'director-version-publish' || action === 'director-version-restore'){
+    const pid=payload.directorProjectId||projectId;
+    try{
+      const name=user.display_name||user.username||'';
+      const result=action==='director-version-list'?await repo.listDirectorVersions(pid,payload,user.id):action==='director-version-get'?await repo.getDirectorVersion(pid,payload.versionId,user.id):action==='director-version-publish'?await repo.publishDirectorVersion(pid,payload,user.id,name):await repo.restoreDirectorVersion(pid,payload,user.id,name);
+      if(!result)return DENY;
+      if(result.versionConflict)return {status:409,body:{error:result.error,versionId:result.versionId}};
+      return ok(result);
+    }catch(e){if(e.status)return {status:e.status,body:{error:e.message}};throw e;}
+  }
+  if (action === 'director-project-update') return {status:426,body:{error:'导演协作已改为本地编辑、手动上传及版本保留。请更新到 2.8.21，使用“上传云端”；本地修改已保留。'}};
   if (action === 'director-project-delete') { try {const r = guard(await repo.deleteDirectorProject(payload.directorProjectId || projectId, user.id)); return r ? ok({ ok: true }) : DENY;} catch(error) {if(error.status)return {status:error.status,body:{error:error.message}};throw error;} }
   if (action === 'director-project-lock') { const r = guard(await repo.setDirectorProjectLocked(payload.directorProjectId || projectId, payload.locked !== false, user.id)); return r ? ok({ ok: true }) : DENY; }
 

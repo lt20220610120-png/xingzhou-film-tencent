@@ -37,10 +37,11 @@ test('项目协作导演提示词可编辑，但只回写项目协作独立云�
   assert.match(server,/for update/);
 });
 
-test('导演云端刷新显示旋转状态和自动消失的成功提示', () => {
+test('导演云端刷新显示旋转状态并保留同步结果供核对', () => {
   const ui = read('src/v06/DirectorWorkspace.jsx');
   assert.match(ui, /refreshingCloud/);
   assert.match(ui, /cloudRefreshNotice/);
   assert.match(ui, /className=\{refreshingCloud \? 'spin' : ''\}/);
-  assert.match(ui, /setTimeout\(\(\) => setCloudRefreshNotice\(''\),/);
+  assert.match(ui, /await refreshDirectorCollaboration\(/);
+  assert.doesNotMatch(ui, /setTimeout\(\(\) => setCloudRefreshNotice\(''\),/);
 });

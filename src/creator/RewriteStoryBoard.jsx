@@ -57,7 +57,7 @@ export function RewriteStoryBoard({project,state,setState,getState,agent,profile
     <div className="rewrite-story-skeleton"><strong>大纲已确定</strong><p>{event.summary}</p><p>作用与衔接：{event.purpose}</p><small>阶段目标：{group.goal}</small></div>
     <RewriteEventReferences project={project} event={event} onChange={references} readOnly={section.locked}/>
     <label className="rewrite-story-instruction">本次补充要求<input aria-label="事件完善要求" value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder="可留空，或补充发生方式、人物反应等要求"/></label>
-    <FormattedEditor aria-label="小事件完整故事稿" readOnly={section.locked} value={item?.story||''} onChange={e=>update({story:e.target.value})} placeholder="点击“完善此事件”或“一键完善未完成事件”，Agent 会读取整部大纲、已确认设定及绑定素材，展开具体故事。你也可以直接写作。"/>
+    <FormattedEditor key={item?.id||"empty"} commitDelay={1200} aria-label="小事件完整故事稿" readOnly={section.locked} value={item?.story||''} onChange={e=>update({story:e.target.value})} placeholder="点击“完善此事件”或“一键完善未完成事件”，Agent 会读取整部大纲、已确认设定及绑定素材，展开具体故事。你也可以直接写作。"/>
     <label className="rewrite-story-continuity">前后衔接与待确认问题<textarea aria-label="故事衔接核对" readOnly={section.locked} value={item?.continuity||''} onChange={e=>update({continuity:e.target.value})}/></label>
     {(item?.episodes?.length>0||item?.legacyEpisodes?.length>0)&&<details><summary>旧版逐集资料（保留）</summary><FormattedText text={rewriteMainlineText({eventGroups:[{...item,story:'',continuity:'',episodes:item.legacyEpisodes||item.episodes}]})}/></details>}
    </>:<p className="creator-muted">确认大纲后，这里会自动列出所有小事件。</p>}</section></div>

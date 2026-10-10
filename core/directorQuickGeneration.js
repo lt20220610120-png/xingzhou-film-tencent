@@ -402,7 +402,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       return schedule(run);
     },
     async resume(runId){
-      let run=runs.get(runId);if(!run){run=await checkpoints.load({runId});if(!run)throw error('找不到生成进度');runs.set(runId,run);}
+      let run=runs.get(runId);if(!run){run=await checkpoints.load({runId});if(!run)throw error('找不到生成进度');if(run.kind==='manual-scene'||run.kind==='batch')throw error('这是人工分段或整本任务，请从整本任务继续','STALE');runs.set(runId,run);}
       run.checks||={audited:false,ranges:{}};run.checks.ranges||={};run.auditRepairIndexes||=[];run.auditRepairAttempts||={};run.auditWarnings||=[];run.segmentQualityFailures||={};
       if(run.phase==='completed')return clone(run);
       run.pauseRequested=false;
@@ -425,7 +425,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
     },
     async restore(){
       const saved=await checkpoints.list();
-      for(const run of saved||[]){if(!run?.id||!run.snapshot||run.kind==='batch'||runs.has(run.id))continue;
+      for(const run of saved||[]){if(!run?.id||!run.snapshot||run.kind==='batch'||run.kind==='manual-scene'||runs.has(run.id))continue;
         if(isQuickRunActive(run)){run.phase='paused';run.pendingRequestId=null;}
         run.checks||={audited:false,ranges:{}};run.checks.ranges||={};run.auditRepairIndexes||=[];run.segmentQualityFailures||={};
         runs.set(run.id,run);

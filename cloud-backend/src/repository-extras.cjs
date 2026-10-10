@@ -38,6 +38,7 @@ function extendRepository(pool) {
   };
 
   return {
+    ...require('./director-versions.cjs').directorVersionRepository(pool),
     ...require('./analysis-repository.cjs').analysisRepository(pool),
     ...require('./art-review-repository.cjs').artReviewRepository(pool),
     findReadableDirectorSource: (source, uid) => readableDirector(pool.query.bind(pool), source, uid),

@@ -80,7 +80,7 @@ function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationS
 export async function createSceneSnapshot(context) { return snapshotOf(context); }
 
 const snapshotFields=['accountId','projectId','episodeId','sceneLabel','sourceHash','episodeSourceHash','settingsHash','skillId','skillHash','profileId','profileHash','rulesVersion'];
-export async function snapshotMatchesContext(snapshot,context) {
+export function snapshotMatchesContext(snapshot,context) {
   try { const current=snapshotOf({...context,maxDurationSeconds:context.maxDurationSeconds ?? snapshot.maxDurationSeconds});
     return snapshotFields.every(key=>current[key]===snapshot[key]);
   } catch { return false; }
