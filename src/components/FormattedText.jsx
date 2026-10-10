@@ -5,7 +5,7 @@ import {registerEditor} from '../editing.js';
 export function FormattedText({text,children,className='',query='',...props}) {
  const element=useRef(null),html=useMemo(()=>formattedTextHTML(text??children),[text,children]);
  useLayoutEffect(()=>{
-  if(!element.current)return;element.current.innerHTML=html;if(!query)return;
+  if(!element.current||!query)return;element.current.innerHTML=html;
   const walker=document.createTreeWalker(element.current,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
   for(const node of nodes){const value=node.textContent,lower=value.toLocaleLowerCase(),search=query.toLocaleLowerCase();let start=0,index=lower.indexOf(search);if(index<0)continue;const fragment=document.createDocumentFragment();while(index>=0){fragment.append(value.slice(start,index));const mark=document.createElement('mark');mark.textContent=value.slice(index,index+query.length);fragment.append(mark);start=index+query.length;index=lower.indexOf(search,start);}fragment.append(value.slice(start));node.replaceWith(fragment);}
  },[html,query]);
@@ -22,7 +22,7 @@ export function FormattedEditor({value='',onChange,readOnly=false,placeholder=''
  useLayoutEffect(()=>{const unregister=registerEditor(()=>buffer.current.flush(),()=>buffer.current.pending());return()=>{buffer.current.flush();buffer.current.cancel();unregister();};},[]);
  // Human text wins over an asynchronous refresh while it is still buffered.
  // Deliberate action buttons already flush the buffer before replacing value.
- useLayoutEffect(()=>{if(element.current&&value!==emitted.current&&!buffer.current.pending()){element.current.innerHTML=formattedTextHTML(value);emitted.current=value;}},[value]);
+ useLayoutEffect(()=>{if(element.current&&value!==emitted.current&&!buffer.current.pending()){const node=element.current,selection=globalThis.window?.getSelection?.(),focused=document.activeElement===node;let offset=null;if(focused&&selection?.rangeCount&&node.contains(selection.anchorNode)){const range=document.createRange();range.selectNodeContents(node);range.setEnd(selection.anchorNode,selection.anchorOffset);offset=range.toString().length;}node.innerHTML=formattedTextHTML(value);emitted.current=value;if(offset!==null){const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT);let text;while((text=walker.nextNode())){if(offset<=text.length){selection.collapse(text,offset);break;}offset-=text.length;}}}},[value]);
  const change=()=>{if(readOnly||composing.current)return;const text=serializeFormattedDOM(element.current);emitted.current=text;onChange?.({target:{value:text},currentTarget:{value:text}});};
  const input=()=>{if(readOnly)return;if(element.current)element.current.dataset.empty=element.current.textContent?'false':'true';if(commitDelay)buffer.current.input();else change();};
  return <div {...props} ref={node=>{element.current=node;if(node)lastElement.current=node;}} role="textbox" aria-multiline="true" aria-readonly={readOnly} tabIndex={0} contentEditable={!readOnly} suppressContentEditableWarning dangerouslySetInnerHTML={initialMarkup.current} className={`formatted-text formatted-editor ${className}`} data-placeholder={placeholder} data-empty={!value} onFocus={onFocus} onBlur={e=>{buffer.current.flush();onBlur?.(e);}} onInput={input} onCompositionStart={()=>{composing.current=true;buffer.current.compositionStart();}} onCompositionEnd={()=>{composing.current=false;buffer.current.compositionEnd();input();}} onPaste={e=>{

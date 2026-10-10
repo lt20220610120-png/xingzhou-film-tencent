@@ -86,6 +86,7 @@ export const mergeCloudEpisodes = (localEpisodes = [], cloudEpisodes = []) => {
 };
 
 const fromCloud = (cloud, existing = {}) => {
+ if(existing.cloudLive)return {...existing,cloudLocked:Boolean(cloud.locked??existing.cloudLocked),cloudRole:cloud.myRole||existing.cloudRole};
  // A list request begun before our save can arrive after the newer receipt.
  // Keep the newer document and baseline; the next poll fetches live permissions.
  if(existing.cloudUpdatedAt && cloud.updated_at && Date.parse(cloud.updated_at)<Date.parse(existing.cloudUpdatedAt))return existing;

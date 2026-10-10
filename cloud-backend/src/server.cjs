@@ -21,6 +21,7 @@ function createServer(env = process.env, deps = {}) {
       directory:env.COS_PREVIEW_CACHE_DIR || require('node:path').join(process.cwd(),'var','image-previews')}) : null);
   const traffic = new Map(); let trafficSince=Date.now();
   return http.createServer((request, response) => {
+    if(require('./update-download.cjs').serveUpdate(request,response,env.UPDATE_FILES_DIR||'/opt/xingzhou-updates'))return;
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       response.end(JSON.stringify({ ok: true, service: 'xingzhou-cloud-backend' }));

@@ -19,6 +19,7 @@ function validateManifest(manifest, publicKey = require('./update-signing-key.js
 }
 function assertDownloadUrl(value) {
   const url = new URL(value);
+  if(['xingzhoufilm.cn','106.55.41.128'].includes(url.hostname)&&url.protocol==='https:'&&!url.username&&!url.password&&(!url.port||url.port==='443')&&!url.search&&!url.hash&&/^\/api\/updates\/Xingzhou-Film-Tencent-Setup-\d+\.\d+\.\d+\.exe$/.test(url.pathname))return url.toString();
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !['github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(url.hostname)) throw new Error('更新下载跳转到非可信地址');
   return url.toString();
 }

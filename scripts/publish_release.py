@@ -119,6 +119,12 @@ try:
 finally:
     os.unlink(signing_path)
 manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
+local_manifest = os.path.join(RELEASE_DIR, 'latest.json')
+with open(local_manifest, 'w', encoding='utf-8') as local_file:
+    local_file.write(manifest_text)
+# The signed manifest becomes discoverable only after its identical installer
+# is available on the official HTTPS mirror. SSH credentials stay local.
+subprocess.run([sys.executable, os.path.join(ROOT, 'scripts', 'publish-update-mirror.py'), SRC, local_manifest], check=True)
 for manifest_repo in MANIFEST_REPOS:
     st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json')
     assert st == 200, f'get latest.json failed for {manifest_repo}: {st}'

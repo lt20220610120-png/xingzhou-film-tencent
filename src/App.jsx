@@ -1,7 +1,7 @@
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
 import {cleanupRecycle} from '../core/projectRecycle.js';
 import {FormattedEditor} from './components/FormattedText.jsx';
-import {flushEditing} from './editing.js';
+import {flushEditing,settleEditing} from './editing.js';
 import {UserProfile} from './v06/UserProfile.jsx';
 import {SidebarGroup} from './components/SidebarGroup.jsx';
 import {QuickRoleSwitch} from './components/QuickRoleSwitch.jsx';
@@ -1278,6 +1278,16 @@ function App() {
   const persistence = persistenceRef.current;
   const quickGeneration = useDirectorQuickGeneration({ state, stateRef, setState, api, accountId:account?.id, persistence, initialized });
 
+  useEffect(()=>{
+    const beforeQuit=async()=>{
+      if(!initialized||storageLoadError)return true;
+      document.activeElement?.blur?.();await settleEditing();
+      persistence.enqueue(stateRef.current);await persistence.flush();return true;
+    };
+    window.__xingzhouBeforeQuit=beforeQuit;
+    return()=>{if(window.__xingzhouBeforeQuit===beforeQuit)delete window.__xingzhouBeforeQuit;};
+  },[initialized,storageLoadError,persistence]);
+
   useEffect(() => {
     const receiveCanvasRoute = (event) => {
       if (!canvasFrameRef.current || event.source !== canvasFrameRef.current.contentWindow) return;
@@ -1336,7 +1346,7 @@ function App() {
     clearTimeout(saveDeadline.current); saveDeadline.current = null;
     const snapshot = stateRef.current;
     // The desktop local file is primary; the browser cache is a recovery copy.
-    try { localStorage.setItem(STORAGE, JSON.stringify(snapshot)); }
+    try { if(!window.xingzhou)localStorage.setItem(STORAGE, JSON.stringify(snapshot)); }
     catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
     try {
       persistence.enqueue(snapshot); await persistence.flush();

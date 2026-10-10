@@ -9,7 +9,7 @@ test('actual formatted editor keeps pending human DOM through external refresh, 
  const source=fs.readFileSync(new URL('../src/components/FormattedText.jsx',import.meta.url),'utf8');
  const start=source.indexOf('export function FormattedEditor'),end=source.indexOf(' return <div',start);
  const refs=[],effects=[];let cursor=0,flush,changes=[];
- const context={useRef:v=>refs[cursor++]??(refs[cursor-1]={current:v}),useLayoutEffect:fn=>effects.push(fn),formattedTextHTML:v=>v,serializeFormattedDOM:node=>node.innerHTML,createEditBuffer:opts=>createEditBuffer({...opts,setTimer:()=>1,clearTimer:()=>{}}),registerEditor:f=>{flush=f;return()=>{};}};
+ const context={document:{activeElement:null},useRef:v=>refs[cursor++]??(refs[cursor-1]={current:v}),useLayoutEffect:fn=>effects.push(fn),formattedTextHTML:v=>v,serializeFormattedDOM:node=>node.innerHTML,createEditBuffer:opts=>createEditBuffer({...opts,setTimer:()=>1,clearTimer:()=>{}}),registerEditor:f=>{flush=f;return()=>{};}};
  vm.createContext(context);vm.runInContext(source.slice(start,end).replace('export function','function')+'return {input};}\nglobalThis.render=FormattedEditor;',context);
  const render=value=>{cursor=0;effects.length=0;const result=context.render({value,commitDelay:1200,onChange:e=>changes.push(e.target.value)});if(!refs[0].current)refs[0].current={innerHTML:value,textContent:value,dataset:{}};effects.forEach(fn=>fn());return result;};
  const editor=render('旧文本');refs[0].current.innerHTML='人正在输入';editor.input();

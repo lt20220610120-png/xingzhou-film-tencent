@@ -4,10 +4,10 @@ function mirrorFor(url){
  return match?`https://cdn.jsdelivr.net/gh/${match[1]}/${match[2]}@${match[3]}/${match[4]}`:null;
 }
 function wait(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
-async function fetchUpdateManifest(url,{fetchFn=fetch,retries=2,sleep=wait,timeout=8000,verifyManifest=validateManifest}={}){
+async function fetchUpdateManifest(url,{fetchFn=fetch,retries=2,sleep=wait,timeout=8000,verifyManifest=validateManifest,officialMirrors=[]}={}){
  if(!url?.startsWith('https://'))throw new Error('更新地址必须使用 HTTPS');
  if(url!==TRUSTED_MANIFEST_URL)throw new Error('只允许使用行舟官方更新清单');
- const sources=[url,mirrorFor(url)].filter(Boolean);
+ const sources=[...officialMirrors.filter(u=>['https://106.55.41.128/api/updates/latest.json','https://xingzhoufilm.cn/api/updates/latest.json'].includes(u)),url,mirrorFor(url)].filter(Boolean);
  for(const source of sources){
   for(let attempt=0;attempt<retries;attempt++){
    try{

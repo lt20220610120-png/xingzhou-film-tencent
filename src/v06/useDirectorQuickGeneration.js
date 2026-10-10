@@ -138,7 +138,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     getSceneRun:(projectId,episodeId,sceneLabel)=>runs.filter(run=>run.kind!=='manual-scene'&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null,
     pauseAndFlush:async()=>{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
     prepareDirectorySwitch:async()=>{directorySwitchRef.current=true;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
-    finishDirectorySwitch:()=>{try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();}finally{directorySwitchRef.current=false;}},
+    finishDirectorySwitch:()=>{try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();window.dispatchEvent(new Event('xz-storage-changed'));}finally{directorySwitchRef.current=false;}},
     active:runs.some(isQuickRunActive)||batches.some(isDirectorBatchActive),
   };
 }

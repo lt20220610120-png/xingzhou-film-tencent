@@ -187,6 +187,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return ok({ members: bundle.members || [], activity: bundle.activity || [], media: bundle.media || [] });
   }
 
+  if (action === 'director-live-sync') {try{return ok(await repo.syncDirectorLive(projectId,payload,user.id,user.display_name||user.username));}catch(e){if(e.status)return {status:e.status,body:{error:e.message}};throw e;}}
   // ---- 导演项目 ----
   const DIRECTOR_ACTIONS = ['director-project-get','director-project-update','director-project-delete','director-project-lock','director-version-list','director-version-get','director-version-publish','director-version-restore',
     'director-members-list','director-member-add','director-member-remove'];

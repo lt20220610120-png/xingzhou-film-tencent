@@ -53,5 +53,6 @@ test('上传/导入新项目后必须同步 masterDraft，防止保存总剧本�
 test('导演项目文件保存缩水前必须先落备份，加载时可从备份恢复', () => {
   const main = read('electron/main.cjs');
   assert.match(main, /\.backup\.json/);
-  assert.match(main, /next\.length<prev\.length/);
+  assert.match(main, /writeStateAsync\(file,projects\|\|\[\],\{backup:true\}\)/);
+  assert.match(read('electron/state-writer.cjs'), /data\.length<previous\.length/);
 });

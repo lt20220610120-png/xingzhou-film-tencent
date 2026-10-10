@@ -28,7 +28,7 @@ test('closed version panel cannot send a restore after its initial read finishes
  const code=source.slice(source.indexOf('export function DirectorVersions'),source.indexOf(' return <Dialog')).replace('export function','function')+'return {adopt};}\nglobalThis.panel=DirectorVersions;';
  let index=0,finish,calls=0;const refs=[],gate=new Promise(resolve=>finish=resolve);
  const values=[[],null,{id:'v',document:{}},false,'','restore','cloud'];
- const context={useState:()=>[values[index++],()=>{}],useRef:value=>{const ref={current:value};refs.push(ref);return ref;},useEffect:()=>{},Date,Error};
+ const context={useMemo:fn=>fn(),versionPreviewPages:text=>[text],useState:()=>[values[index++],()=>{}],useRef:value=>{const ref={current:value};refs.push(ref);return ref;},useEffect:()=>{},Date,Error};
  vm.createContext(context);vm.runInContext(code,context);
  const panel=context.panel({project:{cloudProjectId:'c'},api:{directorCollabGetProject:()=>gate,directorCollabRestoreVersion:async()=>{calls++;}},onCloud:()=>{},onLocal:()=>{},onClose:()=>{}});
  const result=panel.adopt();refs[0].current=false;finish({name:'项目',script:'当前',episodes:[]});await result;assert.equal(calls,0);

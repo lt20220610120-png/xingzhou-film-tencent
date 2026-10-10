@@ -45,11 +45,13 @@ function copyDependency(name, from) {
   if (!fs.existsSync(path.join(root,'dist/index.html'))) throw new Error('Run npm run build before packaging');
   fs.mkdirSync(staging,{recursive:true});
   for (const folder of ['dist','electron','core','world-simulation','canvas-app','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
+  copyTree(path.join(root,'cloud-backend/shared'),path.join(staging,'cloud-backend/shared'));
   copyDependency('mammoth',root);
+  copyDependency('yjs',root);
   const runtime = process.env.XINGZHOU_ELECTRON_DIST || path.join(root,'qa/electron-runtime');
   const config = {...pkg.build, electronVersion:require('electron/package.json').version, directories:{output,buildResources:'build'}, npmRebuild:false};
   if (fs.existsSync(path.join(runtime,'electron.exe'))) config.electronDist = runtime;
-  const stagePkg = {...pkg, scripts:{}, dependencies:{mammoth:installed.get('mammoth')}, devDependencies:{}, build:config};
+  const stagePkg = {...pkg, scripts:{}, dependencies:{mammoth:installed.get('mammoth'),yjs:installed.get('yjs')}, devDependencies:{}, build:config};
   fs.writeFileSync(path.join(staging,'package.json'),JSON.stringify(stagePkg,null,2));
   fs.writeFileSync(path.join(staging,'runtime-dependencies.json'),JSON.stringify(Object.fromEntries(installed),null,2));
   console.log(`Staging ${installed.size} physical runtime packages in ${staging}`);

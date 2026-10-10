@@ -697,7 +697,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
 .veil{
   position:fixed;top:0;left:0;right:0;bottom:0;
   background:rgba(0,0,0,.3);
-  backdrop-filter:blur(4px);
+
   z-index:99;
   display:flex;justify-content:center;align-items:center;
   animation:fadeIn var(--fast) var(--ease);
@@ -718,7 +718,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
 .delete-confirm-veil{
   position:fixed;top:0;left:0;right:0;bottom:0;
   background:rgba(0,0,0,.45);
-  backdrop-filter:blur(6px);
+
   z-index:200;
   display:flex;justify-content:center;align-items:center;
 }
@@ -892,3 +892,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
 /* ── Utility ────────────────────────────────────────────── */
 button.primary.compact{padding:5px 12px;font-size:12px}
 button.primary.wide{width:100%;margin-top:12px}
+
+.director-live-status{padding:10px 16px;background:#edf7f1;color:#246d44;font-size:13px;grid-column:1/-1}.director-live-status.warning{background:#fff4e7;color:#98520e}.version-preview-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+
+.director-shell:has(>.director-live-status){grid-template-rows:auto minmax(0,1fr)}

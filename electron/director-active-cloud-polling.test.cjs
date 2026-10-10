@@ -10,7 +10,7 @@ const source = fs.readFileSync(path.join(__dirname, '../src/v06/DirectorWorkspac
 const loaderStart = source.indexOf('  const loadCloudProjects = useCallback');
 const loaderEnd = source.indexOf('  }, [api]);', loaderStart) + '  }, [api]);'.length;
 const effectStart = source.indexOf('  React.useEffect(() => {', loaderEnd);
-const effectEnd = source.indexOf('  }, [active, loadCloudProjects]);', effectStart) + '  }, [active, loadCloudProjects]);'.length;
+const effectEnd = source.indexOf('  }, [active, loadCloudProjects, selectedProjectId]);', effectStart) + '  }, [active, loadCloudProjects, selectedProjectId]);'.length;
 assert.ok(loaderStart >= 0 && loaderEnd > loaderStart && effectEnd > effectStart);
 const cloudCode = source.slice(loaderStart, loaderEnd) + '\n' + source.slice(effectStart, effectEnd);
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -23,14 +23,14 @@ function harness(api, projects = [], reconcile = projects => projects) {
     directorProjectsRef: {current: projects},
     reconcileDirectorLinks: reconcile,
     setState: fn => {state.local = fn(state.local);},
-    active: false,
+    active: false,selectedProjectId:null,
     cloudActiveRef: { current: false },
     cloudRequestRef: { current: 0 },
     useCallback: fn => fn,
     React: { useEffect: fn => { cleanup = fn(); } },
     setInterval: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearInterval: id => timers.delete(id),
-    setCloudProjects: rows => { state.cloud = rows; calls.push('cloud'); },
+    setCloudProjects: rows => { state.cloud = typeof rows==='function'?rows(state.cloud):rows; calls.push('cloud'); },
     setCollaborationProjects: rows => { state.collaboration = rows; calls.push('collaboration'); },
     setIsProducer: value => { state.producer = value; calls.push('producer'); },
   });
@@ -62,7 +62,7 @@ test('director activation reads immediately and polls; hiding clears and gates q
   });
   h.render(true); await flush();
   assert.equal(reads, 3); assert.equal(h.timers.size, 1);
-  assert.equal([...h.timers.values()][0].delay, 12000);
+  assert.equal([...h.timers.values()][0].delay, 60000);
   assert.equal(h.state.collaboration.length, 2); assert.equal(h.state.collaboration[1].id, 'linked');
   const queuedTick = h.queuedTick(); await queuedTick();
   assert.equal(reads, 6);

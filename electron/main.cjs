@@ -10,6 +10,9 @@ const { pathToFileURL } = require('url');
 const mammoth = require('mammoth');
 const { saveCreatorDocument, importCreatorVideo, loadCreatorStateWithBackup } = require('./creator-documents.cjs');
 const { downloadInstaller, verifyInstaller } = require('./update-service.cjs');
+const {createUpdateFetch,UPDATE_MIRRORS}=require('./update-transport.cjs');
+const updateFetch=createUpdateFetch((url,options)=>net.fetch(url,options));
+const updateOptions={fetchFn:updateFetch,officialMirrors:UPDATE_MIRRORS.map(base=>base+'/latest.json')};
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
 const { TRUSTED_MANIFEST_URL, validateManifest, newerVersion } = require('./update-trust.cjs');
 const { requestText, testTextConnection } = require('./text-provider.cjs');
@@ -93,7 +96,7 @@ function secureMainWindow(win){
 }
 process.on('uncaughtException',(error)=>appendStartupLog(`uncaughtException ${error?.stack||error}`));
 process.on('unhandledRejection',(error)=>appendStartupLog(`unhandledRejection ${error?.stack||error}`));
-function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});mainWindow=win;secureMainWindow(win);win.on('close',event=>{if(workBuddyPanel?.isUpdating())event.preventDefault();});win.on('closed',()=>{if(mainWindow===win){mainWindow=null;workBuddyPanel?.revoke();}});win.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)workBuddyPanel?.revoke();});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
+function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});mainWindow=win;secureMainWindow(win);win.on('close',event=>{if(!quitHandler.canClose()){event.preventDefault();app.quit();}});win.on('closed',()=>{if(mainWindow===win){mainWindow=null;workBuddyPanel?.revoke();}});win.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)workBuddyPanel?.revoke();});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
 ipcMain.handle('save-txt',async(_,{name,content})=>{const r=await dialog.showSaveDialog({defaultPath:`${name}.txt`,filters:[{name:'TXT 剧本文档',extensions:['txt']}]});if(r.canceled)return null;fs.writeFileSync(r.filePath,'\ufeff'+content,'utf8');return r.filePath});
 ipcMain.handle('save-creator-document', (_, payload) => saveCreatorDocument(payload, { dialog, window: mainWindow }));
 ipcMain.handle('import-creator-video', () => importCreatorVideo({ dialog, window: mainWindow }));
@@ -111,10 +114,10 @@ ipcMain.handle('load-state',()=>loadPersistedState());
 ipcMain.handle('save-state',async(_,state)=>{
  ensureDir(getDataDir());const file=dataFile();
  await (stateBackupLoads.get(file)||loadPersistedState());
- fs.writeFileSync(file,JSON.stringify(state,null,2),'utf8');return storageInfo();
+ await require('./state-writer.cjs').writeStateAsync(file,state);return storageInfo();
 });
 ipcMain.handle('load-director-projects',()=>{const file=directorProjectsFile();const data=readJson(file,null);if(Array.isArray(data))return data;const backup=readJson(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
-ipcMain.handle('save-director-projects',(_,projects)=>{ensureDir(directorProjectsDir());const file=directorProjectsFile();const next=projects||[];const prev=readJson(file,null);if(Array.isArray(prev)&&prev.length&&next.length<prev.length){try{fs.writeFileSync(file.replace(/\.json$/,'.backup.json'),JSON.stringify(prev,null,2),'utf8')}catch{}}fs.writeFileSync(file,JSON.stringify(next,null,2),'utf8');return file});
+ipcMain.handle('save-director-projects',async(_,projects)=>{const file=directorProjectsFile();await require('./state-writer.cjs').writeStateAsync(file,projects||[],{backup:true});return file});
 function assertDirectorQuickSender(event) {
  if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error('只允许主工作区访问导演生成进度');
  if(!readCloudSession()?.account?.id)throw new Error('请先登录行舟影视');
@@ -187,18 +190,18 @@ ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p)
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
 ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun,doubaoRun,chatgptRun}));
 ipcMain.handle('app-version',()=>app.getVersion());
-ipcMain.handle('check-update',async()=>{const {manifest,source}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
+ipcMain.handle('check-update',async()=>{const {manifest,source}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
 let downloadedInstaller=null,activeDownload=null;
 ipcMain.handle('download-update',async(event,payload)=>{
  if(activeDownload)return activeDownload;
  downloadedInstaller=null;
  activeDownload=(async()=>{
   // Renderer arguments are a request, never proof of a trusted release.
-  const {manifest}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL);
+  const {manifest}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions);
   if(payload?.url!==manifest.installerUrl||payload?.version!==manifest.version)throw new Error('更新版本已变化，请重新检查更新');
   if(!newerVersion(manifest.version,app.getVersion()))throw new Error('不能安装相同版本或旧版本');
   const dir=ensureDir(path.join(app.getPath('userData'),'updates'));
-  const filePath=await downloadInstaller({url:manifest.installerUrl,...manifest,destinationDir:dir,onProgress:p=>{if(!event.sender.isDestroyed())event.sender.send('update-progress',p)}});
+  const filePath=await downloadInstaller({url:manifest.installerUrl,...manifest,destinationDir:dir,fetchImpl:updateFetch,mirrors:UPDATE_MIRRORS.map(base=>base+'/Xingzhou-Film-Tencent-Setup-'+manifest.version+'.exe'),onProgress:p=>{if(!event.sender.isDestroyed())event.sender.send('update-progress',p)}});
   downloadedInstaller={filePath,manifest};return {filePath};
  })().finally(()=>{activeDownload=null});return activeDownload;
 });
@@ -245,6 +248,11 @@ ipcMain.handle('collab-update-project',(_,payload)=>collabService.updateProject(
 ipcMain.handle('collab-append-episode',(_,payload)=>collabService.appendEpisode(payload));
 ipcMain.handle('collab-link-director',(_,payload)=>collabService.linkDirector(payload));
 ipcMain.handle('collab-set-project-locked',(_,payload)=>collabService.setProjectLocked(payload));
+const directorLiveStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','director-live-local');
+function assertDirectorLiveScope(event,p){assertDirectorQuickSender(event);if(String(p?.accountId)!==String(readCloudSession()?.account?.id||'local')||path.resolve(String(p?.dataDir||''))!==path.resolve(getDataDir()))throw new Error('账号或资料目录已变化，旧协作缓存不会写入新位置');}
+ipcMain.handle('director-live-load-local',(event,p)=>{assertDirectorLiveScope(event,p);return directorLiveStore().load(p);});
+ipcMain.handle('director-live-save-local',(event,p)=>{assertDirectorLiveScope(event,p);return directorLiveStore().saveAsync(p);});
+ipcMain.handle('director-collab-sync-live',(_,p)=>collabService.directorSyncLive(p));
 ipcMain.handle('director-collab-create-project',(_,payload)=>collabService.createDirectorProject(payload));
 ipcMain.handle('director-collab-list-projects',(_,payload)=>collabService.listDirectorProjects(payload));
 ipcMain.handle('director-collab-get-project',(_,payload)=>collabService.getDirectorProject(payload));
@@ -342,4 +350,5 @@ protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:{secure:true,
 function registerCanvasAppProtocol(){const appDir=path.normalize(path.join(__dirname,'../canvas-app'));protocol.handle('xzapp',(request)=>{const url=new URL(request.url);let rel=decodeURIComponent(url.pathname).replace(/^\/+/,'');if(!rel||rel==='')rel='index.html';const resolved=path.normalize(path.join(appDir,rel));if(!resolved.startsWith(appDir))return new Response('forbidden',{status:403});if(!fs.existsSync(resolved))return net.fetch(pathToFileURL(path.join(appDir,'index.html')).toString());return net.fetch(pathToFileURL(resolved).toString())})}
 app.whenReady().then(()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',(request)=>{const filePath=decodeURIComponent(request.url.replace(/^xzmedia:\/\//,'').replace(/^\//,''));const resolved=path.normalize(filePath);const relative=path.relative(path.normalize(getDataDir()),resolved);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))return new Response('forbidden',{status:403});return net.fetch(pathToFileURL(resolved).toString())})}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'),{safeStorage,onInvalidSession:()=>{ipcMain.invalidate();Promise.resolve(workBuddyPanel?.revoke()).catch(()=>{});}});collabService=createCollabService(readCloudSession);setupWorkBuddy();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
 
-app.on('before-quit',createGeminiQuitHandler({getService:()=>geminiWebService||doubaoWorkService||chatgptWebService?{close:()=>Promise.all([geminiWebService,doubaoWorkService,chatgptWebService].filter(Boolean).map(service=>service.close()))}:null,isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit()}));
+const quitHandler=createGeminiQuitHandler({beforeCleanup:async()=>{if(mainWindow&&!mainWindow.isDestroyed())await mainWindow.webContents.executeJavaScript('window.__xingzhouBeforeQuit?.()');await require('./state-writer.cjs').flushStateWrites();},onSaveError:()=>dialog.showErrorBox('保存未完成','本地保存失败，已取消退出。请检查磁盘空间和权限，保存成功后再退出。'),getService:()=>({close:()=>Promise.all([geminiWebService,doubaoWorkService,chatgptWebService].filter(Boolean).map(service=>service.close()))}),isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit()});
+app.on('before-quit',quitHandler);

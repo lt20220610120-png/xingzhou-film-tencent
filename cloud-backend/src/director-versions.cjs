@@ -4,7 +4,7 @@ const {isDeepStrictEqual}=require('node:util');
 const doc=row=>({name:row.name,script:row.script||'',episodes:row.episodes||[]});
 const mergeDoc=value=>({...value,episodes:(value.episodes||[]).map(ep=>{const next={...ep};if(!next.deletedPromptIds?.length)delete next.deletedPromptIds;return next;})});
 const error=(status,message)=>Object.assign(new Error(message),{status});
-function directorVersionRepository(pool){
+function directorVersionRepository(pool,{onPublish}={}){
  const readable=async(query,pid,uid,lock=false)=>{
   const row=(await query(`select p.* from collab_projects p where p.id=$1${lock?' for update':''}`,[pid])).rows[0];
   if(!uid||!directorRow(row))return null;
@@ -44,6 +44,7 @@ function directorVersionRepository(pool){
     return {versionConflict:true,versionId:version.id,error:'同处修改发生冲突，您的完整版本已上传保留，共享项目未被覆盖；请由制片在协作版本中选择'};
    }
    await snapshot(client,row,uid,name,p.submissionId,'accepted',local,p.base,null,merged);
+   await onPublish?.(client,row,merged,uid,name);
    return (await client.query('update collab_projects set name=$2,script=$3,episodes=$4,updated_at=clock_timestamp() where id=$1 returning *',[pid,merged.name,merged.script,JSON.stringify(merged.episodes)])).rows[0];
   });},
   async restoreDirectorVersion(pid,p,uid,name){return withTransaction(async client=>{
@@ -56,6 +57,7 @@ function directorVersionRepository(pool){
    const merged=p.mode==='resolve'&&version.base_document?threeWayMerge(mergeDoc(version.base_document),mergeDoc(version.document),mergeDoc(doc(row)),'文档','local'):(version.published_document||version.document);
    await snapshot(client,row,uid,name,'before-'+require('node:crypto').randomUUID(),'baseline',doc(row));
    await snapshot(client,row,uid,name,require('node:crypto').randomUUID(),'restore',merged,doc(row),version.id);
+   await onPublish?.(client,row,merged,uid,name);
    return (await client.query('update collab_projects set name=$2,script=$3,episodes=$4,updated_at=clock_timestamp() where id=$1 returning *',[pid,merged.name,merged.script,JSON.stringify(merged.episodes)])).rows[0];
   });},
  };
