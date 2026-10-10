@@ -30,3 +30,5 @@
 全量测试、安装包运行时验收及公开安装包校验在发布后补充。
 
 最终全量测试 1,924 项通过、0 失败；构建通过，三客户端和人工整本 UI 再验通过，最终增量独立复核 21 项通过。云服务已部署，部署前后隔离 PostgreSQL 五成员烟测通过；云端回收站、构图旧功能烟测通过。线上回滚备份：/opt/xingzhou-backups/director-versions-2.8.21-20261010T131121Z。
+
+安装包运行时验收通过（版本 2.8.21）。公开包完整下载校验：102,788,259 字节，SHA256 79042a38b9b2deb75b0f493f42e9650a084cf946cbb8b455809a7438b918d27e；两仓库更新清单一致，客户端 Ed25519 签名验证及可信更新源版本核对通过。源码提交 b7ef431。下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.21/Xingzhou-Film-Tencent-Setup-2.8.21.exe。

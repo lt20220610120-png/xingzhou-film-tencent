@@ -38,4 +38,3 @@ test('automatic mode cannot resume a paid manual checkpoint or trigger new plann
  const auto=createQuickGenerationController({getContext:()=>null,executeText:async()=>{calls++;},executeSkill:async()=>{calls++;},checkpoints:{list:async()=>[...f.records.values()],load:async({runId})=>f.records.get(runId),save:async()=>{}},commitRun:async()=>{throw Error('must not publish');}});
  await auto.restore();assert.equal(auto.entries().some(r=>r.kind==='manual-scene'),false);await assert.rejects(auto.resume(id),/人工分段/);assert.equal(calls,0);
 });
-

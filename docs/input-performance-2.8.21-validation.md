@@ -13,3 +13,5 @@
 验证日志：output/playwright/edit-buffer-2821-*。最终全量检查、独立复核、安装包和公开发布信息在完成后补充。
 
 最终全量测试：1,924 项通过、0 失败（13 suites）；Vite 构建通过。独立复核完成。最新版输入 UI 再跑通过：连续输入缓存与 saveState 写入均为 0，IME、手动保存、切集和失败重试保持正确。
+
+安装包运行时验收通过（版本 2.8.21）。公开包完整下载校验：102,788,259 字节，SHA256 79042a38b9b2deb75b0f493f42e9650a084cf946cbb8b455809a7438b918d27e；两仓库更新清单一致，客户端 Ed25519 签名验证及可信更新源版本核对通过。源码提交 b7ef431。下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.21/Xingzhou-Film-Tencent-Setup-2.8.21.exe。
