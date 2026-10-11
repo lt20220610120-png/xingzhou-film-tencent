@@ -14,7 +14,7 @@ test('添加集数弹窗必须挂在 body portal，在分集页面点击也能�
 
 test('从分集页面添加集数时 masterDraft 为空必须回退到项目 masterScript', () => {
   const ui = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(ui, /const baseScript = masterDraft\.trim\(\) \? masterDraft : \(selectedProject\.masterScript \|\| ''\)/);
+  assert.match(ui, /const baseScript = masterDraft\.trim\(\) \? masterDraft : \(currentProject\.masterScript \|\| ''\)/);
 });
 
 test('历史提示词页签存在，且生成路径都会写入项目级 promptHistory', () => {

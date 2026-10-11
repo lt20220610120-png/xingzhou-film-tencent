@@ -21,7 +21,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const changeSettings=updates=>{setSettingsJson(JSON.stringify({maxDurationSeconds:batchDuration,concurrency,...updates}));setPreview(null);};
  const open=()=>{setOpened(true);setPreview(null);setError('');};
  const prepare=()=>invoke(async()=>{setPreparing(true);try{setPreview(await makePreview());}finally{setPreparing(false);}});
- const start=()=>invoke(async()=>{const plan=preview;setPreview(null);await quickGeneration.startBatch(plan);});
+ const start=()=>invoke(async()=>{const plan=preview;setOpened(false);try{await quickGeneration.startBatch(plan);setPreview(null);}catch(e){setOpened(true);throw e;}});
  const status={preview:'待开始',running:'正在生成',pausing:'正在保存并发请求，完成后暂停',paused:'已暂停，可以继续',completed:'整本任务已完成','completed-with-errors':'本轮已结束，部分场景需处理',cancelled:'任务已结束'};
  const rowStatus={pending:'待处理',running:'处理中',completed:'已保存',skipped:'跳过',stale:'需重新建立任务',failed:'失败，可继续',paused:'已暂停'};
  return <div className="director-batch-launcher"><button className="primary" onClick={open} disabled={!quickGeneration}>{active?`整本生成 · ${batch.targets.filter(t=>t.status==='completed').length}/${batch.targets.filter(t=>t.status!=='skipped').length}`:'一键生成整本提示词'}</button>

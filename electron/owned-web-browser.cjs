@@ -5,7 +5,7 @@ const {spawnBackgroundBrowser}=require('./windows-background-browser.cjs');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const abortError=()=>Object.assign(new Error('任务已停止'),{name:'AbortError'});
 const check=signal=>{if(signal?.aborted)throw abortError();};
-function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrowser,spawn=nativeSpawn,WebSocket=global.WebSocket,startupTimeoutMs=30000,interactiveBackground=false}={}){
+function createOwnedWebBrowser({profileDir,url,name,loginOrigins=[],findBrowser:locate=findBrowser,spawn=nativeSpawn,WebSocket=global.WebSocket,startupTimeoutMs=30000,interactiveBackground=false}={}){
  if(!profileDir||!url||!name)throw new Error('独立浏览器配置缺失');
  const profile=path.resolve(profileDir);
  if(/[/\\](?:Microsoft[/\\]Edge|Google[/\\]Chrome)[/\\]User Data(?:[/\\]|$)/i.test(profile))throw new Error('必须使用行舟影视独立浏览器资料目录');
@@ -25,7 +25,9 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
    await new Promise((resolve,reject)=>{const abort=()=>{connection?.disconnect();reject(abortError());};signal?.addEventListener('abort',abort,{once:true});connection.opened.then(resolve,reject).finally(()=>signal?.removeEventListener('abort',abort));if(signal?.aborted)abort();});
    check(signal);const opts={signal,timeout:Math.max(1,deadline-Date.now())};
    const targets=await command('Target.getTargets',{},null,opts);
-   const target=targets.targetInfos.find(x=>x.type==='page'&&x.url?.startsWith(new URL(url).origin+'/'))||targets.targetInfos.find(x=>x.type==='page');
+   const allowedOrigins=new Set([new URL(url).origin,...loginOrigins]);
+   const allowedPage=x=>{try{return x.type==='page'&&allowedOrigins.has(new URL(x.url).origin);}catch{return false;}};
+   const target=targets.targetInfos.find(x=>x.targetId===targetId&&allowedPage(x))||targets.targetInfos.find(allowedPage);
    targetId=target?.targetId||(await command('Target.createTarget',{url},null,opts)).targetId;
    session=(await command('Target.attachToTarget',{targetId,flatten:true},null,opts)).sessionId;return;
   }
@@ -41,11 +43,11 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   check(signal);if(closed)throw new Error(`${name} 服务已停止`);
   if(connection?.socket.readyState===1&&session&&targetId)return;
   if(child&&child.exitCode==null){
-   const stale=connection;connection=null;session=null;targetId=null;stale?.disconnect();
+   const stale=connection;connection=null;session=null;stale?.disconnect();
    try{await attach(signal,Date.now()+startupTimeoutMs);}catch(error){
     // An open socket alone is not an attached page. Discard failed transport
     // so the next check can reconnect, while keeping the login window open.
-    const failed=connection;connection=null;session=null;targetId=null;failed?.disconnect();throw error;
+    const failed=connection;connection=null;session=null;failed?.disconnect();throw error;
    }
    return;
   }
@@ -54,7 +56,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   fs.mkdirSync(profile,{recursive:true});const portFile=path.join(profile,'DevToolsActivePort');
   try{fs.unlinkSync(portFile);}catch{}
   try{
-  child=spawnBackgroundBrowser(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling',url],{spawn,interactiveDesktop:interactiveBackground});
+  child=spawnBackgroundBrowser(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling','--disable-extensions',url],{spawn,interactiveDesktop:interactiveBackground});
   const launched=child;launched.once('error',()=>{launched.launchFailed=true;});
   await attach(signal,Date.now()+startupTimeoutMs);
   if(interactiveBackground&&!visible){const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{signal,timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}},null,{signal,timeout:5000});}
@@ -87,7 +89,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
    await closeBrowser();if(closed)throw new Error(`${name} 服务已停止`);
    const executable=locate();if(!executable)throw new Error('本机未找到 Edge 或 Chrome');fs.mkdirSync(profile,{recursive:true});
    try{fs.unlinkSync(path.join(profile,'DevToolsActivePort'));}catch{}
-   const own=spawn(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling',url],{windowsHide:false,shell:false,stdio:'ignore'});child=own;visible=true;
+   const own=spawn(executable,[`--user-data-dir=${profile}`,'--remote-debugging-port=0','--remote-debugging-address=127.0.0.1','--no-first-run','--no-default-browser-check','--disable-background-mode','--disable-background-timer-throttling','--disable-extensions',url],{windowsHide:false,shell:false,stdio:'ignore'});child=own;visible=true;
    own.once('exit',()=>{if(child===own){child=null;visible=false;}});own.once('error',()=>{own.launchFailed=true;});
    // Do not report success before the process has an attached, restored window.
    try{await revealLogin();}catch(error){
@@ -101,7 +103,7 @@ function createOwnedWebBrowser({profileDir,url,name,findBrowser:locate=findBrows
   backgroundLogin:async(signal)=>{if(!visible||!connection||!targetId)return;const {windowId}=await command('Browser.getWindowForTarget',{targetId},null,{signal,timeout:5000});await command('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}},null,{signal,timeout:5000});await child?.changeWindowState?.('minimize');},
   // A timed-out check must not interrupt the user's explicit verification
   // window. Reconnect its transport on the next refresh without a restart.
-  reset:async()=>{if(child&&child.exitCode==null){const own=connection;connection=null;session=null;targetId=null;own?.disconnect();return;}await closeBrowser();},
+  reset:async()=>{if(child&&child.exitCode==null){const own=connection;connection=null;session=null;own?.disconnect();return;}await closeBrowser();},
   close:()=>{closed=true;return closeBrowser();}
  };
 }

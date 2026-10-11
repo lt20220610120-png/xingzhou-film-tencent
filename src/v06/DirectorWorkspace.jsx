@@ -1,3 +1,4 @@
+import {prepareDirectorEpisodeAddition,directorEpisodeCount} from '../../core/directorAppendEpisode.js';
 const rememberPreference=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 import {useDirectorRealtime} from './useDirectorRealtime.js';
 import {recycleDeleteDetail,isLocalRecyclableDirector} from '../../core/projectRecycle.js';
@@ -841,7 +842,10 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const [masterSaving, setMasterSaving] = useState(false);
   const [masterNotice, setMasterNotice] = useState('');
   const [addEpisodeOpen, setAddEpisodeOpen] = useState(false);
+  const [addingEpisode,setAddingEpisode]=useState(false),[addEpisodeError,setAddEpisodeError]=useState('');
   const [newEpisodeContent, setNewEpisodeContent] = useState('');
+  const addAttemptRef=useRef(null),addContextRef=useRef(null);
+  addContextRef.current={accountId,projectId:selectedProjectId};
   const [refreshingCloud, setRefreshingCloud] = useState(false);
   const [cloudRefreshNotice, setCloudRefreshNotice] = useState('');
   const [uploadingCloud,setUploadingCloud]=useState(false),[versionsOpen,setVersionsOpen]=useState(false),[dismissedConflict,setDismissedConflict]=useState('');
@@ -977,16 +981,20 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
 
   const addEpisodeFromDialog = async () => {
     if (!selectedProject || !newEpisodeContent.trim()) return;
-    const number = (selectedProject.episodes || []).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').length + 1;
-    const baseScript = masterDraft.trim() ? masterDraft : (selectedProject.masterScript || '');
-    const nextScript = `${baseScript.trim()}\n\n第 ${number} 集\n${newEpisodeContent.trim()}`.trim();
-    setMasterDraft(nextScript); setAddEpisodeOpen(false); setNewEpisodeContent('');
-    const parsed = parseMasterScript(nextScript);
-    const {episodes} = reconcileDirectorEpisodes(selectedProject.episodes||[],parsed.episodes.length?parsed.episodes:splitFullScript(nextScript).episodes);
-    setState((s) => updateDirectorProject(s, selectedProject.id, { masterScript: nextScript, episodes }));
-    // Cloud synchronization uses the same serialized autosave as prompt editing.
-    setMasterNotice(`已添加并识别第 ${number} 集，共 ${episodes.length} 集`);
-    setActivePane(episodes[episodes.length - 1]?.id || 'master');
+    if(addingEpisode)return;setAddingEpisode(true);setAddEpisodeError('');
+    try{
+      flushEditing();const currentProject=quickGeneration?.getCloudProject(selectedProject.id)||selectedProject;
+      const baseScript = masterDraft.trim() ? masterDraft : (currentProject.masterScript || '');
+      const attempt=prepareDirectorEpisodeAddition(addAttemptRef.current,currentProject,newEpisodeContent,baseScript,accountId);
+      addAttemptRef.current=attempt;const result=attempt.result;
+      if(!attempt.applied)setState(s=>updateDirectorProject(s,selectedProject.id,{masterScript:result.masterScript,episodes:result.episodes}));
+      setMasterDraft(result.masterScript);setActivePane(result.added[0].id);
+      await quickGeneration?.saveLocal?.();
+      if(addContextRef.current.accountId!==accountId||addContextRef.current.projectId!==currentProject.id)return;
+      addAttemptRef.current=null;
+      setAddEpisodeOpen(false);setNewEpisodeContent('');setMasterNotice(`已添加 ${result.added.length} 集，共 ${directorEpisodeCount(result)} 集`);
+    }catch(e){setAddEpisodeError(e.message);}finally{setAddingEpisode(false);}
+
   };
 
   // 处理上传剧本
@@ -1049,7 +1057,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   // 处理添加分集
   const handleAddEpisode = () => {
     if (!selectedProject) return;
-    setNewEpisodeContent(''); setAddEpisodeOpen(true);
+    addAttemptRef.current=null;setNewEpisodeContent('');setAddEpisodeError('');setAddEpisodeOpen(true);
   };
 
   // 处理删除项目
@@ -1189,7 +1197,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       ) : null}
 
       {/* 添加集数弹窗：任何页面（总剧本/分集）点击“添加集数”都能立即弹出 */}
-      {addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {(selectedProject.episodes?.length || 0) + 1} 集</h2><p>填写本集内容，确认后会同步到总剧本并重新划分场景。</p><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions"><button className="ghost" onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>确定并识别</button></div></div></div>, document.body)}
+      {addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {directorEpisodeCount(selectedProject) + 1} 集</h2><p>填写本集内容，确认后会同步到总剧本并重新划分场景。</p><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions">{addEpisodeError&&<p role="alert">{addEpisodeError}</p>}<button className="ghost" disabled={addingEpisode} onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={addingEpisode||!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>{addingEpisode?'正在添加…':'确定并识别'}</button></div></div></div>, document.body)}
 
       {/* 删除确认 */}
       <DeleteConfirm

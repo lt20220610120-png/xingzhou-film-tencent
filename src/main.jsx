@@ -1,3 +1,4 @@
+import './preferenceProtection.js';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App, { RenderErrorBoundary } from './App.jsx';
