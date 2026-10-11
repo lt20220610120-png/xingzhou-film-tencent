@@ -9,7 +9,7 @@ test('导演本地项目必须使用独立的导演工作台项目目录', () =>
   assert.match(main, /function directorProjectsDir\(dir=getDataDir\(\)\)/);
   assert.match(main, /导演工作台的项目/);
   assert.match(main, /director-projects\.json/);
-  assert.match(main, /oldDirectorFile/);
+  assert.match(main, /prepareDataDirectory/);
 });
 
 test('导演工作台状态保存不能用空的旧 masterDraft 覆盖已导入剧本', () => {

@@ -8,6 +8,16 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test('创作内容改变且导演数组未变时不重复写导演文件；切换目录后重新写入', async()=>{
+ const projects=[{id:'director'}],calls=[];
+ const writer=createDirectorPersistence({saveState:async s=>calls.push(['state',s.note]),saveDirectorProjects:async()=>calls.push(['director'])});
+ writer.enqueue({directorProjects:projects,note:'first'});await writer.flush();
+ writer.enqueue({directorProjects:projects,note:'second'});await writer.flush();
+ assert.deepEqual(calls,[['state','first'],['director'],['state','second']]);
+ await writer.suspendAfterFlush();writer.resume({directorProjects:projects,note:'new-directory'});await writer.flush();
+ assert.deepEqual(calls.slice(-2),[['state','new-directory'],['director']]);
+});
+
 test('延迟旧保存时合并排队快照，flush 等待最新两份文件落盘', async () => {
   const oldWrite = deferred();
   const newestProjects = deferred();

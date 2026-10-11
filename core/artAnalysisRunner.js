@@ -1,3 +1,4 @@
+import {withStorageWork} from './storageWork.js';
 import {parseArtAnalysis,buildAssetRows,parseAssetName} from './collabStore.js';
 import {buildEpisodeAnalysisMessages} from './collabArtSkill.js';
 import {episodeNumbersInText,listCollabEpisodes} from './collabEpisodes.js';
@@ -163,7 +164,7 @@ export function buildExistingAssetContext(assetRows,episode){
   return `${heading}${detailSection}${registryHeading}${registry}`;
 }
 
-export async function runArtAnalysis({project,genre,profile,api,job,load,save,onProgress,targetEpisodeNumbers,existingAssets=[],force=false}){
+async function runArtAnalysisImpl({project,genre,profile,api,job,load,save,onProgress,targetEpisodeNumbers,existingAssets=[],force=false}){
   // Every request uses the captured profile; global defaults never participate.
   const selected=structuredClone(profile);
   const settingContext=(project.episodes||[])
@@ -254,3 +255,5 @@ export async function runArtAnalysis({project,genre,profile,api,job,load,save,on
   const summary=summarizeArtSync(ledger);Object.assign(job,summary);
   return {...summary,completed,total:episodes.length,warnings:[...new Set([...validationWarnings,...summary.warnings])]};
 }
+
+export const runArtAnalysis=(...args)=>withStorageWork(()=>runArtAnalysisImpl(...args));

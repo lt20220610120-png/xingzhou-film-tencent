@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  storageInfo:()=>ipcRenderer.invoke('storage-info'),loadState:()=>ipcRenderer.invoke('load-state'),saveState:state=>ipcRenderer.invoke('save-state',state),
  loadDirectorProjects:()=>ipcRenderer.invoke('load-director-projects'),saveDirectorProjects:projects=>ipcRenderer.invoke('save-director-projects',projects),
  directorQuickListRuns:()=>ipcRenderer.invoke('director-quick-list-runs'),directorQuickLoadRun:p=>ipcRenderer.invoke('director-quick-load-run',p),directorQuickSaveRun:p=>ipcRenderer.invoke('director-quick-save-run',p),directorQuickRemoveRun:p=>ipcRenderer.invoke('director-quick-remove-run',p),
- selectDataDir:state=>ipcRenderer.invoke('select-data-dir',state),chooseDataDir:()=>ipcRenderer.invoke('choose-data-dir'),applyDataDir:state=>ipcRenderer.invoke('apply-data-dir',state),openDataDir:()=>ipcRenderer.invoke('open-data-dir'),
+ selectDataDir:state=>ipcRenderer.invoke('select-data-dir',state),chooseDataDir:()=>ipcRenderer.invoke('choose-data-dir'),applyDataDir:state=>ipcRenderer.invoke('apply-data-dir',state),commitDataDir:p=>ipcRenderer.invoke('commit-data-dir',p),cancelDataDir:p=>ipcRenderer.invoke('cancel-data-dir',p),openDataDir:()=>ipcRenderer.invoke('open-data-dir'),
  appVersion:()=>ipcRenderer.invoke('app-version'),checkUpdate:url=>ipcRenderer.invoke('check-update',url),
  downloadUpdate:payload=>ipcRenderer.invoke('download-update',payload),installUpdate:()=>ipcRenderer.invoke('install-update'),
  onUpdateProgress:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('update-progress',handler);return()=>ipcRenderer.removeListener('update-progress',handler)},

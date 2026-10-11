@@ -1,6 +1,8 @@
 import {migrateDirectorReplies,retireDirectorReplies} from '../core/directorLegacyReplies.js';
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
 import {cleanupRecycle} from '../core/projectRecycle.js';
+import {commitDirectoryChange} from '../core/dataDirectoryCommit.js';
+import {createPortal} from 'react-dom';
 import {FormattedEditor} from './components/FormattedText.jsx';
 import {flushEditing,settleEditing} from './editing.js';
 import {UserProfile} from './v06/UserProfile.jsx';
@@ -24,7 +26,7 @@ import {
   cleanupChatSessions, createInitialState, createProject, createScriptProject,
   createProjectGroup, renameProjectGroup, deleteProjectGroup, organizeProject,
   deleteFruitProject, deleteScriptProject, deleteScriptLibraryItem,
-  normalizeState, mergePersistedState, mergeDirectorSnapshot,
+  normalizeState, mergePersistedState, mergeDirectorSnapshot,stateForDataDirectory,
   setRating, updateEpisode, updateScriptEpisode,
   updateScriptProject,
 } from '../core/projectStore.js';
@@ -1057,7 +1059,7 @@ function ScriptLibrary({ state, setState }) {
 /* ================================================================
  * SettingsPage - 设置页
  * ================================================================ */
-function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir }) {
+function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir, afterSelectDataDir }) {
   const [storageInfo, setStorageInfo] = useState(null);
   const [selectingDirectory, setSelectingDirectory] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
@@ -1102,17 +1104,18 @@ function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir
   const handleSelectDir = async () => {
     if(selectingDirectory)return;
     setSelectingDirectory(true);setDirectoryError('');
-    let holding=false;
+    let holding=false,prepared;
     try {
       if(api.chooseDataDir && !await api.chooseDataDir())return;
       const savedSnapshot = await beforeSelectDataDir?.();holding=true;
-      const result = await (api.applyDataDir?api.applyDataDir(savedSnapshot || state):api.selectDataDir(savedSnapshot || state));
+      prepared = await (api.applyDataDir?api.applyDataDir(savedSnapshot || state):api.selectDataDir(savedSnapshot || state));
+      const result = prepared&&await commitDirectoryChange({snapshot:savedSnapshot||state,getState,prepared,api});
       if (result) {
         setStorageInfo(result.info);
-        if (result.state) setState((current) => mergePersistedState(current, mergeDirectorSnapshot(result.state,result.directorProjects),{recoverRecycle:false}));
+        if (result.state) setState(stateForDataDirectory(result.state,result.directorProjects));
         try { if(result.info?.dataDir)localStorage.setItem(STORAGE+'-data-dir',result.info.dataDir); } catch { /* disk remains primary */ }
       }
-    }catch(e){setDirectoryError(e.message||'切换资料位置失败');}
+    }catch(e){if(prepared?.migrationId)await api.cancelDataDir?.({migrationId:prepared.migrationId});setDirectoryError(e.message||'切换资料位置失败');}
     finally{if(holding)afterSelectDataDir?.();setSelectingDirectory(false);}
   };
 
@@ -1143,6 +1146,7 @@ function SettingsPage({ state, setState, beforeSelectDataDir, afterSelectDataDir
 
   return (
     <div className="settings-page">
+      {selectingDirectory&&createPortal(<div role="dialog" aria-modal="true" aria-label="正在迁移资料" style={{position:'fixed',inset:0,zIndex:100000,background:'#f4f6fbe8',display:'grid',placeItems:'center'}}><p>正在核验并迁移资料，请等待完成后继续编辑。</p></div>,document.body)}
       <header>
         <span className="eyebrow">行舟影视设置</span>
         <h1>设置</h1>
@@ -1514,7 +1518,7 @@ function App() {
         {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
-        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
+        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} active={!!role&&nav==='admin'}/></WorkspacePresence>}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}

@@ -33,7 +33,7 @@ const builtinVideoCapabilities = (model = '') => {
   return { label: model || '通用视频模型', durations: VIDEO_DURATIONS, resolutions: ['480p', '720p', '1080p'], ratios: VIDEO_RATIOS, audio: false };
 };
 
-export const videoModelCapabilities = (model = '', profile = {}) => ({...builtinVideoCapabilities(model), ...normalizeCapabilities(profile?.capabilities)});
+export const videoModelCapabilities = (model = '', profile = {}) => FEITUO_VIDEO_MODELS.some(m=>m.id===model)?builtinVideoCapabilities(model):({...builtinVideoCapabilities(model), ...normalizeCapabilities(profile?.capabilities)});
 export function imageModelFormats(profile) {
   const caps = normalizeCapabilities(profile?.capabilities);
   if (caps.imageSizes?.length) return caps.imageSizes.map(size => ({value:size,label:size,size}));

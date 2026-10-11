@@ -39,17 +39,21 @@ function protectWindow(win, { entryFile,isDev,allowUrl,allowFrameUrl,openExterna
   win.webContents.setWindowOpenHandler(({url})=>{try{const safe=safeExternalUrl(url);Promise.resolve(openExternal?.(safe)).catch(()=>{});}catch{}return {action:'deny'};});
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
 }
-function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,onIdentityChange=()=>{} }) {
-  let epoch=0,transitions=0;const active=new Set();
+function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,onIdentityChange=()=>{},isStorageLocked=()=>false }) {
+  let epoch=0,transitions=0,onlineWork=0;const active=new Set();
   const invalidate=()=>{epoch++;for(const controller of active)controller.abort();onIdentityChange();};
   return {
     invalidate,
+    hasActiveOnlineWork:()=>onlineWork>0,
     handle(channel,handler){
       // Every bridge handler gets provenance validation, including local saves and login.
       ipcMain.handle(channel,async(event,...args)=>{
         assertSender(event,getWindow(),{entryFile,isDev});validatePayload(channel,args[0]);
         if(identityChanges.has(channel)){transitions++;invalidate();}
         const expected=epoch;let controller;
+        const online=onlineChannels.has(channel);
+        if(online&&isStorageLocked())throw new Error('资料目录正在迁移，请完成后再生成');
+        if(online)onlineWork++;
         try {
           if(onlineChannels.has(channel)) {
             if(transitions)throw new Error('账号正在切换，请稍后使用联网生成');
@@ -63,7 +67,7 @@ function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,on
           const result=await handler(event,...args);
           if(controller && expected!==epoch)throw new Error('登录状态已变化，任务已停止');
           return result;
-        } finally {if(controller)active.delete(controller);if(identityChanges.has(channel)){transitions--;invalidate();}}
+        } finally {if(online)onlineWork--;if(controller)active.delete(controller);if(identityChanges.has(channel)){transitions--;invalidate();}}
       });
     },
   };

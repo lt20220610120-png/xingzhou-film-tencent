@@ -2,13 +2,13 @@ const test=require('node:test');const assert=require('node:assert/strict');const
 const client=require('./feituo-client.cjs');const models=require('../core/feituo-models.json');
 const full=models.find(m=>m.id.endsWith('3dd9e73a8bd0d4e06ba6ebcbddafd811'));
 const input=(more={})=>({endpoint:'https://feituokuajing.com',model:full.id,kind:'video',prompt:'镜头推进',ratio:'16:9',duration:30,resolution:'720p',apiKey:'test-only',references:[],...more});
-test('all 32 documented models have valid defaults and exact reference limits',()=>{
- assert.equal(models.length,32);
- for(const m of models)assert.equal(client.validate(input({model:m.id,kind:m.kind,duration:m.durations[0],ratio:m.ratios[0],resolution:m.resolutions[0]})).id,m.id);
+test('current and retained legacy models have valid defaults and exact reference limits',()=>{
+ assert.equal(models.filter(m=>m.kind==='video'&&!m.legacy).length,27);
+ for(const m of models)assert.equal(client.validate(input({model:m.id,kind:m.kind,duration:m.durations[0],ratio:m.ratios[0],resolution:m.resolutions[0],references:Array.from({length:m.minImages||0},()=>({kind:'image',url:'https://example.test/a.png'}))})).id,m.id);
  assert.throws(()=>client.validate(input({references:Array.from({length:11},()=>({kind:'image',url:'https://example.test/a.png'}))})),/最多 10/);
 });
 test('resolution dependent 12/15 second limits and mandatory image for audio',()=>{
- const m=models.find(m=>m.durationByResolution);
+ const m=models.find(m=>m.id.endsWith('6310889dcaf8407cf7108bc45ef84325'));
  assert.throws(()=>client.validate(input({model:m.id,duration:15})),/时长/);
  client.validate(input({model:m.id,duration:15,resolution:'480p'}));
  assert.throws(()=>client.validate(input({references:[{kind:'audio',url:'https://example.test/a.mp3'}]})),/图片/);

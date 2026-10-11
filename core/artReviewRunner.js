@@ -1,3 +1,4 @@
+import {withStorageWork} from './storageWork.js';
 import {buildEpisodeAnalysisMessages} from './collabArtSkill.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 import {decodeArtReviewOutput,decodeReviewJson,applyArtReviewCard,applyArtReviewCandidate,artReviewContext,buildArtReviewInstruction,isReviewCurrent,newArtReview,reviewRoster,needsArtReviewDetails,reviewSceneSignature,isSceneVerified,artMappingHasOtherEpisode} from './artReview.js';
@@ -51,7 +52,7 @@ export async function fillArtReviewDetails({store,episode,project,genre,profile,
  return errors;
 }
 
-export async function runArtReviewAnalysis({project,genre,profile,api,job={},onProgress,targetEpisodeNumbers,existingAssets=[],force=false,mapOnly=false,focusItem,detailsOnly=false,accountId='',workflow}){
+async function runArtReviewAnalysisImpl({project,genre,profile,api,job={},onProgress,targetEpisodeNumbers,existingAssets=[],force=false,mapOnly=false,focusItem,detailsOnly=false,accountId='',workflow}){
  const store=getArtReviewStore({api,projectId:project.id,accountId});await store.load(project,existingAssets);
  if(workflow)await store.setWorkflow(workflow);
  const state=artWorkflowState(store.snapshot(),project),maintenance=detailsOnly||mapOnly||focusItem;
@@ -124,3 +125,5 @@ export async function runArtReviewAnalysis({project,genre,profile,api,job={},onP
  }
  const summary=summarizeArtReview(store.snapshot(),project);return {...summary,errors:failures};
 }
+
+export const runArtReviewAnalysis=(...args)=>withStorageWork(()=>runArtReviewAnalysisImpl(...args));

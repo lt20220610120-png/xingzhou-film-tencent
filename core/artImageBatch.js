@@ -1,3 +1,4 @@
+import {withStorageWork} from './storageWork.js';
 import {assetHasImages} from './assetImages.js';
 import {assetReferencePeers} from './collabStore.js';
 
@@ -12,7 +13,7 @@ export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()
 }
 
 // Only the read/download layer retries. A failed generation is recorded once.
-export async function runArtImageBatch(jobs,{concurrency=2,generate,isStopped=()=>false,onProgress=()=>{}}){
+async function runArtImageBatchImpl(jobs,{concurrency=2,generate,isStopped=()=>false,onProgress=()=>{}}){
  if(!Number.isInteger(concurrency)||concurrency<1||concurrency>8)throw new Error('图片并发数量应为 1 至 8');
  const pending=[...jobs],results=new Map();
  const report=()=>onProgress({total:jobs.length,completed:results.size,failed:[...results.values()].filter(r=>r.status==='rejected').length});
@@ -36,3 +37,5 @@ export async function runArtImageBatch(jobs,{concurrency=2,generate,isStopped=()
  }
  return {results:[...results.values()],remaining:jobs.length-results.size,stopped:isStopped()};
 }
+
+export const runArtImageBatch=(...args)=>withStorageWork(()=>runArtImageBatchImpl(...args));

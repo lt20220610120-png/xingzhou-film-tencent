@@ -90,6 +90,10 @@ export const mergeDirectorSnapshot = (saved, secondary) => {
   return {...(saved||{}),directorProjects:[...byId.values()]};
 };
 
+// Changing the data directory loads an independent workspace. Browser recovery
+// merging is only appropriate during startup in the same directory.
+export const stateForDataDirectory = (saved,secondary) => normalizeState(mergeDirectorSnapshot(saved,secondary));
+
 export const mergePersistedState = (current, saved, { recoverRecycle = true } = {}) => {
   if (!saved) return normalizeState(current);
   const local = normalizeState(current);

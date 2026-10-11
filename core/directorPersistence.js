@@ -13,6 +13,7 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
   let lastOutcome = null;
   let disposed = false;
   let suspended = false;
+  let savedDirectorProjects;
 
   function assertSaved(result, label) {
     if (result === false || (result && typeof result === 'object' && result.ok === false)) {
@@ -26,7 +27,12 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
       pending = null;
       try {
         assertSaved(await saveState(next.state), '本地资料');
-        assertSaved(await saveDirectorProjects(next.state.directorProjects || []), '导演项目');
+        // Immutable state keeps the same director array when creator edits.
+        // Only remember a successful write; failed writes remain retryable.
+        if (savedDirectorProjects !== next.state.directorProjects || savedDirectorProjects === undefined) {
+          assertSaved(await saveDirectorProjects(next.state.directorProjects || []), '导演项目');
+          savedDirectorProjects = next.state.directorProjects;
+        }
         lastOutcome = { revision: next.revision, error: null };
       } catch (error) {
         lastOutcome = { revision: next.revision, error: error instanceof Error ? error : new Error('导演资料保存失败。') };
@@ -91,6 +97,7 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
       if (disposed) throw new Error('导演资料保存器已停止。');
       if (state !== undefined) queueSnapshot(state);
       suspended = false;
+      savedDirectorProjects = undefined;
       start();
     },
     dispose() {

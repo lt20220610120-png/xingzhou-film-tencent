@@ -37,7 +37,7 @@ const { createWorkBuddyUpdater } = require('./workbuddy-update.cjs');
 const { createWorkBuddyPanel, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 const isDev = !app.isPackaged;
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
-const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();}});
+const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();}});
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
@@ -104,6 +104,8 @@ ipcMain.handle('import-creator-video', () => importCreatorVideo({ dialog, window
 ipcMain.handle('save-txt-batch',async(_,{folderName,files})=>{const r=await dialog.showOpenDialog({title:'选择导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;const safe=(s)=>String(s||'导出').replace(/[\\/:*?"<>|]/g,'_').slice(0,120);const dir=ensureDir(path.join(r.filePaths[0],safe(folderName)));for(const f of files||[]){fs.writeFileSync(path.join(dir,`${safe(f.name)}.txt`),'\ufeff'+(f.content||''),'utf8')}return dir});
 ipcMain.handle('storage-info',()=>storageInfo());
 const stateBackupLoads = new Map();
+let directoryMigration=false;
+let preparedDirectory=null;
 function loadPersistedState() {
  const file = dataFile();
  const pending = loadCreatorStateWithBackup(file);
@@ -113,12 +115,13 @@ function loadPersistedState() {
 }
 ipcMain.handle('load-state',()=>loadPersistedState());
 ipcMain.handle('save-state',async(_,state)=>{
+ if(directoryMigration)throw new Error('资料目录正在迁移，请稍后保存');
  ensureDir(getDataDir());const file=dataFile();
  await (stateBackupLoads.get(file)||loadPersistedState());
  await require('./state-writer.cjs').writeStateAsync(file,state);return storageInfo();
 });
 ipcMain.handle('load-director-projects',()=>{const file=directorProjectsFile();const data=readJson(file,null);if(Array.isArray(data))return data;const backup=readJson(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
-ipcMain.handle('save-director-projects',async(_,projects)=>{const file=directorProjectsFile();await require('./state-writer.cjs').writeStateAsync(file,projects||[],{backup:true});return file});
+ipcMain.handle('save-director-projects',async(_,projects)=>{if(directoryMigration)throw new Error('资料目录正在迁移，请稍后保存');const file=directorProjectsFile();await require('./state-writer.cjs').writeStateAsync(file,projects||[],{backup:true});return file});
 function assertDirectorQuickSender(event) {
  if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error('只允许主工作区访问导演生成进度');
  if(!readCloudSession()?.account?.id)throw new Error('请先登录行舟影视');
@@ -129,19 +132,32 @@ for(const [channel,method] of Object.entries({'director-quick-list-runs':'list',
 }
 let selectedDataDirectory=null;
 async function chooseDataDirectory(){selectedDataDirectory=null;const r=await dialog.showOpenDialog({title:'选择行舟影视资料保存位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;selectedDataDirectory=r.filePaths[0];return selectedDataDirectory;}
-function applyDataDirectory(currentState){
+async function applyDataDirectory(currentState){
+ if(directoryMigration)throw new Error('资料目录正在迁移，请等待完成');
+ if(ipcMain.hasActiveOnlineWork())throw new Error('仍有生成任务正在运行，请任务完成后切换资料目录');
  if(!selectedDataDirectory)throw new Error('请先选择资料保存位置');
  const next=ensureDir(selectedDataDirectory);selectedDataDirectory=null;
- const oldFile=dataFile(),nextFile=dataFile(next),oldDirectorFile=directorProjectsFile(),nextDirectorFile=directorProjectsFile(next);
- if(path.resolve(oldFile)!==path.resolve(nextFile)){if(fs.existsSync(oldFile)&&!fs.existsSync(nextFile))fs.copyFileSync(oldFile,nextFile);else if(!fs.existsSync(nextFile)&&currentState)fs.writeFileSync(nextFile,JSON.stringify(currentState,null,2),'utf8')}
- if(path.resolve(oldDirectorFile)!==path.resolve(nextDirectorFile)&&fs.existsSync(oldDirectorFile)&&!fs.existsSync(nextDirectorFile)){ensureDir(path.dirname(nextDirectorFile));fs.copyFileSync(oldDirectorFile,nextDirectorFile)}
- require('./director-quick-checkpoints.cjs').migrateDirectorQuickCheckpoints(getDataDir(),next);
- ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE(),JSON.stringify({dataDir:next},null,2),'utf8');
- return {info:storageInfo(),state:readJson(nextFile,currentState),directorProjects:readJson(nextDirectorFile,null)};
+ directoryMigration=true;
+ try{
+ await require('./state-writer.cjs').flushStateWrites();
+ const migration=await require('./data-directory-migration.cjs').prepareDataDirectory(getDataDir(),next,currentState,{deferCommit:true});
+ preparedDirectory={id:require('node:crypto').randomUUID(),next,currentState,migration};
+ return {migrationId:preparedDirectory.id};
+ }catch(e){directoryMigration=false;preparedDirectory=null;throw e;}
 }
+async function commitDataDirectory({migrationId}={}){
+ if(!preparedDirectory||migrationId!==preparedDirectory.id)throw new Error('资料目录迁移已失效，请重新选择');
+ const {next,currentState,migration}=preparedDirectory;
+ await migration.commit?.();
+ ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE()+'.writing',JSON.stringify({dataDir:next},null,2),'utf8');fs.renameSync(CONFIG_FILE()+'.writing',CONFIG_FILE());
+ preparedDirectory=null;directoryMigration=false;
+ return {info:storageInfo(),state:readJson(dataFile(next),currentState),directorProjects:readJson(directorProjectsFile(next),null)};
+}
+ipcMain.handle('commit-data-dir',(_,payload)=>commitDataDirectory(payload));
+ipcMain.handle('cancel-data-dir',async(_,payload)=>{if(preparedDirectory?.id===payload?.migrationId){await preparedDirectory.migration.cancel?.();preparedDirectory=null;directoryMigration=false;}return true;});
 ipcMain.handle('choose-data-dir',()=>chooseDataDirectory());
 ipcMain.handle('apply-data-dir',(_,currentState)=>applyDataDirectory(currentState));
-ipcMain.handle('select-data-dir',async(_,currentState)=>await chooseDataDirectory()?applyDataDirectory(currentState):null);
+ipcMain.handle('select-data-dir',async(_,currentState)=>{if(!await chooseDataDirectory())return null;const pending=await applyDataDirectory(currentState);return commitDataDirectory(pending);});
 ipcMain.handle('open-data-dir',()=>shell.openPath(getDataDir()));
 function walkImportFiles(rootDir){
  const files=[];const MAX_FILES=200;const MAX_TOTAL_BYTES=8*1024*1024;let total=0;
@@ -349,7 +365,7 @@ let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});protectWindow(canvasWindow,{allowUrl:canvasPage,openExternal:url=>shell.openExternal(url)});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:{secure:true,supportFetchAPI:true,stream:true}},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 function registerCanvasAppProtocol(){const appDir=path.normalize(path.join(__dirname,'../canvas-app'));protocol.handle('xzapp',(request)=>{const url=new URL(request.url);let rel=decodeURIComponent(url.pathname).replace(/^\/+/,'');if(!rel||rel==='')rel='index.html';const resolved=path.normalize(path.join(appDir,rel));if(!resolved.startsWith(appDir))return new Response('forbidden',{status:403});if(!fs.existsSync(resolved))return net.fetch(pathToFileURL(path.join(appDir,'index.html')).toString());return net.fetch(pathToFileURL(resolved).toString())})}
-app.whenReady().then(async()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));await pruneUpdateCache(path.join(app.getPath('userData'),'updates')).catch(()=>{});try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',(request)=>{const filePath=decodeURIComponent(request.url.replace(/^xzmedia:\/\//,'').replace(/^\//,''));const resolved=path.normalize(filePath);const relative=path.relative(path.normalize(getDataDir()),resolved);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))return new Response('forbidden',{status:403});return net.fetch(pathToFileURL(resolved).toString())})}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'),{safeStorage,onInvalidSession:()=>{ipcMain.invalidate();Promise.resolve(workBuddyPanel?.revoke()).catch(()=>{});}});collabService=createCollabService(readCloudSession);setupWorkBuddy();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
+app.whenReady().then(async()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));await pruneUpdateCache(path.join(app.getPath('userData'),'updates')).catch(()=>{});const pruneStorage=()=>require('./storage-cache-prune.cjs').pruneStorageCaches(getDataDir()).catch(()=>{});void pruneStorage();const cacheTimer=setInterval(pruneStorage,6*60*60*1000);cacheTimer.unref();try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',(request)=>{const filePath=decodeURIComponent(request.url.replace(/^xzmedia:\/\//,'').replace(/^\//,''));const resolved=path.normalize(filePath);const relative=path.relative(path.normalize(getDataDir()),resolved);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))return new Response('forbidden',{status:403});return net.fetch(pathToFileURL(resolved).toString())})}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'),{safeStorage,onInvalidSession:()=>{ipcMain.invalidate();Promise.resolve(workBuddyPanel?.revoke()).catch(()=>{});}});collabService=createCollabService(readCloudSession);setupWorkBuddy();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
 
 const quitHandler=createGeminiQuitHandler({beforeCleanup:async()=>{if(mainWindow&&!mainWindow.isDestroyed())await mainWindow.webContents.executeJavaScript('window.__xingzhouBeforeQuit?.()');await require('./state-writer.cjs').flushStateWrites();},onSaveError:()=>dialog.showErrorBox('保存未完成','本地保存失败，已取消退出。请检查磁盘空间和权限，保存成功后再退出。'),getService:()=>({close:()=>Promise.all([geminiWebService,doubaoWorkService,chatgptWebService].filter(Boolean).map(service=>service.close()))}),isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit()});
 app.on('before-quit',quitHandler);

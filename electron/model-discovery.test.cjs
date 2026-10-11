@@ -1,5 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {listUrl,discoverModels}=require('./model-discovery.cjs');
+test('飞拓完整生成路径拉取公共编号和顶层视频能力，不提交任务',async()=>{
+ const [model]=await discoverModels({endpoint:'https://feituokuajing.com/api/open/v1/video/generate',apiKey:'fixture'},async(url,options)=>{
+  assert.equal(url,'https://feituokuajing.com/api/open/v1/models');assert.equal(options.headers['X-Public-Model-Ids'],'1');assert.equal(options.method,undefined);
+  return Response.json({data:[{id:'ft-video-v1-fixture',type:'video',capabilities:['video_generation'],durations:[15,30],resolutions:['720p'],aspect_ratios:['16:9']}]});
+ });assert.equal(model.kind,'video');assert.deepEqual(model.capabilities.durations,[15,30]);
+});
 test('model discovery uses configured origin, preserves metadata, never sends generation requests',async()=>{
  assert.equal(listUrl('https://example.test/v1/images/generations'),'https://example.test/v1/models');
  assert.equal(listUrl('https://example.test/api/v3'),'https://example.test/api/v3/models');

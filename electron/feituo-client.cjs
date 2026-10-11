@@ -13,6 +13,7 @@ function validate(input) {
   if (!model.ratios.includes(input.ratio)) throw new Error('所选模型不支持该比例');
   if (model.resolutions.length && !model.resolutions.includes(input.resolution)) throw new Error('所选模型不支持该分辨率');
   const refs = input.references || [];
+  if (refs.filter(r=>r.kind==='image').length < (model.minImages||0)) throw new Error(`${model.name} 至少需要 ${model.minImages} 张参考图片`);
   if(model.protocol==='metadata-content') {
     for(const role of ['first_frame','last_frame'])if(refs.filter(r=>r.role===role).length>1)throw new Error('首帧和尾帧各只能选择一张');
     if(refs.some(r=>r.kind==='image'&&r.role&&!['reference_image','first_frame','last_frame'].includes(r.role)))throw new Error('图片用途不合法');
@@ -20,7 +21,8 @@ function validate(input) {
   for (const [kind, limit] of [['image', model.maxImages], ['video', model.maxVideos], ['audio', model.maxAudios]]) {
     if (limit !== null && refs.filter(r => r.kind === kind).length > limit) throw new Error(`${model.name} 的${kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频'}参考最多 ${limit} 个`);
   }
-  if (refs.some(r => r.kind === 'audio') && !refs.some(r => r.kind === 'image')) throw new Error('参考音频必须同时提供至少一张图片');
+  if (refs.some(r => r.kind === 'audio') && (model.audioRequiresImage ?? true) && !refs.some(r => r.kind === 'image')) throw new Error('参考音频必须同时提供至少一张图片');
+  if (refs.some(r=>r.kind==='audio') && model.audioRequiresVisual && !refs.some(r=>['image','video'].includes(r.kind))) throw new Error('参考音频必须同时提供图片或视频');
   for (const ref of refs) {
     if (!['image','video','audio'].includes(ref.kind)) throw new Error('不支持的参考素材类型');
     if (ref.filePath) { if (!fs.existsSync(ref.filePath)) throw new Error(`参考素材不存在：${ref.name || ''}`); }
