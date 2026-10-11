@@ -28,6 +28,15 @@ function mergeCard(old,incoming){
 export function reviewSceneSignature(scene){return JSON.stringify([scene.id,scene.source,scene.items.map(i=>[i.id,i.category,i.name,i.description,i.ready,...(i.detailStatus?[i.detailStatus]:[])])]);}
 // Human approval confirms the scene's list. Detail generation is a separate step.
 export const isSceneVerified=scene=>Boolean(scene?.approval?.signature===reviewSceneSignature(scene));
+// The scene list and its spare/unassigned candidates are separate decisions.
+// Keep candidates for reuse/history; a whole-episode approval confirms that
+// this exact set was intentionally not assigned to the approved scenes.
+export const reviewUnassignedSignature=record=>JSON.stringify([record.sourceContent,(record.unassigned||[]).map(i=>[i.category,i.name,i.description,i.ready,i.detailStatus||'',i.manualSceneIds||null]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+export const isArtEpisodeFullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(s=>isSceneVerified(s)&&record.published?.[s.id]?.signature===reviewSceneSignature(s)));
+export function confirmPublishedUnassigned(record){
+ if(!record.unassignedApproval&&isArtEpisodeFullyPublished(record))record.unassignedApproval={signature:reviewUnassignedSignature(record),kind:'published'};
+ return record;
+}
 export const needsArtReviewDetails=item=>item.detailStatus!=='nonvisual'&&(!item.ready||!item.description?.trim());
 export const reviewLedgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(isSceneVerified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
 export const isReviewCurrent=(record,episode)=>record?.sourceContent===String(episode?.content||'');
@@ -119,7 +128,7 @@ export function importLegacyArtReview(episode,{output='',assets=[],genre=''}={})
  return next;
 }
 export function editArtReview(record,action,actor=''){
- const next=refreshRoster(clone(record));
+ const next=refreshRoster(confirmPublishedUnassigned(clone(record)));
  if(['roster-upsert','assign','roster-remove','roster-undo'].includes(action.type)){
   const old=next.roster.find(i=>i.id===action.itemId),before=clone(next.roster);
   if(action.type==='roster-upsert'){
@@ -171,7 +180,9 @@ export function editArtReview(record,action,actor=''){
    target.mappingReady=true;target.approval={signature:reviewSceneSignature(target),at:Date.now(),actor};
   }
  }else if(action.type==='unapprove'){s.approval=null;}else throw Error('不支持的核实操作');
- next.history.push({at:Date.now(),reason:action.type,sceneId:s?.id,previous:before});return refreshRoster(next);
+ next.history.push({at:Date.now(),reason:action.type,sceneId:s?.id,previous:before});refreshRoster(next);
+ if(action.type==='approve-episode')next.unassignedApproval={signature:reviewUnassignedSignature(next),at:Date.now(),actor,kind:'episode'};
+ return next;
 }
 function assignRoster(record,item,sceneIds){
  if(!Array.isArray(sceneIds)||sceneIds.some(id=>!record.scenes.some(s=>s.id===id)))throw Error('请选择本集真实场景');

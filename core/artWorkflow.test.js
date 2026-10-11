@@ -53,3 +53,23 @@ test('single-card detail completion rejects foreign scenes even when the card al
  const result=await runArtReviewAnalysis({...f.args,targetEpisodeNumbers:[1],force:true,focusItem:item});
  assert.ok(result.errors.some(e=>e.includes('其他集')));assert.equal(reviewRoster(f.disk.episodes[1])[0].description,'');assert.ok(f.disk.episodes[1].rawOutput.includes('2-1'));
 });
+
+// Full-episode confirmation must include the decision about leftover candidates.
+test('whole-episode approval advances with retained unassigned candidates and new edits invalidate that decision',async()=>{
+ const {artWorkflowState}=await import('./artWorkflow.js');
+ const f=fixture();await runArtReviewAnalysis({...f.args,workflow:'guided'});
+ await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',item:{category:'prop',name:'【备用道具】',description:'保留候选，不用于本集画面',ready:true}}));
+ await f.store.update(1,r=>editArtReview(r,{type:'approve-episode'}));
+ assert.equal(artWorkflowState(f.store.snapshot(),f.project).episodeNumber,2);
+ const retained=reviewRoster(f.store.snapshot().episodes[1]).find(i=>i.category==='prop');assert.ok(retained);
+ await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',item:{category:'prop',name:'【新增待关联道具】',description:'必须重新确认的新候选',ready:true}}));
+ const state=artWorkflowState(f.store.snapshot(),f.project);assert.equal(state.phase,'review');assert.match(state.message,/未关联|新增待关联道具/);
+});
+test('legacy all-published scenes advance despite an old leftover roster candidate; changed source still blocks',async()=>{
+ const {artWorkflowState}=await import('./artWorkflow.js');const {reviewSceneSignature}=await import('./artReview.js');
+ const f=fixture();await runArtReviewAnalysis({...f.args,workflow:'guided'});
+ await f.store.update(1,r=>editArtReview(r,{type:'roster-upsert',item:{category:'prop',name:'【旧候选】',description:'旧资产卡',ready:true}}));
+ await f.store.update(1,r=>{r=editArtReview(r,{type:'approve-episode'});delete r.unassignedApproval;r.published=Object.fromEntries(r.scenes.map(s=>[s.id,{signature:reviewSceneSignature(s)}]));return r;});
+ const ledger=f.store.snapshot();assert.equal(artWorkflowState(ledger,f.project).episodeNumber,2);
+ const changed={...f.project,episodes:f.project.episodes.map((e,i)=>i?e:{...e,content:e.content+'\n新的台词。'})};assert.equal(artWorkflowState(ledger,changed).episodeNumber,1);
+});

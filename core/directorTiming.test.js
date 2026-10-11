@@ -90,3 +90,10 @@ test('visual beat cues are original evidence with offsets, never narration word-
   }
   assert.deepEqual(beats[0].typicalSeconds, [0.8, 1.5], 'a quick wipe is shorter than a separate three-second hold');
 });
+
+// No malformed model or old checkpoint may escape into a TypeError.
+test('null plan segments remain invalid data for the validator, without throwing during timing calibration',()=>{
+ const tape=buildSceneSourceTape('甲：你好。');
+ const result=recalibrateScenePlanTimings({segments:[null]},{tape,maxDurationSeconds:30});
+ assert.equal(result.changed,false);assert.deepEqual(result.candidate,{segments:[null]});
+});

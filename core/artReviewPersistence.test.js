@@ -281,3 +281,14 @@ test('bulk local approval is atomic and preserves all drafts when the disk fails
  await assert.rejects(f.store.updateMany(changes),/本地资料写入失败/);assert.deepEqual(f.store.snapshot(),before);
  f.failLocal=null;await f.store.updateMany(changes);assert.equal(f.localWrites.length,writes+2);assert.ok([1,2].every(n=>f.disk.episodes[n].scenes.every(s=>s.approval)));assert.equal(f.saveCalls.length,0);
 });
+
+test('legacy published episode seals its unassigned candidates before later local edits',async()=>{
+ const {artEpisodeConfirmed}=await import('./artWorkflow.js');
+ let r=approved(1);r=editArtReview(r,{type:'roster-upsert',item:{category:'prop',name:'【旧备用候选】',description:'保留旧候选',ready:true}});
+ r.published=Object.fromEntries(r.scenes.map(s=>[s.id,{signature:reviewSceneSignature(s)}]));delete r.unassignedApproval;
+ const f=fixture({disk:{workflow:'guided',episodes:{1:r}}});await f.store.load(f.project);
+ assert.equal(artEpisodeConfirmed(f.store.snapshot().episodes[1],f.project.episodes[0]),true);
+ await f.store.update(1,v=>editArtReview(v,{type:'roster-upsert',item:{category:'prop',name:'【新待关联候选】',description:'新的候选',ready:true}}));
+ assert.equal(artEpisodeConfirmed(f.store.snapshot().episodes[1],f.project.episodes[0]),false);
+ assert.equal(reviewRoster(f.store.snapshot().episodes[1]).length,3);
+});

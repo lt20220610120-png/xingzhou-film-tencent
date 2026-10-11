@@ -1,4 +1,5 @@
-import { buildSceneSourceTape, validateScenePlan, parseStructuredJson } from './directorSegmentation.js';
+import { parseScenePlanningJson, recoverScenePlan } from './directorPlanRecovery.js';
+import { buildSceneSourceTape, validateScenePlan } from './directorSegmentation.js';
 import { recalibrateScenePlanTimings, getDirectorSegmentTimingFacts } from './directorTiming.js';
 import { packScenePlan } from './directorPlanPacking.js';
 import { buildSegmentationMessages, buildWholeSceneSkillRequest, buildSceneAuditMessages } from './directorSegmentationMessages.js';
@@ -10,7 +11,6 @@ import {quickReviewWarnings} from './directorQuickReview.js';
 const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
 export const isQuickRunActive = run => Boolean(run && activePhases.has(run.phase));
 const uid = () => crypto.randomUUID();
-const parseJson = parseStructuredJson;
 const error = (message,code='FAILED') => Object.assign(new Error(message),{code});
 const clone = value => structuredClone(value);
 const snapshotKey = s => JSON.stringify([s.accountId,s.projectId,s.episodeId,s.sceneLabel]);
@@ -162,7 +162,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             const draft=run.segmentDrafts[segment.id];
             const speech=getDirectorSegmentTimingFacts({sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
             const capacity=segment.durationCompression?35:effectiveDirectorDurationLimit(run.snapshot.maxDurationSeconds);
-            return speech.speechSecondsAt4<=capacity+0.25&&(recoveringVersion7||(draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok));
+            return speech.speechSecondsAt4<=capacity+0.25&&(recoveringVersion7&&Boolean(publishedPaidPlan)||(draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok));
           });
           const partitionChanged=checked.ok&&(checked.plan.segments.length!==run.plan.segments.length||checked.plan.segments.some((segment,index)=>segment.sourceStart!==run.plan.segments[index].sourceStart||segment.sourceEnd!==run.plan.segments[index].sourceEnd));
           const compressionChanged=checked.ok&&checked.plan.segments.some((segment,index)=>JSON.stringify(segment.durationCompression||null)!==JSON.stringify(run.plan.segments[index]?.durationCompression||null));
@@ -208,34 +208,44 @@ export function createQuickGenerationController({getContext,executeText,executeS
       }
       if(!run.plan){
         let issues=run.planIssues||[];
-        for(let attempt=run.planQualityFailures||0;attempt<maxQualityAttempts;attempt++){
-          run.phase='planning';run.planningAttempts=(run.planningAttempts||0)+1;await persist(run);
-          const output=run.lastPlanningOutput||await request(run,version,'plan',{messages:buildSegmentationMessages({snapshot:run.snapshot,tape,validationIssues:issues,previousCandidate:run.previousPlanningCandidate}),profileId:run.snapshot.profileId});
-          run.phase='validating-plan';run.lastPlanningOutput=output;await persist(run);
-          let candidate;
-          try{candidate=parseJson(output);}catch{issues=[{code:'INVALID_JSON',message:'请只返回完整且有效的 JSON 计划'}];run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
-          if(candidate.capacityIssue){
-            issues=[{code:'PER_CLIP_CAPACITY',message:'上限只限制每一条视频，整场可以任意长。整场超过上限请按原文顺序拆成多条，并输出 segments 数组；不要因为整场台词总时长超过上限而报容量不足。',evidence:candidate.capacityIssue}];
-            run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;
-          }
-          if(Array.isArray(candidate?.segments))candidate.segments.forEach(segment=>{if(segment.visualNotes===undefined)segment.visualNotes=[];});
-          if(groundedTiming){
-            const originalSegmentCount=candidate.segments?.length;
-            const calibration=recalibrateScenePlanTimings(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
-            candidate=calibration.candidate;
-            if(calibration.changed)run.timingCalibration={version:2,changes:calibration.changes};
-            if(candidate.segments?.length!==originalSegmentCount)run.planPacking={version:2,originalSegmentCount,segmentCount:candidate.segments?.length};
-            const packed=packScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
-            if(packed.changed){run.planPacking={version:1,originalSegmentCount:packed.originalSegmentCount,segmentCount:packed.segmentCount};candidate=packed.candidate;}
-          }
-          const validated=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming});
-          if(!validated.ok){issues=validated.issues;run.previousPlanningCandidate=candidate;run.planningHistory=[...(run.planningHistory||[]),{output,issues,at:new Date().toISOString()}].slice(-3);run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
+        const acceptPlan=async validated=>{
           run.plan={...validated.plan,id:run.nextPlanId||`plan-${run.id}`,version:1,sceneLabel:run.snapshot.sceneLabel,
             sourceSnapshot:tape.sourceSnapshot,sourceText:tape.sourceText,sceneHeader:tape.sceneHeader,
             sourceHash:run.snapshot.sourceHash,settingsHash:run.snapshot.settingsHash,skillHash:run.snapshot.skillHash,profileHash:run.snapshot.profileHash,
             maxDurationSeconds:run.snapshot.maxDurationSeconds,rulesVersion:1,createdAt:new Date().toISOString(),
             segments:validated.plan.segments.map((s,i)=>({...s,id:`${run.nextPlanId||run.id}-segment-${i+1}`,index:i+1}))};
-          run.promptIds=run.plan.segments.map(()=>uid());run.commitKey=run.id;run.lastPlanningOutput='';await persist(run);break;
+          run.promptIds=run.plan.segments.map(()=>uid());run.commitKey=run.id;run.lastPlanningOutput='';run.planIssues=[];await persist(run);
+        };
+        for(let attempt=run.planQualityFailures||0;attempt<maxQualityAttempts;attempt++){
+          run.phase='planning';run.planningAttempts=(run.planningAttempts||0)+1;await persist(run);
+          const output=run.lastPlanningOutput||await request(run,version,'plan',{messages:buildSegmentationMessages({snapshot:run.snapshot,tape,validationIssues:issues,previousCandidate:run.previousPlanningCandidate}),maxOutputTokens:Math.min(32768,Math.max(8192,tape.units.length*128)),profileId:run.snapshot.profileId});
+          run.phase='validating-plan';run.lastPlanningOutput=output;await persist(run);
+          let candidate;
+          try{candidate=parseScenePlanningJson(output);}catch{issues=[{code:'INVALID_JSON',message:'请只返回完整且有效的 JSON 计划'}];run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
+          if(candidate.capacityIssue){
+            issues=[{code:'PER_CLIP_CAPACITY',message:'上限只限制每一条视频，整场可以任意长。整场超过上限请按原文顺序拆成多条，并输出 segments 数组；不要因为整场台词总时长超过上限而报容量不足。',evidence:candidate.capacityIssue}];
+            run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;
+          }
+          if(Array.isArray(candidate?.segments))candidate.segments.forEach(segment=>{if(segment&&typeof segment==='object'&&segment.visualNotes===undefined)segment.visualNotes=[];});
+          if(groundedTiming&&Array.isArray(candidate.segments)&&candidate.segments.every(segment=>segment&&typeof segment==='object'&&!Array.isArray(segment))){
+            const originalSegmentCount=candidate.segments?.length;
+            const calibration=recalibrateScenePlanTimings(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+            candidate=calibration.candidate;
+            if(calibration.changed)run.timingCalibration={version:2,changes:calibration.changes};
+            if(candidate.segments?.length!==originalSegmentCount)run.planPacking={version:2,originalSegmentCount,segmentCount:candidate.segments?.length};
+            const packed=packScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,optimizeUnderfilled:false});
+            if(packed.changed){run.planPacking={version:1,originalSegmentCount:packed.originalSegmentCount,segmentCount:packed.segmentCount};candidate=packed.candidate;}
+          }
+          const validated=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming});
+          if(!validated.ok){issues=validated.issues;run.previousPlanningCandidate=candidate;run.planningHistory=[...(run.planningHistory||[]),{output,issues,at:new Date().toISOString()}].slice(-3);run.lastPlanningOutput='';run.planIssues=issues;run.planQualityFailures=(run.planQualityFailures||0)+1;await persist(run);continue;}
+          await acceptPlan(validated);break;
+        }
+        if(!run.plan&&groundedTiming){
+          await assertCurrent(run,version);
+          const recovered=recoverScenePlan({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+          run.planRecovery={method:recovered.method,estimatedUnknownActions:recovered.estimatedUnknownActions,originalIssues:issues};
+          if(recovered.ok)await acceptPlan(recovered);
+          else {issues=recovered.issues;run.planIssues=issues;await persist(run);}
         }
         if(!run.plan)throw error(issueMessages(issues)||'分段计划未通过时长与原文核对','NEEDS_REVIEW');
       }

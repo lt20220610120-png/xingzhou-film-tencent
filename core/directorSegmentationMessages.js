@@ -25,7 +25,7 @@ export const buildSegmentationMessages = ({ snapshot, tape, validationIssues = [
     { role: 'system', content: buildDurationSegmentationRules({ durationLimit, minimum }) },
     { role: 'user', content: `${projectContext(snapshot)}\n\n【时长校准 · 程序从原文提取的事实】\n${json(timingFacts)}\n按口播真实字数计算：常速约4字/秒，情绪/停顿偏慢约3字/秒；数字、字母也属可听内容，标点、说话人标签、人物名单、动作描写不计台词。现场对白、OS内心声和VO旁白均计入可听语音；续行和合法长讲话句段不能漏计。常规30秒按约120个口播字预演；仅最高30秒、整个场景自然30～35秒的用户授权快节奏例外，允许整场约120～140字保留完整并紧凑口播，不能删句。短讲话不得为了满时长截半句，更不能把十几个字虚报为30秒台词。使用程序 actionReference 动作参考库：眼神/皱眉约0.5～1秒，抬手/擦泪约1秒，拿取/递交约1～2秒，快速攻击/短走位约2～3秒。复合动作可同镜同步，不能把每个动词都串行加2～3秒。静态房间/光线/道具陈设不自动新增空镜时间；普通切镜不增加transitionSeconds。明确追逐/等待或原文持续秒数必须保留。程序 quickPerformanceSeconds 是快节奏预演参考，不是强制上限，未知动作需据原文补估。台词与同时发生的动作只算一次：可重叠部分用overlapSeconds扣除；运镜和镜头切换不能重复累加动作时长。30秒常见约10～13个甚至更多镜头，15秒常见约5个以上镜头，只是密度参考，不能据此强行增加段数/分镜；长对话完全可以少镜但内容足量。禁止用慢放、反复注视、冗长空镜把少量内容撑满上限。整场不足上限时只给一条真实短时长；40秒总内容且上限30秒时应接近30+10，不能硬补成30+30。非尾段优先接近本次上限；尾段按实际所剩内容，例如10秒就是10秒。\n\n【整场原文 · 只读】\n场景：${snapshot.sceneLabel}\n${tape.sceneHeader || ''}\n${tape.sourceText}\n\n【原文单元与锚点 · JSON 事实资料】\n${json(tape.units)}` },
     ...(previousCandidate ? [{role:'assistant',content:json(previousCandidate)}] : []),
-    ...(validationIssues.length ? [{ role: 'user', content: `上一计划未通过校验。只修正下面列出的结构/容量问题，重新返回完整计划，不缩短原文、不改变上限。短小节需要合并；若下一次完整讲话无法容纳，整体移到下一条并允许前条不足85%，禁止移入半句。一次讲话超过上限时也只能在原有完整句末切分；切开OS/VO/方向括号/说话人标签或冒号字段都不合法。最高30秒且整场自然30～35秒按整场单条快节奏例外处理，保留自然timing；其他场景不得伪造压缩。实际移动 end 锚点，不能只增大秒数凑满。prefix 必须从原文单元首字符开始，包含说话人标签，不能省略前缀。\n${json(validationIssues)}` }] : []),
+    ...(validationIssues.length ? [{ role: 'user', content: `上一计划未通过校验。只修正下面列出的结构/容量问题，重新返回完整计划，不缩短原文、不改变上限。短段允许保留；只在确实无衔接收益的碎段上考虑合并，25+25等自然切法合法。若下一次完整讲话无法容纳，整体移到下一条并允许前条不足85%，禁止移入半句。一次讲话超过上限时也只能在原有完整句末切分；切开OS/VO/方向括号/说话人标签或冒号字段都不合法。最高30秒且整场自然30～35秒按整场单条快节奏例外处理，保留自然timing；其他场景不得伪造压缩。实际移动 end 锚点，不能只增大秒数凑满。prefix 必须从原文单元首字符开始，包含说话人标签，不能省略前缀。\n${json(validationIssues)}` }] : []),
   ];
 };
 
@@ -55,7 +55,7 @@ export const buildWholeSceneSkillRequest = ({ snapshot, tape, plan, sharedBaseli
     expectedLabels, preservedPrompts, repairAttempt,
     maxOutputTokens: Math.min(32768, Math.max(16384, plan.segments.length * 8192)),
     beforeUserMessages: recovery,
-    input: `${facts}\n\n${buildWholeSceneSubmission({ sourceText: source, expectedLabels })}\n\n【建议生成时长 · 按已定括号】\n${json(durations)}\n这些秒数只说明对应片段的表演时长，不规定分镜数量或拍法。带 durationCompression 的片段按用户授权紧凑口播与同步动作完成，保留所有台词；其余按自然节奏。完整导演预演与输出合同由所选原 Skill 决定。`,
+    input: `${facts}\n\n${buildWholeSceneSubmission({ sourceText: source, expectedLabels })}\n\n【建议生成时长 · 按已定括号】\n${json(durations)}\n这些秒数只说明对应片段的表演时长，不规定分镜数量或拍法。相邻条目末首优先用原文已有的换人物、换观察对象或细节特写衔接，避免同一主体同一景别硬接；保持声源和动作状态连续，不为换画面新增剧情或道具。带 durationCompression 的片段按用户授权紧凑口播与同步动作完成，保留所有台词；其余按自然节奏。完整导演预演与输出合同由所选原 Skill 决定。`,
   };
 };
 

@@ -257,3 +257,25 @@ test('semantic review annotates existing outputs once without paid quality regen
   assert.equal(fixture.calls.filter(call => call.type === 'audit').length, 1);
   assert.equal(fixture.calls.filter(call => call.type === 'skill' && call.label === '1-1-1').length, 2);
 });
+
+test('malformed planning replies recover locally and proceed to Skill, without more planning calls',async()=>{
+ const f=makeFixture({groundedTiming:true,textHook:call=>call.type==='plan'?'JSON已截断 {':undefined});
+ const run=await f.controller.start(f.request);
+ assert.equal(run.phase,'completed');assert.equal(run.planRecovery.method,'source-timing-recovery');
+ assert.equal(f.calls.filter(c=>c.type==='plan').length,2);assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
+ assert.equal(run.plan.segments.map(s=>run.plan.sourceText.slice(s.sourceStart,s.sourceEnd)).join(''),run.plan.sourceText);
+});
+test('prior interrupted planning checkpoint resumes through local recovery and preserves completed result IDs',async()=>{
+ const f=makeFixture({groundedTiming:true,textHook:call=>call.type==='plan'?'{broken':undefined});
+ const run=await f.controller.start(f.request);assert.equal(run.phase,'completed');
+ const saved={...run,phase:'needs-review',plan:null,segmentDrafts:{},checks:{audited:false,ranges:{}},wholeSceneResponses:[],processedWholeSceneResponseIndex:-1,planQualityFailures:2};
+ f.records.set(run.id,saved);const controller=createQuickGenerationController(f.deps);
+ const resumed=await controller.resume(run.id);assert.equal(resumed.phase,'completed');
+ const ids=[...resumed.promptIds];await controller.resume(run.id);assert.deepEqual(controller.get(run.id).promptIds,ids);
+});
+
+test('valid JSON with null segment still recovers instead of throwing during calibration',async()=>{
+ const f=makeFixture({groundedTiming:true,textHook:call=>call.type==='plan'?'{"segments":[null]}':undefined});
+ const run=await f.controller.start(f.request);assert.equal(run.phase,'completed');assert.equal(run.planRecovery.method,'source-timing-recovery');
+ assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
+});

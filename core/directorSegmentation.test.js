@@ -62,12 +62,12 @@ test('controlled forty-second scene is thirty plus ten, exact coverage and numbe
   assert.match(renderNumberedScene(result.plan, tape), /（2）\n乙：已经锁好了。/);
 });
 
-test('rejects over-limit rather than clipping and underfilled nonfinal segments', () => {
+test('rejects over-limit but treats nonfinal fill ratio as advisory', () => {
   const tape = buildSceneSourceTape('甲：擦汗。\n乙：回答。');
   for (const [seconds, code] of [[30.01, 'DURATION_EXCEEDED'], [5, 'UNDERFILLED_SEGMENT']]) {
     const result = validateScenePlan({ segments: [candidateSegment(tape.units[0].id, seconds), candidateSegment(tape.units.at(-1).id, 5)] }, { tape, maxDurationSeconds: 30 });
-    assert.equal(result.ok, false);
-    assert.ok(result.issues.some(issue => issue.code === code));
+    assert.equal(result.ok, code !== 'DURATION_EXCEEDED');
+    assert.ok([...(result.issues || []), ...(result.warnings || [])].some(issue => issue.code === code));
   }
   assert.equal(validateScenePlan({ segments: [candidateSegment(tape.units.at(-1).id, 5)] }, { tape, maxDurationSeconds: 30 }).ok, true);
 });

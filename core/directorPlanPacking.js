@@ -1,3 +1,4 @@
+import { parseDirectorDialogues } from './directorDialogue.js';
 import { validateScenePlan, assertDurationLimit } from './directorSegmentation.js';
 import { getDirectorSegmentTimingFacts } from './directorTiming.js';
 import { directorSpeechBoundary } from './directorSpeechBoundaries.js';
@@ -10,10 +11,10 @@ const fields = ['speechSeconds', 'actionSeconds', 'transitionSeconds'];
  * visual beats, not descriptive word count. Overlap already runs under speech.
  * An indivisible action that cannot fit is left to the planner for correction.
  */
-export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
+export function packScenePlan(candidate, { tape, maxDurationSeconds, optimizeUnderfilled = true } = {}) {
   const unchanged = { candidate, changed: false };
   const initial = validateScenePlan(candidate, { tape, maxDurationSeconds, groundedTiming: true });
-  if (initial.ok || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED', 'INCOMPLETE_DIALOGUE_BOUNDARY'].includes(i.code) || (i.code === 'INVALID_TIMING' && i.message === '片段估计时长必须大于零'))) return unchanged;
+  if ((initial.ok && (!optimizeUnderfilled || !initial.warnings?.length)) || !initial.issues.every(i => ['UNDERFILLED_SEGMENT', 'DURATION_EXCEEDED', 'SPEECH_CAPACITY_EXCEEDED', 'INCOMPLETE_DIALOGUE_BOUNDARY'].includes(i.code) || (i.code === 'INVALID_TIMING' && i.message === '片段估计时长必须大于零'))) return unchanged;
   const durationLimit = assertDurationLimit(maxDurationSeconds);
   const events = [], spans = [];
   let start = 0;
@@ -30,26 +31,29 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
     // Gestures accompanying a line have no standalone △ cue. Their residual
     // exclusive time belongs to the end of that performance, never a new event.
     if (!actionEnds.length) actionEnds.push(end);
-    const exclusive = segment.timing.actionSeconds - segment.timing.overlapSeconds;
+    const exclusive = round(segment.timing.actionSeconds - segment.timing.overlapSeconds);
     const weights = weightedCues.map(beat => Math.max(0, (beat.seconds ?? 2.5) - beat.overlapSeconds));
     const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
     let allocated = 0;
     actionEnds.forEach((position, i) => {
       const amount = weightTotal ? exclusive * weights[i] / weightTotal : exclusive / actionEnds.length;
-      const next = i === actionEnds.length - 1 ? exclusive : round(allocated + amount);
+      // Keep the rounded allocation monotonic and within the original budget.
+      // A zero-weight last cue must never receive a negative rounding residue.
+      const next = i === actionEnds.length - 1 ? exclusive : Math.min(exclusive, round(allocated + amount));
       events.push({ position, field: 'actionSeconds', amount: round(next - allocated) }); allocated = next;
     });
     events.push({ position: end, field: 'transitionSeconds', amount: segment.timing.transitionSeconds });
     spans.push({ start, end, segment }); start = end;
   }
   events.sort((a,b) => a.position - b.position);
-  const boundaries = new Set([tape.sourceText.length]);
+  const boundaries = new Set([tape.sourceText.length, ...tape.units.map(unit => unit.end)]);
   // Spoken word positions allocate exact speech time, but they are not cut
   // positions. Only a complete turn or a full sentence of a long turn may cut.
   const wordEnds = new Set();
   for (const part of new Intl.Segmenter('zh', { granularity: 'word' }).segment(tape.sourceText)) {
     wordEnds.add(part.index); wordEnds.add(part.index + part.segment.length);
   }
+  const dialogueRecords = parseDirectorDialogues(tape.sourceText);
   const speechRanges = getDirectorSegmentTimingFacts({sourceText:tape.sourceText}).dialogues.flatMap(d=>d.ranges);
   for (const end of wordEnds) if (speechRanges.some(range=>end>range.start&&end<=range.end)) boundaries.add(end);
   for (const span of spans) boundaries.add(span.end);
@@ -57,7 +61,7 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
   // Closing punctuation belongs to the preceding words. A lexical boundary
   // just before "！" is legal to Segmenter but cannot form a new performance.
   const options=[...boundaries].filter(end=>end>0&&wordEnds.has(end)&&(end===tape.sourceText.length||! /^[\p{P}\p{S}]/u.test(tape.sourceText.slice(end)))
-    && directorSpeechBoundary({sourceText:tape.sourceText,sourceEnd:end,maxDurationSeconds:durationLimit}).ok).sort((a,b)=>a-b);
+    && directorSpeechBoundary({sourceText:tape.sourceText,sourceEnd:end,maxDurationSeconds:durationLimit,dialogues:dialogueRecords}).ok).sort((a,b)=>a-b);
   const cumulative=new Map(); let cursor=0; const sum={speechSeconds:0,actionSeconds:0,transitionSeconds:0};
   cumulative.set(0,{...sum});
   for(const end of options){
@@ -73,8 +77,8 @@ export function packScenePlan(candidate, { tape, maxDurationSeconds } = {}) {
     const possible=options.filter(end=>end>start&&end<tape.sourceText.length&&totalFor(start,end)>0&&totalFor(start,end)<=durationLimit);
     if(!possible.length)return unchanged;
     // Prefer the latest complete turn/action. Completeness outranks the fill
-    // ratio; the validator permits short clips only when the next full turn
-    // cannot fit, so this cannot manufacture arbitrary five-second clips.
+    // ratio. Packing is a recovery/optimization path; a legal model plan is
+    // retained by the controller even when natural cuts produce shorter clips.
     const natural=possible.filter(end=>totalFor(start,end)>=durationLimit-2&&(/[。！？!?；;\n]\s*$/.test(tape.sourceText.slice(start,end))||spans.some(s=>s.end===end)));
     const end=(natural.length?natural:possible).at(-1);cuts.push(end);start=end;
   }

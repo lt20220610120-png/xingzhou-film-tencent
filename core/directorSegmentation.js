@@ -118,7 +118,7 @@ export const estimateSegmentSeconds = timing => {
 };
 
 export const validateScenePlan = (candidate, { tape, maxDurationSeconds, groundedTiming = false } = {}) => {
-  const issues = [];
+  const issues = [], warnings = [];
   let durationLimit;
   try { durationLimit = assertDurationLimit(maxDurationSeconds); } catch (error) { return { ok: false, issues: [issue('INVALID_DURATION_LIMIT', error.message)] }; }
   let parsed;
@@ -159,7 +159,7 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds, grounde
     if (estimatedSeconds > durationLimit || recommendedDurationSeconds > durationLimit) issues.push(issue('DURATION_EXCEEDED', '片段超出最高时长，必须重分段而非截短建议秒数', segmentIndex, { estimatedSeconds, maxDurationSeconds: durationLimit }));
     const completeDialoguePriority = arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * durationLimit)
       && completeDialogueNeedsNextClip({ sourceText: tape.sourceText, sourceEnd, estimatedSeconds, maxDurationSeconds: durationLimit });
-    if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * durationLimit) && !completeDialoguePriority) issues.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分；完整台词优先，不能为凑满截断一句话', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * durationLimit) }));
+    if (arrayIndex !== parsed.segments.length - 1 && estimatedSeconds < Math.ceil(NONFINAL_DURATION_RATIO * durationLimit) && !completeDialoguePriority) warnings.push(issue('UNDERFILLED_SEGMENT', '非尾段过短，应在接近最高时长的窗口内切分；完整台词优先，不能为凑满截断一句话', segmentIndex, { estimatedSeconds, minimumSeconds: Math.ceil(NONFINAL_DURATION_RATIO * durationLimit) }));
     if (!meaningfulState(segment.startState) || !meaningfulState(segment.endState)) issues.push(issue('INVALID_SEGMENT_STATE', '每段必须提供非空的起点与终点状态', segmentIndex));
     if (!meaningfulState(segment.boundary) || !Array.isArray(segment.visualNotes)) issues.push(issue('INVALID_SEGMENT_SCHEMA', '每段必须提供非空 boundary 和 visualNotes 数组', segmentIndex));
     segments.push({
@@ -175,7 +175,7 @@ export const validateScenePlan = (candidate, { tape, maxDurationSeconds, grounde
   if (sourceStart !== tape.sourceText.length) issues.push(issue('UNCOVERED_SOURCE', '终段必须到达全部正文末尾，不能遗漏原文', undefined, { coveredEnd: sourceStart, sourceLength: tape.sourceText.length }));
   if (new Set(segments.map(segment => segment.id)).size !== segments.length) issues.push(issue('DUPLICATE_SEGMENT_ID', '片段 ID 必须唯一'));
   if (issues.length) return { ok: false, issues };
-  return { ok: true, issues: [], plan: { version: 1, sourceSnapshot: tape.sourceSnapshot, sourceText: tape.sourceText, sceneHeader: tape.sceneHeader, maxDurationSeconds, segments } };
+  return { ok: true, issues: [], warnings, plan: { version: 1, sourceSnapshot: tape.sourceSnapshot, sourceText: tape.sourceText, sceneHeader: tape.sceneHeader, maxDurationSeconds, segments } };
 };
 
 export const renderNumberedScene = (plan, tape) => {

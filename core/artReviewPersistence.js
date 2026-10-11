@@ -1,4 +1,4 @@
-import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignature} from './artReview.js';
+import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignature,confirmPublishedUnassigned} from './artReview.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 import {artWorkflowState} from './artWorkflow.js';
 
@@ -30,7 +30,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
    delete next.publishRequest;delete next.uploadedWriteId;
    if(unchanged){next.pending=false;delete next.writeId;}
   }
-  return next;
+  return unchanged?confirmPublishedUnassigned(next):next;
  });
  const resolveReceipt=async number=>{
   const current=ledger.episodes[number],receipt=current.cloudReceipt;if(!receipt)return current;
@@ -71,6 +71,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
     const record=importLegacyArtReview(episode,{output,assets,genre:project.genre});
     next.episodes[n]={...record,pending:record.status!=='empty',...(record.status!=='empty'?{writeId:crypto.randomUUID()}:{})};
    }
+   for(const record of Object.values(next.episodes))confirmPublishedUnassigned(record);
    await persist(next);loaded=true;episodes=listCollabEpisodes(project.episodes);return ledger;
   });},
   update(number,reduce){return enqueue(async()=>{

@@ -232,6 +232,8 @@
 .art-workbench .art-workbench-row.is-selected { border-left-color:#7a8fd3; }
 .art-workbench .art-row-identity { background:#f0f6fb; }
 .art-workbench .collab-asset-desc>textarea { color:#2c3b52; font-size:15px; background:#fcfdff; min-height:118px; }
+.art-workbench .collab-asset-desc>.formatted-editor { color:#000!important; -webkit-text-fill-color:#000; font-size:16px; }
+.art-workbench .collab-asset-desc>.formatted-editor * { color:#000!important; -webkit-text-fill-color:#000; }
 .art-workbench .collab-image-box { background:#fafcff; }
 .art-workbench .collab-image-box .collab-asset-image.empty { background:#f0f5fc; border-color:#d7e2f1; color:#657993; }
 .art-workbench .collab-image-actions .primary { background:#4d78c6; border-color:#4d78c6; }

@@ -12,16 +12,24 @@ const finite = value => typeof value === 'number' && Number.isFinite(value) && v
 export const extractDirectorVisualBeats = sourceText => {
   const source = String(sourceText || '');
   const beats = [];
+  const spoken = parseDirectorDialogues(source).flatMap(dialogue => dialogue.ranges.map((range, index) => ({ start: index === 0 && Number.isInteger(dialogue.headerStart) ? dialogue.headerStart : range.start, end: range.end })));
   const ranges = [
     ...[...source.matchAll(/[△Δ▲]([^\n△Δ▲]+)/g)].map(match => ({ start: match.index + 1, end: match.index + match[0].length })),
     ...unmarkedDirectorActionRanges(source),
-  ].sort((a, b) => a.start - b.start);
+  ].flatMap(range => {
+    let parts = [range];
+    for (const speech of spoken) parts = parts.flatMap(part => speech.end <= part.start || speech.start >= part.end ? [part] : [
+      ...(speech.start > part.start ? [{ start: part.start, end: speech.start }] : []),
+      ...(speech.end < part.end ? [{ start: speech.end, end: part.end }] : []),
+    ]);
+    return parts;
+  }).sort((a, b) => a.start - b.start);
   for (const range of ranges) {
     const contentStart = range.start;
     const content = source.slice(range.start, range.end);
     for (const sentence of content.matchAll(/[^。！？!?；;]+[。！？!?；;]*/g)) {
       const sourceQuote = sentence[0].trim();
-      if (!sourceQuote) continue;
+      if (!sourceQuote || !/[\p{L}\p{N}]/u.test(sourceQuote)) continue;
       const leading = sentence[0].indexOf(sourceQuote);
       const estimate = describeDirectorActionTiming(sourceQuote);
       beats.push({ sourceStart: contentStart + sentence.index + leading, sourceEnd: contentStart + sentence.index + leading + sourceQuote.length, sourceQuote, ...estimate });
@@ -106,7 +114,7 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
   try {
     parsed = typeof candidate === 'string' ? JSON.parse(candidate.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1')) : structuredClone(candidate);
   } catch { return { candidate, changed: false, changes: [] }; }
-  if (!Array.isArray(parsed?.segments) || !tape?.sourceText || !Array.isArray(tape.units)) return { candidate: parsed, changed: false, changes: [] };
+  if (!Array.isArray(parsed?.segments) || !parsed.segments.every(segment => segment && typeof segment === 'object' && !Array.isArray(segment)) || !tape?.sourceText || !Array.isArray(tape.units)) return { candidate: parsed, changed: false, changes: [] };
   const units = new Map(tape.units.map(unit => [unit.id, unit]));
   const changes = [];
   let sourceStart = 0;
