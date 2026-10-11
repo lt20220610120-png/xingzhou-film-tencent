@@ -1,4 +1,5 @@
 import {recycleProject,recycleState,isRecycled} from './projectRecycle.js';
+import {normalizeDirectorImportText} from './directorImportText.js';
 // ============================================================
 // projectStore.js — 行舟影视 领域逻辑
 // 所有函数均为纯函数：接收 state，返回新的 state（浅拷贝）
@@ -458,6 +459,7 @@ export const removeApiProfile = (state, profileId) => ({
 // ==============================
 
 export const importDirectorProject = (state, sourceId, sourceType, masterScript) => {
+  masterScript = normalizeDirectorImportText(masterScript);
   const sourceProject =
     sourceType === 'fruit'
       ? state.fruitProjects.find(p => p.id === sourceId)
@@ -467,7 +469,7 @@ export const importDirectorProject = (state, sourceId, sourceType, masterScript)
     ? sourceProject.episodes.map(ep => ({
         id: uid(),
         title: ep.title || '',
-        content: ep.scriptText || ep.content || '',
+        content: normalizeDirectorImportText(ep.scriptText || ep.content || ''),
         prompts: [],
         status: 'pending',
       }))

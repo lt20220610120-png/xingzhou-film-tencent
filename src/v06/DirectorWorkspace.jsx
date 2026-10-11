@@ -1,4 +1,5 @@
 import {prepareDirectorEpisodeAddition,directorEpisodeCount} from '../../core/directorAppendEpisode.js';
+import {normalizeDirectorImportText} from '../../core/directorImportText.js';
 const rememberPreference=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 import {useDirectorRealtime} from './useDirectorRealtime.js';
 import {recycleDeleteDetail,isLocalRecyclableDirector} from '../../core/projectRecycle.js';
@@ -1004,7 +1005,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       const result = await api.importFullScript();
       if (!result) return;
 
-      const parsed = { ...parseMasterScript(result.content), masterScript: result.content, detected: true };
+      const importedText = normalizeDirectorImportText(result.content);
+      const parsed = { ...parseMasterScript(importedText), masterScript: importedText, detected: true };
       const episodes = parsed.episodes.map((ep, i) => ({
         id: `import-${Date.now()}-${i}`,
         title: ep.title,

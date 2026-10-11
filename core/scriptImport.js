@@ -14,8 +14,9 @@ export const parseDirectorScenes = (text, episodeNumber = 1) => {
   const scenes = [];
   if (preface && starts[0].sourceSceneNumber > 1) scenes.push({ content: preface });
   starts.forEach((start, sourceIndex) => {
-    const body = lines.slice(start.index, starts[sourceIndex + 1]?.index ?? lines.length).join('\n').trim();
-    scenes.push({ content: sourceIndex === 0 && preface && start.sourceSceneNumber === 1 ? `${preface}\n\n${body}` : body });
+    const from = sourceIndex === 0 && preface && start.sourceSceneNumber === 1 ? 0 : start.index;
+    const body = lines.slice(from, starts[sourceIndex + 1]?.index ?? lines.length).join('\n').trim();
+    scenes.push({ content: body });
   });
   return scenes.filter(scene => scene.content).map((scene, sceneIndex) => ({ label: `${Number(episodeNumber)}-${sceneIndex + 1}`, content: scene.content.replace(/^(\s*(?:场景\s*)?)\d+\s*([-—－])\s*\d+/m, `$1${Number(episodeNumber)}$2${sceneIndex + 1}`) }));
 };
