@@ -2,6 +2,7 @@ import builtins from './feituo-models.json' with {type:'json'};
 import {normalizeCapabilities} from './modelCapabilities.js';
 export const ftEndpoint=address=>{try{return new URL(address).hostname==='feituokuajing.com';}catch{return false;}};
 export function profileModels(profile,kind=profile.kind){
+ if(profile.provider==='libtv')return (profile.modelCatalog||[]).filter(m=>m.kind===kind);
  // Dynamic protocol support in this release is for video; keep the established
  // image interface and its builtin provider capabilities unchanged.
  if(kind!=='video')return ftEndpoint(profile.endpoint)?builtins.filter(m=>m.kind===kind):[{id:profile.model,name:profile.model,kind,...normalizeCapabilities(profile.capabilities)}];

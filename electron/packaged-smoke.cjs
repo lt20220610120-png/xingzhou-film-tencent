@@ -40,6 +40,12 @@ module.exports = function configurePackagedSmoke(app) {
         const videoConfig=await videoProvider.config({endpoint:'https://example.invalid/v1',videoProtocol:'videos-json'});
         const {profileModels}=await import(pathToFileURL(path.join(__dirname,'../core/videoCatalog.js')).href);
         report.videoProviders={modulesLoad:typeof videoProvider.submit==='function',configuration:videoConfig.adapter.submitPath==='videos',futureCatalog:profileModels({kind:'video',endpoint:'https://example.invalid/v1',model:'future-model',modelCatalog:[{id:'future-model',kind:'video',capabilities:{durations:[7]}}]}).some(m=>m.id==='future-model'&&m.durations[0]===7)};
+        const libtvCore=await import(pathToFileURL(path.join(__dirname,'../core/libtv.js')).href);
+        const libtvModule=require('./libtv-service.cjs');
+        const libtvSmokeDir=path.join(root,'libtv-credentials-smoke'),libtvAccountDir=path.join(libtvSmokeDir,'accounts','b'.repeat(32));fs.mkdirSync(libtvAccountDir,{recursive:true});fs.writeFileSync(path.join(libtvAccountDir,'credentials.json'),JSON.stringify({token:'smoke-only-fixture'}));
+        const libtvSmoke=libtvModule.createLibTVService({root:libtvSmokeDir,safeStorage:require('electron').safeStorage,runCLI:async()=>({}),ensureBinary:async()=>'/mock'});await libtvSmoke.close();
+        report.libtv={module:typeof libtvModule.createLibTVService==='function',schema:libtvCore.libtvGenerationParams(libtvCore.libtvModel({modelKey:'qa-image',modelName:'QA图片',schema:{properties:{}}},'image'),{kind:'image',prompt:'模拟'}).model==='QA图片',startupSeal:!fs.existsSync(path.join(libtvAccountDir,'credentials.json'))&&fs.existsSync(path.join(libtvAccountDir,'credentials.enc')),bridge:await win.webContents.executeJavaScript("['libtvStatus','libtvLogin','libtvLogout','libtvModels','libtvModelSchema','libtvAccounts','libtvUseAccount','libtvCancelLogin'].every(name=>typeof window.xingzhou?.[name]==='function')")};
+        if(!Object.values(report.libtv).every(Boolean))throw Error('LibTV package runtime validation failed');
         const ip = await import(pathToFileURL(path.join(__dirname,'../core/ipWorkspace.js')).href);
         const { IP_BUILTIN_SKILLS } = await import(pathToFileURL(path.join(__dirname,'../core/ipBuiltinSkills.js')).href);
         const { archiveCreatorProject } = await import(pathToFileURL(path.join(__dirname,'../core/creatorWorkspace.js')).href);

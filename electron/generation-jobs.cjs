@@ -8,21 +8,27 @@ function generationRetainedPaths(value) {
   if (!value || typeof value !== 'object') return [];
   return Object.values(value).flatMap(generationRetainedPaths);
 }
-function createGenerationManagers() {
+function createGenerationManagers(options={}) {
   const managers = new Map();
   return dir => {
     const resolved = path.resolve(dir), key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-    if (!managers.has(key)) managers.set(key, createGenerationJobs(resolved));
+    if (!managers.has(key)) managers.set(key, createGenerationJobs(resolved,options));
     return managers.get(key);
   };
 }
-function createGenerationJobs(dir) {
+function createGenerationJobs(dir,options={}) {
   const file = path.join(dir, 'generation-jobs.json');
   const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
   const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else rows[index] = job; fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); return job; };
   const inFlight = new Map();
+  const libtvRunning=new Map();
+  const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
+  const libtvNodes=raw=>raw?.nodes||raw?.data?.nodes||[raw?.node||raw];
+  const libtvResult=(raw,job)=>require('./libtv-service.cjs').libtvResultURLs(raw).some(u=>!(job.libtvInitialUrls||[]).includes(u));
+  const libtvFailed=raw=>libtvNodes(raw).some(n=>{const status=n?.data?.taskInfo?.status??n?.data?.status??n?.taskInfo?.status??n?.status;return status===3||['failed','error','canceled','cancelled'].includes(String(status).toLowerCase());});
   return {
     list: () => read().filter(j=>!j.archived),
+    async waitForCompletion(id){if(libtvRunning.has(id))await libtvRunning.get(id);const job=read().find(r=>r.id===id);if(job?.status!=='success')throw Error(job?.warning||job?.error||'LibTV 原任务已保留，请在图视生成结果中刷新或打开原画布');return job;},
     archive({id}) {const job=read().find(j=>j.id===id);if(!job)return; if(['submitting','submitted','downloading'].includes(job.status))throw new Error('运行中的任务请等待完成后移除');save({...job,archived:true});},
     clear({ ids = [], retainedPaths = [] } = {}) {
       if (!Array.isArray(ids) || !Array.isArray(retainedPaths)) throw new Error('清理参数无效');
@@ -83,11 +89,25 @@ function createGenerationJobs(dir) {
       return result;
     },
     async submit(input) {
-      const { apiKey, endpoint, signal, ...snapshot } = input;
+      const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
       for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
       const job = { ...snapshot, ...(input.kind==='video'?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
+      if(input.provider==='libtv'){
+        if(!libtv())throw Error('LibTV 连接器尚未就绪，请先连接账号');
+        save(job);
+        let task;
+        try{task=save({...job,...await libtv().prepare(accountId,{...input,id:job.id}),status:'submitted',libtvRunStarted:true});}
+        catch(e){save({...job,status:'failed',error:e.message});throw e;}
+        const work=(async()=>{
+          try{const result=await libtv().run(accountId,task,{signal});if(libtvFailed(result)){save({...task,status:'failed',error:'LibTV 官方任务失败，请在原画布核对'});return;}
+            task=save({...task,status:'downloading'});try{save({...task,...await libtv().download(accountId,task,dir),status:'success',warning:''});}catch(e){save({...task,warning:e.message});}
+          }catch(e){save({...task,status:'submitted',warning:e.message+'；请刷新或打开原画布核对，不会自动重新生成'});}
+        })();
+        libtvRunning.set(job.id,work);work.finally(()=>libtvRunning.delete(job.id)).catch(()=>{});
+        return task;
+      }
       const ftHost=(()=>{try{return new URL(endpoint).origin==='https://feituokuajing.com';}catch{return false;}})();
       if (input.kind==='video'&&(!ftHost||!['auto','feituo',undefined].includes(input.videoProtocol))) {
         const provider=require('./video-provider.cjs');await provider.validate(input);await provider.config(input);
@@ -119,11 +139,19 @@ function createGenerationJobs(dir) {
         return save({...job,status:'success',filePath});
       } catch(error) { if(error.downloadReceiptId)return save({...job,status:'downloading',downloadReceiptId:error.downloadReceiptId,error:error.message}); save({...job,status:'failed',error:error.message}); throw error; }
     },
-    async refresh({id,apiKey,endpoint}) {
+    async refresh({id,apiKey,endpoint,accountId}) {
+      if(libtvRunning.has(id))return read().find(r=>r.id===id);
       if (inFlight.has(id)) return inFlight.get(id);
       const work = (async () => {
         let job=read().find(r=>r.id===id);
         if (!job) throw new Error('任务不存在');
+        if(job.provider==='libtv'){
+          if(job.status==='success'||job.status==='failed')return job;
+          try{const raw=await libtv().query(accountId,job);if(libtvFailed(raw))return save({...job,status:'failed',error:'LibTV 官方任务失败，请打开原画布核对'});
+            if(job.status!=='downloading'&&!libtvResult(raw,job))return save({...job,warning:'LibTV 原任务尚未完成，刷新只查询原节点，不会重新生成'});
+            job=save({...job,status:'downloading'});return save({...job,...await libtv().download(accountId,job,dir),status:'success',warning:''});
+          }catch(e){return save({...job,warning:e.message});}
+        }
         const generic=job.kind==='video'&&job.endpoint&&(new URL(job.endpoint).origin!=='https://feituokuajing.com'||!['auto','feituo',undefined].includes(job.videoProtocol));
         const credentialOrigin=job.endpoint?new URL(job.endpoint).origin:job.model?.startsWith('ft-')?'https://feituokuajing.com':null;
         if((generic&&!endpoint)||(credentialOrigin&&endpoint&&new URL(endpoint).origin!==credentialOrigin))return save({...job,warning:'接口地址已变化，请使用原服务商配置查询这个任务，未发送密钥'});

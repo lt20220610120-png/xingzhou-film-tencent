@@ -366,7 +366,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
       }
       else {
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile?.protocol, provider: profile?.provider, endpoint: profile?.endpoint, apiKey: profile?.apiKey, model: profile?.model, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile?.protocol, provider: profile?.provider, libtvOwnerKey:profile?.libtvOwnerKey, endpoint: profile?.endpoint, apiKey: profile?.apiKey, model: profile?.model, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
         const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
         if (attached) clearAssetImageRecovery(project.id, asset.id);
         await refresh();
@@ -409,7 +409,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{formats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         {(mates.length > 0||referenceRequired) && <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?'等待人物基准参考图':"默认（不引用参考）"}</option><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
-        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit || pendingImage?.reason==='expired'}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : pendingImage?.reason==='expired'?'结果链接不可用':pendingImage?.receiptId ? '重试下载（不重新生图）' : pendingImage?.filePath ? '继续保存图片' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || generating || !canEdit}><Upload size={14} /> 上传</button></div>
+        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit || pendingImage?.reason==='expired'}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : pendingImage?.reason==='expired'?'结果链接不可用':(pendingImage?.receiptId||pendingImage?.taskId) ? '恢复原结果（不重新生图）' : pendingImage?.filePath ? '继续保存图片' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || generating || !canEdit}><Upload size={14} /> 上传</button></div>
         {pendingImage?.receiptId&&<div className="image-recovery-actions"><button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开生成结果。保存原图后可点击上传，不会重新生图。');}catch(e){setError(e.message);}}}>打开已生成结果</button><button className="ghost" disabled={busy||generating||!canEdit} onClick={()=>{if(window.confirm('放弃这张待下载结果？原恢复记录仍保留在本机；之后点击生成图片会重新调用接口并可能产生费用。')){clearAssetImageRecovery(project.id,asset.id);setError('已解除旧结果的重试状态，可上传原图，或点击生成图片重新付费生成。');}}}>放弃旧结果</button></div>}
         {refAsset && <small className="collab-ref-hint">{asset.category==='scene'?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`将参考 ${refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态`}</small>}
         {referenceRequired&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
@@ -494,7 +494,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     setModifying(true); setModifyError('');
     try {
       const messages = buildAssetRevisionMessages({ instruction, originalContent: promptSettings.content, category: asset.category });
-      const output = await api.aiChat({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, reasoningEffort: profile.reasoningEffort, messages, timeout: 10 * 60 * 1000 });
+      const output = await api.aiChat({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, reasoningEffort: profile.reasoningEffort, messages, timeout: 10 * 60 * 1000 });
       const nextDescription = String(output || '').trim();
       if (!nextDescription) throw new Error('模型没有返回新的提示词');
       editContent(nextDescription); setModifyOpen(false); setInstruction('');
@@ -706,7 +706,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
+      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       if (attached) clearAssetImageRecovery(project.id, asset.id);
       await refresh();
@@ -736,7 +736,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         const refAsset = resolveAssetReference(asset, liveAssets, referenceChoice);
         if(!readAssetImageRecovery(project.id,asset.id)&&requiresCharacterReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error('请先生成或选择人物基准参考图，或明确选择不引用参考');
         const references = refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [];
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
         const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||episode||0, filePath: generated.filePath });
         if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');
@@ -881,7 +881,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
+      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references });
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
       if (attached) clearAssetImageRecovery(project.id, asset.id);
       await refresh();

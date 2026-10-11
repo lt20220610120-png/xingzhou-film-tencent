@@ -1,4 +1,5 @@
 import {VideoApiConfiguration} from './VideoApiConfiguration.jsx';
+import {LibTVConnection} from './LibTVConnection.jsx';
 import {validateVideoAdapter} from '../../core/videoProviderConfig.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
@@ -376,6 +377,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
 }
 
 export function ApiLibrary({ state, setState }) {
+  const [libtvOpen,setLibTVOpen]=useState(false);
   const [activeApiKind, setActiveApiKind] = useState('chat');
   const [importOpen, setImportOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -388,7 +390,7 @@ export function ApiLibrary({ state, setState }) {
   const activeId = activeApiKind === 'chat' ? state.activeApiId : activeApiKind === 'image' ? state.activeImageApiId : activeApiKind === 'audio' ? state.activeAudioApiId : state.activeVideoApiId;
   const filtered = all.filter(p => `${p.name} ${p.model} ${p.endpoint}`.toLowerCase().includes(query.toLowerCase()));
   const kinds = [['chat', '文本模型'], ['image', '图片生成 API'], ['video', '视频 API'], ['audio', '语音模型配置']];
-  const openForm = (profile = null) => { setEditingApi(profile); setDialogOpen(true); };
+  const openForm = (profile = null) => { if(profile?.provider==='libtv'){setLibTVOpen(true);return;}setEditingApi(profile); setDialogOpen(true); };
   const closeForm = () => { setDialogOpen(false); setEditingApi(null); };
   const handleSave = (data) => {
     setState(s => {
@@ -417,7 +419,7 @@ export function ApiLibrary({ state, setState }) {
     setDeleteTarget(null);
   };
   return <div className="resource-page api-library">
-    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1><p>为文本、图片和视频分别选择默认接口，所有创作工作区共用。</p></div><div className="modal-actions"><button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
+    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1><p>为文本、图片和视频分别选择默认接口，所有创作工作区共用。</p></div><div className="modal-actions"><button className="secondary" onClick={()=>setLibTVOpen(true)}>连接 LibTV</button><button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
     <p className="api-parallel-note">可用接口独立调用；豆包工作后台暂不可用。默认仅用于新窗口。各会话、分镜和资产的选择互不影响。</p><nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
     <div className="api-list-toolbar"><span>{all.length} 个配置 · {all.find(p => p.id === activeId)?.name ? `默认：${all.find(p => p.id === activeId).name}` : '尚未设置默认接口'}</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>
@@ -425,6 +427,7 @@ export function ApiLibrary({ state, setState }) {
       <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.provider === 'doubaoWork'?'豆包工作后台暂不可用':profile.provider === 'chatgptWeb' ? '本机 ChatGPT 网页账号' : profile.provider === 'geminiWeb' ? '本机 Gemini 网页账号' : profile.provider === 'codexLocal' ? `本机 Codex · ${profile.reasoningEffort || 'medium'}` : profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : activeApiKind === 'audio' ? '语音模型' : '视频任务'}</small></p><p className="api-endpoint">{profile.provider === 'doubaoWork'?'前台自动操作已停用；已有配置保留':profile.provider === 'chatgptWeb' ? '本机 ChatGPT 网页账号' : profile.provider === 'geminiWeb' ? '本机 Gemini 网页账号' : profile.provider === 'codexLocal' ? '本机 ChatGPT 登录额度，无需 API Key' : profile.endpoint}</p></div>
       <div className="api-connection-actions">{profile.id !== activeId && <button className="secondary" disabled={profile.provider==='doubaoWork'} onClick={() => handleActivate(profile.id)}>设为默认</button>}<button className="secondary" onClick={() => openForm(profile)}><PenLine size={14}/>编辑{activeApiKind === 'chat' ? ' / 测试' : ''}</button><button className="ghost danger" aria-label={`删除 ${profile.name}`} onClick={() => setDeleteTarget(profile)}><Trash2 size={14}/></button></div>
     </article>)}{!filtered.length && <div className="api-empty"><KeyRound size={28}/><h3>{query ? '没有匹配的接口' : '添加你的第一个接口'}</h3><p>{query ? '尝试搜索模型名称或服务商地址。' : activeApiKind === 'chat' ? '可以选择本机 Codex、Gemini 或 ChatGPT 网页账号，也可以添加文本 API。' : '准备好服务商地址、模型名称和 API Key 即可开始。'}</p>{!query && <button className="primary" onClick={() => openForm()}><Plus size={14}/>添加接口</button>}</div>}</div>
+    <Dialog open={libtvOpen} title="连接 LibTV 账号" onClose={()=>setLibTVOpen(false)}>{libtvOpen&&<LibTVConnection state={state} setState={setState} onClose={()=>setLibTVOpen(false)}/>}</Dialog>
     <Dialog open={importOpen} title="从接口导入模型" onClose={()=>setImportOpen(false)}><ModelImport onSave={importModels} onCancel={()=>setImportOpen(false)}/></Dialog>
     <Dialog open={dialogOpen} title={`${editingApi ? '编辑' : '添加'}${kinds.find(k => k[0] === activeApiKind)[1]}`} onClose={closeForm}><ApiForm key={`${activeApiKind}-${editingApi?.id || 'new'}`} kind={activeApiKind} initial={editingApi || {}} onSave={handleSave} onCancel={closeForm}/></Dialog>
     <DeleteConfirm open={!!deleteTarget} title="删除 API 配置" name={deleteTarget?.name} detail="只删除此接口配置，已生成的内容仍会保留。" onCancel={() => setDeleteTarget(null)} onConfirm={handleDelete}/>

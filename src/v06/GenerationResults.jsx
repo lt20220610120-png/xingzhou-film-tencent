@@ -59,6 +59,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
       {task.jobId && <small title={task.jobId}>任务 {task.jobId}</small>}
       {(task.error || task.warning) && <details className="generation-result-error"><summary>{task.status === 'failed' ? '查看失败原因' : '查看任务提示'}</summary><p>{task.error || task.warning}</p></details>}
       <footer><div className="generation-card-actions">
+        {task.libtvCanvasUrl&&<button className="secondary" onClick={()=>api.openExternal(task.libtvCanvasUrl)}>LibTV 原画布</button>}
         {onReuse && <button className="secondary" onClick={() => onReuse(task)}><Copy size={14}/>复用</button>}
         {(task.filePath || task.url) && <button className="secondary" onClick={() => download(task)}><Download size={14}/>下载</button>}
         {(onClear && clearable(task) || onDelete && task.status === 'success') && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => onClear ? askClear([task]) : onDelete(task)}><Trash2 size={15}/></button>}

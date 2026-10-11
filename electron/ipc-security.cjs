@@ -2,6 +2,7 @@ const { pathToFileURL } = require('node:url');
 const identityChanges = new Set(['auth-login', 'auth-register', 'auth-logout', 'auth-recover', 'auth-unlock-role']);
 const onlineChannels = new Set(['ai-chat', 'test-ai-connection', 'discover-models', 'generation-submit', 'generation-refresh', 'media-generate-image', 'media-generate-video', 'media-retry-image-download', 'collab-generate-asset-image', 'collab-generate-video']);
 const stringChannels = new Set(['open-external', 'check-update', 'media-import-file', 'media-import-files']);
+for(const channel of ['libtv-status','libtv-login','libtv-logout','libtv-models','libtv-model-schema','libtv-accounts','libtv-use-account','libtv-cancel-login'])onlineChannels.add(channel);
 function trustedPage(url, { entryFile, isDev }) {
   try {
     const actual = new URL(url);actual.hash='';actual.search='';

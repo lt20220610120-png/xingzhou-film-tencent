@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {requestAssetImage,clearAssetImageRecovery,readAssetImageRecovery} from './assetImageRecovery.js';
+test('LibTV asset recovery uses original generation job without another paid submission',async()=>{let paid=0,queries=0;const api={mediaGenerateImage:async()=>{paid++;return{pendingGeneration:{id:'libtv-job'},error:'官方任务待恢复'};},generationRefresh:async()=>{queries++;return queries===1?{id:'libtv-job',status:'submitted',warning:'仍在运行'}:{id:'libtv-job',status:'success',filePath:'original.png'};}};await assert.rejects(requestAssetImage(api,'libtv','asset',{}),/待恢复/);await assert.rejects(requestAssetImage(api,'libtv','asset',{}),/仍在运行/);assert.equal((await requestAssetImage(api,'libtv','asset',{})).filePath,'original.png');assert.equal(paid,1);assert.equal(queries,2);clearAssetImageRecovery('libtv','asset');});
 test('expired receipt blocks repeated downloads and generation until explicit reset',async()=>{
  let paid=0,reads=0;const api={mediaGenerateImage:async()=>{paid++;return {pendingDownload:{id:'old',reason:'expired'},error:'链接不可用'};},mediaRetryImageDownload:async()=>{reads++;}};
  await assert.rejects(requestAssetImage(api,'expired','a',{}),/不可用/);

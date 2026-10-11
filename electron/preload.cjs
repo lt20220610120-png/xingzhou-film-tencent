@@ -1,5 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
+ libtvStatus:()=>ipcRenderer.invoke('libtv-status'),libtvLogin:()=>ipcRenderer.invoke('libtv-login'),libtvLogout:()=>ipcRenderer.invoke('libtv-logout'),libtvModels:()=>ipcRenderer.invoke('libtv-models'),libtvModelSchema:p=>ipcRenderer.invoke('libtv-model-schema',p),libtvAccounts:()=>ipcRenderer.invoke('libtv-accounts'),libtvUseAccount:p=>ipcRenderer.invoke('libtv-use-account',p),libtvCancelLogin:()=>ipcRenderer.invoke('libtv-cancel-login'),
  chatgptWebStatus:()=>ipcRenderer.invoke('chatgpt-web-status'),chatgptWebOpenLogin:()=>ipcRenderer.invoke('chatgpt-web-login'),chatgptWebModels:()=>ipcRenderer.invoke('chatgpt-web-models'),
  geminiWebStatus:()=>ipcRenderer.invoke('gemini-web-status'),geminiWebOpenLogin:()=>ipcRenderer.invoke('gemini-web-login'),geminiWebModels:()=>ipcRenderer.invoke('gemini-web-models'),
  doubaoWorkStatus:()=>ipcRenderer.invoke('doubao-work-status'),doubaoWorkOpenLogin:()=>ipcRenderer.invoke('doubao-work-login'),doubaoWorkModels:()=>ipcRenderer.invoke('doubao-work-models'),
