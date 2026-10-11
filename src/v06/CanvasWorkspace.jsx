@@ -1,3 +1,6 @@
+import {VideoApiConfiguration} from './VideoApiConfiguration.jsx';
+import {normalizeCapabilities} from '../../core/modelCapabilities.js';
+import {validateVideoAdapter} from '../../core/videoProviderConfig.js';
 import {requestAssetImage,clearAssetImageRecovery} from '../../core/assetImageRecovery.js';
 import feituoModels from '../../core/feituo-models.json';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -40,27 +43,28 @@ export function MediaApiSettings({ state, setState, onClose }) {
     let endpoint;
     try { endpoint = new URL(form.endpoint.trim()); } catch { setError('请填写完整的接口地址，例如 https://example.com/v1'); return; }
     if (!['https:', 'http:'].includes(endpoint.protocol)) { setError('接口地址须以 https:// 或 http:// 开头'); return; }
-    if (!form.apiKey.trim()) { setError('请填写 API Key'); return; }
+    if (!form.apiKey.trim()&&!(form.kind==='video'&&form.videoProtocol==='custom'&&form.videoAdapter?.authMode==='none')) { setError('请填写 API Key'); return; }
     if (typeof setState !== 'function') { setError('接口设置未能加载，请关闭后重试'); return; }
-    if (isFeituoEndpoint(endpoint.href)) {
+    if (form.kind!=='video'&&isFeituoEndpoint(endpoint.href)) {
       setState((current) => saveFeituoApiKey(current, form.apiKey));
       setFeituoKey(form.apiKey.trim()); setMode('feituo'); setEditingId(null);
       setNotice('飞拓 API Key 已保存，图片和视频全部已接入模型共用此 Key。');
       return;
     }
+    if(form.kind==='video'&&form.videoProtocol==='custom'){try{validateVideoAdapter(form.videoAdapter);}catch(e){setError(e.message);return;}}
     if (!form.model.trim()) { setError('请填写模型 ID'); return; }
-    const values = { ...form, name: form.name.trim() || form.model.trim(), endpoint: form.endpoint.trim(), apiKey: form.apiKey.trim(), model: form.model.trim() };
+    const values = { ...form, name: form.name.trim() || form.model.trim(), endpoint: form.endpoint.trim(), apiKey: form.apiKey.trim(), model: form.model.trim(),capabilities:normalizeCapabilities(form.capabilities) };
     setState((current) => editingId ? updateMediaProfile(current, editingId, values) : addMediaProfile(current, values));
     setForm({ kind: form.kind, name: '', endpoint: '', model: '', apiKey: '' }); setEditingId(null);
     setNotice(editingId ? '接口修改已保存。' : '接口已添加，可在生成界面选择使用。');
   };
   const edit = (profile) => {
     setNotice(''); setError('');
-    if (isFeituoEndpoint(profile.endpoint)) {
+    if (profile.kind!=='video'&&isFeituoEndpoint(profile.endpoint)) {
       setMode('feituo'); setFeituoKey(credential?.apiKey || profile.apiKey || ''); setEditingId(null);
     } else {
       setMode('custom'); setEditingId(profile.id);
-      setForm({ kind: profile.kind, name: profile.name || '', endpoint: profile.endpoint || '', model: profile.model || '', apiKey: profile.apiKey || '' });
+      setForm({ ...profile,kind: profile.kind, name: profile.name || '', endpoint: profile.endpoint || '', model: profile.model || '', apiKey: profile.apiKey || '' });
     }
   };
   const renderProfiles = (kind) => {
@@ -84,8 +88,9 @@ export function MediaApiSettings({ state, setState, onClose }) {
           <select aria-label="接口类型" value={form.kind} onChange={update('kind')}><option value="image">图片生成接口</option><option value="video">视频生成接口</option></select>
           <input aria-label="接口名称" placeholder="接口名称" value={form.name} onChange={update('name')} />
           <input aria-label="接口地址" placeholder="接口地址，例如 https://example.com/v1" value={form.endpoint} onChange={update('endpoint')} />
-          <input aria-label="模型 ID" placeholder="模型 ID" value={form.model} onChange={update('model')} />
+          {form.kind!=='video'&&<input aria-label="模型 ID" placeholder="模型 ID" value={form.model} onChange={update('model')} />}
           <input aria-label="自定义接口 API Key" placeholder="API Key" type="password" autoComplete="off" value={form.apiKey} onChange={update('apiKey')} />
+          {form.kind==='video'&&<VideoApiConfiguration form={form} update={(key,value)=>setForm(f=>({...f,[key]:value}))}/>}
           <button className="primary" type="submit"><Save size={14} />{editingId ? '保存修改' : '添加接口'}</button>
         </form>}
         {error && <p className="media-api-feedback error" role="alert">{error}</p>}{notice && <p className="media-api-feedback" role="status">{notice}</p>}

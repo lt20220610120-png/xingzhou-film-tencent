@@ -1,3 +1,5 @@
+import {VideoApiConfiguration} from './VideoApiConfiguration.jsx';
+import {validateVideoAdapter} from '../../core/videoProviderConfig.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import { ChatGPTAccountSetup } from './ChatGPTAccountSetup.jsx';
@@ -18,7 +20,6 @@ import { buildSkillFromDirectory, buildSkillFromDocument } from '../../core/skil
 import { buildSkillContext, buildSkillManifest } from '../../core/skillContext.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { MediaApiSettings } from './CanvasWorkspace.jsx';
-import ftModels from '../../core/feituo-models.json';
 import { isFeituoEndpoint, addMediaProfile, updateMediaProfile, removeMediaProfile, setActiveMediaApi } from '../../core/canvasStore.js';
 
 /* ================================================================
@@ -310,10 +311,9 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     model: initial.model || '', apiKey: initial.apiKey || '', protocol: initial.protocol || 'auto',
     requiresApiKey: initial.requiresApiKey ?? true,
     reasoningEffort: initial.reasoningEffort || (initial.provider==='doubaoWork'?'high':'medium'),
-    capabilities: initial.capabilities || {},
+    capabilities: initial.capabilities || {},videoProtocol:initial.videoProtocol||'auto',videoAdapter:initial.videoAdapter,modelCatalog:initial.modelCatalog||[],modelListPath:initial.modelListPath||'',
   }));
   const isFt=kind==='video'&&isFeituoEndpoint(form.endpoint);
-  const ftModel=isFt?ftModels.find(m=>m.id===form.model):null;
   const isLocalCodex = kind === 'chat' && form.provider === 'codexLocal';
   const isChatGPTWeb=kind==='chat'&&form.provider==='chatgptWeb';
   const isGeminiWeb = kind === 'chat' && form.provider === 'geminiWeb',isDoubaoWork=kind==='chat'&&form.provider==='doubaoWork',isLocalAccount=isLocalCodex||isGeminiWeb||isDoubaoWork||isChatGPTWeb;
@@ -329,11 +329,12 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     setTestResult(null);
   };
   const validate = () => {
+    if(kind==='video'&&form.videoProtocol==='custom'){try{validateVideoAdapter(form.videoAdapter);}catch(e){return e.message;}}
     if (isDoubaoWork) return '豆包工作后台连接暂不可用，请选择已接通的其他服务商';
     if (isLocalAccount) return form.model.trim() ? '' : '请选择账号模型';
     if (!form.endpoint.trim() || !form.model.trim()) return '请填写接口地址和模型名称';
     try { const url = new URL(form.endpoint.trim()); if (!['http:', 'https:'].includes(url.protocol)) return '接口地址必须以 https:// 或 http:// 开头'; } catch { return '请输入完整的接口地址'; }
-    if (form.requiresApiKey && !form.apiKey.trim()) return '请填写 API Key';
+    if (form.requiresApiKey && !form.apiKey.trim() && !(kind==='video'&&form.videoProtocol==='custom'&&form.videoAdapter?.authMode==='none')) return '请填写 API Key';
     return '';
   };
   const handleTest = async () => {
@@ -355,20 +356,20 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: isLocalAccount ? '' : form.endpoint.trim(), model: form.model.trim(), apiKey: isLocalAccount ? '' : form.apiKey.trim(), reasoningEffort:isDoubaoWork?'high':form.reasoningEffort, capabilities: normalizeCapabilities(form.capabilities) });
   };
   return <form className="api-config-form" onSubmit={handleSubmit}>
-    <p className="api-form-intro">{isDoubaoWork ? '豆包工作后台连接暂不可用。已停用前台自动提交，避免抢占窗口和影响你的客户端对话；可切换其他已接通服务商。' : isChatGPTWeb ? '使用 ChatGPT 网页账号额度，无需 API Key；使用网页默认模型。完成独立登录后测试正文，连接失败时不会改用其他接口。' : isGeminiWeb ? '使用 Gemini 网页账号额度，无需 API Key。先完成下方登录，再测试正文；这与 Gemini 按量 API 配置独立。' : isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : isFt ? '飞拓视频接口使用公开模型编号，支持本地素材与公网素材参考；型号参数按最新内置目录显示。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '用于画布与分镜视频。接口需支持火山方舟 /contents/generations/tasks 格式。'}</p>
+    <p className="api-form-intro">{isDoubaoWork ? '豆包工作后台连接暂不可用。已停用前台自动提交，避免抢占窗口和影响你的客户端对话；可切换其他已接通服务商。' : isChatGPTWeb ? '使用 ChatGPT 网页账号额度，无需 API Key；使用网页默认模型。完成独立登录后测试正文，连接失败时不会改用其他接口。' : isGeminiWeb ? '使用 Gemini 网页账号额度，无需 API Key。先完成下方登录，再测试正文；这与 Gemini 按量 API 配置独立。' : isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : isFt ? '飞拓视频接口使用公开模型编号，支持本地素材与公网素材参考；型号参数按最新内置目录显示。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '填写上游地址与密钥，读取型号后选择视频协议；特殊格式可在自定义协议中按文档配置。'}</p>
     <div className="api-form-fields">
       <label>配置名称<input value={form.name} onChange={e => update('name', e.target.value)} placeholder="例如：剧本分析主力、备用接口" autoFocus /></label>
       {kind === 'chat' && <label>服务商<select value={form.provider} onChange={e => handleProviderChange(e.target.value)}>{providerOptions.map(p => <option value={p.type} key={p.type}>{p.name}</option>)}</select></label>}
       {!isLocalAccount && <label className="full">接口地址<input value={form.endpoint} onChange={e => update('endpoint', e.target.value)} placeholder="https://服务商域名/v1" spellCheck={false} /><small>可填写基础地址或完整接口路径，请以服务商文档为准。</small></label>}
-      {isChatGPTWeb ? <ChatGPTAccountSetup/> : isDoubaoWork ? <DoubaoWorkAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isGeminiWeb ? <GeminiAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isLocalCodex ? <label>Codex 模型<select value={form.model} onChange={e => update('model', e.target.value)}><option value="gpt-6-luna">GPT-6 Luna · 快速</option><option value="gpt-6-sol">GPT-6 Sol · 均衡</option><option value="gpt-6-astra">GPT-6 Astra · 深度</option>{form.model && !['gpt-6-luna','gpt-6-sol','gpt-6-astra'].includes(form.model) && <option value={form.model}>{form.model}</option>}</select></label> : isFt ? <label className="full">飞拓视频模型<select aria-label="飞拓视频模型" value={form.model} onChange={e=>{update('model',e.target.value);}}><option value="">请选择模型</option>{form.model&&!ftModel&&<option value={form.model}>{form.model}（自定义编号）</option>}<optgroup label="当前型号">{ftModels.filter(m=>m.kind==='video'&&!m.legacy).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</optgroup><optgroup label="保留的旧型号（请核对上游可用性）">{ftModels.filter(m=>m.kind==='video'&&m.legacy).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</optgroup></select><small>{form.model}</small></label> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>}
+      {kind!=='video'&&(isChatGPTWeb ? <ChatGPTAccountSetup/> : isDoubaoWork ? <DoubaoWorkAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isGeminiWeb ? <GeminiAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isLocalCodex ? <label>Codex 模型<select value={form.model} onChange={e => update('model', e.target.value)}><option value="gpt-6-luna">GPT-6 Luna · 快速</option><option value="gpt-6-sol">GPT-6 Sol · 均衡</option><option value="gpt-6-astra">GPT-6 Astra · 深度</option>{form.model && !['gpt-6-luna','gpt-6-sol','gpt-6-astra'].includes(form.model) && <option value={form.model}>{form.model}</option>}</select></label> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>)}
       {isDoubaoWork&&<label>推理强度<select aria-label="豆包工作推理强度" value="high" disabled><option value="high">高</option></select><small>豆包工作连接默认使用高推理强度。</small></label>}
       {isLocalCodex && <label>推理档位<select value={form.reasoningEffort} onChange={e => update('reasoningEffort', e.target.value)}><option value="low">低 · 更快</option><option value="medium">中 · 均衡</option><option value="high">高 · 更仔细</option><option value="xhigh">超高 · 复杂任务</option></select><small>档位越高，通常等待更久、消耗更多额度；可按任务创建多个配置。</small></label>}
       {kind === 'chat' && !isLocalAccount && <label>接口协议<select value={form.protocol} onChange={e => update('protocol', e.target.value)}><option value="auto">自动（默认 OpenAI 兼容）</option><option value="chat">Chat Completions</option><option value="responses">Responses</option><option value="anthropic">Anthropic Messages</option></select></label>}
       {!isLocalAccount && <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>}
       {kind === 'chat' && !isLocalAccount && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
     </div>
-    {isFt&&ftModel&&<p className="api-form-intro">时长：{ftModel.durations.join('、')} 秒 · 分辨率：{ftModel.resolutions.join('、')||'固定'} · 图片参考：{ftModel.maxImages??'上游未声明'} 张 · 视频参考：{ftModel.maxVideos??'上游未声明'} 个 · 音频参考：{ftModel.maxAudios??'上游未声明'} 个。各分辨率对应时长以生成界面为准。</p>}
-    {!isFt&&['video','image'].includes(kind) && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
+    {kind==='video'&&<VideoApiConfiguration form={form} update={update}/>}
+    {kind==='image' && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
     {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <FormattedText text={testResult.reply}/>}</div>}
     <div className="modal-actions"><button type="button" className="ghost" onClick={onCancel}>取消</button>{kind === 'chat' && <button type="button" className="secondary" onClick={handleTest} disabled={testing||isDoubaoWork}><RefreshCw size={14} className={testing ? 'spin' : ''}/>{testing ? '等待正文…' : '测试正文'}</button>}<button type="submit" className="primary" disabled={isDoubaoWork}><Save size={14}/>保存配置</button></div>
   </form>;

@@ -1,0 +1,27 @@
+import React,{useState,useRef} from 'react';
+import {profileModels,ftEndpoint} from '../../core/videoCatalog.js';
+import {normalizeCapabilities} from '../../core/modelCapabilities.js';
+import {VIDEO_PROTOCOLS,videoAdapterPreset,validateVideoAdapter} from '../../core/videoProviderConfig.js';
+export function VideoApiConfiguration({form,update}){
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[adapterText,setAdapterText]=useState(()=>JSON.stringify(form.videoAdapter||videoAdapterPreset('ark'),null,2));
+ const models=profileModels(form,'video');
+ const latest=useRef(form);latest.current=form;
+ const choose=id=>{const m=models.find(m=>m.id===id);update('model',id);if(m)update('capabilities',normalizeCapabilities(m.capabilities||m));};
+ const read=async()=>{setBusy(true);setError('');setNotice('');const source=form;try{const all=await window.xingzhou.discoverModels({endpoint:form.endpoint,apiKey:form.apiKey,modelListPath:form.modelListPath,videoProtocol:form.videoProtocol});if(['endpoint','apiKey','modelListPath','model'].some(k=>latest.current[k]!==source[k]))throw Error('配置已变化，请重新读取型号');const rows=all.filter(m=>m.kind==='video'||String(m.id).startsWith('ft-video-')).map(m=>({...m,kind:'video',capabilities:normalizeCapabilities(m.capabilities)}));if(!rows.length)throw Error('列表未声明视频用途，请使用拉取/导入模型确认用途，或手动填写型号');update('modelCatalog',rows);const selected=rows.find(m=>m.id===form.model)||(!form.model?rows[0]:null);if(selected){update('model',selected.id);update('capabilities',selected.capabilities);}if(ftEndpoint(form.endpoint)&&(!form.videoProtocol||form.videoProtocol==='auto'))update('videoProtocol','feituo');setNotice(`已读取 ${rows.length} 个视频型号；新型号可以直接在生成界面选择。`);}catch(e){setError(e.message);}finally{setBusy(false);}};
+ const caps=form.capabilities||{};
+ return <section className="video-provider-config">
+  <div className="api-form-fields"><label className="full">视频调用协议<select aria-label="视频调用协议" value={form.videoProtocol||'auto'} onChange={e=>{update('videoProtocol',e.target.value);if(e.target.value==='custom'){const adapter=form.videoAdapter||videoAdapterPreset(ftEndpoint(form.endpoint)?'feituo':'ark');update('videoAdapter',adapter);setAdapterText(JSON.stringify(adapter,null,2));}}}>{Object.entries(VIDEO_PROTOCOLS).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select><small>不同上游的请求格式不同；请选择文档对应协议。自动模式沿用已有配置，不会用生成请求试探协议。</small></label>
+  <label className="full">模型编号<input aria-label="视频模型编号" value={form.model} onChange={e=>update('model',e.target.value)} placeholder="上游 model ID，可直接填写最新型号" spellCheck={false}/></label>
+  {!!models.length&&<label className="full">已读取／已有型号<select aria-label="视频型号目录" value={form.model} onChange={e=>choose(e.target.value)}><option value="">请选择型号</option>{models.map(m=><option key={m.id} value={m.id}>{m.name}{m.legacy?'（旧型号）':''}</option>)}</select></label>}
+  <label className="full">模型列表路径（可选）<input value={form.modelListPath||''} onChange={e=>update('modelListPath',e.target.value)} placeholder="留空使用 /models；特殊上游可填完整同站列表地址"/></label></div>
+  <button type="button" className="secondary" disabled={busy||!form.endpoint||(!form.apiKey&&form.videoAdapter?.authMode!=='none')} onClick={read}>{busy?'读取中…':'拉取／刷新视频型号与参数'}</button>
+  <fieldset className="api-form-fields"><legend>模型支持的参数</legend><small className="full">优先读取上游参数；缺少时按上游文档补充。留空表示未声明，不能当作无限制。</small>
+   {[['durations','时长（秒）','5,10,15'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']].map(([k,label,hint])=><label key={k}>{label}<input value={Array.isArray(caps[k])?caps[k].join(','):caps[k]||''} placeholder={hint} onChange={e=>update('capabilities',{...caps,[k]:e.target.value})}/></label>)}
+   {[['maxImages','图片参考上限'],['maxVideos','视频参考上限'],['maxAudios','音频参考上限'],['minImages','最少参考图片'],['maxPrompt','提示词字符上限']].map(([k,label])=><label key={k}>{label}<input type="number" min="0" value={caps[k]??''} placeholder="未声明" onChange={e=>{const next={...caps};if(e.target.value==='')delete next[k];else next[k]=Number(e.target.value);update('capabilities',next);}}/></label>)}
+   <label className="full">分辨率对应时长（JSON，可选）<input aria-label="分辨率对应时长" defaultValue={JSON.stringify(caps.durationByResolution||{})} key={form.model+JSON.stringify(caps.durationByResolution)} onBlur={e=>{try{const map=JSON.parse(e.target.value||'{}');if(!map||typeof map!=='object'||Array.isArray(map))throw Error();update('capabilities',{...caps,durationByResolution:map});setError('');}catch{setError('分辨率时长映射应为 JSON 对象，例如 {"720p":[5,10]}');}}}/></label>
+   <label className="full"><input type="checkbox" checked={caps.audioRequiresImage===true} onChange={e=>update('capabilities',{...caps,audioRequiresImage:e.target.checked})}/>音频参考必须同时配图</label>
+  </fieldset>
+  {form.videoProtocol==='custom'&&<details open><summary>自定义提交、查询与字段映射</summary><p>照上游文档配置提交/查询路径、鉴权头和返回字段。模板变量：model、prompt、duration、seconds、ratio、resolution、size、imageUrls、videoUrls、audioUrls、content；查询路径使用 taskId。密钥只填上方 API Key，不写进模板。</p><textarea aria-label="自定义视频协议 JSON" rows={14} style={{width:'100%',fontFamily:'monospace'}} value={adapterText} onChange={e=>{setAdapterText(e.target.value);try{const adapter=validateVideoAdapter(JSON.parse(e.target.value));update('videoAdapter',adapter);setError('');}catch{update('videoAdapter',null);setError('请填写有效的自定义视频协议 JSON');}}}/></details>}
+  {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
+ </section>;
+}

@@ -92,7 +92,7 @@ export const FEITUO_ENDPOINT = 'https://feituokuajing.com';
 export const isFeituoEndpoint = (endpoint) => {
   try {
     const url = new URL(String(endpoint || '').trim());
-    return url.protocol === 'https:' && url.hostname === 'feituokuajing.com' && !url.username && !url.password;
+    return url.protocol === 'https:' && url.origin === FEITUO_ENDPOINT && !url.username && !url.password;
   } catch { return false; }
 };
 
@@ -109,7 +109,7 @@ export const generationMediaProfiles = (state, kind) => {
   const credential = feituoCredentialProfile(state);
   const profiles = (state.mediaProfiles || []).filter((profile) => profile.kind === kind).map((profile) =>
     isFeituoEndpoint(profile.endpoint) && credential
-      ? { ...profile, endpoint: FEITUO_ENDPOINT, apiKey: credential.apiKey }
+      ? { ...profile, apiKey: profile.apiKey||credential.apiKey }
       : profile);
   if (credential && !profiles.some((profile) => isFeituoEndpoint(profile.endpoint))) {
     profiles.push({ ...credential, kind, endpoint: FEITUO_ENDPOINT, name: `飞拓${MEDIA_KINDS[kind]}`, model: feituoModels.find((model) => model.kind === kind).id });
@@ -148,6 +148,10 @@ export const addMediaProfile = (state, profile) => {
     endpoint: profile.endpoint || '',
     apiKey: profile.apiKey || '',
     model: profile.model || '',
+    videoProtocol:profile.videoProtocol|| (profile.kind==='video'&&isFeituoEndpoint(profile.endpoint)?'feituo':'auto'),
+    ...(profile.videoAdapter?{videoAdapter:profile.videoAdapter}:{}),
+    ...(Array.isArray(profile.modelCatalog)?{modelCatalog:profile.modelCatalog}:{}),
+    ...(profile.modelListPath?{modelListPath:profile.modelListPath}:{}),
     createdAt: now(),
   };
   const next = { ...state, mediaProfiles: [...(state.mediaProfiles || []), item] };

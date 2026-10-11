@@ -66,6 +66,6 @@ export function clearPromptBook(workflow,bookId){
 }
 
 export function referencePolicy(feituo,caps){
- return feituo?{maxImages:caps.maxImages??0,maxVideos:caps.maxVideos??0,maxAudios:caps.maxAudios??0}:{maxImages:1,maxVideos:0,maxAudios:0};
+ return {maxImages:caps.maxImages!==undefined?caps.maxImages:feituo?0:1,maxVideos:caps.maxVideos!==undefined?caps.maxVideos:0,maxAudios:caps.maxAudios!==undefined?caps.maxAudios:0};
 }
 import {generationReferenceKey} from './automaticReferences.js';

@@ -4,13 +4,15 @@ const { readMediaBytes } = require('./media-network.cjs');
 const models = require('../core/feituo-models.json');
 const BASE = 'https://feituokuajing.com';
 function validate(input) {
-  const model = models.find(m => m.id === input.model);
+  const builtin = models.find(m => m.id === input.model);
+  const fallback = builtin || (input.kind==='video'&&input.modelCapabilities?{id:input.model,name:input.model,kind:'video',durations:[],ratios:[],resolutions:[],maxImages:null,maxVideos:null,maxAudios:null,audioRequiresImage:false}:null);
+  const model=fallback?{...fallback,...(input.kind==='video'?input.modelCapabilities||{}:{}),id:fallback.id,kind:fallback.kind}:null;
   if (!model) throw new Error('请选择已支持的飞拓模型');
   if (!input.prompt?.trim()) throw new Error('请填写提示词');
   if (model.maxPrompt && input.prompt.length > model.maxPrompt) throw new Error(`提示词最多 ${model.maxPrompt} 字`);
   const durations = model.durationByResolution?.[input.resolution] || model.durations;
-  if (model.kind === 'video' && !durations.includes(Number(input.duration))) throw new Error('所选模型不支持该时长');
-  if (!model.ratios.includes(input.ratio)) throw new Error('所选模型不支持该比例');
+  if (model.kind === 'video' && durations?.length && !durations.includes(Number(input.duration))) throw new Error('所选模型不支持该时长');
+  if (model.ratios.length&&!model.ratios.includes(input.ratio)) throw new Error('所选模型不支持该比例');
   if (model.resolutions.length && !model.resolutions.includes(input.resolution)) throw new Error('所选模型不支持该分辨率');
   const refs = input.references || [];
   if (refs.filter(r=>r.kind==='image').length < (model.minImages||0)) throw new Error(`${model.name} 至少需要 ${model.minImages} 张参考图片`);

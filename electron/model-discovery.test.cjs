@@ -1,5 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {listUrl,discoverModels}=require('./model-discovery.cjs');
+test('特殊模型列表路径不能替代生成接口的base地址',async()=>{
+ const [row]=await discoverModels({endpoint:'https://provider.test/v1',modelListPath:'/catalog/list'},async url=>{assert.equal(url,'https://provider.test/catalog/list');return Response.json({data:[{id:'video-new',type:'video'}]});});assert.equal(row.endpoint,'https://provider.test/v1');
+});
 test('飞拓完整生成路径拉取公共编号和顶层视频能力，不提交任务',async()=>{
  const [model]=await discoverModels({endpoint:'https://feituokuajing.com/api/open/v1/video/generate',apiKey:'fixture'},async(url,options)=>{
   assert.equal(url,'https://feituokuajing.com/api/open/v1/models');assert.equal(options.headers['X-Public-Model-Ids'],'1');assert.equal(options.method,undefined);

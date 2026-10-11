@@ -36,6 +36,10 @@ module.exports = function configurePackagedSmoke(app) {
         report.creatorWorkspace = {docxRoundTrip:creatorRoundTrip.value.replace(/\n\n/g,'\n').trim() === creatorContent,
           bridge:await win.webContents.executeJavaScript("['saveCreatorDocument','importCreatorVideo','loadState','saveState'].every(name=>typeof window.xingzhou?.[name]==='function')")};
         const { pathToFileURL } = require('node:url');
+        const videoProvider=require('./video-provider.cjs');
+        const videoConfig=await videoProvider.config({endpoint:'https://example.invalid/v1',videoProtocol:'videos-json'});
+        const {profileModels}=await import(pathToFileURL(path.join(__dirname,'../core/videoCatalog.js')).href);
+        report.videoProviders={modulesLoad:typeof videoProvider.submit==='function',configuration:videoConfig.adapter.submitPath==='videos',futureCatalog:profileModels({kind:'video',endpoint:'https://example.invalid/v1',model:'future-model',modelCatalog:[{id:'future-model',kind:'video',capabilities:{durations:[7]}}]}).some(m=>m.id==='future-model'&&m.durations[0]===7)};
         const ip = await import(pathToFileURL(path.join(__dirname,'../core/ipWorkspace.js')).href);
         const { IP_BUILTIN_SKILLS } = await import(pathToFileURL(path.join(__dirname,'../core/ipBuiltinSkills.js')).href);
         const { archiveCreatorProject } = await import(pathToFileURL(path.join(__dirname,'../core/creatorWorkspace.js')).href);

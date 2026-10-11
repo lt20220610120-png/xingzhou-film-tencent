@@ -84,8 +84,20 @@ function createGenerationJobs(dir) {
     },
     async submit(input) {
       const { apiKey, endpoint, signal, ...snapshot } = input;
-      const job = { ...snapshot, id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
-      if (input.model?.startsWith('ft-')) {
+      // Reuse carries generation settings, never a previous paid task's identity.
+      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived'])delete snapshot[field];
+      let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
+      const job = { ...snapshot, ...(input.kind==='video'?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
+      const ftHost=(()=>{try{return new URL(endpoint).origin==='https://feituokuajing.com';}catch{return false;}})();
+      if (input.kind==='video'&&(!ftHost||!['auto','feituo',undefined].includes(input.videoProtocol))) {
+        const provider=require('./video-provider.cjs');await provider.validate(input);await provider.config(input);
+        save(job);
+        try{
+          const result=await provider.submit(input);const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
+          if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
+        }catch(e){const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
+      }
+      if (input.model?.startsWith('ft-')||ftHost) {
         if(new URL(input.endpoint).origin !== 'https://feituokuajing.com')throw new Error('飞拓模型必须使用 https://feituokuajing.com 接口');
         client.validate(input);
         save(job);
@@ -107,22 +119,28 @@ function createGenerationJobs(dir) {
         return save({...job,status:'success',filePath});
       } catch(error) { if(error.downloadReceiptId)return save({...job,status:'downloading',downloadReceiptId:error.downloadReceiptId,error:error.message}); save({...job,status:'failed',error:error.message}); throw error; }
     },
-    async refresh({id,apiKey}) {
+    async refresh({id,apiKey,endpoint}) {
       if (inFlight.has(id)) return inFlight.get(id);
       const work = (async () => {
         let job=read().find(r=>r.id===id);
         if (!job) throw new Error('任务不存在');
+        const generic=job.kind==='video'&&job.endpoint&&(new URL(job.endpoint).origin!=='https://feituokuajing.com'||!['auto','feituo',undefined].includes(job.videoProtocol));
+        const credentialOrigin=job.endpoint?new URL(job.endpoint).origin:job.model?.startsWith('ft-')?'https://feituokuajing.com':null;
+        if((generic&&!endpoint)||(credentialOrigin&&endpoint&&new URL(endpoint).origin!==credentialOrigin))return save({...job,warning:'接口地址已变化，请使用原服务商配置查询这个任务，未发送密钥'});
+        if(generic&&!job.jobId&&job.url&&job.status==='downloading'){
+          try{const filePath=await require('./video-provider.cjs').download(job,apiKey,dir);return save({...job,status:'success',filePath,warning:''});}catch{return save({...job,warning:'结果地址下载暂未完成，请稍后重试下载'});}
+        }
         if(job.downloadReceiptId){try{const filePath=await retryImageDownload(job.downloadReceiptId,dir);return save({...job,status:'success',filePath,downloadReceiptId:null,error:'',warning:''});}catch(error){return save({...job,warning:error.message});}}
         if (!job.jobId || (job.status === 'success' && job.filePath) || job.status === 'failed') return job;
         try {
           if(job.kind==='image' && job.urls?.length) {const files=[];for(const url of job.urls)files.push(await downloadToFile(url,dir,'png'));return save({...job,status:'success',filePath:files[0],files,warning:''});}
-          const result=await client.status({jobId:job.jobId,apiKey});
+          const result=generic?await require('./video-provider.cjs').status({...job,apiKey}):await client.status({jobId:job.jobId,apiKey});
           job={...job,checkedAt:result.checkedAt || new Date().toISOString(),costYuan:result.costYuan ?? job.costYuan};
           if (result.status === 'failed') return save({...job,status:'failed',error:result.errorMessage || '生成失败'});
-          if (result.status !== 'success') return save({...job,status:'submitted',warning:result.warning || '',error:''});
+          if (result.status !== 'success') return save({...job,status:'submitted',nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000,warning:result.warning || '',error:''});
           if (!result.videoUrl) throw new Error('任务完成但视频地址尚未返回');
           job=save({...job,status:'downloading',url:result.videoUrl});
-          const filePath=await downloadToFile(result.videoUrl,dir,'mp4');
+          const filePath=generic?await require('./video-provider.cjs').download(job,apiKey,dir):await downloadToFile(result.videoUrl,dir,'mp4');
           return save({...job,status:'success',filePath,error:'',warning:''});
         } catch(error) { return save({...job,warning:error.message}); }
       })();
