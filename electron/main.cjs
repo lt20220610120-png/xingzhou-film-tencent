@@ -345,7 +345,8 @@ ipcMain.handle('collab-send-image',async(_,payload)=>{const r=await dialog.showO
 ipcMain.handle('collab-get-stats',(_,payload)=>collabService.getStats(payload));
 function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
 const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
-const generationManagers=createGenerationManagers({libtvService:getLibTV});
+const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>accessService.readSession()});
+const generationManagers=createGenerationManagers({libtvService:getLibTV,prepareVideoReferences});
 const jobs=()=>generationManagers(mediaDir());
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));

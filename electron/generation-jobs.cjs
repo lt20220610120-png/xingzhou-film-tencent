@@ -18,6 +18,15 @@ function createGenerationManagers(options={}) {
 }
 function createGenerationJobs(dir,options={}) {
   const file = path.join(dir, 'generation-jobs.json');
+  // 2.8.32's local-URL guard ran before the paid POST but its catch called it
+  // uncertain. Correct only that exact legacy case, never a real remote task.
+  if(fs.existsSync(file)){
+    const rows=JSON.parse(fs.readFileSync(file,'utf8'));let changed=false;
+    const repaired=rows.map(job=>{let niney=false;try{niney=new URL(job.endpoint).hostname==='9yapi.shop';}catch{}
+      if(niney&&job.status==='uncertain'&&!job.jobId&&!job.url&&String(job.error).includes('9Y 视频只接受公网 HTTPS 素材地址')&&job.references?.some(r=>r.filePath&&!/^https:\/\//i.test(r.url||''))){changed=true;return {...job,status:'failed',submissionAttempted:false,error:'参考素材尚未完成上传，生成请求未发出；可复用此条目后重新生成。'};}return job;
+    });
+    if(changed){fs.writeFileSync(file+'.tmp',JSON.stringify(repaired));fs.renameSync(file+'.tmp',file);}
+  }
   const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
   const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else rows[index] = job; fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); return job; };
   const inFlight = new Map();
@@ -113,9 +122,10 @@ function createGenerationJobs(dir,options={}) {
         const provider=require('./video-provider.cjs');await provider.validate(input);await provider.config(input);
         save(job);
         try{
-          const result=await provider.submit({...input,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
+          let prepared=input;try{await provider.preflight(input,{allowLocal:!!options.prepareVideoReferences});if(options.prepareVideoReferences)prepared=await options.prepareVideoReferences(input);await provider.preflight(prepared);}catch(e){const detail=String(e.message||'素材准备失败').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);save({...job,status:'failed',submissionAttempted:false,error:detail});throw Object.assign(new Error(detail),{beforeSubmission:true});}
+          const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
           if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
-        }catch(e){const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
+        }catch(e){if(e.beforeSubmission){if(read().find(r=>r.id===job.id)?.status!=='failed')save({...job,status:'failed',submissionAttempted:false,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});throw e;}const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
       }
       if (input.model?.startsWith('ft-')||ftHost) {
         if(new URL(input.endpoint).origin !== 'https://feituokuajing.com')throw new Error('飞拓模型必须使用 https://feituokuajing.com 接口');

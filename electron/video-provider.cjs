@@ -40,7 +40,18 @@ async function validate(input){const {normalizeCapabilities}=await capabilities;
  if(refs.some(r=>r.kind==='audio')&&caps.audioRequiresVisual&&!refs.some(r=>['image','video'].includes(r.kind)))throw Error('音频参考需要图片或视频');
  for(const r of refs)if(!['image','video','audio'].includes(r.kind))throw Error('参考素材类型无效');return caps;
 }
-async function submit(input){await validate(input);const {adapter,base,protocol}=await config(input),refs=input.references||[],headers=auth(adapter,input.apiKey);
+async function preflight(input,{allowLocal=false}={}){
+ await validate(input);const {protocol,adapter}=await config(input);auth(adapter,input.apiKey);
+ const refs=input.references||[];
+ if(protocol==='niney'&&refs.some(r=>!publicHttpsReference(r.url)&&!(allowLocal&&r.filePath)))throw Error('9Y 参考素材需要公网 HTTPS 地址；本地文件会在生成前临时上传');
+ if(protocol==='niney'&&/^官转wan/i.test(input.model)){
+  const videos=refs.filter(r=>r.kind==='video'),durations=videos.map(r=>Number(r.duration??r.seconds));
+  if(durations.some(s=>!Number.isFinite(s)||s<1||s>15))throw Error('9Y 的 Wan 视频参考需要填写每段素材时长（1–15 秒）');
+  const total=durations.reduce((n,s)=>n+s,0);if(total>15||total+Number(input.duration)>30)throw Error('9Y 官转 Wan 视频参考合计不能超过15秒，参考加生成时长不能超过30秒');
+ }
+}
+async function submit(input){let started=false;try{return await submitPrepared({...input,onSubmissionStart:()=>{started=true;}});}catch(error){if(!started)error.beforeSubmission=true;throw error;}}
+async function submitPrepared(input){await preflight(input);const {adapter,base,protocol}=await config(input),refs=input.references||[],headers=auth(adapter,input.apiKey);
  if(protocol==='feituo')headers['X-Public-Model-Ids']='1';
  if(protocol.startsWith('videos-')&&(refs.length>1||refs.some(r=>r.kind!=='image')))throw Error('Videos 兼容预设仅支持一张首帧；多素材协议请按上游文档使用自定义模板');
  if(protocol==='maxforai'&&refs.some(r=>!r.filePath&&!publicHttpsReference(r.url)))throw Error('MaxForAI 远程参考素材必须使用公网 HTTPS 地址；本地文件请通过素材选择器导入');
@@ -55,21 +66,20 @@ async function submit(input){await validate(input);const {adapter,base,protocol}
   if(url&&!/^https?:\/\//i.test(url)&&!url.startsWith('data:'))throw Error('参考素材地址无效');
   if(url)urls[r.kind].push(url);
  }
- const prompt=protocol==='maxforai'?maxPromptAliases(input.prompt):input.prompt;
+ const prompt=protocol==='maxforai'?maxPromptAliases(input.prompt):protocol==='niney'?String(input.prompt||'').replace(/@image(\d+)/g,'@图片$1').replace(/@video(\d+)/g,'@视频$1').replace(/@audio(\d+)/g,'@音频$1'):input.prompt;
  const content=[{type:'text',text:prompt},...refs.map((r,i)=>({type:r.kind+'_url',[r.kind+'_url']:{url:urls[r.kind][refs.slice(0,i).filter(p=>p.kind===r.kind).length]},role:r.role||(r.kind==='image'?(refs.filter(r=>r.kind==='image').length>1?'reference_image':'first_frame'):r.kind==='video'?'reference_video':'reference_audio')}))];
  const pixels=String(input.resolution||'720p').match(/^(\d+)p$/i),ratio=String(input.ratio||'16:9').split(':').map(Number),edge=pixels?Number(pixels[1]):720;
  const scaled=ratio[0]>=ratio[1]?`${Math.round(edge*ratio[0]/ratio[1]/2)*2}x${edge}`:`${edge}x${Math.round(edge*ratio[1]/ratio[0]/2)*2}`;
  const size=input.size||(/^\d+x\d+$/.test(input.resolution||'')?input.resolution:scaled);
  const imageReferences=urls.image,audioReferences=urls.audio;
- const videoReferences=urls.video.map((url,index)=>{const ref=refs.filter(r=>r.kind==='video')[index],seconds=Number(ref?.duration??ref?.seconds);return protocol==='niney'&&/wan/i.test(input.model)&&Number.isFinite(seconds)&&seconds>0?{url,duration:seconds}:url;});
- if(protocol==='niney'&&/wan/i.test(input.model)&&videoReferences.some(value=>typeof value==='string'))throw Error('9Y 的 Wan 视频参考需要填写每段素材时长（1–15 秒）');
- if(protocol==='niney'&&/wan/i.test(input.model)){const durations=videoReferences.map(v=>Number(v.duration));if(durations.some(v=>v<1||v>15)||durations.reduce((a,b)=>a+b,0)>15)throw Error('9Y 的 Wan 视频参考单段须为 1–15 秒，合计不能超过 15 秒');}
+ const videoReferences=urls.video.map((url,index)=>{const ref=refs.filter(r=>r.kind==='video')[index],seconds=Number(ref?.duration??ref?.seconds);return protocol==='niney'&&/^官转wan/i.test(input.model)&&Number.isFinite(seconds)&&seconds>0?{url,duration:seconds}:url;});
  const vars={model:input.model,prompt,ratio:input.ratio,duration:Number(input.duration),seconds:String(input.duration),resolution:input.resolution,size,firstImage:urls.image[0],imageUrls:urls.image,videoUrls:urls.video,audioUrls:urls.audio,imageReferences,videoReferences,audioReferences,content};let body=compact(template(adapter.requestTemplate,vars));
+ if(protocol==='niney'&&/^官转wan/i.test(input.model)){body.size=String(input.resolution||'1080p').toUpperCase();delete body.resolution;body.reference_images=urls.image.length?urls.image.map((url,i)=>({url,role:refs.filter(r=>r.kind==='image')[i].role||'reference_image'})):undefined;}
  if(adapter.bodyType==='multipart'){const form=new FormData();for(const [k,v] of Object.entries(body))if(v!==undefined)form.append(k,typeof v==='object'?JSON.stringify(v):String(v));for(const r of refs){const field=adapter.fileFields?.[r.kind];if(!field)throw Error('此协议未设置'+r.kind+'文件字段');let bytes,type;if(r.filePath){bytes=await fs.promises.readFile(r.filePath);type=mime(r);}else{const media=await require('./media-network.cjs').readMediaBytes(r.url,{signal:input.signal});bytes=media.bytes;type=media.mime;}form.append(field,new Blob([bytes],{type}),r.filePath?path.basename(r.filePath):r.filename||'reference.'+(r.kind==='image'?'png':r.kind==='video'?'mp4':'mp3'));}body=form;}else{body=JSON.stringify(body);headers['Content-Type']='application/json';}
  let url=endpointUrl(base,adapter.submitPath);const method=adapter.submitMethod||'POST';if(method==='GET'){if(adapter.bodyType==='multipart')throw Error('GET 提交不支持文件表单，请按上游文档改为 JSON 地址参数');const target=new URL(url);for(const [k,v] of Object.entries(JSON.parse(body)))target.searchParams.set(k,typeof v==='object'?JSON.stringify(v):String(v));url=target.href;body=undefined;delete headers['Content-Type'];}const signal=input.signal?AbortSignal.any([input.signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(120000);
  // A generation POST is attempted once. Never probe another protocol with it.
  if(adapter.idempotencyHeader&&input.idempotencyKey)headers[adapter.idempotencyHeader]=String(input.idempotencyKey);
- ({url,body}=injectAuthentication(url,body,adapter,input.apiKey));const data=await readJson(await fetch(url,{method,headers,body,redirect:'error',signal}),input.apiKey);const result=decode(data,adapter,input.apiKey);if(!result.jobId&&!result.videoUrl)throw Error('提交响应没有任务编号或视频地址，请先核对上游任务，避免重复付费');return result;
+ ({url,body}=injectAuthentication(url,body,adapter,input.apiKey));input.onSubmissionStart();const data=await readJson(await fetch(url,{method,headers,body,redirect:'error',signal}),input.apiKey);const result=decode(data,adapter,input.apiKey);if(!result.jobId&&!result.videoUrl)throw Error('提交响应没有任务编号或视频地址，请先核对上游任务，避免重复付费');return result;
 }
 async function status(input){const {adapter,base,protocol}=await config(input);if(!input.jobId)throw Error('缺少任务编号');if(!adapter.queryPath)throw Error('请配置任务查询路径');let url=endpointUrl(base,adapter.queryPath,{taskId:input.jobId});const vars={taskId:input.jobId};const headers=auth(adapter,input.apiKey);if(protocol==='feituo')headers['X-Public-Model-Ids']='1';const method=adapter.queryMethod||'GET';let body;if(method!=='GET'){headers['Content-Type']='application/json';body=JSON.stringify(template(adapter.queryTemplate||{id:'{{taskId}}'},vars));}else if(adapter.queryTemplate){const target=new URL(url);for(const [k,v] of Object.entries(template(adapter.queryTemplate,vars)))target.searchParams.set(k,String(v));url=target.href;}
  ({url,body}=injectAuthentication(url,body,adapter,input.apiKey));const result=decode(await readJson(await fetch(url,{method,headers,body,redirect:'error',cache:'no-store',signal:AbortSignal.timeout(60000)}),input.apiKey),adapter,input.apiKey);
@@ -85,4 +95,4 @@ async function download(job,apiKey,dir){const {adapter,base}=await config(job);l
  if([301,302,303,307,308].includes(response.status)){const next=new URL(response.headers.get('location'),url).href;await response.body?.cancel();return publicDownload(next);}
  const mime=response.headers.get('content-type')||'';if(!response.ok||!/video\/|application\/octet-stream/.test(mime))throw Error('视频内容尚不可下载，请重试查询下载');const bytes=Buffer.from(await response.arrayBuffer());if(!bytes.length)throw Error('视频文件为空');await fs.promises.mkdir(dir,{recursive:true});const file=path.join(dir,'video-'+Date.now()+'-'+require('node:crypto').randomUUID()+'.mp4');await fs.promises.writeFile(file,bytes);return file;
 }
-module.exports={submit,status,download,validate,config,template,endpointUrl,getValue};
+module.exports={submit,status,download,validate,preflight,config,template,endpointUrl,getValue};

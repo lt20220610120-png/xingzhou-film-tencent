@@ -69,7 +69,7 @@ test('MaxForAI 鉴权下载只向原站发送密钥，跳转到 CDN 后不转发
 test('9Y 使用 seconds 与 reference 字段，Wan 视频素材携带时长并查询原任务',async t=>{
  const calls=[];t.mock.method(global,'fetch',async(url,o)=>{calls.push({url,o});return o.method==='POST'?Response.json({id:'9y-task',status:'queued'}):Response.json({id:'9y-task',status:'completed',progress:100});});
  const client=require('./video-provider.cjs'),base={endpoint:'https://9yapi.shop/v1/videos',videoProtocol:'auto',apiKey:'9y-key',model:'官转wan3.0-标准版',prompt:'镜头移动',duration:12,ratio:'9:16',resolution:'1080p',references:[{kind:'image',url:'https://cdn.test/a.png'},{kind:'video',url:'https://cdn.test/a.mp4',duration:6},{kind:'audio',url:'https://cdn.test/a.mp3'}]};
- assert.equal((await client.submit(base)).jobId,'9y-task');assert.deepEqual(JSON.parse(calls[0].o.body),{model:base.model,prompt:base.prompt,seconds:12,resolution:'1080p',aspect_ratio:'9:16',reference_images:['https://cdn.test/a.png'],reference_videos:[{url:'https://cdn.test/a.mp4',duration:6}],reference_audios:['https://cdn.test/a.mp3']});
+ assert.equal((await client.submit(base)).jobId,'9y-task');assert.deepEqual(JSON.parse(calls[0].o.body),{model:base.model,prompt:base.prompt,seconds:12,size:'1080P',aspect_ratio:'9:16',reference_images:[{url:'https://cdn.test/a.png',role:'reference_image'}],reference_videos:[{url:'https://cdn.test/a.mp4',duration:6}],reference_audios:['https://cdn.test/a.mp3']});
  const result=await client.status({...base,jobId:'9y-task'});assert.equal(result.videoUrl,'https://9yapi.shop/v1/videos/9y-task/content');assert.equal(calls.filter(c=>c.o.method==='POST').length,1);
 });
 test('9Y 在付费提交前拒绝本地素材和缺少时长的 Wan 视频素材',async t=>{

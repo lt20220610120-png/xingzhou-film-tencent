@@ -37,7 +37,7 @@ const niney={
  '奥特曼h3-768p':{durations:everySecond(5,15),resolutions:['768p'],ratios:['16:9','9:16'],minImages:1,maxImages:1,maxVideos:0,maxAudios:0},
  '【官转】Minimax-H3':{durations:everySecond(4,15),resolutions:['720p','1080p','2K'],ratios:['16:9','9:16'],minImages:1,maxImages:1,maxVideos:0,maxAudios:0},
  'rh-minimaxh3-overseas':{durations:everySecond(4,15),resolutions:['720p'],ratios:['16:9','9:16'],minImages:1,maxImages:1,maxVideos:0,maxAudios:0},
- 'wan3.0-特惠版1080p':{durations:everySecond(4,30),resolutions:['1080p'],ratios:commonRatios,maxImages:10,maxVideos:5,maxAudios:5},
+ 'wan3.0-特惠版1080p':{durations:everySecond(4,30),resolutions:['1080p'],ratios:['16:9','9:16','1:1'],maxImages:10,maxVideos:5,maxAudios:5},
  '官转wan3.0-标准版':{durations:everySecond(2,30),resolutions:['480p','720p','1080p'],ratios:commonRatios,maxImages:10,maxVideos:5,maxAudios:5},
  '官转wan3.0-高速版':{durations:everySecond(2,30),resolutions:['480p','720p','1080p'],ratios:commonRatios,maxImages:10,maxVideos:5,maxAudios:5},
  'grok-imagine-video-1.5（按次）':{durations:everySecond(4,15),ratios:['16:9','9:16','1:1'],maxImages:1,maxVideos:0,maxAudios:0},

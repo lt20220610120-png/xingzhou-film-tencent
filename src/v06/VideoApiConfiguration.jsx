@@ -19,7 +19,7 @@ export function VideoApiConfiguration({form,update}){
   <label className="full">模型列表路径（可选）<input value={form.modelListPath||''} onChange={e=>update('modelListPath',e.target.value)} placeholder="留空使用 /models；特殊上游可填完整同站列表地址"/></label></div>
   <button type="button" className="secondary" disabled={busy||!form.endpoint||(!form.apiKey&&form.videoAdapter?.authMode!=='none')} onClick={read}>{busy?'读取中…':'拉取／刷新视频型号与参数'}</button>
   {effectiveVideoProtocol(form)==='maxforai'&&<p className="generation-limits">MaxForAI：本地参考素材会先上传到该账号的 /v1/assets，再提交视频任务；同一任务带幂等编号，避免重复生成。</p>}
-  {effectiveVideoProtocol(form)==='niney'&&<p className="generation-limits">9Y：视频请求使用 /v1/videos。参考素材须为公网 HTTPS 地址；Wan 视频参考还需素材时长，软件会在提交前检查。</p>}
+  {effectiveVideoProtocol(form)==='niney'&&<p className="generation-limits">9Y：视频请求使用 /v1/videos。本地参考会在点击生成时临时上传，链接有效48小时并自动清理；官转 Wan 视频参考还需素材时长，提交前检查。</p>}
   <fieldset className="api-form-fields"><legend>模型支持的参数</legend><small className="full">优先读取上游参数；缺少时按上游文档补充。留空表示未声明，不能当作无限制。</small>
    {[['durations','时长（秒）','5,10,15'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']].map(([k,label,hint])=><label key={k}>{label}<input value={Array.isArray(caps[k])?caps[k].join(','):caps[k]||''} placeholder={hint} onChange={e=>update('capabilities',{...caps,[k]:e.target.value})}/></label>)}
    {[['maxImages','图片参考上限'],['maxVideos','视频参考上限'],['maxAudios','音频参考上限'],['minImages','最少参考图片'],['maxPrompt','提示词字符上限']].map(([k,label])=><label key={k}>{label}<input type="number" min="0" value={caps[k]??''} placeholder="未声明" onChange={e=>{const next={...caps};if(e.target.value==='')delete next[k];else next[k]=Number(e.target.value);update('capabilities',next);}}/></label>)}

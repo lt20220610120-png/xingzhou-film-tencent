@@ -1,0 +1,32 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+test('9Y local references upload once in original order, preserve shared HTTPS refs, and reuse only within the same account',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-niney-local-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=path.join(root,'reference.png');fs.writeFileSync(file,'fixture');let uploads=0,issued=0;let session={account:{id:'alice'},token:'session-fixture'};
+ const {createNineyReferenceUploader}=require('./niney-reference-upload.cjs');const prepare=createNineyReferenceUploader({getSession:()=>session,gateway:async(action,p,token)=>{assert.equal(action,'generation-reference-upload-url');assert.equal(token,session.token);issued++;return{url:'https://test.cos.ap-guangzhou.myqcloud.com/temporary/generation/u/a.png',authorization:'signed-upload',downloadUrl:'https://test.cos.ap-guangzhou.myqcloud.com/temporary/generation/u/a.png?signature=fixture',expiresAt:Date.now()+48*3600*1000};},fetchFn:async(_,o)=>{assert.equal(o.method,'PUT');uploads++;return new Response(null,{status:200});}});
+ const input={endpoint:'https://9yapi.shop/v1',videoProtocol:'niney',references:[{kind:'image',filePath:file,id:'a'},{kind:'image',url:'https://cdn.test/other.png',id:'b'},{kind:'image',filePath:file,id:'c'}]};
+ const prepared=await prepare(input);assert.deepEqual(prepared.references.map(r=>r.id),['a','b','c']);assert.equal(prepared.references[0].url,prepared.references[2].url);assert.equal(prepared.references[1].url,input.references[1].url);assert.equal(input.references[0].url,undefined);assert.equal(uploads,1);
+ await prepare(input);assert.equal(uploads,1);session={account:{id:'bob'},token:'other-session'};await Promise.all([prepare(input),prepare(input)]);assert.equal(uploads,2);assert.equal(issued,2);
+});
+test('9Y reference upload failure never sends a video POST and is a clear failed job rather than uncertain billing',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-niney-prepare-fail-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));let calls=0;t.mock.method(global,'fetch',async()=>{calls++;return Response.json({id:'unexpected'});});
+ const jobs=require('./generation-jobs.cjs').createGenerationJobs(root,{prepareVideoReferences:async()=>{throw Error('素材上传失败，请重试');}});
+ await assert.rejects(jobs.submit({kind:'video',endpoint:'https://9yapi.shop/v1',videoProtocol:'niney',apiKey:'fixture-key',model:'sd-2.5-v2',prompt:'test',duration:30,resolution:'720p',ratio:'9:16',references:[{kind:'image',filePath:'fixture.png'}]}),/素材上传失败/);
+ assert.equal(calls,0);assert.equal(jobs.list()[0].status,'failed');assert.ok(!jobs.list()[0].error.includes('提交未确认'));assert.equal(jobs.list()[0].submissionAttempted,false);
+});
+test('the complete 9Y local image path prepares signed references then posts exactly one Chinese-alias video request',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-niney-whole-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const image=path.join(root,'actor.png');fs.writeFileSync(image,'image-fixture');const requests=[];
+ const prepare=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>({account:{id:'u'},token:'app-session'}),gateway:async()=>({url:'https://test.cos.ap-guangzhou.myqcloud.com/temporary/generation/u/a.png',authorization:'signed-put',downloadUrl:'https://test.cos.ap-guangzhou.myqcloud.com/temporary/generation/u/a.png?signed=1',expiresAt:Date.now()+48*3600*1000}),fetchFn:async(_,options)=>{let bytes='';for await(const chunk of options.body)bytes+=chunk;assert.equal(bytes,'image-fixture');return new Response(null,{status:200});}});
+ t.mock.method(global,'fetch',async(url,o)=>{requests.push({url,o});return Response.json({id:'niney-success',status:'queued'});});const jobs=require('./generation-jobs.cjs').createGenerationJobs(root,{prepareVideoReferences:prepare});
+ const job=await jobs.submit({kind:'video',endpoint:'https://9yapi.shop/v1',videoProtocol:'auto',apiKey:'fixture-key',model:'sd-2.5-v2',prompt:'人物参考@image1',duration:30,resolution:'720p',ratio:'9:16',references:[{kind:'image',filePath:image}]});
+ assert.equal(job.jobId,'niney-success');assert.equal(requests.length,1);const body=JSON.parse(requests[0].o.body);assert.equal(body.prompt,'人物参考@图片1');assert.match(body.reference_images[0],/^https:.*signed=1$/);const stored=fs.readFileSync(path.join(root,'generation-jobs.json'),'utf8');assert.ok(!stored.includes('fixture-key'));assert.ok(!stored.includes('app-session'));assert.ok(!stored.includes('signed=1'));assert.equal(jobs.list()[0].references[0].filePath,image);
+});
+test('invalid Wan duration is checked before any local reference upload or paid POST',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-niney-wan-check-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));let uploads=0,posts=0;t.mock.method(global,'fetch',async()=>{posts++;return Response.json({id:'unexpected'});});
+ const jobs=require('./generation-jobs.cjs').createGenerationJobs(root,{prepareVideoReferences:async input=>{uploads++;return input;}});
+ await assert.rejects(jobs.submit({kind:'video',endpoint:'https://9yapi.shop/v1',apiKey:'key',model:'官转wan3.0-标准版',prompt:'test',duration:30,resolution:'720p',ratio:'16:9',references:[{kind:'video',filePath:'v.mp4',duration:10}]}),/参考加生成时长/);
+ assert.equal(uploads,0);assert.equal(posts,0);assert.equal(jobs.list()[0].status,'failed');
+});
+test('only proven legacy local-reference failures become clearable, real uncertain tasks stay protected',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-niney-legacy-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const base={kind:'video',endpoint:'https://9yapi.shop/v1',status:'uncertain',error:'提交未确认。9Y 视频只接受公网 HTTPS 素材地址',references:[{kind:'image',filePath:'local.png'}]};
+ fs.writeFileSync(path.join(root,'generation-jobs.json'),JSON.stringify([{...base,id:'local'},{...base,id:'real',jobId:'paid'},{...base,id:'network',error:'提交未确认：network lost'}]));
+ const jobs=require('./generation-jobs.cjs').createGenerationJobs(root);assert.equal(jobs.list().find(j=>j.id==='local').status,'failed');assert.equal(jobs.list().find(j=>j.id==='real').status,'uncertain');assert.equal(jobs.list().find(j=>j.id==='network').status,'uncertain');assert.equal(jobs.clear({ids:['local']}).removed,1);assert.throws(()=>jobs.clear({ids:['real']}),/待核对/);
+});

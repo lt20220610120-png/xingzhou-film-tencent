@@ -82,7 +82,7 @@
 - 混合目录优先使用上游声明的输出模态及明确视频型号特征。未声明用途且无法分类的型号可在“拉取/导入模型”中人工确认视频用途，或直接手填编号与参数；不会把文本/图片型号直接当作视频提交。
 - 拉取型号只读取目录，不会创建付费任务。真正提交只发送一次；网络结果不明时保留为待核对任务，不切换入口重复付费。
 - MaxForAI 按其官方统一视频入口发送 `duration / ratio / resolution / images / videos / audios`。行舟影视的 `@图片1 / @视频1 / @音频1` 会在提交时转换为官方引用编号；本地素材上传到同一 MaxForAI 账号。
-- 9Y 按其视频入口发送 `seconds / aspect_ratio / reference_images / reference_videos / reference_audios`。9Y 没有供该协议使用的本地素材上传入口，因此本地文件不会被静默忽略，提交前会明确提示改用公网 HTTPS 地址。
-- Wan 的视频参考卡可填写素材时长；单段 1–15 秒、合计不超过 15 秒。素材时长跟随当前提示词草稿保存，切换非 Wan 型号只发送该型号要求的 URL 字符串。
+- 9Y 按其视频入口发送 `seconds / aspect_ratio / reference_images / reference_videos / reference_audios`。2.8.32仅支持公网HTTPS素材；从2.8.33起点击生成时可自动把本次本地素材临时直传行舟COS，提供48小时签名地址。到期自动清理，原文件保留，已在项目中的HTTPS素材直接复用。无需新建协作项目或手工填URL。
+- 官转Wan的视频参考卡可填写素材时长；单段1–15秒、合计≤15秒，参考+生成≤30秒，分辨率提交为size。素材时长跟随当前提示词草稿保存；特惠Wan和其他型号不套用官转duration必填规则。
 
 官方文档：[MaxForAI](https://maxforai.top/docs)、[9Y 视频](https://9yapi.shop/docs/#videos)。型号价格、账号分组、审核和素材限制以服务商当时文档及任务记录为准。

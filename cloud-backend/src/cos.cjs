@@ -25,13 +25,14 @@ function buildObjectKey({ projectId, kind, filename }) {
 }
 
 // 腾讯云 COS 请求签名：https://cloud.tencent.com/document/product/436/7778
-function signRequest({ secretId, secretKey, method, objectKey, ttlSeconds }) {
+function signRequest({ secretId, secretKey, method, objectKey, ttlSeconds, maxTtlSeconds=MAX_TTL_SECONDS, headers={} }) {
   const now = Math.floor(Date.now() / 1000) - 60;
-  const expire = now + Math.min(Number(ttlSeconds) || MAX_TTL_SECONDS, MAX_TTL_SECONDS);
+  const expire = now + Math.min(Number(ttlSeconds) || MAX_TTL_SECONDS, maxTtlSeconds);
   const keyTime = `${now};${expire}`;
   const signKey = hmacSha1(secretKey, keyTime);
   const pathname = '/' + String(objectKey).replace(/^\/+/, '');
-  const httpString = `${method.toLowerCase()}\n${pathname}\n\n\n`;
+  const keys=Object.keys(headers).sort(),headerString=keys.map(k=>encodeURIComponent(k)+'='+encodeURIComponent(String(headers[k]))).join('&');
+  const httpString = `${method.toLowerCase()}\n${pathname}\n\n${headerString}\n`;
   const stringToSign = `sha1\n${keyTime}\n${sha1(httpString)}\n`;
   const signature = hmacSha1(signKey, stringToSign);
   const authorization = [
@@ -39,7 +40,7 @@ function signRequest({ secretId, secretKey, method, objectKey, ttlSeconds }) {
     `q-ak=${secretId}`,
     `q-sign-time=${keyTime}`,
     `q-key-time=${keyTime}`,
-    'q-header-list=',
+    `q-header-list=${keys.join(';')}`,
     'q-url-param-list=',
     `q-signature=${signature}`,
   ].join('&');
@@ -54,8 +55,8 @@ function createCosSigner(env = {}) {
   if (!secretId || !secretKey || !bucket || !region) return null;
   const host = `${bucket}.cos.${region}.myqcloud.com`;
 
-  const sign = (method, objectKey, ttlSeconds) => {
-    const { authorization, expiresAt, pathname } = signRequest({ secretId, secretKey, method, objectKey, ttlSeconds });
+  const sign = (method, objectKey, ttlSeconds, extra={}) => {
+    const { authorization, expiresAt, pathname } = signRequest({ secretId, secretKey, method, objectKey, ttlSeconds,...extra });
     return { method, authorization, expiresAt, url: `https://${host}${pathname}`, host };
   };
 
@@ -63,8 +64,9 @@ function createCosSigner(env = {}) {
     host,
     bucket,
     region,
-    signUpload({ objectKey, contentType, ttlSeconds }) {
-      return { ...sign('PUT', objectKey, ttlSeconds), objectKey, contentType: String(contentType || 'application/octet-stream') };
+    signUpload({ objectKey, contentType, ttlSeconds, contentLength }) {
+      const headers=contentLength===undefined?{}:{'content-length':String(contentLength),'content-type':String(contentType||'application/octet-stream')};
+      return { ...sign('PUT', objectKey, ttlSeconds,{headers}), objectKey, contentType: String(contentType || 'application/octet-stream') };
     },
     signDownload({ objectKey, ttlSeconds }) {
       const signed = sign('GET', objectKey, ttlSeconds);
@@ -73,6 +75,10 @@ function createCosSigner(env = {}) {
     },
     signDelete({ objectKey, ttlSeconds }) {
       return { ...sign('DELETE', objectKey, ttlSeconds), objectKey };
+    },
+    signGenerationReference({objectKey}) {
+      if(!/^temporary\/generation\/[a-f0-9]{32}\/[a-f0-9-]+\.(?:png|jpg|jpeg|webp|gif|mp4|mov|webm|mp3|wav|m4a)$/.test(objectKey))throw Error('临时素材路径无效');
+      const signed=sign('GET',objectKey,48*3600,{maxTtlSeconds:48*3600});return {...signed,objectKey,url:`${signed.url}?${signed.authorization}`};
     },
   };
 }

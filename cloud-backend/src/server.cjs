@@ -16,11 +16,12 @@ function createServer(env = process.env, deps = {}) {
   const repository = deps.repository || createRepository(config.databaseUrl);
   const mailer = deps.mailer !== undefined ? deps.mailer : createMailer(env);
   const cosSigner = deps.cosSigner !== undefined ? deps.cosSigner : createCosSigner(env);
+  const referenceStore=deps.referenceStore || (cosSigner?require('./generation-references.cjs').createGenerationReferenceStore({directory:env.GENERATION_REFERENCE_DIR||require('node:path').join(process.cwd(),'var','generation-references'),signer:cosSigner}):null);
   const imagePreview = deps.imagePreview || (env.COS_PREVIEW_ENABLED === '1' && cosSigner
     ? require('./image-preview.cjs').createImagePreview({host:cosSigner.host,
       directory:env.COS_PREVIEW_CACHE_DIR || require('node:path').join(process.cwd(),'var','image-previews')}) : null);
   const traffic = new Map(); let trafficSince=Date.now();
-  return http.createServer((request, response) => {
+  const server=http.createServer((request, response) => {
     if(require('./update-download.cjs').serveUpdate(request,response,env.UPDATE_FILES_DIR||'/opt/xingzhou-updates'))return;
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -86,6 +87,10 @@ function createServer(env = process.env, deps = {}) {
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
           if(action==='profile-update')return send(await require('./profile.cjs').updateProfile(payload,user,repository));
           if (action === 'unlock') return send(await unlock(payload, user, repository));
+          if(action==='generation-reference-upload-url'){
+            if(!referenceStore)return send({status:503,body:{error:'临时素材服务尚未配置'}});
+            try{return send({status:200,body:await referenceStore.issue(payload,user)});}catch(error){return send({status:error.status||503,body:{error:error.status?error.message:'临时素材服务暂不可用，请重试'}});}
+          }
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
           return send(await handleAction(action, payload, user, repository, cosSigner, imagePreview));
@@ -101,6 +106,9 @@ function createServer(env = process.env, deps = {}) {
     response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
     response.end(JSON.stringify({ error: 'not_found' }));
   });
+  let referenceTimer;
+  if(referenceStore){server.on('listening',()=>{const clean=()=>referenceStore.prune().catch(()=>{});clean();referenceTimer=setInterval(clean,3600*1000);referenceTimer.unref();});server.on('close',()=>clearInterval(referenceTimer));}
+  return server;
 }
 
 if (require.main === module) {
