@@ -5,6 +5,15 @@ import {artWorkflowState} from './artWorkflow.js';
 const stores=new Map();
 const fullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(scene=>record.published?.[scene.id]?.signature===reviewSceneSignature(scene)));
 const hasLocalDraft=record=>Boolean(record?.pending||record&&record.status!=='empty'&&!fullyPublished(record));
+const rejectedReviewRequest=error=>[400,409].includes(error?.status)||/核实版本与当前条目不同|本集正文已改变|场次编号或原文已改变|本集已有其他核实修改|核实清单必须保留|资产名称、类别或描述格式不正确|资产清单格式不正确|场景条目必须属于本集资产名单|前集核实版本格式不正确|尚未核实或细节待补齐|本集清单过大|请选择已核实场景|资产 .+ (?:类别相互矛盾|已存在于其他类别)/.test(String(error?.message||error));
+const retireRejectedReceipt=(record,error)=>{
+ const next={...record,syncError:String(error?.message||error)};
+ if(rejectedReviewRequest(error)&&record.cloudReceipt){
+  next.failedReceipts=[...(record.failedReceipts||[]),{kind:record.cloudReceipt.kind,writeId:record.cloudReceipt.params.writeId,baseVersion:record.cloudReceipt.params.baseVersion,error:next.syncError,at:Date.now()}].slice(-20);
+  delete next.cloudReceipt;delete next.publishRequest;delete next.uploadedWriteId;next.pending=true;
+ }
+ return next;
+};
 export function getArtReviewStore({api,projectId,accountId=''}){
  const key=`${accountId}:${projectId}`;
  if(stores.has(key))return stores.get(key);
@@ -16,9 +25,11 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  // Do not expose an edit or cloud acknowledgement until its local checkpoint succeeds.
  const persist=async next=>{await api.artReviewSaveLocal({projectId,data:structuredClone(next)});ledger=next;notify();};
  const persistRecord=async(number,record)=>{const next=structuredClone(ledger);next.episodes[number]=record;await persist(next);return record;};
- const publishFailure=async(number,error)=>{await patchRecord(number,r=>({...r,syncError:String(error.message||error)}));throw error;};
+ // Confirmed rejections retire their immutable payload; ambiguous network
+ // failures retain the receipt and request ID for an idempotent recovery.
+ const publishFailure=async(number,error)=>{await patchRecord(number,r=>retireRejectedReceipt(r,error));throw error;};
  const alreadyUploaded=record=>Boolean(!record.pending&&(record.version||0)>0||record.writeId&&record.uploadedWriteId===record.writeId);
- const remoteData=record=>{const data=structuredClone(record);for(const key of ['pending','writeId','syncError','publishRequest','uploadedWriteId','cloudReceipt'])delete data[key];return data;};
+ const remoteData=record=>{const data=structuredClone(record);for(const key of ['pending','writeId','syncError','publishRequest','uploadedWriteId','cloudReceipt','failedReceipts'])delete data[key];return data;};
  const acknowledge=(number,receipt,saved)=>patchRecord(number,current=>{
   const unchanged=current.writeId===receipt.draftWriteId;
   // Recover only the cloud version and publication metadata. A newer local draft
@@ -46,7 +57,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   if(recovered.writeId===r.writeId&&alreadyUploaded(recovered)||!r.pending&&alreadyUploaded(r))return r;
   if(!r.writeId){r.writeId=crypto.randomUUID();await patchRecord(number,current=>current.writeId?current:{...current,writeId:r.writeId});}
   const receipt={kind:'save',draftWriteId:r.writeId,params:{episodeNumber:Number(number),baseVersion:r.version||0,writeId:r.writeId,data:remoteData(r)}};
-  await patchRecord(number,current=>({...current,cloudReceipt:receipt}));
+  await patchRecord(number,current=>{const next={...current,cloudReceipt:receipt};delete next.syncError;return next;});
   let saved;
   try{saved=await api.collabArtReviewSave({projectId,...receipt.params});}
   catch(error){return publishFailure(number,error);}
@@ -71,12 +82,17 @@ export function getArtReviewStore({api,projectId,accountId=''}){
     const record=importLegacyArtReview(episode,{output,assets,genre:project.genre});
     next.episodes[n]={...record,pending:record.status!=='empty',...(record.status!=='empty'?{writeId:crypto.randomUUID()}:{})};
    }
-   for(const record of Object.values(next.episodes))confirmPublishedUnassigned(record);
+   for(const [number,record] of Object.entries(next.episodes)){
+    const recovered=record.cloudReceipt&&record.syncError&&rejectedReviewRequest(record.syncError)?retireRejectedReceipt(record,record.syncError):record;
+    next.episodes[number]=confirmPublishedUnassigned(recovered);
+   }
    await persist(next);loaded=true;episodes=listCollabEpisodes(project.episodes);return ledger;
   });},
   update(number,reduce){return enqueue(async()=>{
    const current=ledger.episodes[number];if(!current)throw Error('请先读取本集核实清单');
-   const next=reduce(structuredClone(current));next.version=current.version||0;next.pending=true;next.writeId=crypto.randomUUID();delete next.syncError;delete next.publishRequest;delete next.uploadedWriteId;
+   const next=reduce(structuredClone(current));
+   if(JSON.stringify(next)===JSON.stringify(current))return structuredClone(current);
+   next.version=current.version||0;next.pending=true;next.writeId=crypto.randomUUID();delete next.syncError;delete next.publishRequest;delete next.uploadedWriteId;
    if(current.cloudReceipt)next.cloudReceipt=structuredClone(current.cloudReceipt);
    return persistRecord(number,next);
   });},
@@ -119,7 +135,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
    }
    if(request.uploadedVersion===undefined){r=await uploadForPublish(number,r);request={...request,uploadedVersion:r.version};await patchRecord(number,current=>({...current,publishRequest:request}));}
    const receipt={kind:'publish',draftWriteId:r.writeId,params:{episodeNumber:Number(number),baseVersion:request.uploadedVersion,sceneIds:ids,writeId:request.writeId}};
-   await patchRecord(number,current=>({...current,pending:true,cloudReceipt:receipt}));
+   await patchRecord(number,current=>{const next={...current,pending:true,cloudReceipt:receipt};delete next.syncError;return next;});
    let saved;
    try{saved=await api.collabArtReviewPublish({projectId,...receipt.params});}
    catch(error){return publishFailure(number,error);}

@@ -292,3 +292,58 @@ test('legacy published episode seals its unassigned candidates before later loca
  assert.equal(artEpisodeConfirmed(f.store.snapshot().episodes[1],f.project.episodes[0]),false);
  assert.equal(reviewRoster(f.store.snapshot().episodes[1]).length,3);
 });
+
+// Common publish sequence: a single scene, then the whole approved episode.
+test('single-scene publish followed by whole-episode publish reuses the uploaded review and is repeatable',async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));
+ await f.store.publish(1,['1-2']);const old=structuredClone(f.disk.episodes[1]);
+ await f.store.update(1,r=>r); // UI finds every selected scene already approved.
+ assert.equal(f.disk.episodes[1].writeId,undefined);assert.equal(f.disk.episodes[1].pending,false);
+ await f.store.publish(1,['1-1','1-2']);await f.store.publish(1,['1-1','1-2']);
+ assert.equal(f.saveCalls.length,1);assert.equal(f.publishCalls.length,2);assert.equal(f.disk.episodes[1].version,old.version+1);
+ assert.ok(f.disk.episodes[1].published['1-1']);assert.ok(f.disk.episodes[1].published['1-2']);
+});
+test('definitively rejected upload is retired so corrected approved content can publish without replaying old data',async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));
+ const normal=f.api.collabArtReviewSave;let fail=true;
+ f.api.collabArtReviewSave=async p=>{if(fail)throw Error("Error invoking remote method 'collab-art-review-save': Error: 场景 1-1 的核实版本与当前条目不同，请重新核实");return normal(p);};
+ await assert.rejects(f.store.publish(1,['1-1']),/核实版本/);
+ assert.equal(f.disk.episodes[1].cloudReceipt,undefined);assert.equal(f.disk.episodes[1].failedReceipts.length,1);
+ await f.store.update(1,r=>revise(r,'修正后完整提示词'));await f.store.update(1,r=>editArtReview(r,{type:'approve-episode'}));
+ fail=false;await f.store.publish(1,['1-1','1-2']);assert.equal(f.disk.episodes[1].pending,false);
+ assert.equal(f.saveCalls.length,1);assert.equal(f.saveCalls[0].data.scenes[0].items[0].description,'修正后完整提示词');
+});
+
+test('queued single and full publications share the same review; a further click is a no-op',async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));
+ await Promise.all([f.store.publish(1,['1-2']),f.store.publish(1,['1-1','1-2']),f.store.publish(1,['1-1','1-2'])]);
+ assert.equal(f.saveCalls.length,1);assert.equal(f.publishCalls.length,2);assert.equal(f.disk.episodes[1].pending,false);
+});
+
+test('loading an old definitively rejected receipt retires it before the next publication',async()=>{
+ const r={...approved(1),pending:true,writeId:'old-local',syncError:'场景 1-1 的核实版本与当前条目不同，请重新核实'};
+ r.cloudReceipt={kind:'save',draftWriteId:r.writeId,params:{episodeNumber:1,baseVersion:0,writeId:r.writeId,data:{...structuredClone(r),scenes:[]}}};
+ const f=fixture({disk:{episodes:{1:r}}});await f.store.load(f.project);
+ assert.equal(f.disk.episodes[1].cloudReceipt,undefined);assert.deepEqual(f.disk.episodes[1].scenes,r.scenes);
+ await f.store.publish(1,['1-1','1-2']);assert.equal(f.saveCalls.length,1);assert.equal(f.disk.episodes[1].pending,false);
+});
+
+for(const message of ['资产清单格式不正确','场景条目必须属于本集资产名单','资产 【同名】 类别相互矛盾','资产 【同名】 已存在于其他类别，请先改名核对'])test(`IPC validation rejection retires receipt: ${message}`,async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));
+ f.api.collabArtReviewSave=async()=>{throw Error(message);};await assert.rejects(f.store.publish(1,['1-1']));
+ assert.equal(f.disk.episodes[1].cloudReceipt,undefined);assert.equal(f.disk.episodes[1].failedReceipts.length,1);
+ assert.ok(f.disk.episodes[1].scenes.every(s=>s.approval));
+});
+
+test('refresh during a new retry never retires its pending receipt because of an older rejection',async()=>{
+ const r={...approved(1),pending:true,writeId:'retry-draft',syncError:'场景 1-1 的核实版本与当前条目不同，请重新核实'};
+ r.cloudReceipt={kind:'save',draftWriteId:r.writeId,params:{episodeNumber:1,baseVersion:0,writeId:r.writeId,data:structuredClone(r)}};
+ const f=fixture({disk:{episodes:{1:r}}});await f.store.load(f.project);
+ let release;const gate=new Promise(resolve=>release=resolve),normal=f.api.collabArtReviewSave;let started=false;
+ f.api.collabArtReviewSave=async p=>{started=true;await gate;return normal(p);};
+ const task=f.store.publish(1,['1-1','1-2']);
+ for(let i=0;i<100&&!started;i++)await new Promise(resolve=>setTimeout(resolve,1));
+ try{assert.equal(started,true);const receipt=structuredClone(f.disk.episodes[1].cloudReceipt);await f.store.load(f.project);assert.deepEqual(f.disk.episodes[1].cloudReceipt,receipt);}
+ finally{release();await task;}
+ assert.equal(f.disk.episodes[1].pending,false);assert.equal(f.saveCalls.length,1);
+});

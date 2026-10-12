@@ -29,6 +29,9 @@ function createServer(env = process.env, deps = {}) {
     }
     if (request.method === 'POST' && (request.url === '/api/auth/login' || request.url === '/api/gateway')) {
       let raw = '';
+      // TCP chunks can end inside a Chinese character. StringDecoder, enabled
+      // by setEncoding, preserves partial UTF-8 sequences until the next chunk.
+      request.setEncoding('utf8');
       request.on('data', (chunk) => { raw += chunk; });
       request.on('end', async () => {
         const send = (result) => {
