@@ -24,4 +24,10 @@
 
 真实COS冒烟仅用70字节合成PNG：带Content-Length/MIME签名PUT成功、无登录签名GET读取字节一致、48小时链接期限验证、模拟到期删除这一个临时对象成功。证据`output/niney-2833-cloud-deploy.log`。不读取用户9Y密钥、不调用9Y付费生成。
 
-安装包与公开发布结果完成后补记。
+## 正式发布
+
+源码`08cd65c`、公开更新清单`5e058c7`；GitHub main已同步，正式Release非草稿。两个仓库的Contents API清单与各自提交原始文件一致；公开安装包完整下载、大小、SHA256和GitHub asset digest通过，Ed25519清单签名通过。官方备用源服务端整包大小/哈希、客户端清单/签名/65536字节Range/总大小通过；未重复客户端下载备用源整包。
+
+- [公开安装包](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.33/Xingzhou-Film-Tencent-Setup-2.8.33.exe)
+- 本机`release/2.8.33/Xingzhou-Film-Tencent-Setup-2.8.33.exe`，103602974字节，SHA256`880f3ae28d262d5b25511eba6bfa66d5d2f4668bb8ee75634ae4d953cff64fc7`。
+- 证据`output/release-2833-public.json`、`output/release-2833-mirror.json`、`output/niney-2833-release-build.log`、`output/niney-2833-cloud-deploy.log`。
