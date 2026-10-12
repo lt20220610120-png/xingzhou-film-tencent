@@ -9,10 +9,13 @@ export function directorSpeechBoundary({ sourceText, sourceEnd, maxDurationSecon
   for (const record of records) {
     const speechStart = record.ranges?.[0]?.start;
     if (!Number.isInteger(speechStart)) continue;
-    const lineStart = source.lastIndexOf('\n', speechStart - 1) + 1;
-    const escapedSpeaker = String(record.speaker).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const header = source.slice(lineStart, speechStart).match(new RegExp(`${escapedSpeaker}(?:[\\t ]*(?:O\\.?S\\.?|V\\.?O\\.?))?(?:[\\t ]*[（(][^）)\\n]*[）)])*[\\t ]*[：:][\\t ]*[“『「‘"]?$`, 'u'));
-    const headerStart = Number.isInteger(record.headerStart) ? record.headerStart : header ? lineStart + header.index : speechStart;
+    let headerStart=record.headerStart;
+    if(!Number.isInteger(headerStart)){
+      const lineStart = source.lastIndexOf('\n', speechStart - 1) + 1;
+      const escapedSpeaker = String(record.speaker).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const header = source.slice(lineStart, speechStart).match(new RegExp(`${escapedSpeaker}(?:[\\t ]*(?:O\\.?S\\.?|V\\.?O\\.?))?(?:[\\t ]*[（(][^）)\\n]*[）)])*[\\t ]*[：:][\\t ]*[“『「‘"]?$`, 'u'));
+      headerStart=header?lineStart+header.index:speechStart;
+    }
     if (sourceEnd > headerStart && sourceEnd <= speechStart) return { ok: false, speaker: record.speaker, headerInterrupted: true };
   }
   const row = records.find(record => record.ranges?.some(range => sourceEnd > range.start && sourceEnd < range.end)
@@ -27,10 +30,10 @@ export function directorSpeechBoundary({ sourceText, sourceEnd, maxDurationSecon
 /** A full turn cannot be moved forward merely to satisfy the fill ratio.
  * The exception is source-derived: the next entire turn (or first complete
  * sentence of a long turn) does not fit in the remaining clip time. */
-export function completeDialogueNeedsNextClip({ sourceText, sourceEnd, estimatedSeconds, maxDurationSeconds } = {}) {
+export function completeDialogueNeedsNextClip({ sourceText, sourceEnd, estimatedSeconds, maxDurationSeconds, dialogues } = {}) {
   const source = String(sourceText || '');
-  if (!directorSpeechBoundary({ sourceText: source, sourceEnd, maxDurationSeconds }).ok) return false;
-  const records = parseDirectorDialogues(source);
+  const records = dialogues || parseDirectorDialogues(source);
+  if (!directorSpeechBoundary({ sourceText: source, sourceEnd, maxDurationSeconds, dialogues:records }).ok) return false;
   const next = records.find(record => record.ranges.at(-1).end > sourceEnd);
   if (!next) return false;
   let speech = next.ranges.filter(range => range.end > sourceEnd).map(range => source.slice(Math.max(sourceEnd, range.start), range.end)).join('\n');

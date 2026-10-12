@@ -14,7 +14,7 @@ const uid = () => crypto.randomUUID();
 const error = (message,code='FAILED') => Object.assign(new Error(message),{code});
 const clone = value => structuredClone(value);
 const snapshotKey = s => JSON.stringify([s.accountId,s.projectId,s.episodeId,s.sceneLabel]);
-const PROCESSING_VERSION = 9;
+const PROCESSING_VERSION = 10;
 const issueMessages = issues => [...new Set((issues || []).map(issue => issue.message || issue.code).filter(Boolean))].join('；');
 const trimmedRange=(sourceText,start,end)=>{
   while(start<end&&/\s/u.test(sourceText[start]))start++;
@@ -140,7 +140,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
       if(run.processingVersion!==PROCESSING_VERSION){
         const recoveringVersion6=run.processingVersion===6;
         const recoveringVersion7=run.processingVersion===7||run.processingVersion===8;
-        const recoverPaid=recoveringVersion6||recoveringVersion7;
+        const recoveringVersion9=run.processingVersion===9;
+        const recoverPaid=recoveringVersion6||recoveringVersion7||recoveringVersion9;
         run.recoveringPaidReplies=recoverPaid;
         const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
       run.segmentQualityFailures={};run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];run.auditRepairIndexes=[];run.auditRepairAttempts={};run.auditWarnings=[];run.checks={audited:false,ranges:{}};
@@ -151,7 +152,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             return {...segment,end:unit?{unitId:unit.id,...(unit.end===segment.sourceEnd?{}:{prefix:unit.text.slice(0,segment.sourceEnd-unit.start)})}:null};
           })};
           const calibrated=recalibrateScenePlanTimings(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds}).candidate;
-          const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+          const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,optimizeUnderfilled:'segment-count'});
           const checked=validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true});
           const paidPartition=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:false});
           // An underfilled but otherwise legal saved clip is a packing
@@ -162,7 +163,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             const draft=run.segmentDrafts[segment.id];
             const speech=getDirectorSegmentTimingFacts({sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
             const capacity=segment.durationCompression?35:effectiveDirectorDurationLimit(run.snapshot.maxDurationSeconds);
-            return speech.speechSecondsAt4<=capacity+0.25&&(recoveringVersion7&&Boolean(publishedPaidPlan)||(draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok));
+            return speech.speechSecondsAt4<=capacity+0.25&&(recoveringVersion7&&Boolean(publishedPaidPlan)||recoveringVersion9&&draft?.prompt?.content&&draft.generationComplete!==false||(draft?.prompt?.content&&validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,source:sourceFor(segment),contract,sharedBaseline:run.sharedBaseline}).ok));
           });
           const partitionChanged=checked.ok&&(checked.plan.segments.length!==run.plan.segments.length||checked.plan.segments.some((segment,index)=>segment.sourceStart!==run.plan.segments[index].sourceStart||segment.sourceEnd!==run.plan.segments[index].sourceEnd));
           const compressionChanged=checked.ok&&checked.plan.segments.some((segment,index)=>JSON.stringify(segment.durationCompression||null)!==JSON.stringify(run.plan.segments[index]?.durationCompression||null));
@@ -202,7 +203,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
         run.sharedBaseline=baseline||run.sharedBaseline;run.processingVersion=PROCESSING_VERSION;await persist(run);
         if(recoverPaid&&!run.plan&&!run.lastPlanningOutput&&run.previousPlanningCandidate){
           const calibrated=recalibrateScenePlanTimings(run.previousPlanningCandidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds}).candidate;
-          const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+          const packed=packScenePlan(calibrated,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,optimizeUnderfilled:'segment-count'});
           if(validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true}).ok){run.lastPlanningOutput=JSON.stringify(packed.candidate);await persist(run);}
         }
       }
@@ -233,7 +234,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             candidate=calibration.candidate;
             if(calibration.changed)run.timingCalibration={version:2,changes:calibration.changes};
             if(candidate.segments?.length!==originalSegmentCount)run.planPacking={version:2,originalSegmentCount,segmentCount:candidate.segments?.length};
-            const packed=packScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,optimizeUnderfilled:false});
+            const packed=packScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,optimizeUnderfilled:'segment-count'});
             if(packed.changed){run.planPacking={version:1,originalSegmentCount:packed.originalSegmentCount,segmentCount:packed.segmentCount};candidate=packed.candidate;}
           }
           const validated=validateScenePlan(candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming});

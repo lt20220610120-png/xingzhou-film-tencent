@@ -59,3 +59,22 @@ test('never leaves final punctuation as a separate video when action time is cha
   assert.equal(checked.ok,false);
   assert.equal(packed.candidate.segments.length,1);
 });
+
+test('minimizing clip count merges sixteen small beats before Skill submission but preserves equal-count balanced cuts',()=>{
+ const f=make(Array.from({length:16},(_,i)=>`${i%2?'乙':'甲'}：${'你好'.repeat(12)}。`),Array(16).fill(6));
+ const p=packScenePlan(f.candidate,{tape:f.tape,maxDurationSeconds:32,optimizeUnderfilled:'segment-count'});
+ assert.equal(p.changed,true);assert.equal(p.candidate.segments.length,4);
+ const balanced=make(['甲：'+ '你好'.repeat(50)+'。','乙：'+ '再见'.repeat(50)+'。'],[25,25]);
+ assert.equal(packScenePlan(balanced.candidate,{tape:balanced.tape,maxDurationSeconds:30,optimizeUnderfilled:'segment-count'}).changed,false);
+});
+
+test('packed count matches the minimum capacity partition of complete turns across varied scenes',()=>{
+ for(const seconds of [[28,2,28,2],[20,20,20],[7,11,19,6,5,16],[2,29,1,29,1],[16,16,16,16]]){
+  const f=make(seconds.map((n,i)=>`${i%2?'乙':'甲'}：${'字'.repeat(n*4)}。`),seconds);
+  const costs=Array(seconds.length+1).fill(Infinity);costs[seconds.length]=0;
+  for(let i=seconds.length-1;i>=0;i--){let total=0;for(let j=i;j<seconds.length;j++){total+=seconds[j];if(total>30)break;costs[i]=Math.min(costs[i],1+costs[j+1]);}}
+  const result=packScenePlan(f.candidate,{tape:f.tape,maxDurationSeconds:30,optimizeUnderfilled:'segment-count'});
+  const checked=validateScenePlan(result.candidate,{tape:f.tape,maxDurationSeconds:30,groundedTiming:true});
+  assert.equal(checked.ok,true,JSON.stringify(checked.issues));assert.equal(checked.plan.segments.length,costs[0],String(seconds));
+ }
+});

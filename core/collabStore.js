@@ -203,32 +203,62 @@ const referenceGroup = (asset) => {
 };
 const firstEpisodeOf = (asset) => Number(asset.first_episode
   ?? Math.min(...(asset.episodes || []).map(Number).filter(Number.isFinite))) || Number.MAX_SAFE_INTEGER;
+const firstSceneOf = asset => Math.min(...(asset.sceneIds || []).map(id=>String(id).match(/^(\d+)-(\d+)$/))
+  .filter(match=>match && Number(match[1])===firstEpisodeOf(asset)).map(match=>Number(match[2])));
 
 export const assetReferencePeers = (asset, assets) => {
   const group = referenceGroup(asset);
   const peers = (assets || []).map((item, index) => ({ item, index }))
     .filter(({ item }) => item.category === asset.category && referenceGroup(item) === group)
-    .sort((a, b) => firstEpisodeOf(a.item) - firstEpisodeOf(b.item) || a.index - b.index)
+    .sort((a, b) => firstEpisodeOf(a.item) - firstEpisodeOf(b.item)
+      || (asset.category==='character' ? firstSceneOf(a.item)-firstSceneOf(b.item) : 0) || a.index - b.index)
     .map(({ item }) => item);
   return peers;
+};
+
+// A costume may first appear in the same episode as the original look. The
+// database/list order is not an identity decision: follow its declared anchor.
+export const characterReferenceName = asset => {
+  if(asset?.category!=='character')return '';
+  const source=readAssetPrompt(asset).content;
+  const name=source.match(/参考\s*【([^】]+)】/)?.[1]||asset.referenceName||'';
+  const clean=String(name).replace(/^【|】$/g,'').trim();
+  return clean&&parseAssetName(`【${clean}】`).base===parseAssetName(asset.name).base&&`【${clean}】`!==asset.name?`【${clean}】`:'';
+};
+export const characterBaselineAsset = (asset,assets=[]) => {
+  const peers=assetReferencePeers(asset,assets);
+  const declared=characterReferenceName(asset);
+  // Derived metadata may be stale on older rows. Do not let it override the
+  // real root in a complete group, or choose a later costume in a projection
+  // whose actual root is absent.
+  if(!declared&&asset.characterBaselineName&&!peers.some(a=>a.name===asset.characterBaselineName))return null;
+  let first=declared?peers.find(a=>a.name===declared):peers.find(a=>!characterReferenceName(a))||peers[0];
+  const visited=new Set();
+  while(first){
+    if(visited.has(first.name))return null;
+    visited.add(first.name);
+    const next=characterReferenceName(first);
+    if(!next)return first;
+    first=peers.find(a=>a.name===next);
+  }
+  return null;
 };
 export const resolveAssetReference = (asset, assets, selectedId = null) => {
   const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
   const peers=assetReferencePeers(asset,assets);
   if (selectedId !== null) return peers.find((item) => item.id !== asset.id && item.id === selectedId && hasImage(item)) || null;
   if (asset.category !== 'character' && (asset.category !== 'scene' || !sceneIdentity(asset.name))) return null;
-  const first = peers.find(hasImage);
-  return first && first.id !== asset.id ? first : null;
+  const first = asset.category==='character'?characterBaselineAsset(asset,assets):peers.find(hasImage);
+  return first && first.id !== asset.id && hasImage(first) ? first : null;
 };
 
 // Wardrobe identity is independent of prompt projections and image availability.
 export const isCharacterWardrobeVariant = (asset, assets = []) => {
   if (asset?.category !== 'character') return false;
+  if(characterReferenceName(asset))return true;
+  const baseline = characterBaselineAsset(asset,assets);
+  if(baseline?.name===asset.name)return false;
   if (asset.characterBaselineName && asset.characterBaselineName !== asset.name) return true;
-  const base = parseAssetName(asset.name).base;
-  const baseline = (assets || []).map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.category === 'character' && parseAssetName(item.name).base === base)
-    .sort((a, b) => firstEpisodeOf(a.item) - firstEpisodeOf(b.item) || a.index - b.index)[0]?.item;
   return Boolean(baseline && baseline.name !== asset.name);
 };
 
@@ -302,7 +332,7 @@ const characterVariantDifference = (description) => {
     const value = part.replace(CHARACTER_DIFFERENCE_FIELD, '').trim().replace(/[；;\n。！？\s]+$/g, '');
     return value && !/^(?:不适用|无|不存在|非人物|N\/?A)[。.!！?？\s]*$/i.test(value);
   });
-  const reference = text.match(/参考【[^】]+】/)?.[0];
+  const reference = text.match(/参考\s*【[^】]+】/)?.[0];
   return CHARACTER_IDENTITY_FIELD.test(text) || differenceFields.length
     ? [reference, ...differences].filter(Boolean).join('；')
     : text;
@@ -356,7 +386,6 @@ export const normalizeArtAssets = (assets) => {
     || hasAssetImage(asset)
     || readAssetPrompt(asset).customized
     || !inflatedCharacterVariant(asset));
-  const baselines = new Map();
   const sceneBaselines = new Map();
   normalized.forEach((asset, index) => {
     if (asset.category === 'scene') {
@@ -366,10 +395,6 @@ export const normalizeArtAssets = (assets) => {
       if (!prior || firstEpisodeOf(asset) < firstEpisodeOf(prior.asset)) sceneBaselines.set(identity.key, { asset, index });
       return;
     }
-    if (asset.category !== 'character') return;
-    const { base } = parseAssetName(asset.name);
-    const prior = baselines.get(base);
-    if (!prior || firstEpisodeOf(asset) < firstEpisodeOf(prior.asset)) baselines.set(base, { asset, index });
   });
   return normalized.map((asset, index) => {
     if (asset.category === 'scene') {
@@ -381,9 +406,14 @@ export const normalizeArtAssets = (assets) => {
         : asset;
     }
     if (asset.category !== 'character') return asset;
-    const baseline = baselines.get(parseAssetName(asset.name).base);
-    if (baseline?.index === index) return asset;
-    const relatedAsset = { ...asset, characterBaselineName: asset.characterBaselineName || baseline.asset.name };
+    const baselineAsset=characterBaselineAsset(asset,normalized);
+    if(baselineAsset?.name===asset.name){
+      const {characterBaselineName,generationDescription,generationDescriptionSource,...original}=asset;
+      return original;
+    }
+    const baselineName=baselineAsset?.name||characterReferenceName(asset)||asset.characterBaselineName;
+    if(!baselineName)return asset;
+    const relatedAsset = { ...asset, characterBaselineName: baselineName };
     if (readAssetPrompt(asset).customized) return relatedAsset;
     const generationDescription = characterVariantDifference(readAssetPrompt(asset).content);
     return generationDescription !== asset.description
@@ -507,7 +537,6 @@ export const buildAssetRows = (parsed) => {
     }
   }
   const rows = [...map.values()].filter((row) => row.category !== 'character' || !inflatedCharacterVariant(row));
-  const seenCharacterBases = new Map();
   const seenScenePlaces = new Set();
   return rows.map((row) => {
     const episodes = row.episodes.sort((a, b) => a - b);
@@ -520,12 +549,10 @@ export const buildAssetRows = (parsed) => {
       return { ...row, description: sceneVariantDifference(row, row.description), episodes };
     }
     if (row.category !== 'character') return { ...row, episodes };
-    const { base } = parseAssetName(row.name);
-    if (!seenCharacterBases.has(base)) {
-      seenCharacterBases.set(base, row.name);
-      return { ...row, episodes };
-    }
-    return { ...row, characterBaselineName: row.characterBaselineName || seenCharacterBases.get(base), description: characterVariantDifference(row.description), episodes };
+    const baseline=characterBaselineAsset(row,rows);
+    if(baseline?.name===row.name)return {...row,episodes};
+    const baselineName=baseline?.name||characterReferenceName(row);
+    return baselineName?{...row,characterBaselineName:baselineName,description:characterVariantDifference(row.description),episodes}:{...row,episodes};
   });
 };
 

@@ -46,11 +46,11 @@ test('partial commit saves only accepted prompts then final audit promotes the s
  const deleted=deleteDirectorPromptsEverywhere(first.state,'p',['prompt1']);assert.equal(commitQuickSceneRun(deleted,run).applied,false);
 });
 
-test('paid-partition recovery cannot excuse an underfilled new or altered plan',async()=>{
+test('short new clips are legal but paid recovery cannot excuse an altered registered plan',async()=>{
  const {state,run}=await fixture();
  run.recoveredPaidPartition=true;
  run.plan.segments[0].estimatedSeconds=5;run.plan.segments[0].recommendedDurationSeconds=5;
- assert.equal(commitQuickSceneRun(state,run).applied,false);
+ assert.equal(commitQuickSceneRun(state,run).applied,true);
  state.directorProjects[0].episodes[1].quickScenePlans=[structuredClone(run.plan)];
  run.plan.segments[0].estimatedSeconds=6;run.plan.segments[0].recommendedDurationSeconds=6;
  assert.equal(commitQuickSceneRun(state,run).applied,false);
@@ -132,4 +132,10 @@ test('duplicate-scene deletion or renumbering cannot reuse an unchanged scene in
  assert.equal(await snapshotMatchesContext(run.snapshot,{...context,episode:changedEpisode}),false);
  const changedState={...state,directorProjects:[{...context.project,episodes:context.project.episodes.map(ep=>ep.id===changedEpisode.id?changedEpisode:ep)}]};
  assert.equal(commitQuickSceneRun(changedState,run).applied,false);
+});
+
+test('a valid short nonfinal clip is advisory at final storage too, never a reason to lose returned prompts',async()=>{
+ const {state,run}=await fixture();run.plan.segments[0].estimatedSeconds=5;run.plan.segments[0].recommendedDurationSeconds=5;
+ const result=commitQuickSceneRun(state,run,{partial:true});assert.equal(result.applied,true,result.conflict);
+ assert.equal(result.state.directorProjects[0].episodes[1].prompts.length,2);
 });

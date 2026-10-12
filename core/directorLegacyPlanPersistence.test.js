@@ -99,6 +99,31 @@ test('version 6 complete paid drafts retain a legal published partition after di
   assert.equal(f.state.directorProjects[0].episodes[0].prompts.length, 2);
 });
 
+test('version 9 rejected storage recovers complete paid short clips without another generation request',async()=>{
+ const source=`1-1 景：屋内 日 内\n甲：${'甲'.repeat(80)}。\n乙：${'乙'.repeat(40)}。`;
+ const f=fixture(source,null),legacy=await seedPartial(f,source,[30,10]);
+ legacy.processingVersion=9;legacy.phase='stale';legacy.reviewPolicy='advisory';
+ Object.assign(legacy.plan.segments[0],{timing:{speechSeconds:20,actionSeconds:0,overlapSeconds:0,transitionSeconds:0},estimatedSeconds:20,recommendedDurationSeconds:20});
+ for(const segment of legacy.plan.segments)legacy.segmentDrafts[segment.id]={prompt:{label:`1-1-${segment.index}`,content:`1-1-${segment.index}\n已付费返回但旧版拒绝保存的内容。`},validated:false,generationComplete:true};
+ Object.assign(f.state.directorProjects[0].episodes[0],{quickScenePlans:[],prompts:[],activeQuickScenePlanIds:{}});f.state.directorProjects[0].promptHistory=[];
+ f.records.set(legacy.id,structuredClone(legacy));await f.controller.restore();const done=await f.controller.resume(legacy.id);
+ assert.equal(done.phase,'completed',JSON.stringify(done.errors));assert.deepEqual(f.calls,['audit']);
+ assert.deepEqual(done.plan,legacy.plan);assert.deepEqual(done.promptIds,legacy.promptIds);
+ assert.equal(f.state.directorProjects[0].episodes[0].prompts.length,2);
+ assert.deepEqual(f.state.directorProjects[0].episodes[0].prompts.map(p=>p.recommendedDurationSeconds),[20,10]);
+});
+
+test('new sixteen-beat model plan becomes four full clips before Skill and saves all four through the real store',async()=>{
+ const source='1-1 景：屋内 日 内\n'+Array.from({length:16},(_,i)=>`${i%2?'乙':'甲'}：${'字'.repeat(24)}。`).join('\n');
+ const tape=buildSceneSourceTape(source),candidate={segments:tape.units.map(unit=>({end:{unitId:unit.id},timing:{speechSeconds:6,actionSeconds:0,overlapSeconds:0,transitionSeconds:0},startState:'原文起点',endState:'原文终点',boundary:'换话',visualNotes:[]}))};
+ const f=fixture(source,candidate,{maxDurationSeconds:32}),done=await f.controller.start(f.request);
+ assert.equal(done.phase,'completed',JSON.stringify(done.errors));assert.equal(done.plan.segments.length,4);
+ assert.deepEqual(f.calls,['plan','whole-scene','audit']);
+ assert.deepEqual(f.state.directorProjects[0].episodes[0].prompts.map(p=>p.recommendedDurationSeconds),[30,30,30,6]);
+ assert.equal(done.plan.segments.map(s=>done.plan.sourceText.slice(s.sourceStart,s.sourceEnd)).join(''),tape.sourceText);
+ assert.equal(f.state.directorProjects[0].promptHistory.length,4);
+});
+
 test('version 7 partial paid partition stays immutable when source parsing reduces its estimated duration', async () => {
   const source = `1-1 景：屋内 日 内\n甲：${'甲'.repeat(80)}。\n乙：${'乙'.repeat(40)}。`;
   const f = fixture(source, null), legacy = await seedPartial(f, source, [30, 10]);
@@ -194,7 +219,7 @@ test('version 4 unfinished 30-plus-short-tail plan upgrades to the authorized si
   const paid = structuredClone(f.state.directorProjects[0].episodes[0].prompts[0]);
   await f.controller.restore(); const done = await f.controller.resume(legacy.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 9);
+  assert.equal(done.processingVersion, 10);
   assert.equal(done.plan.segments.length, 1);
   assert.equal(done.plan.segments[0].recommendedDurationSeconds, 30);
   assert.equal(done.plan.segments[0].naturalEstimatedSeconds, 32.5);
@@ -238,7 +263,7 @@ test('version 4 interrupted 15-second plan cannot reuse a half-sentence boundary
   f.records.set(run.id, run);
   await f.controller.restore(); const done = await f.controller.resume(run.id);
   assert.equal(done.phase, 'completed', JSON.stringify(done.errors));
-  assert.equal(done.processingVersion, 9);
+  assert.equal(done.processingVersion, 10);
   assert.equal(done.plan.segments.length, 2);
   assert.equal(done.plan.segments[0].sourceEnd, tape.units[0].end);
   assert.equal(tape.sourceText.slice(done.plan.segments[1].sourceStart, done.plan.segments[1].sourceEnd), `乙：${finalSpeech}`);

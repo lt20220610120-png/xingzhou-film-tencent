@@ -92,8 +92,8 @@ export const buildSceneTimingFacts = tape => {
   };
 };
 
-export const validateDirectorSegmentTiming = ({ sourceText, sourceStart, sourceEnd, timing, maxDurationSeconds, segmentIndex, wholeSceneCompression = false } = {}) => {
-  const facts = getDirectorSegmentTimingFacts({ sourceText, sourceStart, sourceEnd });
+export const validateDirectorSegmentTiming = ({ sourceText, sourceStart, sourceEnd, timing, maxDurationSeconds, segmentIndex, wholeSceneCompression = false, dialogues, visualBeats } = {}) => {
+  const facts = getDirectorSegmentTimingFacts({ sourceText, sourceStart, sourceEnd, dialogues, visualBeats });
   const issues = [];
   const issue = (code, message, evidence) => issues.push({ code, message, segmentIndex, evidence });
   // Allow only arithmetic/rounding variation, never an assumed speed of 6–8
@@ -116,6 +116,7 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
   } catch { return { candidate, changed: false, changes: [] }; }
   if (!Array.isArray(parsed?.segments) || !parsed.segments.every(segment => segment && typeof segment === 'object' && !Array.isArray(segment)) || !tape?.sourceText || !Array.isArray(tape.units)) return { candidate: parsed, changed: false, changes: [] };
   const units = new Map(tape.units.map(unit => [unit.id, unit]));
+  const dialogues=parseDirectorDialogues(tape.sourceText),visualBeats=extractDirectorVisualBeats(tape.sourceText);
   const changes = [];
   let sourceStart = 0;
   for (const [arrayIndex, segment] of parsed.segments.entries()) {
@@ -128,7 +129,7 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
     if (sourceEnd <= sourceStart) return { candidate: parsed, changed: Boolean(changes.length), changes };
     const timing = segment.timing;
     if (finite(timing?.speechSeconds)) {
-      const facts = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, sourceStart, sourceEnd, maxDurationSeconds });
+      const facts = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, sourceStart, sourceEnd, maxDurationSeconds, dialogues, visualBeats });
       const previousTiming = { ...timing };
       timing.speechSeconds = facts.speechSecondsAt4;
       if (finite(timing.actionSeconds) && finite(timing.overlapSeconds) && finite(timing.transitionSeconds)) {
@@ -152,7 +153,7 @@ export const recalibrateScenePlanTimings = (candidate, { tape, maxDurationSecond
   // Model boundaries must not destroy simultaneous action/voiceover and turn
   // one compact scene into a thirty-second clip plus a sliver.
   if (parsed.segments.length > 1 && sourceStart === tape.sourceText.length && Number.isInteger(maxDurationSeconds)) {
-    const whole = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, maxDurationSeconds });
+    const whole = getDirectorSegmentTimingFacts({ sourceText: tape.sourceText, maxDurationSeconds, dialogues, visualBeats });
     const mergeLimit = maxDurationSeconds === 30 ? 35 : effectiveDirectorDurationLimit(maxDurationSeconds);
     if (!whole.actionTimeline.unknownBeatCount && whole.quickPerformanceSeconds > 0 && whole.quickPerformanceSeconds <= mergeLimit) {
       const first = parsed.segments[0], last = parsed.segments.at(-1);

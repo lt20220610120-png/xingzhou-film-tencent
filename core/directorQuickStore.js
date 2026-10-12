@@ -1,8 +1,8 @@
 import {buildSkillContext} from './skillContext.js';
 import {parseDirectorScenes,parseMasterScript} from './scriptImport.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
-import {buildSceneSourceTape,NONFINAL_DURATION_RATIO,estimateSegmentSeconds} from './directorSegmentation.js';
-import {directorSpeechBoundary,completeDialogueNeedsNextClip} from './directorSpeechBoundaries.js';
+import {buildSceneSourceTape,estimateSegmentSeconds} from './directorSegmentation.js';
+import {directorSpeechBoundary} from './directorSpeechBoundaries.js';
 import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDirectorDurationLimit} from './directorDurationPolicy.js';
 import {validateDirectorSegmentTiming} from './directorTiming.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
@@ -118,10 +118,6 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(plan.sourceText!==tape.sourceText || plan.sceneHeader!==tape.sceneHeader)return fail(state,'分段正文与固定原文不匹配，不能发布改写后的计划');
   const durationLimit=effectiveDirectorDurationLimit(snapshot.maxDurationSeconds);
   const existingPlan=(episode.quickScenePlans || []).find(p=>p.id===plan.id);
-  // Parser upgrades may lower speech estimates and invalidate only a former
-  // early-cut preference. An identical, already-published paid plan can keep
-  // that cut; new/altered plans must still satisfy the packing rules below.
-  const keepPaidCut=run.recoveredPaidPartition&&existingPlan&&JSON.stringify(existingPlan)===JSON.stringify(plan);
   const segmentIds=new Set();let end=0;
   for(const [i,segment] of plan.segments.entries()){
     const draft=run.segmentDrafts?.[segment.id];
@@ -132,8 +128,6 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     if(compressed&&!validateDirectorSegmentTiming({sourceText:plan.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd,timing:segment.timing,maxDurationSeconds:snapshot.maxDurationSeconds,segmentIndex:i+1,wholeSceneCompression:true}).ok)return fail(state,'整场压缩仍须保留全部口播原字和自然估时，不能低报台词时长');
     if(!segment.id || segmentIds.has(segment.id) || segment.index!==i+1 || segment.sourceStart!==end || !Number.isInteger(segment.sourceEnd) || segment.sourceEnd<=end || segment.sourceEnd>plan.sourceText.length
       || !(segment.estimatedSeconds>0) || !Number.isFinite(segment.estimatedSeconds) || segment.estimatedSeconds>durationLimit
-      || (!keepPaidCut && i<plan.segments.length-1 && segment.estimatedSeconds<Math.ceil(durationLimit*NONFINAL_DURATION_RATIO)
-        && !completeDialogueNeedsNextClip({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,estimatedSeconds:segment.estimatedSeconds,maxDurationSeconds:durationLimit}))
       || (segment.timing && (!Number.isFinite(timingTotal) || (!compressed && timingTotal!==segment.estimatedSeconds)))
       || segment.recommendedDurationSeconds!==Math.ceil(segment.estimatedSeconds) || (!partial && (!advisory&&!draft?.validated || advisory&&(!draft?.prompt?.content||draft.generationComplete===false)))
       || ((draft?.validated||advisory&&draft?.prompt) && (draft.prompt?.label!==`${snapshot.sceneLabel}-${i+1}` || !String(draft.prompt?.content || '').trim())))return fail(state,'分段计划或生成内容不完整，草稿已保留');
