@@ -41,6 +41,14 @@ test('model policy hides unsupported types without modifying the shared library'
  assert.deepEqual(referencePolicy(false,{}),{maxImages:1,maxVideos:0,maxAudios:0});
  assert.deepEqual(referencePolicy(true,{maxImages:9,maxVideos:0,maxAudios:2}),{maxImages:9,maxVideos:0,maxAudios:2});
 });
+test('video reference duration persists per entry without changing shared media or other entries',()=>{
+ let book=parsePromptBook('【1-1-1】甲【1-1-2】乙','视频书','wan-duration');
+ book=mergeEpisodeMedia(book,{1:[{id:'v',kind:'video',url:'https://cdn.test/v.mp4',name:'视频'}]});
+ const [a,b]=book.entries,current=entryValue(book,a);
+ book=saveEntryValue(book,a.id,{...current,references:current.references.map(r=>({...r,duration:6.5}))});
+ book=JSON.parse(JSON.stringify(book));
+ assert.equal(entryValue(book,a).references[0].duration,6.5);assert.equal(entryValue(book,b).references[0].duration,undefined);assert.equal(book.episodeMedia[1][0].duration,undefined);
+});
 
 test('a late file picker cannot exclude shared media added after it opened',()=>{
  let book=parsePromptBook('【1-1-1】正文','全剧','b');

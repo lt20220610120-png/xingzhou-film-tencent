@@ -113,7 +113,7 @@ function createGenerationJobs(dir,options={}) {
         const provider=require('./video-provider.cjs');await provider.validate(input);await provider.config(input);
         save(job);
         try{
-          const result=await provider.submit(input);const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
+          const result=await provider.submit({...input,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
           if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
         }catch(e){const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
       }

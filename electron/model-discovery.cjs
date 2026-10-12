@@ -4,7 +4,8 @@ function listUrl(endpoint) {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('请输入有效的接口地址');
   url.search = ''; url.hash = '';
   if(url.hostname==='feituokuajing.com'){url.pathname='/api/open/v1/models';return url.toString();}
-  url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|images\/(?:generations|edits)|contents\/generations\/tasks|audio\/(?:speech|transcriptions)|models)$/, '');
+  if(['maxforai.top','9yapi.shop'].includes(url.hostname)){url.pathname='/v1/models';return url.toString();}
+  url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|images\/(?:generations|edits)|contents\/generations\/tasks|video\/generations|videos|audio\/(?:speech|transcriptions)|models)$/, '');
   if (!url.pathname || url.pathname === '/') url.pathname = '/v1';
   url.pathname += '/models';
   return url.toString();
@@ -25,13 +26,18 @@ async function discoverModels(config, fetchFn = globalThis.fetch) {
     const rows = Array.isArray(body) ? body : body.data || body.models;
     if (!Array.isArray(rows)) throw new Error('接口未返回模型列表，请手动填写模型');
     const {normalizeCapabilities}=await import('../core/modelCapabilities.js');
+    const {knownVideoProvider,providerModelKind,providerVideoCapabilities}=await import('../core/videoProviderCatalogs.js');
+    const provider=knownVideoProvider(config.endpoint);
     for (const row of rows) {
       const item = typeof row === 'string' ? {id:row} : row;
       const id = item.id || item.model_name || item.name;
       if (!id || seen.has(id)) continue;
-      seen.add(id); result.push({id:String(id), endpoint:config.modelListPath?config.endpoint.trim():url.replace(/\/models$/, ''), name:String(item.display_name || item.name || id), kind:item.kind || item.type || item.mode || item.model_info?.mode,
+      const kind=providerModelKind(provider,item,config.purpose)||item.kind || item.type || item.mode || item.model_info?.mode;
+      const discovered=normalizeCapabilities({...item,...(Array.isArray(item.capabilities)?{}:item.capabilities||item.parameters||item.model_info||{})});
+      const fallback=providerVideoCapabilities(provider,String(id));
+      seen.add(id); result.push({id:String(id), endpoint:config.modelListPath?config.endpoint.trim():url.replace(/\/models$/, ''), name:String(item.display_name || item.name || id), kind,
         output_modalities:item.output_modalities || item.architecture?.output_modalities,
-        capabilities:normalizeCapabilities({...item,...(Array.isArray(item.capabilities)?{}:item.capabilities||item.parameters||item.model_info||{})})});
+        capabilities:kind==='video'?{...fallback,...discovered}:discovered});
     }
     next = '';
     if (body.has_more && body.last_id && config.protocol === 'anthropic') {

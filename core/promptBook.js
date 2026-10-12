@@ -41,7 +41,7 @@ export function saveEntryValue(book,entryId,value,previousValue){
  const ids=new Set(references.map(r=>r.id));
  const previousIds=new Set((previousValue||entryValue(book,entry)).references.map(r=>r.id));
  const alreadyExcluded=new Set(book.drafts?.[entryId]?.excludedIds||[]);
- const overrides=Object.fromEntries(references.filter(r=>sharedIds.has(r.id)&&r.role).map(r=>[r.id,{role:r.role}]));
+ const overrides=Object.fromEntries(references.filter(r=>sharedIds.has(r.id)).map(r=>[r.id,Object.fromEntries(['role','duration'].filter(k=>r[k]!==undefined).map(k=>[k,r[k]]))]));
  const draft={...settings,excludedIds:shared.filter(r=>!ids.has(r.id)&&(previousIds.has(r.id)||alreadyExcluded.has(r.id))).map(r=>r.id),overrides,extraReferences:references.filter(r=>!sharedIds.has(r.id))};
  // Carry model/parameter preferences forward to untouched entries, never their text or media.
  const preferences=Object.fromEntries(['profileId','model','ratio','duration','resolution'].filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]]));

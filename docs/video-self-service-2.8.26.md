@@ -16,6 +16,8 @@
 | 选项 | 适用形态 | 注意事项 |
 |---|---|---|
 | 飞拓标准 | `video/generate`、`video/status?jobId=...` | 主站保留本地文件、多素材和旧配置；同类代理站可显式选择此协议 |
+| MaxForAI | `POST /v1/videos`、`GET /v1/videos/{id}` | 2.8.32 起一键接入；可拉取未来新型号。本地参考先上传 `/v1/assets`，生成请求带幂等编号，结果从同任务内容接口下载 |
+| 9Y 视频 | `POST /v1/videos`、`GET /v1/videos/{id}` | 2.8.32 起一键接入；字段自动换成 `seconds`、`aspect_ratio`、`reference_*`。素材须为公网 HTTPS，Wan 视频参考需填写单段时长 |
 | 火山方舟 | `contents/generations/tasks`，查询同一 ID | 支持 content 中的图片、视频、音频；本地参考转换为数据地址，上游不允许时使用公网地址或自定义模板 |
 | Videos JSON | `videos`，JSON 提交与 ID 查询 | 预设支持一张 input_reference 首帧；多素材请求需按上游字段改为自定义模板 |
 | Videos 表单 | `videos`，multipart 提交 | model/prompt/seconds/size，与 input_reference 文件；适合要求文件表单的兼容接口 |
@@ -71,3 +73,16 @@
 本版处理 HTTP JSON/multipart 接口，响应需要 JSON 任务编号或视频地址，或查询成功后的鉴权视频下载入口。只有专用 SDK、动态签名、浏览器登录、仅 Webhook 或直接返回视频二进制的提交服务，不能承诺仅凭地址密钥自动兼容。遇到此类服务需要额外适配。读到型号并不等于该账号有生成权限或余额。
 
 验收采用模拟接口，不提交付费生成。覆盖未内置 ft 型号、其他上游、手动覆盖参数、首帧文件、自定义返回字段、重启查询、失败下载恢复、跨站密钥保护及旧任务兼容。
+
+## MaxForAI 与 9Y 快捷接入（2.8.32）
+
+在“API 接口 → 视频 API → 添加接口”或图视生成的“API 设置”中，点击“接入 MaxForAI 视频”或“接入 9Y 视频”。软件会填入官方基础地址和协议；用户只需填写自己账号生成的 API Key，再点击“拉取／刷新视频型号与参数”。保存后，同一个视频配置会同时出现在图视生成和项目协作分镜中。
+
+- 两家均从各自 `/v1/models` 只读拉取目录。以后上游新增型号时可直接刷新，不需要等待行舟影视内置新编号；用户仍可手填大小写完全一致的 model ID。
+- 混合目录优先使用上游声明的输出模态及明确视频型号特征。未声明用途且无法分类的型号可在“拉取/导入模型”中人工确认视频用途，或直接手填编号与参数；不会把文本/图片型号直接当作视频提交。
+- 拉取型号只读取目录，不会创建付费任务。真正提交只发送一次；网络结果不明时保留为待核对任务，不切换入口重复付费。
+- MaxForAI 按其官方统一视频入口发送 `duration / ratio / resolution / images / videos / audios`。行舟影视的 `@图片1 / @视频1 / @音频1` 会在提交时转换为官方引用编号；本地素材上传到同一 MaxForAI 账号。
+- 9Y 按其视频入口发送 `seconds / aspect_ratio / reference_images / reference_videos / reference_audios`。9Y 没有供该协议使用的本地素材上传入口，因此本地文件不会被静默忽略，提交前会明确提示改用公网 HTTPS 地址。
+- Wan 的视频参考卡可填写素材时长；单段 1–15 秒、合计不超过 15 秒。素材时长跟随当前提示词草稿保存，切换非 Wan 型号只发送该型号要求的 URL 字符串。
+
+官方文档：[MaxForAI](https://maxforai.top/docs)、[9Y 视频](https://9yapi.shop/docs/#videos)。型号价格、账号分组、审核和素材限制以服务商当时文档及任务记录为准。

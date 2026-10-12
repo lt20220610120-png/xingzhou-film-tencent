@@ -53,3 +53,43 @@ test('不同上游可用query或body鉴权，密钥只在实际请求注入',asy
  await client.submit({...base,videoAdapter:{authMode:'query',authField:'key',submitPath:'create',bodyType:'json',requestTemplate:{model:'{{model}}'}}});assert.equal(new URL(calls[0].url).searchParams.get('key'),'fixture-key');assert.equal(calls[0].o.headers.Authorization,undefined);
  await client.submit({...base,videoAdapter:{authMode:'body',authField:'api_key',submitPath:'create',bodyType:'json',requestTemplate:{model:'{{model}}'}}});assert.equal(JSON.parse(calls[1].o.body).api_key,'fixture-key');
 });
+test('MaxForAI 本地素材先上传再生成，使用官方字段、幂等键和受保护下载地址',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-maxforai-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const image=path.join(dir,'参考.png');fs.writeFileSync(image,'image-bytes');const calls=[];
+ t.mock.method(global,'fetch',async(url,o)=>{calls.push({url,o});if(url.endsWith('/assets')){assert.equal(o.headers.Authorization,'Bearer max-key');assert.equal(await o.body.get('file').text(),'image-bytes');return Response.json({url:'https://cdn.max.test/reference.png'});}if(o.method==='POST')return Response.json({id:'max-task',status:'queued'});return Response.json({id:'max-task',status:'completed',metadata:{url:'https://signed.max.test/result.mp4'}});});
+ const client=require('./video-provider.cjs'),base={endpoint:'https://maxforai.top/v1/video/generations',videoProtocol:'auto',apiKey:'max-key',model:'FT-2.5满血(过真人)',prompt:'人物参考@图片1，接续@视频1',duration:15,ratio:'16:9',resolution:'720p',references:[{kind:'image',filePath:image},{kind:'video',url:'https://cdn.max.test/clip.mp4'}]};
+ const submitted=await client.submit({...base,idempotencyKey:'local-job-1'});assert.equal(submitted.jobId,'max-task');const create=calls.find(c=>c.url.endsWith('/videos'));assert.equal(create.o.headers['Idempotency-Key'],'local-job-1');assert.deepEqual(JSON.parse(create.o.body),{model:base.model,prompt:'人物参考@image1，接续@video1',duration:15,ratio:'16:9',resolution:'720p',images:['https://cdn.max.test/reference.png'],videos:['https://cdn.max.test/clip.mp4']});
+ const result=await client.status({...base,jobId:'max-task'});assert.equal(result.status,'success');assert.equal(result.videoUrl,'https://maxforai.top/v1/videos/max-task/content');assert.equal(calls.filter(c=>c.o.method==='POST').length,2);
+});
+test('MaxForAI 鉴权下载只向原站发送密钥，跳转到 CDN 后不转发',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-max-download-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const calls=[];
+ t.mock.method(global,'fetch',async(url,o)=>{calls.push({url,o});if(url.includes('maxforai.top'))return new Response(null,{status:302,headers:{location:'https://cdn.max.test/result.mp4'}});return new Response('video-bytes',{headers:{'content-type':'video/mp4'}});});
+ const client=require('./video-provider.cjs');const saved=await client.download({endpoint:'https://maxforai.top/v1',videoProtocol:'maxforai',jobId:'max-task',url:'https://maxforai.top/v1/videos/max-task/content'},'max-key',dir);
+ assert.equal(fs.readFileSync(saved,'utf8'),'video-bytes');assert.equal(calls[0].o.headers.Authorization,'Bearer max-key');assert.equal(calls[1].o.headers?.Authorization,undefined);
+});
+test('9Y 使用 seconds 与 reference 字段，Wan 视频素材携带时长并查询原任务',async t=>{
+ const calls=[];t.mock.method(global,'fetch',async(url,o)=>{calls.push({url,o});return o.method==='POST'?Response.json({id:'9y-task',status:'queued'}):Response.json({id:'9y-task',status:'completed',progress:100});});
+ const client=require('./video-provider.cjs'),base={endpoint:'https://9yapi.shop/v1/videos',videoProtocol:'auto',apiKey:'9y-key',model:'官转wan3.0-标准版',prompt:'镜头移动',duration:12,ratio:'9:16',resolution:'1080p',references:[{kind:'image',url:'https://cdn.test/a.png'},{kind:'video',url:'https://cdn.test/a.mp4',duration:6},{kind:'audio',url:'https://cdn.test/a.mp3'}]};
+ assert.equal((await client.submit(base)).jobId,'9y-task');assert.deepEqual(JSON.parse(calls[0].o.body),{model:base.model,prompt:base.prompt,seconds:12,resolution:'1080p',aspect_ratio:'9:16',reference_images:['https://cdn.test/a.png'],reference_videos:[{url:'https://cdn.test/a.mp4',duration:6}],reference_audios:['https://cdn.test/a.mp3']});
+ const result=await client.status({...base,jobId:'9y-task'});assert.equal(result.videoUrl,'https://9yapi.shop/v1/videos/9y-task/content');assert.equal(calls.filter(c=>c.o.method==='POST').length,1);
+});
+test('9Y 在付费提交前拒绝本地素材和缺少时长的 Wan 视频素材',async t=>{
+ let calls=0;t.mock.method(global,'fetch',async()=>{calls++;return Response.json({id:'unexpected'})});const client=require('./video-provider.cjs'),base={endpoint:'https://9yapi.shop/v1',videoProtocol:'niney',apiKey:'key',model:'官转wan3.0-标准版',prompt:'test',duration:5,ratio:'16:9',resolution:'720p'};
+ await assert.rejects(client.submit({...base,references:[{kind:'image',filePath:'C:\\local.png'}]}),/公网 HTTPS/);await assert.rejects(client.submit({...base,references:[{kind:'video',url:'https:\/\/cdn.test\/clip.mp4'}]}),/需要填写.*时长/);assert.equal(calls,0);
+});
+test('9Y 从 Wan 切换其他型号保留本地素材时长但只提交 URL 字符串',async t=>{
+ let body;t.mock.method(global,'fetch',async(_,options)=>{body=JSON.parse(options.body);return Response.json({id:'niney-other',status:'queued'});});
+ await require('./video-provider.cjs').submit({endpoint:'https://9yapi.shop/v1',apiKey:'key',model:'JMVIP-2.5',prompt:'test',duration:15,ratio:'16:9',resolution:'720p',references:[{kind:'video',url:'https://cdn.test/clip.mp4',duration:6}]});
+ assert.deepEqual(body.reference_videos,['https://cdn.test/clip.mp4']);
+});
+test('两家在任何素材读取或生成前拒绝本机和内网远程素材',async t=>{
+ let calls=0;t.mock.method(global,'fetch',async()=>{calls++;return Response.json({id:'unexpected'})});const client=require('./video-provider.cjs');
+ for(const endpoint of ['https://maxforai.top/v1','https://9yapi.shop/v1'])for(const url of ['http://public.test/a.png','https://localhost/a.png','https://127.0.0.1/a.png','https://192.168.1.5/a.png','https://[::1]/a.png','https://[::ffff:127.0.0.1]/a.png']){
+  await assert.rejects(client.submit({endpoint,apiKey:'key',model:'future-video',prompt:'test',duration:15,ratio:'16:9',resolution:'720p',references:[{kind:'image',url}]}),/公网 HTTPS/);
+ }
+ assert.equal(calls,0);
+});
+test('MaxForAI 兼容外层 success 和 data 任务结果，9Y 失败原因保留且隐藏密钥',async t=>{
+ const client=require('./video-provider.cjs');let failed=false;t.mock.method(global,'fetch',async()=>Response.json(failed?{id:'failed-task',status:'failed',error:{message:'quota failure key-fixture'}}:{code:'success',data:{id:'wrapped-task',status:'completed',result_url:'https://cdn.max.test/result.mp4'}}));
+ const max=await client.status({endpoint:'https://maxforai.top/v1',apiKey:'key-fixture',jobId:'wrapped-task'});assert.equal(max.status,'success');assert.equal(max.jobId,'wrapped-task');assert.equal(max.videoUrl,'https://maxforai.top/v1/videos/wrapped-task/content');
+ failed=true;const niney=await client.status({endpoint:'https://9yapi.shop/v1',apiKey:'key-fixture',jobId:'failed-task'});assert.equal(niney.status,'failed');assert.match(niney.errorMessage,/quota failure/);assert.ok(!niney.errorMessage.includes('key-fixture'));
+});
