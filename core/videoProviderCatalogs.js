@@ -69,4 +69,3 @@ export function providerVideoCapabilities(provider,model){
  if(provider==='niney')return normalizeCapabilities({durations:[5,10,15,30],resolutions:['720p'],ratios:commonRatios});
  return {};
 }
-

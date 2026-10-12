@@ -26,6 +26,14 @@
 - 隔离 React 界面验证两家快捷接入 → mock 拉取目录 → 保存本地配置 → 生成选择 → mock 提交；核对各自地址和协议，Wan 6.5 秒素材时长透传。记录在 `output/playwright/video2832-wan.png`。此 fixture 不接触真实用户状态或付费接口。
 - 独立复核发现并修正素材远程读取、目录混入非视频、Wan 切换非 Wan 的引用格式问题；最后修正有专项回归。未进行云端业务部署或用户项目数据迁移。
 - NSIS 安装包完成，打包运行验证通过（报告 `qa/packaged-smoke-2.8.32-1791801210827`，版本 2.8.32，errors 为空）；视频配置/未来目录模块、页面、桥接、LibTV、DOCX、媒体和安全约束均通过。
-- 公开 Release、双仓库更新清单与官方备用源结果在正式发布后补记。所有生成验证均为 mock，未使用用户 API Key、未调用真实付费任务。
+- 所有生成验证均为 mock，未使用用户 API Key、未调用真实付费任务。
 
 官方依据：[MaxForAI 文档](https://maxforai.top/docs)、[9Y 视频文档](https://9yapi.shop/docs/#videos)。
+
+## 正式发布
+
+- 公开安装包：[2.8.32 安装包](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.32/Xingzhou-Film-Tencent-Setup-2.8.32.exe)。
+- 本地安装包：`release/2.8.32/Xingzhou-Film-Tencent-Setup-2.8.32.exe`；大小 103601227 字节；SHA256 `ad8f18c5e8c396ef37775d208a53c05ba5ad6dc877b17faeefe7a834b3ecad35`。
+- 源码功能提交 `a32b932`，合并公开清单历史 `c77fd09` 并同步 GitHub main；发布清单提交 `a578c3d`。合并只取公开最新清单，未覆盖本地已验证的功能实现。
+- GitHub 正式 Release 和两个仓库 main 的清单已发布；Contents API 与对应提交原始文件一致。公开安装包完整下载大小、SHA256 和 GitHub asset digest 均通过。证据 `output/release-2832-public.json`。
+- 官方备用源上传后服务端完整大小/哈希通过；客户端签名、清单、65536 字节 Range 和整包总大小通过。客户端整包读取超出 120 秒，未宣称此轮客户端备用源完整下载通过；GitHub 公开整包已完整下载验证。证据 `output/release-2832-mirror.json`。
