@@ -16,4 +16,6 @@ UI常规480p/768p与9:16/16:9/1:1合成为上游中文resolution；1–15秒整�
 
 云端仅扩展COS签名及临时素材模块对FLAC/audio MP4的支持，部署前两文件哈希与2.8.33基线一致。服务器Node18测试12/12通过，备份/回滚目录`/opt/xingzhou-backups/autodl-audio-2.8.34-20261013T110108Z`；部署后健康/active通过。两份合成音频字节验证签名PUT、无登录签名GET、Content-Type与字节相符，到期删除2份测试对象成功；不声称这些存储样本代表真实音频生成质量。证据`output/autodl-2834-cloud-deploy.log`。无数据库迁移或用户项目写入。
 
-正式`npm run dist`通过：2066/2066全量测试，0失败；Vite构建2052模块成功；NSIS安装包运行验证PASS，报告`qa/packaged-smoke-2.8.34-1791889618846`，版本2.8.34、errors为空。公开发布证据完成后追加。
+正式`npm run dist`通过：2066/2066全量测试，0失败；Vite构建2052模块成功；NSIS安装包运行验证PASS，报告`qa/packaged-smoke-2.8.34-1791889618846`，版本2.8.34、errors为空。正式Release、双仓库main签名清单与官方备用源已发布；功能提交a74a338、公开签名清单d354c90。公开安装包完整下载、大小、SHA256与GitHub asset digest通过，清单Ed25519签名通过。备用源服务端整包哈希/大小和客户端签名/清单/65536字节Range/总大小通过，未重复客户端下载备用源整包。
+
+[公开安装包](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.34/Xingzhou-Film-Tencent-Setup-2.8.34.exe)；本机`release/2.8.34/Xingzhou-Film-Tencent-Setup-2.8.34.exe`，103606883字节，SHA256`886c0a2eafea8969542918a0b215bd80fb4b1af263063dfa0cc22a6a0a7be11f`。证据`output/release-2834-public.json`、`output/release-2834-mirror.json`、`output/autodl-2834-release-build.log`。
