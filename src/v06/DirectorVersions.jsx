@@ -30,7 +30,7 @@ export function DirectorVersions({project,api,onClose,onCloud,onLocal}){
    {error&&<p role="alert">{error}</p>}
    <div className="director-version-layout"><div className="director-version-list">
      {(tab==='cloud'?rows:local).map(v=><button key={v.id} className={`secondary ${selected?.id===v.id?'selected':''}`} disabled={busy} onClick={()=>tab==='cloud'?select(v):(setSelected(v),setConfirm(''))}>
-       <strong>{tab==='cloud'?`版本 ${v.sequence} · ${v.author_name||'成员'}`:'我的上传前副本'}</strong><span>{tab==='cloud'?labels[v.status]:'本地保留'} · {versionTime(v)}</span>
+       <strong>{tab==='cloud'?`版本 ${v.sequence} · ${v.author_name||'成员'}`:v.reason||'我的上传前副本'}</strong><span>{tab==='cloud'?labels[v.status]:'本地保留'} · {versionTime(v)}</span>
      </button>)}
      {tab==='cloud'&&before&&<button className="secondary" disabled={busy} onClick={()=>load(before)}>更早版本</button>}
      {!(tab==='cloud'?rows:local).length&&<p>{busy?'读取中…':'暂无版本；首次上传后会保留共享基准和成员版本。'}</p>}

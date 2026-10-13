@@ -25,3 +25,7 @@ test('ordinary refresh preserves archived paid work and replaces current stale h
  assert.equal(updated.promptHistory.find(p=>p.id==='archived').content,'已删分集成果');assert.equal(updated.promptHistory.find(p=>p.id==='current').content,'新词');assert.deepEqual(updated.deletedPromptIds,[]);
  const restored=directorLiveWork(p,eps,true);assert.ok(!restored.promptHistory.some(p=>p.id==='archived'));assert.ok(restored.promptHistory.some(p=>p.id==='restored'));
 });
+
+test('local history preview retains paid prompts whose episodes no longer exist',()=>{
+ const text=directorWorkPreview({episodes:[],promptHistory:[{id:'paid',label:'旧场景',content:'归档付费成果'}]});assert.ok(text.includes('归档付费成果'));assert.ok(text.includes('归档提示词'));
+});

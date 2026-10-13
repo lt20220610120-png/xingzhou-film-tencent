@@ -12,13 +12,14 @@ export function useDirectorRealtime({project,accountId,active,api,setState,getPr
   let disposed=false;const id=project.id,projectId=project.cloudProjectId;let boundProject=project;const scopeReady=Promise.resolve(api.storageInfo?.()).then(info=>({projectId,accountId,dataDir:info?.dataDir||''}));
   const engine=createDirectorRealtime({
    readProject:()=>{if(!disposed&&latest.current.accountId===accountId&&latest.current.projectId===id)boundProject=latest.current.getProject(id)||boundProject;return boundProject;},
-   applyProject:(value,receipt)=>{if(disposed)return;latest.current.setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id!==id?p:{...p,name:value.name,masterScript:value.script,...directorLiveWork(p,value.episodes||[]),style:value.style,aspectRatio:value.aspectRatio,cloudLive:true,cloudBase:undefined,cloudRemote:undefined,pendingCloudSubmission:undefined,cloudConflict:'',cloudSyncError:'',cloudLocked:receipt.locked,canWrite:receipt.denied?false:true,cloudRole:receipt.myRole})}));},
+   applyProject:(value,receipt)=>{if(disposed)return;latest.current.setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id!==id?p:{...p,name:value.name,masterScript:value.script,...directorLiveWork(p,value.episodes||[],receipt.replaceHistory),style:value.style,aspectRatio:value.aspectRatio,cloudLive:true,cloudLiveNeedsRepair:false,cloudBase:undefined,cloudRemote:undefined,pendingCloudSubmission:undefined,cloudConflict:'',cloudSyncError:'',cloudLocked:receipt.locked,canWrite:receipt.denied?false:true,cloudRole:receipt.myRole})}));},
    call:payload=>api.directorCollabSyncLive({projectId,...payload}),
+   archiveLocal:async version=>{if(disposed||latest.current.accountId!==accountId||latest.current.projectId!==id)return;latest.current.setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id!==id||p.localCollaborationVersions?.some(v=>v.id===version.id)?p:{...p,localCollaborationVersions:[...(p.localCollaborationVersions||[]),{...version,createdAt:new Date().toISOString()}]})}));},
    load:async()=>{const scope=JSON.stringify([accountId,id,projectId,directoryEpoch]);if(skipCache.current===scope){skipCache.current=null;return null;}return api.directorLiveLoadLocal?.(await scopeReady);},save:async data=>api.directorLiveSaveLocal?.({...await scopeReady,data}),
    flush:()=>{if(disposed||latest.current.accountId!==accountId||latest.current.projectId!==id)return false;if(composing.current)return false;flushEditing();return true;},
-   status:(stage,message='')=>{if(!disposed&&stage==='error'&&/同时被修改|旧版未上传修改存在冲突/.test(message))latest.current.setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id===id?{...p,cloudConflict:message}:p)}));if(!disposed)setNotice(n=>n.stage===stage&&n.message===message?n:{stage,message});},
+   status:(stage,message='',receipt)=>{if(!disposed&&receipt)latest.current.setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id===id?{...p,cloudRole:receipt.myRole,cloudLocked:receipt.locked,cloudLiveNeedsRepair:Boolean(receipt.repairRequired)}:p)}));if(!disposed)setNotice(n=>n.stage===stage&&n.message===message?n:{stage,message});},
   });current.current=engine;
-  engine.start().catch(()=>{});const timer=setInterval(()=>{if(!latest.current.getProject(id)?.cloudConflict)engine.sync().catch(()=>{});},1000);
+  engine.start().catch(()=>{});const timer=setInterval(()=>{engine.sync().catch(()=>{});},1000);
   return()=>{disposed=true;clearInterval(timer);if(current.current===engine)current.current=null;engine.stop().catch(()=>{});};
  },[accountId,project?.cloudProjectId,active,directoryEpoch]);
  useEffect(()=>{current.current?.capture();},[project]);
@@ -34,5 +35,5 @@ export function useDirectorRealtime({project,accountId,active,api,setState,getPr
   })}));
   skipCache.current=JSON.stringify([scope.accountId,scope.projectId,scope.cloudProjectId,scope.directoryEpoch+1]);setDirectoryEpoch(v=>v+1);
  };
- return {...notice,adoptRestored,sync:options=>current.current?.sync(options),ready:()=>current.current?.ready()};
+ return {...notice,adoptRestored,repair:(action,summary)=>current.current?.repair(action,summary),sync:options=>current.current?.sync(options),ready:()=>current.current?.ready()};
 }

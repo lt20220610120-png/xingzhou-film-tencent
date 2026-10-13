@@ -8,6 +8,7 @@ import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { prepareLibraryDirector } from '../../core/directorLibrary.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
+import {DirectorLiveRepair} from './DirectorLiveRepair.jsx';
 import {threeWayMerge} from '../../core/threeWayMerge.js';
 import React, { useState, useRef, useCallback, useEffect, useSyncExternalStore } from 'react';
 import { directorJobs } from '../../core/backgroundJobs.js';
@@ -832,6 +833,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
   const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
+  const [repairOpen,setRepairOpen]=useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [cloudProjects, setCloudProjects] = useState([]);
   const [collaborationProjects, setCollaborationProjects] = useState([]);
@@ -886,6 +888,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     }
   }, [selectedProjectId, selectedProject, directorProjects.length]);
   const activeEpisode = selectedProject?.episodes?.find((ep) => ep.id === activePane);
+  useEffect(()=>{if(!selectedProject||activePane==='master'||activeEpisode)return;const canonical=selectedProject.episodes?.find(ep=>ep.id.repeat(2)===activePane);setActivePane(canonical?.id||'master');},[selectedProject?.id,selectedProject?.episodes,activePane,activeEpisode]);
 
   const loadCloudProjects = useCallback(async () => {
     if (!cloudActiveRef.current) return;
@@ -917,7 +920,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const changeCollab = async (mode) => { if (!collabTarget) return; if (mode === 'create') { const dp = collabTarget.project; const episodes = dp.episodes || []; const cloud = await api.directorCollabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes }); setState((s) => updateDirectorProject(s, dp.id, { cloudProjectId: cloud.id, cloudRole: 'producer', cloudBase:{name:cloud.name,script:cloud.script||'',episodes:cloud.episodes||[]},cloudUpdatedAt:cloud.updated_at })); setCollabTarget({ project: { ...dp, cloudProjectId: cloud.id }, cloud: { ...cloud, locked: false } }); } await loadCloudProjects(); };
   const refreshDirectorCloud = async () => {
     if (!selectedProject?.cloudProjectId || refreshingCloud) return;
-    if(selectedProject.cloudLive){await realtime.sync();setCloudRefreshNotice('已刷新实时协作改动');return;}
+    if(selectedProject.cloudLive){await realtime.sync();setCloudRefreshNotice(realtime.ready()?'已请求同步实时协作改动；结果见顶部提示。':'当前协作尚未完成同步；请查看顶部提示。');return;}
     setRefreshingCloud(true); setCloudRefreshNotice('');
     try {
       await refreshDirectorCollaboration({
@@ -1136,7 +1139,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   };
   const recoverLocalVersion=document=>{
     if(selectedProject.cloudLive){
-      const copy={id:crypto.randomUUID(),name:`${document.name}（历史本地副本）`,masterScript:document.script,episodes:structuredClone(document.episodes||[]),style:document.style||selectedProject.style,aspectRatio:document.aspectRatio||selectedProject.aspectRatio,sourceType:'upload',groupId:'director-workbench',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+      const copy={id:crypto.randomUUID(),name:`${document.name}（历史本地副本）`,masterScript:document.script,episodes:structuredClone(document.episodes||[]),promptHistory:structuredClone(document.promptHistory||[]),style:document.style||selectedProject.style,aspectRatio:document.aspectRatio||selectedProject.aspectRatio,sourceType:'upload',groupId:'director-workbench',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
       setState(current=>({...current,directorProjects:[copy,...current.directorProjects]}));setVersionsOpen(false);setSelectedProjectId(copy.id);setActivePane('master');setMasterDraft(copy.masterScript);return;
     }
     const previous={id:crypto.randomUUID(),createdAt:new Date().toISOString(),document:{name:selectedProject.name,script:masterDraft,episodes:structuredClone(selectedProject.episodes||[])},base:selectedProject.cloudBase};
@@ -1146,7 +1149,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   // 渲染项目编辑视图
   return (
     <div className="director-shell">
-      {selectedProject.cloudProjectId&&<div className={`director-live-status ${realtime.stage==='error'?'warning':''}`} role="status">{({connecting:'连接多人协作中…',synced:'多人协作 · 已同步',syncing:'多人协作 · 正在同步',locked:'多人协作 · 项目已锁定',error:'多人协作暂未同步'})[realtime.stage]}{realtime.message&&`：${realtime.message}`}<span> 修改先保留本地，再自动同步；无需手动上传。</span></div>}
+      {selectedProject.cloudProjectId&&<div className={`director-live-status ${['error','repair'].includes(realtime.stage)?'warning':''}`} role="status">{({connecting:'连接多人协作中…',synced:'多人协作 · 已同步',syncing:'多人协作 · 正在同步',locked:'多人协作 · 项目已锁定',repair:'多人协作 · 等待制片修复',error:'多人协作暂未同步'})[realtime.stage]}{realtime.message&&`：${realtime.message}`}<span> 修改先保留本地，再自动同步；无需手动上传。</span>{realtime.stage==='repair'&&selectedProject.cloudRole==='producer'&&<button className="secondary" onClick={()=>setRepairOpen(true)}>预览修复协作数据</button>}</div>}
+      {repairOpen&&<DirectorLiveRepair key={`${accountId}:${selectedProject.cloudProjectId}`} realtime={realtime} onClose={()=>setRepairOpen(false)}/>}
       {selectedProject.cloudConflict&&dismissedConflict!==selectedProject.cloudConflict&&<Dialog open title="导演项目存在协作冲突" onClose={()=>setDismissedConflict(selectedProject.cloudConflict)}><p>{selectedProject.cloudConflict}</p><p>本地修改已保留。已上传的冲突版本可由项目制片在“协作版本”中选择。</p><button className="secondary" onClick={()=>{setDismissedConflict(selectedProject.cloudConflict);setVersionsOpen(true);}}>查看协作版本</button><button className="secondary" onClick={()=>resolveCloudConflict('remote')}>本地采用云端内容</button>{selectedProject.cloudRole==='producer'&&<button className="primary" onClick={()=>resolveCloudConflict('local')}>制片保留我的修改待上传</button>}</Dialog>}
       {versionsOpen&&<DirectorVersions key={`${accountId}:${selectedProject.cloudProjectId}`} project={selectedProject} api={api} onClose={()=>setVersionsOpen(false)} onCloud={cloud=>realtime.adoptRestored(cloud)} onLocal={recoverLocalVersion}/>}
       <DirectorRail

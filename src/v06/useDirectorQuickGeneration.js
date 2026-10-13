@@ -38,7 +38,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       const scene=episode&&parseDirectorScenes(episode.content,episodeNumber).find(s=>s.label===target.sceneLabel);
       return {accountId:accountRef.current,project,episode,inputText:scene?(episode.quickSceneEdits?.[target.sceneLabel]??scene.content):undefined,
         skill:current.skills?.find(s=>s.id===target.skillId),profile:current.apiProfiles?.find(p=>p.id===target.profileId),
-        permissions:{canGenerate:Boolean(scene)&&!directorySwitchRef.current&&!project?.cloudLocked&&!project?.cloudConflict&&project?.canWrite!==false&&project?.permissions?.canGenerate!==false&&project?.permissions?.canWrite!==false&&episode?.canWrite!==false}};
+        permissions:{canGenerate:Boolean(scene)&&!directorySwitchRef.current&&!project?.cloudLocked&&!project?.cloudConflict&&!project?.cloudLiveNeedsRepair&&project?.canWrite!==false&&project?.permissions?.canGenerate!==false&&project?.permissions?.canWrite!==false&&episode?.canWrite!==false}};
     };
     const checkpoints=api.directorQuickSaveRun?{
       list:()=>api.directorQuickListRuns(),load:p=>api.directorQuickLoadRun(p),save:p=>api.directorQuickSaveRun(p),
