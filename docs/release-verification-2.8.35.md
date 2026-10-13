@@ -33,3 +33,7 @@ protocol3：普通结构字符串atomic；script/分集content/quickSceneEdits/s
 首次完整dist测试2078项中，WorkBuddy Windows fixture结束时遇到“Fixture process identity mismatch”hook失败；该文件独立重跑21/21通过，关闭验收浏览器/服务器减小并行负载后重新做完整dist；结果待下方发布证据。未修改WorkBuddy生产代码或放宽其进程身份检查。
 
 完整正式重跑dist：2078/2078全量测试，0失败；Vite构建成功；NSIS安装包运行验证PASS，`qa/packaged-smoke-2.8.35-1791899389542/report.json`版本2.8.35、errors为空。独立复核30/30专项及stop晚响应检查通过，无未解决阻塞；本地copy恢复统计复验通过。构建证据`output/release-2835-build-final.log`。安装包103609052字节，SHA256 `2a26f797254d3e5369d66dce2a0780bd98c454fbebb36127f5d439dfd786f615`。
+
+正式Release、双仓库main签名清单与官方备用源已发布，功能提交d1ff942、签名清单14d9866。公开整包完整下载、大小、SHA256与GitHub asset digest通过；两份清单Ed25519签名通过；备用源服务端整包SHA256和客户端清单/65536字节Range/总大小通过，未重复下载备用源整包。证据output/release-2835-public.json、release-2835-mirror.json、release-2835-publish.log。
+
+[公开安装包](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.35/Xingzhou-Film-Tencent-Setup-2.8.35.exe)；本机release/2.8.35/Xingzhou-Film-Tencent-Setup-2.8.35.exe，103609052字节，SHA256 `2a26f797254d3e5369d66dce2a0780bd98c454fbebb36127f5d439dfd786f615`。所有成员升级，制片对异常项目预览并确认修复；不宣称已替用户覆盖真实项目。
