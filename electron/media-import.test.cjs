@@ -27,3 +27,7 @@ test('audio multi-select and cancellation preserve the expected dialog contract'
   const result=await importMediaFiles({kind:'audio',multiple:true,destDir:'unused',dialog:{showOpenDialog:async value=>{options=value;return {canceled:true,filePaths:[]};}}});
   assert.deepEqual(result,[]);assert.match(options.title,/音频/);assert.ok(options.filters[0].extensions.includes('wav'));assert.ok(options.properties.includes('multiSelections'));
 });
+test('audio picker accepts AutoDL FLAC and MP4 while retaining the selected audio kind',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-autodl-audio-picker-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const files=['a.flac','a.mp4'].map(n=>{const file=path.join(root,n);fs.writeFileSync(file,'audio');return file;});
+ const imported=await importMediaFiles({kind:'audio',multiple:true,destDir:path.join(root,'media'),dialog:{showOpenDialog:async options=>{assert.ok(options.filters[0].extensions.includes('flac'));assert.ok(options.filters[0].extensions.includes('mp4'));return {filePaths:files};}}});assert.deepEqual(imported.map(r=>r.kind),['audio','audio']);
+});

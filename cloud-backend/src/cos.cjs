@@ -77,7 +77,7 @@ function createCosSigner(env = {}) {
       return { ...sign('DELETE', objectKey, ttlSeconds), objectKey };
     },
     signGenerationReference({objectKey}) {
-      if(!/^temporary\/generation\/[a-f0-9]{32}\/[a-f0-9-]+\.(?:png|jpg|jpeg|webp|gif|mp4|mov|webm|mp3|wav|m4a)$/.test(objectKey))throw Error('临时素材路径无效');
+      if(!/^temporary\/generation\/[a-f0-9]{32}\/[a-f0-9-]+\.(?:png|jpg|jpeg|webp|gif|mp4|mov|webm|mp3|wav|m4a|flac)$/.test(objectKey))throw Error('临时素材路径无效');
       const signed=sign('GET',objectKey,48*3600,{maxTtlSeconds:48*3600});return {...signed,objectKey,url:`${signed.url}?${signed.authorization}`};
     },
   };

@@ -1,0 +1,33 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const input={kind:'video',endpoint:'https://autodl.art',apiKey:'fixture-autodl-token',model:'minimax_h3_zm_u24',prompt:'人物参考@image1，声音参考@audio1',duration:12,resolution:'768p',ratio:'9:16',seed:0,references:[{kind:'image',url:'https://cdn.test/a.png'},{kind:'audio',url:'https://cdn.test/a.wav'}]};
+test('both AutoDL workflows submit raw Authorization, indexed media and combined resolution without paid probing',async t=>{
+ const calls=[];t.mock.method(global,'fetch',async(url,o)=>{calls.push({url,o});return Response.json({code:'Success',data:{task_id:'auto-task',status:'QUEUED'}});});
+ const provider=require('./video-provider.cjs');
+ for(const [model,ratio,resolution,expected] of [['minimax_h3_zm_u24','9:16','768p','768p竖'],['minimax_h3_zm_u08','16:9','480p','480p横'],['minimax_h3_zm_u08','1:1','768p','768p(1:1)']]){
+  const job=await provider.submit({...input,model,ratio,resolution});assert.equal(job.jobId,'auto-task');const call=calls.at(-1);assert.equal(call.url,'https://autodl.art/api/v1/comfyui/comfyui_workflow/'+model);assert.equal(call.o.headers.Authorization,input.apiKey);assert.deepEqual(JSON.parse(call.o.body),{prompt:input.prompt,duration:12,resolution:expected,seed:0,ref_image_0:'https://cdn.test/a.png',ref_audio_0:'https://cdn.test/a.wav'});
+ }assert.equal(calls.length,3);
+});
+test('AutoDL queries the original task, selects a video output after preview images and downloads without forwarding token',async t=>{
+ const calls=[];t.mock.method(global,'fetch',async(url,o)=>{calls.push({url,o});if(url.includes('/result/'))return Response.json({code:'Success',data:{task_id:'auto-task',status:'SUCCESS',results:[{type:'image',url:'https://cdn.test/preview.png'},{type:'video',output_type:'output',url:'https://cdn.test/video.mp4?signature=x'}]}});return new Response('video',{headers:{'content-type':'video/mp4'}});});
+ const provider=require('./video-provider.cjs'),r=await provider.status({...input,jobId:'auto-task'});assert.equal(r.status,'success');assert.equal(r.videoUrl,'https://cdn.test/video.mp4?signature=x');assert.equal(calls[0].url,'https://autodl.art/api/v1/comfyui/comfyui_workflow/result/auto-task');assert.equal(calls[0].o.headers.Authorization,input.apiKey);
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-autodl-download-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));assert.equal(fs.readFileSync(await provider.download({...input,jobId:'auto-task',url:r.videoUrl},input.apiKey,dir),'utf8'),'video');assert.equal(calls.at(-1).o.headers?.Authorization,undefined);
+});
+test('AutoDL input validation fails before any upload or paid POST for missing images, bad limits or seeds',async t=>{
+ let calls=0;t.mock.method(global,'fetch',async()=>{calls++;return Response.json({id:'unexpected'});});const provider=require('./video-provider.cjs');
+ for(const patch of [{references:[]},{duration:16},{duration:1.5},{seed:1.5},{ratio:'4:3'},{references:Array.from({length:10},()=>input.references[0])},{references:[input.references[0],{kind:'video',url:'https://cdn.test/a.mp4'}]}])await assert.rejects(provider.submit({...input,...patch}));
+ assert.equal(calls,0);
+});
+test('AutoDL known workflow directory loads without guessing a models endpoint or making network requests',async()=>{
+ let calls=0;const rows=await require('./model-discovery.cjs').discoverModels({endpoint:'https://autodl.art/docs/comfyui_api/',purpose:'video',apiKey:'fixture'},async()=>{calls++;return Response.json({});});assert.deepEqual(rows.map(r=>r.id),['minimax_h3_zm_u24','minimax_h3_zm_u08']);assert.equal(rows[0].capabilities.minImages,1);assert.equal(rows[1].capabilities.maxAudios,3);assert.equal(calls,0);
+});
+test('AutoDL wrapped failure has the actual message, raw token is masked and network timeouts do not retry create',async t=>{
+ let calls=0;t.mock.method(global,'fetch',async()=>{calls++;throw Error('network lost')});await assert.rejects(require('./video-provider.cjs').submit(input));assert.equal(calls,1);
+ t.mock.method(global,'fetch',async()=>Response.json({code:'Failed',msg:'provider failure '+input.apiKey,data:{task_id:'auto-task',status:'FAILED'}}));const failed=await require('./video-provider.cjs').status({...input,jobId:'auto-task'});assert.equal(failed.status,'failed');assert.ok(!failed.errorMessage.includes(input.apiKey));assert.match(failed.errorMessage,/provider failure/);
+});
+test('AutoDL local PNG and FLAC are prepared before one create and restart queries the saved original ID',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-autodl-local-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const png=path.join(root,'a.png'),flac=path.join(root,'a.flac');fs.writeFileSync(png,'image');fs.writeFileSync(flac,'audio');let uploads=0,posts=0;
+ const prepare=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>({account:{id:'u'},token:'app-session-fixture'}),gateway:async(_,p)=>{const key='https://test.cos.ap-guangzhou.myqcloud.com/temporary/generation/u/'+p.filename;return {url:key,authorization:'signed-put',downloadUrl:key+'?signed=1',contentType:p.mime,expiresAt:Date.now()+48*3600*1000};},fetchFn:async(_,options)=>{for await(const _ of options.body){}uploads++;return new Response(null,{status:200});}});
+ t.mock.method(global,'fetch',async(url,options)=>{if(options.method==='POST'){posts++;const body=JSON.parse(options.body);assert.match(body.ref_image_0,/\.png\?signed=1$/);assert.match(body.ref_audio_0,/\.flac\?signed=1$/);return Response.json({code:'Success',data:{task_id:'original',status:'QUEUED'}});}if(url.includes('/result/'))return Response.json({code:'Success',data:{status:'completed',results:[{type:'video',url:'https://cdn.test/final.mp4'}]}});return new Response('mp4',{headers:{'content-type':'video/mp4'}});});
+ const jobs=require('./generation-jobs.cjs').createGenerationJobs(root,{prepareVideoReferences:prepare});const job=await jobs.submit({...input,references:[{kind:'image',filePath:png},{kind:'audio',filePath:flac}]});assert.equal(uploads,2);assert.equal(job.jobId,'original');assert.equal(posts,1);
+ const done=await require('./generation-jobs.cjs').createGenerationJobs(root).refresh({id:job.id,endpoint:input.endpoint,apiKey:input.apiKey});assert.equal(done.status,'success');assert.equal(posts,1);assert.equal(fs.readFileSync(done.filePath,'utf8'),'mp4');const saved=fs.readFileSync(path.join(root,'generation-jobs.json'),'utf8');assert.ok(!saved.includes(input.apiKey));assert.ok(!saved.includes('app-session-fixture'));assert.ok(!saved.includes('signed=1'));
+});

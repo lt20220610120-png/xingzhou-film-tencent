@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 
 const mediaFilters = {
   image: { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'webp'] },
-  audio: { name: '音频文件', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg'] },
+  audio: { name: '音频文件', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'mp4', 'flac'] },
   video: { name: '视频文件', extensions: ['mp4', 'mov', 'webm'] },
 };
 

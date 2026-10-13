@@ -1,8 +1,10 @@
 import {normalizeCapabilities} from './modelCapabilities.js';
+import {autodlCapabilities} from './autodlVideo.js';
 
 export const VIDEO_PROVIDER_PRESETS={
  maxforai:{name:'MaxForAI',endpoint:'https://maxforai.top/v1',videoProtocol:'maxforai'},
  niney:{name:'9Y 视频',endpoint:'https://9yapi.shop/v1',videoProtocol:'niney'},
+ autodl:{name:'AutoDL H3 视频',endpoint:'https://autodl.art/api/v1/comfyui',videoProtocol:'autodl'},
 };
 
 const hostOf=value=>{try{return new URL(value).hostname.toLowerCase();}catch{return '';}};
@@ -10,6 +12,7 @@ export function knownVideoProvider(value){
  const host=hostOf(value);
  if(host==='maxforai.top'||host.endsWith('.maxforai.top'))return 'maxforai';
  if(host==='9yapi.shop'||host.endsWith('.9yapi.shop'))return 'niney';
+ if(host==='autodl.art'||host==='www.autodl.art')return 'autodl';
  return '';
 }
 
@@ -64,6 +67,7 @@ export function providerModelKind(provider,item,purpose=''){
 }
 
 export function providerVideoCapabilities(provider,model){
+ if(provider==='autodl')return normalizeCapabilities(autodlCapabilities());
  if(provider==='niney'&&niney[model])return normalizeCapabilities(niney[model]);
  if(provider==='maxforai')return normalizeCapabilities({durations:[5,10,15,30],resolutions:['480p','720p','1080p'],ratios:[...commonRatios,'21:9'],maxImages:30,maxVideos:10,maxAudios:10});
  if(provider==='niney')return normalizeCapabilities({durations:[5,10,15,30],resolutions:['720p'],ratios:commonRatios});

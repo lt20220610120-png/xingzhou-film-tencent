@@ -33,3 +33,8 @@ test('authenticated gateway issues only generation-reference tickets; anonymous 
  const request=()=>fetch(`http://127.0.0.1:${server.address().port}/api/gateway`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'generation-reference-upload-url',filename:'a.png'})});
  assert.equal((await request()).status,401);user={id:'u',banned:true};assert.equal((await request()).status,403);assert.equal(issued,0);user={id:'u'};assert.equal((await request()).status,200);assert.equal(issued,1);
 });
+test('AutoDL FLAC and MP4 audio tickets preserve audio MIME and are cleaned from the temporary prefix',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-autodl-audio-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));let now=Date.now();const store=require('../src/generation-references.cjs').createGenerationReferenceStore({directory:root,signer:createCosSigner(config),now:()=>now,fetchFn:async()=>new Response(null,{status:204})});
+ for(const [filename,mime] of [['a.flac','audio/flac'],['a.mp4','audio/mp4']]){const row=await store.issue({filename,kind:'audio',mime,size:100},{id:'u'});assert.equal(row.contentType,mime);assert.match(row.downloadUrl,/temporary\/generation/);}
+ now+=49*3600*1000;assert.equal((await store.prune()).removed,2);
+});

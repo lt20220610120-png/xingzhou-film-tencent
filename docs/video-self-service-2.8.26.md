@@ -86,3 +86,11 @@
 - 官转Wan的视频参考卡可填写素材时长；单段1–15秒、合计≤15秒，参考+生成≤30秒，分辨率提交为size。素材时长跟随当前提示词草稿保存；特惠Wan和其他型号不套用官转duration必填规则。
 
 官方文档：[MaxForAI](https://maxforai.top/docs)、[9Y 视频](https://9yapi.shop/docs/#videos)。型号价格、账号分组、审核和素材限制以服务商当时文档及任务记录为准。
+
+## AutoDL H3快捷接入（2.8.34）
+
+在“API接口→视频API→添加接口”或图视生成API设置中点击“接入AutoDL H3视频”，填官网令牌管理中**ComfyUI分组**Token并保存。预置升级画质`minimax_h3_zm_u24`及高速`minimax_h3_zm_u08`，图视生成和协作分镜可在模型下拉选择。此目录为官方文档和用户截图核对条目，不是账号实时权限查询。
+
+两个工作流需要1–9张图片，可选≤3音频；时长1–15秒整数，480p/768p，9:16/16:9/1:1。软件会转换到上游中文resolution并按类型顺序填ref_image_0起、ref_audio_0起，可选安全整数随机种子。图片支持JPG/PNG/WebP，音频支持MP3/WAV/MP4/FLAC；本地素材按现有48小时临时直传/清理规则处理。视频参考不支持。
+
+AutoDL鉴权使用原样Authorization Token；异步提交一次并保存task_id，查询原任务并尽快下载结果（上游结果链接较短）。网络不明不会自动再次创建付费任务，重启可恢复查询；下载不向结果域名发送Token。[官方接入说明](https://autodl.art/docs/comfyui_api/)。

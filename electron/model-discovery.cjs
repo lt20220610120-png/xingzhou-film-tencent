@@ -12,6 +12,8 @@ function listUrl(endpoint) {
 }
 async function discoverModels(config, fetchFn = globalThis.fetch) {
   let url = listUrl(config.endpoint);
+  const {knownVideoProvider}=await import('../core/videoProviderCatalogs.js');
+  if(knownVideoProvider(config.endpoint)==='autodl'&&!config.modelListPath){const {autodlWorkflowCatalog}=await import('../core/autodlVideo.js');return autodlWorkflowCatalog().map(row=>({...row,endpoint:'https://autodl.art/api/v1/comfyui'}));}
   if(config.modelListPath){const base=new URL(config.endpoint);const candidate=new URL(config.modelListPath,base.href.replace(/\/$/,'')+'/');if(candidate.origin!==base.origin||candidate.username||candidate.password)throw new Error('模型列表路径必须在同一服务商');url=candidate.href;}
   const headers = config.protocol === 'anthropic'
     ? {'x-api-key': String(config.apiKey || '').trim(), 'anthropic-version': '2023-06-01'}

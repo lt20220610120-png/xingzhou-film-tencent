@@ -1,4 +1,4 @@
-export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|aac|ogg)$/i,'').replace(/^[【\[]|[】\]]$/g, '');
+export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|aac|ogg|flac)$/i,'').replace(/^[【\[]|[】\]]$/g, '');
 export function numberedReferences(references) {
   const counts = {};
   return references.map(r => ({ ...r, alias: `@${r.kind}${counts[r.kind] = (counts[r.kind] || 0) + 1}` }));
