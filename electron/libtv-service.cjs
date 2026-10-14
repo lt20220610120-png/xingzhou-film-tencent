@@ -60,7 +60,7 @@ function spawnCLI(binary,args,{configDir,cwd,onStderr,signal,children}){
  });
 }
 function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,fetchFn=fetch,readReference}={}){
- const children=new Set(),sessions=new Map(),schemaCache=new Map();let installer,epoch=0;
+ const children=new Set(),sessions=new Map(),schemaCache=new Map(),modelNamesCache=new Map();let installer,epoch=0;
  const binary=()=>ensureBinary?ensureBinary():(installer||(installer=installBinary(root,fetchFn).catch(e=>{installer=null;throw e;})));
  const ownerKey=id=>{if(typeof id!=='string'||!id)throw Error('请先登录行舟影视账号');return digest(id).slice(0,32);};
  const session=id=>{const key=ownerKey(id);if(!sessions.has(key)){const dir=path.join(root,'accounts',key);fs.mkdirSync(dir,{recursive:true});sessions.set(key,{key,dir,leases:0,runs:0,login:null,pendingLogin:false});}return sessions.get(key);};
@@ -77,7 +77,25 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
  const hasCredential=s=>fs.existsSync(path.join(s.dir,'credentials.enc'))||fs.existsSync(path.join(s.dir,'credentials.json'));
  async function identity(id){const data=await command(id,['account','info']);const user=data.user||{},account=data.activeAccount||{};if(!user.uuid&&!user.id)throw Error('LibTV 登录信息无法确认，请重新连接');return{loggedIn:true,ownerKey:ownerKey(id),userName:String(user.nickname||'LibTV 用户'),accountName:String(account.accountName||'个人空间'),accountId:String(account.accountId??''),identity:digest(JSON.stringify([user.uuid||user.id,account.accountId,data.teamId??0])),version:VERSION};}
  async function authorizeTask(id,task){const info=await identity(id);if(task.libtvOwnerKey!==ownerKey(id)||task.libtvIdentity!==info.identity)throw Error('此任务属于其他账号或空间，请连接原 LibTV 账号/空间恢复');return info;}
- async function schema(id,model,kind){if(typeof model!=='string'||!model.trim()||model.startsWith('-'))throw Error('LibTV 模型编号无效');const info=await identity(id),key=info.identity+':'+kind+':'+model;let cached=schemaCache.get(key);if(!cached||Date.now()-cached.time>10*60*1000){const raw=await command(id,['model',model]);const core=await import('../core/libtv.js');cached={time:Date.now(),model:core.libtvModel(raw,kind||raw.modality)};schemaCache.set(key,cached);}return cached.model;}
+ async function schema(id,model,kind){
+  if(typeof model!=='string'||!model.trim()||model.startsWith('-'))throw Error('LibTV 模型编号无效');
+  const info=await identity(id),key=info.identity+':'+kind+':'+model;let cached=schemaCache.get(key);
+  if(!cached||Date.now()-cached.time>10*60*1000){
+   let raw=await command(id,['model',model]);const resolvedKind=kind||raw.modality;
+   // CLI 1.1.3 echoes the lookup key as modelName in detail responses, while
+   // node -s model requires the display name returned by model search.
+   if(!raw.modelName||raw.modelName===(raw.modelKey||model)){
+    if(!['image','video'].includes(resolvedKind))throw Error('LibTV 模型类型无法确认，请刷新模型与参数');
+    const namesKey=info.identity+':'+resolvedKind;let names=modelNamesCache.get(namesKey);
+    if(!names||Date.now()-names.time>10*60*1000){const found=await command(id,['model','search','--type',resolvedKind]);names={time:Date.now(),rows:Array.isArray(found.matches)?found.matches:[]};modelNamesCache.set(namesKey,names);}
+    const displayName=names.rows.find(m=>m.modelKey===(raw.modelKey||model))?.modelName;
+    if(typeof displayName!=='string'||!displayName.trim()||displayName===(raw.modelKey||model))throw Error('LibTV 模型名称无法确认，请刷新模型与参数，未提交生成');
+    raw={...raw,modelName:displayName};
+   }
+   const core=await import('../core/libtv.js');cached={time:Date.now(),model:core.libtvModel(raw,resolvedKind)};schemaCache.set(key,cached);
+  }
+  return cached.model;
+ }
  async function query(id,task){await authorizeTask(id,task);const raw=await command(id,['node',task.libtvNodeId,'-p',task.libtvProjectId]);return raw;}
  function taskUrl(task){return 'https://www.liblib.tv/canvas?projectId='+encodeURIComponent(task.libtvProjectId);}
  return {
@@ -86,10 +104,10 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
    let opened=false,buffer='';s.loginError='';s.loginController=new AbortController();s.login=command(id,['login','web'],{signal:s.loginController.signal,onStderr:chunk=>{buffer=(buffer+chunk).slice(-16000);const url=loginURL(buffer);if(url&&!opened){opened=true;Promise.resolve(openExternal(url)).catch(()=>{});}}}).then(()=>identity(id)).finally(()=>{s.pendingLogin=false;s.login=null;s.loginController=null;});return s.login;},
   async cancelLogin(id){const s=session(id);s.loginController?.abort();if(s.login)await s.login.catch(()=>{});return this.status(id);},
   async startLogin(id){const s=session(id);if(s.pendingLogin)return{pendingLogin:true,loggedIn:false,ownerKey:s.key};const work=this.login(id);work.catch(e=>{s.loginError=e.message;});return{pendingLogin:true,loggedIn:false,ownerKey:s.key};},
-  async logout(id){const s=session(id);if(s.runs||s.leases||s.pendingLogin)throw Error('LibTV 正在运行或授权，请完成后再断开');for(const name of ['credentials.json','credentials.enc']){const f=path.join(s.dir,name);if(fs.existsSync(f))fs.unlinkSync(f);}schemaCache.clear();return{loggedIn:false,ownerKey:s.key,message:'本机连接已断开，已生成成果保留'};},
+  async logout(id){const s=session(id);if(s.runs||s.leases||s.pendingLogin)throw Error('LibTV 正在运行或授权，请完成后再断开');for(const name of ['credentials.json','credentials.enc']){const f=path.join(s.dir,name);if(fs.existsSync(f))fs.unlinkSync(f);}schemaCache.clear();modelNamesCache.clear();return{loggedIn:false,ownerKey:s.key,message:'本机连接已断开，已生成成果保留'};},
   async accounts(id){await identity(id);const raw=await command(id,['account','list']);return(raw.accounts||[]).map(a=>({accountId:String(a.accountId),accountName:String(a.accountName),isActive:!!a.isActive}));},
-  async useAccount(id,accountId){const s=session(id);if(s.runs||s.leases||s.pendingLogin||s.switching)throw Error('任务运行中，请完成后再切换 LibTV 空间');s.switching=true;try{const choices=await this.accounts(id);if(!choices.some(a=>a.accountId===String(accountId)))throw Error('请选择当前 LibTV 账号可用空间');await command(id,['account','use',String(accountId)]);schemaCache.clear();return await identity(id);}finally{s.switching=false;}},
-  async models(id){const info=await identity(id),core=await import('../core/libtv.js');const list=async kind=>{const raw=await command(id,['model','search','--type',kind]);return(raw.matches||[]).map(m=>({id:m.modelKey,name:m.modelName,kind})).filter(m=>m.id&&m.name);};return{...info,imageModels:await list('image'),videoModels:await list('video')};},
+  async useAccount(id,accountId){const s=session(id);if(s.runs||s.leases||s.pendingLogin||s.switching)throw Error('任务运行中，请完成后再切换 LibTV 空间');s.switching=true;try{const choices=await this.accounts(id);if(!choices.some(a=>a.accountId===String(accountId)))throw Error('请选择当前 LibTV 账号可用空间');await command(id,['account','use',String(accountId)]);schemaCache.clear();modelNamesCache.clear();return await identity(id);}finally{s.switching=false;}},
+  async models(id){const info=await identity(id);schemaCache.clear();const list=async kind=>{const raw=await command(id,['model','search','--type',kind]);const rows=Array.isArray(raw.matches)?raw.matches:[];modelNamesCache.set(info.identity+':'+kind,{time:Date.now(),rows});return rows.map(m=>({id:m.modelKey,name:m.modelName,kind})).filter(m=>m.id&&m.name);};return{...info,imageModels:await list('image'),videoModels:await list('video')};},
   schema,
   async prepare(id,input){
    if(input.libtvOwnerKey!==ownerKey(id))throw Error('此 LibTV 配置缺少当前账号绑定或属于其他行舟账号，请重新连接');
@@ -99,7 +117,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
    if(expected!==epoch||input.signal?.aborted)throw Error('LibTV 本机连接已停止，未提交生成');
    if(input.libtvOwnerKey&&input.libtvOwnerKey!==info.ownerKey)throw Error('此 LibTV 配置属于其他行舟账号，请重新连接');
    const label='行舟影视-'+input.kind+'-'+(input.id||crypto.randomUUID());
-   const project=await command(id,['project','create',label],{signal:input.signal});const projectId=project.projectUuid||project.uuid||project.data?.projectUuid;
+   const project=await command(id,['project','create',label],{signal:input.signal});const projectId=project.projectMeta?.uuid||project.projectUuid||project.uuid||project.data?.projectMeta?.uuid||project.data?.projectUuid;
    if(typeof projectId!=='string'||!projectId)throw Error('LibTV 画布创建未确认，请到官网核对，未提交生成');
    const dir=path.join(session(id).dir,'references',input.id||crypto.randomUUID());fs.mkdirSync(dir,{recursive:true});const ids=[];
    for(const [index,ref] of (input.references||[]).entries()){

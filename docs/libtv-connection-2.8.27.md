@@ -1,6 +1,6 @@
 # 在行舟影视连接 LibTV
 
-适用：Windows x64 行舟影视 2.8.27。接入方式按 [官方使用指南](https://resonate.feishu.cn/wiki/RjelwT2UoidnTMka2nCc2chGnud) 和 [LibTV 官网入口](https://www.liblib.tv/plugin) 的浏览器授权/官方 CLI；没有使用旧 Access Key 接口。
+适用：Windows x64 行舟影视 2.8.37及以上（最初接入为2.8.27）。接入方式按 [官方使用指南](https://resonate.feishu.cn/wiki/RjelwT2UoidnTMka2nCc2chGnud) 和 [LibTV 官网入口](https://www.liblib.tv/plugin) 的浏览器授权/官方 CLI；没有使用旧 Access Key 接口。
 
 ## 连接
 
@@ -33,6 +33,8 @@
 - 点「断开本机连接」移除本软件的本地凭据，已有成果保留。这不等同于从 LibTV 官网删除账号或撤销其他设备会话。
 
 ## 验证与边界
+
+2026-10-15补充：2.8.37修复官方CLI真实返回`projectMeta.uuid`未被识别，以及模型详情回显编号导致节点创建时误传模型名称。Pro/Fast均使用用户已授权的本机连接真实生成并保存2048×1152图片。已有连接可直接沿用，更新后选择LibTV模型生成；无需重填密钥。模型名称缓存按账号/空间与类型隔离，刷新/断开/切换空间会同步更新。其他型号的扩展测试已按用户后续指令停止，不宣称全部型号都已验收，详见[本次完整排查](image-api-full-audit-2026-10-15.md)。
 
 开发验证采用模拟生成，覆盖连接窗口、图视图片/视频和协作分镜及成果上传、凭据保护、背景等待、断点恢复和下载契约。官方 CLI 版本、浏览器回调格式和命令输出通过官方程序只读/静态核验；没有调用用户的付费生成或读取用户凭据。
 
