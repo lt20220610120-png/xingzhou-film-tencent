@@ -20,6 +20,6 @@ LibTV官方CLI 1.1.3返回projectMeta.uuid，旧客户端未读取；模型详�
 
 GitHub正式Release、两仓库main签名清单与官方备用源已发布。公开GitHub整包完整下载103613754字节、SHA256与asset digest均一致；两仓库清单完全一致，官方备用源Ed25519签名/清单/65536字节Range/总大小通过，发布端整包SHA256通过。辅助检查首次误传镜像URL触发官方地址白名单、后续一次网络超时；改用受信备用源直接读取重验通过，没有改变生产安全校验。证据`output/release-2837-public.json`、`release-2837-mirror.json`、`release-2837-publish.log`。功能提交6f757b8，源仓库公开签名清单4e10419。
 
-已在用户本机关闭原2.8.36，使用上述已验证安装包静默安装至原目录并重新打开。运行界面显示2.8.37；已安装app.asar与验收构建完全一致，四个下架型号不在安装目录中。更新前后`D:/行舟影视/xingzhou-data.json`完整文件SHA256一致，20个媒体API配置及项目数量一致。原LibTV授权未改，无新付费测试。证据`output/release-2837-local-install.json`。
+已在用户本机关闭原2.8.36，使用上述已验证安装包静默安装至原目录并重新打开。运行界面显示2.8.37；已安装app.asar与验收构建完全一致，四个下架型号不在安装目录中。另打开真实“图视生成→AI图片生成→模型”列表并滚至底部，飞拓只剩普通异步、异步2K、异步4K和2.5四项，确认旧image2/nano系列四项不再出现；关闭列表，未点击生成或更换已选模型。更新前后`D:/行舟影视/xingzhou-data.json`完整文件SHA256一致，20个媒体API配置及项目数量一致。原LibTV授权未改，无新付费测试。证据`output/release-2837-local-install.json`。
 
 [公开安装包](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.37/Xingzhou-Film-Tencent-Setup-2.8.37.exe)；本机`release/2.8.37/Xingzhou-Film-Tencent-Setup-2.8.37.exe`。
