@@ -6,6 +6,7 @@ import { buildSkillMessages } from './skillContext.js';
 import { assertMessageCapacity } from './skillExecution.js';
 import { validateSourceRanges, rangeChapters } from './ipSourceRanges.js';
 import { groundIPPlanEpisodes } from './ipPlanGrounding.js';
+import {ipSourceUnits,ipSourceUnitCatalog,groundIPUnitPlan,isIPPlanningRepairable,carryIPWindowQuota} from './ipPlanningRecovery.js';
 import { ipHash, ipFingerprint, parseIPJson, recoverIPPlanMap, isIPModelRefusal, validateIPPlan, ipMinimumEpisodes,ipSettingsScopeKey,ipSettingsReviewReason,ipAutomaticSettingsVersion,assertIPSettingsReady,resolveIPInstruction } from './ipWorkspace.js';
 
 const stop=partialText=>{throw Object.assign(new Error('任务已停止，已保存的阅读记录和版本可继续使用'),{partialText:partialText||''});};
@@ -257,9 +258,25 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
   };
   const planKey=ipHash(JSON.stringify({schema:'ip-plan-v5-valid-facts',sourceId:source.id,sourceHash,duration:ip.duration,instruction,skillHash,readingFacts:wholeSource?sourceHash:ipHash(notes.join('\n\n'))}));
   const batchKey=ipHash(JSON.stringify({schema:'ip-plan-v6-source-anchors',mapKey:planKey,sourceHash}));
-  const planningCache=digestCache.filter(d=>d.type==='planning-checkpoint'&&[planKey,batchKey].includes(d.key)&&d.sourceId===source.id&&d.complete===true);
-  const checkpoint=stage=>planningCache.findLast(d=>d.stage===stage&&d.key===(stage==='map'?planKey:batchKey));
-  const savePlanning=async(stage,value)=>{const record={type:'planning-checkpoint',key:stage==='map'?planKey:batchKey,stage,content:JSON.stringify(value),sourceId:source.id,complete:true};planningCache.push(record);digestCache.push(record);await onDraft(record);};
+  const selectionHash=map=>ipHash(JSON.stringify({mainline:map.mainline,ending:map.ending,segments:map.segments}));let currentSelection,priorSelection;
+  const planningCache=[];
+  const invalidateRebalanced=record=>{
+   const prefixes=[];
+   for(let i=planningCache.length-1;i>=0;i--){const d=planningCache[i];if(d.key!==record.key||d.selectionFingerprint!==record.selectionFingerprint||!d.stage?.startsWith(record.stagePrefix))continue;
+    const [offset,count,kind]=d.stage.slice(record.stagePrefix.length).split('-'),start=Number(offset),size=Number(count);if(start+size<=record.fromOffset)continue;
+    if(!kind&&start<record.fromOffset)try{const group=parseIPJson(d.content),keep=record.fromOffset-start;prefixes.push({...d,stage:`${record.stagePrefix}${start}-${keep}`,content:JSON.stringify({...group,episodes:group.episodes.slice(0,keep)})});}catch{/* Invalid history is never made reusable. */}
+    planningCache.splice(i,1);
+   }
+   planningCache.push(...prefixes.reverse());
+  };
+  for(const d of digestCache){
+   if(d.type==='planning-recovery'&&d.strategy==='rebalance-window-tail'&&d.key===batchKey&&d.sourceId===source.id&&d.stagePrefix&&d.selectionFingerprint){invalidateRebalanced(d);continue;}
+   if(d.type!=='planning-checkpoint'||![planKey,batchKey].includes(d.key)||d.sourceId!==source.id||d.complete!==true)continue;
+   if(d.stage==='map')try{priorSelection=selectionHash(parseIPJson(d.content));}catch{priorSelection=undefined;}
+   planningCache.push({...d,selectionFingerprint:d.selectionFingerprint||priorSelection});
+  }
+  const checkpoint=stage=>planningCache.findLast(d=>d.stage===stage&&d.key===(stage==='map'?planKey:batchKey)&&(stage==='map'||d.selectionFingerprint===currentSelection));
+  const savePlanning=async(stage,value)=>{const record={type:'planning-checkpoint',key:stage==='map'?planKey:batchKey,stage,content:JSON.stringify(value),sourceId:source.id,complete:true,selectionFingerprint:stage==='map'?selectionHash(value):currentSelection};planningCache.push(record);digestCache.push(record);await onDraft(record);};
   let planned;
   try{
    // The original valid-facts key still identifies the selected story. Its old
@@ -272,7 +289,7 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
    if(recovered)try{planned=validateMap(recovered);onProgress({label:'已恢复完整主线与终点，继续分批细化；部分分集保留在记录',taskId:`${taskId}:plan-recovered`});}catch{/* Incomplete or invalid budgets must be regenerated, never fabricated. */}
    if(!planned)planned=await jsonTask(`${budget}\n${selectionRules}\n上一轮规划被截断。本次只返回紧凑的完整主线与故事单元JSON，不返回分集列表：{"mainline":"主线因果，不超过250字","ending":"原著真实终点和未决事项，不超过200字","notes":"开篇理由、取舍与篇幅预算，不超过200字","readingIndex":"起止与规则事实索引，不超过500字","segments":[{"from":1,"to":3,"episodes":10,"focus":"本单元真实场面与因果接点，不超过80字"}]}。from/to是目录序号，允许同章多集、章内切点和省略支线；按目标篇幅先选真实起止，segments总预算至少${episodeMinimum}集。细纲由软件随后分批生成，本次不要写正文、分集列表或工作解释。\n章节目录：\n${directory}\n素材库${wholeSource?'完整原文':'已读事实索引'}：\n${digest}`,'plan-map','保存所选主线和终点，自动分批细化',4096,validateMap,true);
   }
-  if(!checkpoint('map'))await savePlanning('map',planned);
+  currentSelection=selectionHash(planned);if(!checkpoint('map'))await savePlanning('map',planned);
   if(wholeSource){
    const record={sourceId:source.id,start:0,end:source.content.length,note:planned.readingIndex||[planned.mainline,planned.ending,planned.notes,...planned.segments.map(s=>`${s.from}–${s.to}：${s.focus||''}`)].join('\n'),readingMode:'story-selection',readAt:new Date().toISOString()};
    await onRead(record);readRecords.push(record);
@@ -340,21 +357,30 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
    for(const segment of planned.segments){
     const windows=windowsFor(segment);let unitOffset=0;
     for(const [windowIndex,window] of windows.entries()){
+     const windowBase=episodes.length;let tailRebalances=0,bypassFrom=Infinity;
      const chapters=source.chapters.slice(segment.from-1,segment.to).filter(c=>c.start<window.end&&c.end>window.start),ids=new Set(chapters.map(c=>c.id)),facts=rawText(window.start,window.end);
      const planGroup=async(offset,count,compact=false)=>{
+      count=Math.min(count,window.episodes-offset);if(count<=0)return;
       // Keep already selected scenes out of the next batch's selectable source.
       // Prior outlines remain context; only unused verbatim material can be cut.
       const priorEnd=episodes.at(-1)?.sourceRanges?.at(-1)?.end||window.start;
       const allowedStart=Math.max(window.start,priorEnd),allowedWindow={start:allowedStart,end:window.end};
+      // A window quota is an estimate, not a request for empty episodes.
+      if(source.content.slice(allowedStart,window.end).replace(/[\s\p{P}\p{S}]/gu,'').length<40&&windows[windowIndex+1]){
+       const carried=carryIPWindowQuota(windows,windowIndex,offset,allowedStart);
+       if(carried){await onDraft({type:'planning-recovery',key:batchKey,sourceId:source.id,strategy:'carry-window-quota',carried,content:`本窗口有效场面已用完，剩余${carried}集预算移至下一段原文；接续位置${allowedStart}，不重复场面。`});onProgress({label:`已保存 ${episodes.length} 集规划，自动接续下一段原文`,taskId:`${taskId}:carry-${segmentIndex}-${windowIndex}`});return;}
+      }
       const facts=rawText(allowedStart,window.end);
-      if(allowedStart>=window.end)throw Object.assign(new Error('本单元已没有未使用的真实场面，请调整分集安排'),{code:'IP_PLAN_SOURCE_EXHAUSTED'});
-      const prefixStage=`${firstDraftMode?'draft-':''}source-v6-segment-${segmentIndex}-window-${window.start}-${window.end}-batch-${offset}-`,stage=`${prefixStage}${count}`,old=checkpoint(stage);
+      if(allowedStart>=window.end||source.content.slice(allowedStart,window.end).replace(/\s/g,'').length<4||!ipSourceUnits(source,allowedStart,window.end).length)throw Object.assign(new Error('当前窗口已没有未使用的真实场面，准备重分末批预算'),{code:'IP_PLAN_SOURCE_EXHAUSTED'});
+      const prefixStage=`${firstDraftMode?'draft-':''}source-v6-segment-${segmentIndex}-window-${window.start}-${window.end}-batch-${offset}-`,stage=`${prefixStage}${count}`,old=offset>=bypassFrom?null:checkpoint(stage);
       const candidateStage=`${stage}-candidate`,previousFingerprint=ipHash(JSON.stringify(episodes.map(({chapterIds,sourceRanges,outline})=>({chapterIds,sourceRanges,outline}))));
-      const candidate=checkpoint(candidateStage),pending=candidate&&parseIPJson(candidate.content);
+      const candidate=offset>=bypassFrom?null:checkpoint(candidateStage),pending=candidate&&parseIPJson(candidate.content);
       const prompt=`${budget}\n全剧主线：${planned.mainline||''}\n真实终点：${planned.ending||''}\n单元：${JSON.stringify(segment)}\n本单元有效章节：\n${JSON.stringify(chapters.map(({id,title,start,end})=>({id,title,start,end})))}\n【本批完整原文窗口[${allowedStart},${window.end})】\n${facts}\n已安排前文接点：${JSON.stringify(episodes.slice(-2))}\n本单元共${segment.episodes}集；当前完整原文窗口安排${window.episodes}集，本批尚余${window.episodes-offset}集；本次只规划 ${count} 集，即单元内第${unitOffset+offset+1}至${unitOffset+offset+count}集。按当前窗口的真实因果推进，保留下一批未用场面，禁止重复前集或为凑份额提前收尾。输出纯JSON：{"episodes":[{"chapterIds":["本窗口有效ID"],"outline":"真实动作、必留对白、起止与因果承接，不超过${compact?90:180}字","sourceQuotes":[{"startQuote":"逐字连续起点原句至少4字并唯一定位","endQuote":"逐字连续停点原句至少4字并唯一定位"}]}]}。每集必须提供至少4个非空白字符且可唯一定位的真实起止原句，在声明chapterIds和当前原文窗口内唯一匹配；可选择章内任意故事切点或多个不连续片段，不要求整章或按章切集。不得猜数字sourceRanges，软件按原句计算。${anchorRules}细纲全部事件必须属于这些真实片段，不能在旁白里移入其他章节事件。相邻集必须使用不同且向前推进的原文场面；跳过支线也不能删掉下集成立的关键前因，未确认关系不能跳成已确认、未接受治疗不能直接进入病房。只返回恰好${count}集；材料不足以真实拆分时明确说明，不能补空集、重复场面或虚构剧情。`;
       try{
+       let sentUnits;
        const groundGroup=result=>{
-        const grounded=groundIPPlanEpisodes(result,source,{previous:episodes,allowedRanges:[allowedWindow],expectedCount:count});
+        const opts={previous:episodes,allowedRanges:[allowedWindow],expectedCount:count};
+        const grounded=result?.episodes?.some(e=>e.sourceUnitRanges?.length)?groundIPUnitPlan(result,source,sentUnits||ipSourceUnits(source,allowedStart,window.end),opts):groundIPPlanEpisodes(result,source,opts);
         if(grounded.episodes.some(e=>e.chapterIds.some(id=>!ids.has(id))))throw Object.assign(new Error('本批原句来源超出当前完整原文窗口。请在本窗口内重新选择真实场面。'),{code:'IP_PLAN_SOURCE_MISMATCH'});
         return automaticPlanDetails(grounded,source,undefined,episodes);
        };
@@ -364,33 +390,58 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
         catch(error){if(error.code==='IP_PLAN_CONTINUITY_MISMATCH')await savePlanning(candidateStage,{...saved,auditRejected:true});throw error;}
        };
        const validateGroup=async result=>auditCandidate(groundGroup(result));
-       if(!old&&count>1){
+       if(!old&&count>1&&offset<bypassFrom){
         const prefix=Array.from({length:count-1},(_,i)=>count-1-i).find(n=>checkpoint(`${prefixStage}${n}`));
         if(prefix){await planGroup(offset,prefix);await planGroup(offset+prefix,count-prefix);return;}
        }
        // New checkpoints already passed both exact source and causal checks;
        // source validation still runs locally when they are resumed.
        let group,repairReason;
-       if(old){
+       if(old){try{
         const saved=parseIPJson(old.content),valid=groundGroup(saved);
         // Exact anchors can still match after an earlier outline was repaired.
         // Its causal approval is reusable only for the same preceding story.
         if(saved.previousFingerprint===previousFingerprint||episodes.length===0)group=valid;
-        else try{group=await auditCandidate(valid);}catch(error){if(error.code!=='IP_PLAN_CONTINUITY_MISMATCH')throw error;repairReason=error.message;}
-       }
+        else try{group=await auditCandidate(valid);}catch(error){if(!isIPPlanningRepairable(error))throw error;repairReason=error.message;}
+       }catch(error){if(!isIPPlanningRepairable(error))throw error;repairReason=error.message;}}
        else if(pending&&!pending.auditRejected&&pending.previousFingerprint===previousFingerprint){
         try{group=await auditCandidate(groundGroup(pending));}
-        catch(error){if(error.code!=='IP_PLAN_CONTINUITY_MISMATCH')throw error;repairReason=error.message;}
+        catch(error){if(!isIPPlanningRepairable(error))throw error;repairReason=error.message;}
        }
-       if(!group)group=await jsonTask(repairReason?`${prompt}\n已定位候选的审稿指出具体事实问题：${repairReason}\n依据当前完整原文只修正本批细纲、起止和承接。`:prompt,`plan-group-${groupSequence++}`,`规划第${episodes.length+1}集起的 ${count} 集`,4096,validateGroup);
-       if(!old||JSON.parse(old.content).previousFingerprint!==previousFingerprint)await savePlanning(stage,{...group,previousFingerprint});episodes.push(...group.episodes);
+       const recoveryHint=digestCache.findLast(d=>d.type==='planning-recovery'&&d.key===batchKey&&d.selectionFingerprint===currentSelection&&d.stage===stage&&d.previousFingerprint===previousFingerprint&&d.strategy==='source-unit-ids');
+       if(!group&&!recoveryHint)try{group=await jsonTask(repairReason?`${prompt}\n已定位候选的审稿指出具体事实问题：${repairReason}\n依据当前完整原文只修正本批细纲、起止和承接。`:prompt,`plan-group-${groupSequence++}`,`规划第${episodes.length+1}集起的 ${count} 集`,4096,validateGroup);}catch(error){if(!isIPPlanningRepairable(error))throw error;repairReason=error.message;}
+       if(!group){
+        const recovery={type:'planning-recovery',key:batchKey,stage,sourceId:source.id,selectionFingerprint:currentSelection,strategy:'source-unit-ids',previousFingerprint,content:repairReason||'继续原文编号定位，避免重复无效引句'};digestCache.push(recovery);await onDraft(recovery);
+        const units=ipSourceUnits(source,allowedStart,window.end);
+        const locatorFor=selectedUnits=>`${budget}\n全剧主线：${planned.mainline}\n真实终点：${planned.ending}\n已安排前文接点：${JSON.stringify(episodes.slice(-2))}\n本次只规划 ${count} 集，窗口尚需${window.episodes-offset}集；为后续留出真实场面。上次原句定位问题：${repairReason||recovery.content}\n本次改用软件逐字提取的原文单元编号，依据下面全部原文安排完整场面、对白及因果。只选择提供的编号，不能猜位置、引用窗口外内容或重复前文。每集可包含多个顺序向前的不连续片段。不要按每行一集，不补空集凑数量；细纲事件只属于所选原文。输出纯JSON：{"episodes":[{"outline":"本集真实场面、必留对白和因果接点","sourceUnitRanges":[{"startId":"单元id","endId":"单元id"}]}]}。恰好${count}集。不要输出chapterIds、sourceQuotes或数字偏移；软件按编号取得精确范围与原句。\n【可选原文单元 JSON】\n${JSON.stringify(selectedUnits.map(({id,text})=>({id,text})))}`;
+        sentUnits=units;
+        try{assertMessageCapacity(skillMessages(locatorFor(sentUnits)),profile,{maxOutputTokens:4096});}catch{
+         let low=0,high=units.length;while(low<high){const mid=Math.ceil((low+high)/2);try{assertMessageCapacity(skillMessages(locatorFor(units.slice(0,mid))),profile,{maxOutputTokens:4096});low=mid;}catch{high=mid-1;}}
+         if(low<count)throw Object.assign(new Error('当前模型上下文不足以定位本批真实场面，请选择更大上下文模型；有效规划保留。'),{code:'IP_PLAN_SOURCE_CAPACITY'});sentUnits=units.slice(0,low);
+        }
+        group=await jsonTask(locatorFor(sentUnits),`plan-locator-${groupSequence++}`,`自动修复第${episodes.length+1}集起的 ${count} 集 · 原文编号定位`,4096,validateGroup);
+       }
+       if(!old||repairReason||JSON.parse(old.content).previousFingerprint!==previousFingerprint)await savePlanning(stage,{...group,previousFingerprint});episodes.push(...group.episodes);
+       await onDraft({type:'planning-progress',key:batchKey,sourceId:source.id,duration:ip.duration,instruction,map:{...planned,episodes:undefined},episodes:[...episodes],completed:episodes.length,target:planned.segments.reduce((n,s)=>n+s.episodes,0),content:`已保存${episodes.length}集规划，可从下一个未完成分集继续。`});
       }catch(error){
        if(isCancelled())stop(error.partialText);await preserveFailure(error,'plan-group-error');if(['MODEL_CONTENT_FILTER','STREAM_MALFORMED','IP_MODEL_REFUSAL'].includes(error.code)||error.ipPhase==='planning-audit'&&error.code!=='IP_PLAN_CONTINUITY_MISMATCH'||error.validationCode==='IP_DUPLICATE_OUTLINE'||(!isTruncated(error)&&error.code!=='STREAM_INCOMPLETE'&&error.code!=='INVALID_PLAN_OUTPUT'))throw error;
        if(count>1){const half=Math.ceil(count/2);await planGroup(offset,half);await planGroup(offset+half,count-half);}
        else if(!compact)await planGroup(offset,count,true);else throw error;
       }
      };
-     for(let offset=0;offset<window.episodes;offset+=6)await planGroup(offset,Math.min(6,window.episodes-offset));
+     for(let offset=0;offset<window.episodes;){
+      const before=episodes.length;
+      const prefix=`${firstDraftMode?'draft-':''}source-v6-segment-${segmentIndex}-window-${window.start}-${window.end}-batch-`,boundary=digestCache.filter(d=>d.type==='planning-recovery'&&d.key===batchKey&&d.selectionFingerprint===currentSelection&&d.stagePrefix===prefix&&d.fromOffset>offset).reduce((n,d)=>Math.min(n,d.fromOffset),Infinity);
+      try{await planGroup(offset,Math.min(6,window.episodes-offset,boundary-offset));}
+      catch(error){
+       if(error.code!=='IP_PLAN_SOURCE_EXHAUSTED'||tailRebalances>=2||episodes.length<=windowBase)throw error;
+       // Reallocate existing source, never invent a new episode after the end.
+       const rewind=Math.min(6,episodes.length-windowBase);episodes.splice(-rewind);offset=episodes.length-windowBase;bypassFrom=offset;tailRebalances++;
+       const recovery={type:'planning-recovery',key:batchKey,sourceId:source.id,selectionFingerprint:currentSelection,strategy:'rebalance-window-tail',stagePrefix:`${firstDraftMode?'draft-':''}source-v6-segment-${segmentIndex}-window-${window.start}-${window.end}-batch-`,fromOffset:offset,content:`末批提前用完原文，保留历史切点并重新安排最后${rewind}集及剩余预算。`};invalidateRebalanced(recovery);digestCache.push(recovery);await onDraft(recovery);
+       await onDraft({type:'planning-progress',key:batchKey,sourceId:source.id,duration:ip.duration,instruction,map:{...planned,episodes:undefined},episodes:[...episodes],completed:episodes.length,target:planned.segments.reduce((n,s)=>n+s.episodes,0),content:'末批正在重划，之前的有效规划保留。'});continue;
+      }
+      const advance=episodes.length-before;if(!advance&&offset<window.episodes)throw new Error('分集规划未向前推进，已保存进度');offset+=advance;
+     }
      unitOffset+=window.episodes;
     }
     segmentIndex++;
@@ -412,16 +463,23 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
       // Quotes establish exact cuts; derive chapter membership from those cuts
       // instead of asking the model to guess IDs across a chapter boundary.
       const candidate={...result,episodes:result?.episodes?.map(e=>({...e,chapterIds:chapters.map(c=>c.id)}))};
-      let grounded=groundIPPlanEpisodes(candidate,source,{previous,allowedRanges:[{start,end:terminalEnd}],expectedCount:count});
+      const opts={previous,allowedRanges:[{start,end:terminalEnd}],expectedCount:count};
+      let grounded=result?.episodes?.some(e=>e.sourceUnitRanges?.length)?groundIPUnitPlan(candidate,source,ipSourceUnits(source,start,terminalEnd),opts):groundIPPlanEpisodes(candidate,source,opts);
       const end=grounded.episodes.at(-1).sourceRanges.at(-1).end,tail=source.content.slice(end,terminalEnd);
       if(end<terminalEnd&&/^[\s\p{P}]*$/u.test(tail)){
-       const last=grounded.episodes.at(-1),quotes=last.sourceQuotes.map((q,i)=>i===last.sourceQuotes.length-1?{...q,endQuote:q.endQuote+tail}:q);
-       grounded=groundIPPlanEpisodes({...candidate,episodes:candidate.episodes.map((e,i)=>i===count-1?{...e,sourceQuotes:quotes}:e)},source,{previous,allowedRanges:[{start,end:terminalEnd}],expectedCount:count});
+       const last=grounded.episodes.at(-1),ranges=last.sourceRanges.map((r,i)=>i===last.sourceRanges.length-1?{...r,end:terminalEnd}:r);
+       grounded=groundIPPlanEpisodes({...grounded,episodes:grounded.episodes.map((e,i)=>i===count-1?{...e,sourceQuotes:undefined,sourceRanges:ranges}:({...e,sourceQuotes:undefined}))},source,{previous,allowedRanges:[{start,end:terminalEnd}],expectedCount:count,requireAnchors:false});
       }
-      if(grounded.episodes.at(-1).sourceRanges.at(-1).end!==terminalEnd)throw new Error('末集尚未到达所选故事单元的真实收束，不能只在细纲中宣称结局发生');return grounded;
+      if(grounded.episodes.at(-1).sourceRanges.at(-1).end!==terminalEnd)throw Object.assign(new Error('末集尚未到达所选故事单元的真实收束，不能只在细纲中宣称结局发生'),{code:'IP_PLAN_ENDING_MISMATCH'});return grounded;
      };
-    const finalGroup=cached?validate(parseIPJson(cached.content)):await jsonTask(`仅调整全剧最后两集，让真实原文与选定结局一致，不重新规划前文。不使用所选单元之外的章节，不要求使用完整素材库。\n主线：${planned.mainline}\n选定终点：${planned.ending}\n此前最后两集：${JSON.stringify(previous.slice(-2))}\n保留全局第${previous.length+1}—${previous.length+2}集，分别选择不同、顺序向前的完整场面。细纲所有事件必须包含在各自起止原句内，不能把原文窗口中其他事件移入本集。末集必须演到所选终点，最后endQuote逐字使用：${endQuote}\n有效章节：${JSON.stringify(chapters.map(({id,title,start,end})=>({id,title,start,end})))}\n完整剩余原文[${start},${terminalEnd})：\n${rawText(start,terminalEnd)}\n只返回纯JSON：{"episodes":[{"chapterIds":["有效ID"],"outline":"真实动作、对白与阶段结果","sourceQuotes":[{"startQuote":"至少4字真实起句","endQuote":"真实止句"}]}]}。恰好两集。`,'plan-finale','对齐末两集与所选真实结局',4096,validate);
-    if(!cached)await savePlanning(finaleKey,finalGroup);
+    const finalePrompt=`仅调整全剧最后两集，让真实原文与选定结局一致，不重新规划前文。不使用所选单元之外的章节，不要求使用完整素材库。\n主线：${planned.mainline}\n选定终点：${planned.ending}\n此前最后两集：${JSON.stringify(previous.slice(-2))}\n保留全局第${previous.length+1}—${previous.length+2}集，分别选择不同、顺序向前的完整场面。细纲所有事件必须包含在各自起止原句内，不能把原文窗口中其他事件移入本集。末集必须演到所选终点，最后endQuote逐字使用：${endQuote}\n有效章节：${JSON.stringify(chapters.map(({id,title,start,end})=>({id,title,start,end})))}\n完整剩余原文[${start},${terminalEnd})：\n${rawText(start,terminalEnd)}\n只返回纯JSON：{"episodes":[{"chapterIds":["有效ID"],"outline":"真实动作、对白与阶段结果","sourceQuotes":[{"startQuote":"至少4字真实起句","endQuote":"真实止句"}]}]}。恰好两集。`;let finalGroup,finaleError;
+    if(cached)try{finalGroup=validate(parseIPJson(cached.content));}catch(error){if(!isIPPlanningRepairable(error))throw error;finaleError=error;}
+    if(!finalGroup)try{finalGroup=await jsonTask(finalePrompt,'plan-finale','对齐末两集与所选真实结局',4096,validate);}catch(error){if(!isIPPlanningRepairable(error))throw error;finaleError=error;}
+    if(!finalGroup){
+     const units=ipSourceUnits(source,start,terminalEnd),lastId=units.at(-1)?.id;
+     finalGroup=await jsonTask(`仅重划最后两集，依据软件提供的真实原文编号，保留所选终点。上次错误：${finaleError.message}\n主线：${planned.mainline}\n真实终点：${planned.ending}\n前文接点：${JSON.stringify(previous.slice(-2))}\n恰好两集，按原文顺序安排不同场面，末集endId必须是 ${lastId}。目录会合并相邻段落显示，id是该组真实起点，lastId是该组真实终点；startId选择id，endId选择lastId（未给lastId时选id）。全文仍逐字完整。只返回JSON：{"episodes":[{"outline":"真实场面及收束","sourceUnitRanges":[{"startId":"编号","endId":"编号"}]}]}。不能虚构事件。\n【可选原文单元 JSON】\n${JSON.stringify(ipSourceUnitCatalog(source,units))}`,'plan-finale-locator','自动修正末两集的真实收束',4096,validate);
+    }
+    if(!cached||finaleError)await savePlanning(finaleKey,finalGroup);
     planned={...planned,episodes:[...previous,...finalGroup.episodes]};
    }
   }

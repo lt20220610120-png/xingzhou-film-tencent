@@ -3,7 +3,10 @@ import {ipSettingsReviewReason,isIPModelRefusal} from './ipWorkspace.js';
 /** First plan auto-adopts; subsequent planning waits only for plan selection. */
 export async function runIPAdaptationFlow({getProject,runTask,adoptPlan,plan,continueDraft=false,isCancelled=()=>false,onActivity=()=>{}}){
  const check=()=>{if(isCancelled())throw new Error('任务已停止，已完成内容保留');};
- check();const initial=getProject(),existing=initial?.creator.ip.plan,hasEdition=!!existing||!!initial?.creator.ip.editions?.length;
+ check();const initial=getProject(),existing=initial?.creator.ip.plan;
+ // A failed planning run may already have extracted settings. That is still
+ // the first edition and must not become a mandatory adoption barrier.
+ const hasEdition=!!existing||!!initial?.episodes?.some(e=>e.type==='episode'&&e.scriptText?.trim())||!!initial?.creator.ip.editions?.some(v=>v.plan?.episodes?.length||v.episodes?.some(e=>e.type==='episode'&&e.scriptText?.trim()));
  const inputs=p=>JSON.stringify([p?.creator.ip.source?.id,p?.creator.ip.duration,p?.creator.ip.requirements||'']),initialInputs=inputs(initial);
  if(!plan&&!continueDraft){
   const result=await runTask({task:'plan',firstDraftMode:true});check();

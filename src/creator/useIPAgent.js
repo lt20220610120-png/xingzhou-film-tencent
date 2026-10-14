@@ -1,4 +1,5 @@
-import { useRef,useState } from 'react';
+import { useRef,useState,useEffect } from 'react';
+import {creatorModelOptions} from '../../core/creatorAi.js';
 import { getIPProject,mutateIP,ipFingerprint,saveIPVersion,appendIPVersion,runRemainingIPTasks,beginIPFirstDraft,resolveIPInstruction } from '../../core/ipWorkspace.js';
 import { runIPTask } from '../../core/ipAi.js';
 import {runIPAdaptationFlow} from '../../core/ipAdaptationFlow.js';
@@ -7,6 +8,7 @@ import {flushEditing,settleEditing,hasPendingEditing} from '../editing.js';
 export function useIPAgent({state,setState,getState,api}){
  const latest=useRef(state);latest.current=state;
  const jobs=useRef(new Map()),queues=useRef(new Map()),[activity,setActivity]=useState({});
+ const acceptedAutoStarts=useRef(new Set());
  const run=async({projectId,task,episodeId,profile,instruction='',fromQueue=false,firstDraftMode=false})=>{
   flushEditing();
   if(jobs.current.has(projectId)||queues.current.has(projectId)&&!fromQueue)throw new Error('本项目已有任务在运行');
@@ -27,6 +29,7 @@ export function useIPAgent({state,setState,getState,api}){
     onDraft:async v=>{
      if(v.type==='version'||v.type==='settings-ready')await settleEditing();
      if(job.cancelled)return;
+     if(v.type==='planning-progress'){setState(s=>mutateIP(s,projectId,p=>p.creator.ip.source?.id!==v.sourceId?p:{...p,creator:{...p.creator,ip:{...p.creator.ip,planningProgress:{...v,updatedAt:new Date().toISOString()}}}}));return;}
      if(v.type==='version'){
       let changed=false;
       setState(s=>{const target=v.episodeId||episodeId,p=getIPProject(s,projectId),unchanged=!hasPendingEditing()&&ipFingerprint(p,target)===v.fingerprint;changed=!unchanged;return appendIPVersion(s,projectId,target,{...v,model:profile.model,stale:!unchanged},{activate:task==='firstDraft'&&unchanged,invalidateLater:false});});
@@ -52,11 +55,13 @@ export function useIPAgent({state,setState,getState,api}){
  const runAdaptation=async({projectId,profile,instruction='',plan,continueDraft=false})=>{
   if(jobs.current.has(projectId)||queues.current.has(projectId))throw new Error('本项目已有任务在运行');
   const queue={cancelled:false};queues.current.set(projectId,queue);
+  const syncIntent=delta=>setState(s=>mutateIP(s,projectId,p=>!p.creator.ip.autoStart||p.creator.ip.autoStart.sourceId!==p.creator.ip.source?.id?p:{...p,creator:{...p.creator,ip:{...p.creator.ip,autoStart:{...p.creator.ip.autoStart,...delta}}}}));
+  syncIntent({status:'running',error:''});
   try{
    const result=await runIPAdaptationFlow({getProject:()=>getIPProject(getState?.()||latest.current,projectId),runTask:input=>run({projectId,profile,instruction,fromQueue:true,...input}),plan,continueDraft,isCancelled:()=>queue.cancelled,onActivity:a=>setActivity(s=>({...s,[projectId]:a})),adoptPlan:(value,options)=>setState(s=>beginIPFirstDraft(s,projectId,value,options))});
    setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,ip:{...p.creator.ip,firstDraft:{...p.creator.ip.firstDraft,...result.generation,status:result.type==='planCandidate'?'awaiting-adoption':'completed',error:'',finishedAt:new Date().toISOString()}}}})));
-   return result;
-  }catch(error){setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,ip:{...p.creator.ip,firstDraft:{...p.creator.ip.firstDraft,status:queue.cancelled?'cancelled':'failed',error:error.message,finishedAt:new Date().toISOString()}}}})));throw error;}
+   syncIntent({status:'completed',error:''});return result;
+  }catch(error){syncIntent({status:queue.cancelled?'paused':'failed',error:error.message});setState(s=>mutateIP(s,projectId,p=>({...p,creator:{...p.creator,ip:{...p.creator.ip,firstDraft:{...p.creator.ip.firstDraft,status:queue.cancelled?'cancelled':'failed',error:error.message,finishedAt:new Date().toISOString()}}}})));throw error;}
   finally{queues.current.delete(projectId);setActivity(s=>({...s,[projectId]:{...s[projectId],running:false}}));}
  };
  const runRemaining=async({projectId,profile,instruction=''})=>{
@@ -67,5 +72,16 @@ export function useIPAgent({state,setState,getState,api}){
   }finally{queues.current.delete(projectId);setActivity(s=>({...s,[projectId]:{...s[projectId],running:false}}));}
  };
  const cancel=async projectId=>{const queue=queues.current.get(projectId);if(queue)queue.cancelled=true;const job=jobs.current.get(projectId);if(!job)return;job.cancelled=true;await Promise.allSettled([...job.active].map(taskId=>api.cancelAiTask?.({taskId})));};
+ useEffect(()=>{
+  const options=creatorModelOptions(state.apiProfiles,state.activeApiId);
+  for(const project of state.fruitProjects||[]){const intent=project.creator?.ip?.autoStart;if(project.creator?.mode!=='ip'||!intent||!['queued','running'].includes(intent.status)||acceptedAutoStarts.current.has(intent.id)||jobs.current.has(project.id)||queues.current.has(project.id))continue;
+   acceptedAutoStarts.current.add(intent.id);
+   const patch=delta=>setState(s=>mutateIP(s,project.id,p=>p.creator.ip.autoStart?.id!==intent.id?p:{...p,creator:{...p.creator,ip:{...p.creator.ip,autoStart:{...p.creator.ip.autoStart,...delta}}}}));
+   const selected=options.find(o=>o.selectionId===(project.creator.ip.selection||intent.selection));
+   if(!selected||intent.sourceId!==project.creator.ip.source?.id){const message=!selected?'上传任务选择的模型已不可用，请选择模型后继续。':'小说来源已变化，请核对后继续。';patch({status:'failed',error:message});setActivity(a=>({...a,[project.id]:{running:false,status:'failed',label:message}}));continue;}
+   patch({status:'running',error:''});setActivity(a=>({...a,[project.id]:{running:true,status:'running',label:'小说已导入，自动开始通读与规划…'}}));
+   runAdaptation({projectId:project.id,profile:selected,continueDraft:!!project.creator.ip.plan}).then(()=>patch({status:'completed'})).catch(error=>{const p=getIPProject(getState?.()||latest.current,project.id);patch({status:p?.creator.ip.firstDraft?.status==='cancelled'?'paused':'failed',error:error.message});});
+  }
+ },[state.fruitProjects]);
  return {run,runRemaining,runAdaptation,cancel,activity};
 }

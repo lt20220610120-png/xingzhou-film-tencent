@@ -76,10 +76,12 @@ test('genuine chapter IDs outside the story unit remain rejected even when numer
  await assert.rejects(()=>runIPTask({project:p,task:'plan',taskId:'outside-declared',profile:{model:'mock'},onDraft:d=>drafts.push(d),api:{aiChat:async r=>{
   if(r.taskId.endsWith(':plan'))return JSON.stringify(map());if(r.taskId.includes(':settings'))return '【故事梗概】原著';
   if(r.taskId.includes(':plan-continuity-'))return continuityReply();
-  groups++;const response=validGroup(p,r);
+  groups++;
+  if(r.taskId.includes(':plan-locator-')){const count=Number(prompt(r).match(/本次只规划 (\d+) 集/)[1]);return JSON.stringify({episodes:Array.from({length:count},()=>({outline:'错误来源不能通过',sourceUnitRanges:[{startId:'not-an-allowed-unit',endId:'not-an-allowed-unit'}]}))});}
+  const response=validGroup(p,r);
   response.episodes[0].chapterIds=[source.chapters[34].id];response.episodes[0].sourceRanges=[{start:source.chapters[28].start,end:source.chapters[28].end}];
   return JSON.stringify(response);
- }}}),e=>e.validationCode==='IP_PLAN_SOURCE_MISMATCH'&&e.message.includes('本批允许的原文范围'));
+ }}}),e=>e.validationCode==='IP_SOURCE_UNIT_PLAN_INVALID'&&e.message.includes('原文编号不在当前可用窗口'));
  assert.ok(groups<20,'invalid source repair remains bounded');
  assert.ok(!drafts.some(d=>d.type==='planning-checkpoint'&&d.stage.startsWith('source-v6-segment-')),'invalid units never become complete checkpoints');
 });

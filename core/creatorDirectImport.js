@@ -29,7 +29,7 @@ export function prepareNovelProject(document,{duration=60,selection='',groupId=n
  const empty={fruitProjects:[]},created=createIPProject(empty,{name:projectNameFromFile(document.fileName||document.name),duration,groupId,readConcurrency});
  const imported=importIPNovel(created,created.fruitProjects[0].id,{...document,name:document.fileName||document.name});
  const project=imported.fruitProjects[0];
- return {...project,creator:{...project.creator,ip:{...project.creator.ip,selection}}};
+ return {...project,creator:{...project.creator,ip:{...project.creator.ip,selection,autoStart:{id:uid(),status:'queued',sourceId:project.creator.ip.source.id,selection,createdAt:new Date().toISOString()}}}};
 }
 
 export function prepareCompletedProject(document,{kind='fruit',groupId=null}={}){

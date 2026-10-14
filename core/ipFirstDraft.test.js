@@ -62,3 +62,19 @@ test('adopting second edition replaces every body even if mapping is unchanged a
  f.state=beginIPFirstDraft(f.state,f.id,f.plan,{replace:true});
  assert.ok(getIPProject(f.state,f.id).episodes.filter(e=>e.type==='episode').every(e=>!e.scriptText&&!e.stale&&e.ipVersions.some(v=>v.content===`原稿 ${e.id}`)));
 });
+
+test('a failed first plan that extracted only settings still auto-adopts the repaired plan and continues to all bodies',async()=>{
+ const f=fixture(50);delete f.p.creator.ip.plan;f.p.episodes=f.p.episodes.slice(0,1);f.p.episodes[0].scriptText='前次规划时已提取的设定';f.p.creator.ip.editions=[{episodes:[f.p.episodes[0]]}];const events=[];
+ await runIPAdaptationFlow({getProject:()=>f.p,runTask:async input=>{events.push(input.task);return input.task==='plan'?{type:'plan',plan:f.plan}:{type:'firstDraft'};},adoptPlan:()=>{events.push('adopt');f.p.creator.ip.plan=f.plan;f.p.episodes[0].scriptText='';}});
+ assert.deepEqual(events,['plan','adopt','settings','firstDraft']);
+});
+
+test('a returned first-draft batch with wrong scene numbering automatically repairs its structure and continues',async()=>{
+ const f=fixture(),diagnostics=[];let calls=0;const result=await writeIPFirstDraft({project:f.p,profile:{model:'mock'},onDraft:d=>diagnostics.push(d),invoke:async messages=>{calls++;if(calls===1)return [1,2,3].map(n=>body(n).replace(`场景 ${n}-1`,`场景 ${n}-99`)).join('\n\n');assert.match(messages.at(-1).content,/纠正.*结构|修正.*场号/);return [1,2,3].map(body).join('\n\n');}});assert.equal(result.completed,3);assert.equal(calls,2);assert.ok(diagnostics.some(d=>d.type==='first-draft-checkpoint'&&!d.complete&&d.content.includes('1-99')));
+});
+
+test('a truncated structure replacement resumes its new body without appending the invalid old batch',async()=>{
+ const f=fixture(),all=[1,2,3].map(body).join('\n\n'),cut=all.indexOf('第2集'),diagnostics=[];let calls=0;
+ const result=await writeIPFirstDraft({project:f.p,profile:{model:'mock'},onDraft:d=>diagnostics.push(d),invoke:async messages=>{calls++;if(calls===1)return all.replace('场景 1-1','场景 1-99');if(calls===2)throw Object.assign(Error('断流'),{code:'STREAM_INCOMPLETE',partialText:all.slice(0,cut)});assert.equal(messages.at(-2).content,all.slice(0,cut));return all.slice(cut);}});
+ assert.equal(result.completed,3);assert.equal(calls,3);assert.ok(diagnostics.some(d=>d.content?.includes('1-99')));
+});

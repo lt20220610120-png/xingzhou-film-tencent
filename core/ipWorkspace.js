@@ -137,7 +137,7 @@ export function validateIPPlan(plan,source,duration){
  const episodes=plan.episodes.map((e,i)=>{
   if(!Array.isArray(e.chapterIds)||!e.chapterIds.length||e.chapterIds.some(id=>!ids.has(id)))throw new Error(`第${i+1}集的原文章节无效，请重新选择来源`);
   const ranges=e.sourceRanges?.length?validateSourceRanges(e.sourceRanges,source):undefined;
-  return {title:`第${i+1}集`,outline:String(e.outline||''),chapterIds:ranges?rangeChapters(ranges,source).map(c=>c.id):source.chapters.filter(c=>e.chapterIds.includes(c.id)).map(c=>c.id),...(ranges?{sourceRanges:ranges}:{}),...(Array.isArray(e.sourceQuotes)?{sourceQuotes:copy(e.sourceQuotes)}:{})};
+  return {title:`第${i+1}集`,outline:String(e.outline||''),chapterIds:ranges?rangeChapters(ranges,source).map(c=>c.id):source.chapters.filter(c=>e.chapterIds.includes(c.id)).map(c=>c.id),...(ranges?{sourceRanges:ranges}:{}),...(Array.isArray(e.sourceQuotes)?{sourceQuotes:copy(e.sourceQuotes)}:{}),...(Array.isArray(e.sourceUnitRanges)?{sourceUnitRanges:copy(e.sourceUnitRanges),sourceLocatorVersion:1}:{})};
  });
  return {...plan,episodes};
 }

@@ -16,6 +16,7 @@ test('novel upload prepares one fully imported project before the React state up
  const prepared=prepareNovelProject({fileName:'武馆.txt',content,encoding:'UTF-8'},{duration:120,selection:'saved-model'});
  assert.equal(prepared.name,'武馆');assert.equal(prepared.creator.ip.duration,120);assert.equal(prepared.creator.ip.selection,'saved-model');
  assert.equal(prepared.creator.ip.source.content,content);assert.equal(prepared.creator.ip.source.chapters.length,2);
+ assert.equal(prepared.creator.ip.autoStart.status,'queued');assert.equal(prepared.creator.ip.autoStart.sourceId,prepared.creator.ip.source.id);assert.equal(prepared.creator.ip.autoStart.selection,'saved-model');
  const old={id:'old',name:'已有项目'},state={...createInitialState(),fruitProjects:[old]};
  const next=appendPreparedProject(state,prepared);
  assert.equal(next.fruitProjects[0],old);assert.equal(next.fruitProjects[1].id,prepared.id);assert.equal(state.fruitProjects.length,1);

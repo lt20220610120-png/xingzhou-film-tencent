@@ -25,7 +25,7 @@ for(const trigger of ['version','settings-ready','final'])test(`actual IP agent 
  let pending=false,settles=0;
  const setState=fn=>{state=fn(state);};
  const source=fs.readFileSync(new URL('../src/creator/useIPAgent.js',import.meta.url),'utf8');
- const context={useRef:v=>({current:v}),useState:v=>[v,()=>{}],Map,Date,Math,getIPProject,mutateIP,ipFingerprint,saveIPVersion,appendIPVersion,beginIPFirstDraft,resolveIPInstruction,runRemainingIPTasks:()=>{},runIPAdaptationFlow:()=>{},flushEditing:()=>{},hasPendingEditing:()=>pending,settleEditing:async()=>{settles++;if(pending){state=updateIPDraft(state,id,episode.id,'人工刚输入的正文');pending=false;}},runIPTask:async args=>{
+ const context={useRef:v=>({current:v}),useState:v=>[v,()=>{}],useEffect:()=>{},Map,Date,Math,getIPProject,mutateIP,ipFingerprint,saveIPVersion,appendIPVersion,beginIPFirstDraft,resolveIPInstruction,runRemainingIPTasks:()=>{},runIPAdaptationFlow:()=>{},flushEditing:()=>{},hasPendingEditing:()=>pending,settleEditing:async()=>{settles++;if(pending){state=updateIPDraft(state,id,episode.id,'人工刚输入的正文');pending=false;}},runIPTask:async args=>{
    const v={type:'version',episodeId:episode.id,content:'AI候选稿',fingerprint:ipFingerprint(getIPProject(state,id),episode.id)};pending=true;
    if(trigger==='version')await args.onDraft(v);
    else if(trigger==='settings-ready')await args.onDraft({type:'settings-ready',episodeId:episode.id,content:v.content,version:v});
