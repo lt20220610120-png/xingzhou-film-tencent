@@ -26,4 +26,6 @@
 
 独立只读复核覆盖跨故事单元配额、重复对白缓存、65536上下文末段定位、截断替换及失效marker。最后58项相关测试全通过，独立marker复现50集完整续用且新增模型请求0；所提P1/P2均处理。
 
-全量dist通过：2089/2089测试，0失败；Vite构建通过；打包运行报告qa/packaged-smoke-2.8.36-1792000061643/report.json为PASS、版本2.8.36、errors为空。构建日志output/ip2836-release-build.log。安装包103609330字节，SHA256 4f5cc08b2217ccbc1a0106fd63b475b287fbc32577de15476c127a88237706e3。公开发布核验随后补录。
+全量dist通过：2089/2089测试，0失败；Vite构建通过；打包运行报告qa/packaged-smoke-2.8.36-1792000061643/report.json为PASS、版本2.8.36、errors为空。构建日志output/ip2836-release-build.log。安装包103609330字节，SHA256 4f5cc08b2217ccbc1a0106fd63b475b287fbc32577de15476c127a88237706e3。公开GitHub整包完整下载、大小、SHA256及asset digest一致；两仓库main清单一致且Ed25519签名通过；官方备用源签名/清单/65536字节Range与总大小通过，服务端整包SHA256通过。证据output/release-2836-public.json、release-2836-mirror.json、release-2836-publish.log。功能提交c8bc665，源仓库签名清单2ac38f3。
+
+[公开安装包](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.36/Xingzhou-Film-Tencent-Setup-2.8.36.exe)；本机release/2.8.36/Xingzhou-Film-Tencent-Setup-2.8.36.exe。
