@@ -22,4 +22,10 @@
 
 release/2.8.40/Xingzhou-Film-Tencent-Setup-2.8.40.exe，103612894字节；SHA256：d9e03fa6641cabd2f78b61e6e2af20e2ff86d45ec87867212c1904234ad69074。
 
-公开地址：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.40/Xingzhou-Film-Tencent-Setup-2.8.40.exe 。真实数据整理、发布和本机安装结果随后补充。私有原稿/快照仅在本机output/episode2840及用户备份，不提交源码。
+公开地址：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.40/Xingzhou-Film-Tencent-Setup-2.8.40.exe 。已发布正式Release、两仓库main签名清单629f151及官方备用源。完整公开下载103612894字节、SHA256与本机和GitHub asset digest一致；两清单一致，备用源签名/65536字节Range/总大小及服务端整包哈希通过。
+
+用户明确原中英双语版为第24集主稿后，经正常认证的修正接口完成云端3份同号稿选主稿，原51记录整理为49条（48正文+设定），4条历史保留原稿/旧完整剧本；127项资产、33张图片和analysis_progress保持原样。媒体核对按原始objectKey/图片ID和不带临时签名的URL比较，COS临时签名更新不误报数据变化。本机正常关闭后两份导演资料均已48有效集，原稿不需改写，不覆写用户其他项目。完整原始备份D:/行舟影视/repair-backups/episode-identity-2.8.40-1792092519022；最终验证输出output/episode2840/repair-result.json。
+
+本机已安装启动2.8.40，ProductVersion2.8.40.0，app.asar与验收构建一致、进程响应正常。正式更新检查读取官方签名2.8.40，2.8.38/2.8.39均发现新版；2.8.40显示最新。证据output/episode2840-inapp-update-verification.json。私有原稿/快照仅在本机output/episode2840及用户备份，不提交源码。
+
+本机安装后实际进入目标项目的资产页成功，显示48集已发布，已有图片正常加载；未再进入全屏错误页。用户当前已在资产页继续生成，本次维护未点击生成按钮或另发付费请求。

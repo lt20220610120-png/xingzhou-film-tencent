@@ -45,5 +45,3 @@ let browser,page;const errors=[],report={realApiCalls:0,checks:[]};
  await page.setViewportSize({width:900,height:800});await page.screenshot({path:path.join(out,'03-readonly-900.png')});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  assert.deepEqual(errors,[]);report.passed=true;report.pageErrors=errors;fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));await browser.close();
 })().catch(async error=>{report.error=error.stack;report.pageErrors=errors;fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));if(page)await page.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});if(browser)await browser.close();console.error(error);process.exitCode=1;});
-
-
