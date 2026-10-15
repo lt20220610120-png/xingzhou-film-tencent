@@ -35,6 +35,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   // Recover only the cloud version and publication metadata. A newer local draft
   // keeps its descriptions, approvals, generation result and new write ID.
   const next={...current,version:saved.version,lastWriteId:saved.lastWriteId,published:structuredClone(saved.published||{}),managedAssetNames:structuredClone(saved.managedAssetNames||[]),updatedAt:saved.updatedAt,updatedBy:saved.updatedBy};
+  for(const key of ['classificationCorrections','publicationWarnings'])if(Array.isArray(saved[key]))next[key]=structuredClone(saved[key]);
   delete next.cloudReceipt;delete next.syncError;
   if(receipt.kind==='save'&&unchanged)next.uploadedWriteId=current.writeId;
   if(receipt.kind==='publish'){
@@ -152,5 +153,5 @@ export function getArtReviewStore({api,projectId,accountId=''}){
 }
 export function summarizeArtReview(ledger,project){
  const records=Object.entries(ledger.episodes||{}).filter(([,r])=>r.status!=='empty'),published=records.filter(([,r])=>!r.pending&&fullyPublished(r)),pending=records.filter(([,r])=>r.pending||!fullyPublished(r));
- return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>r.warnings||[]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),stale:project?listCollabEpisodes(project.episodes).filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
+ return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>[...(r.warnings||[]),...(r.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean)]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),stale:project?listCollabEpisodes(project.episodes).filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
 }

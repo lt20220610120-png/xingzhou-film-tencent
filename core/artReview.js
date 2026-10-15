@@ -1,4 +1,4 @@
-import {parseArtAnalysis,parseAssetName,readAssetPrompt} from './collabStore.js';
+import {parseArtAnalysis,parseAssetName,readAssetPrompt,characterAppearanceIssue} from './collabStore.js';
 import {parseDirectorScenesReadonly} from './scriptImport.js';
 import {episodeNumbersInText} from './collabEpisodes.js';
 
@@ -21,9 +21,11 @@ function refreshRoster(record){
 }
 function mergeCard(old,incoming){
  if(!old)return clone(incoming);if(!incoming)return clone(old);
- const alternate=old.ready&&incoming.ready&&old.description!==incoming.description?{description:incoming.description,at:Date.now()}:null;
- const alternatives=[...(old.alternatives||[]),...(incoming.alternatives||[]),...(alternate?[alternate]:[])].filter((a,i,all)=>a.description!==old.description&&all.findIndex(v=>v.description===a.description)===i);
- return {...old,...((!old.ready||!old.description?.trim())&&incoming.ready?{description:incoming.description,ready:true,warning:incoming.warning||''}:{}),alternatives};
+ const replace=(!old.ready||!old.description?.trim()||!old.manual&&characterAppearanceIssue(old))&&incoming.ready;
+ const description=replace?incoming.description:old.description;
+ const alternate=old.ready&&incoming.ready&&old.description!==incoming.description?{description:replace?old.description:incoming.description,at:Date.now()}:null;
+ const alternatives=[...(old.alternatives||[]),...(incoming.alternatives||[]),...(alternate?[alternate]:[])].filter((a,i,all)=>a.description!==description&&all.findIndex(v=>v.description===a.description)===i);
+ return {...old,...(replace?{description,ready:true,warning:incoming.warning||''}:{}),alternatives};
 }
 export function reviewSceneSignature(scene){return JSON.stringify([scene.id,scene.source,scene.items.map(i=>[i.id,i.category,i.name,i.description,i.ready,...(i.detailStatus?[i.detailStatus]:[])])]);}
 // Human approval confirms the scene's list. Detail generation is a separate step.
@@ -37,7 +39,7 @@ export function confirmPublishedUnassigned(record){
  if(!record.unassignedApproval&&isArtEpisodeFullyPublished(record))record.unassignedApproval={signature:reviewUnassignedSignature(record),kind:'published'};
  return record;
 }
-export const needsArtReviewDetails=item=>item.detailStatus!=='nonvisual'&&(!item.ready||!item.description?.trim());
+export const needsArtReviewDetails=item=>item.detailStatus!=='nonvisual'&&(!item.ready||!item.description?.trim()||!item.manual&&Boolean(characterAppearanceIssue(item)));
 export const reviewLedgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(isSceneVerified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
 export const isReviewCurrent=(record,episode)=>record?.sourceContent===String(episode?.content||'');
 export function sourceReviewScenes(episode){
@@ -228,10 +230,18 @@ export function projectPublishedReviewAssets(project,assets){
  if(!reviews.length)return assets;
  const reviewedSceneIds=reviews.flatMap(([,r])=>Object.keys(r.review.published));
  return assets.map(a=>{
-  const sceneIds=reviews.flatMap(([,r])=>Object.values(r.review.published).filter(s=>s.items.some(i=>i.category===a.category&&i.name===a.name)).map(s=>s.id)),managed=sceneIds.length||reviews.some(([,r])=>r.review.managedAssetNames?.includes(a.name));
+  // Names are unique within a project. A reviewed category correction keeps
+  // the same asset ID; old approved snapshots retain their original category.
+  const sceneIds=reviews.flatMap(([,r])=>Object.values(r.review.published).filter(s=>s.items.some(i=>i.name===a.name)).map(s=>s.id)),managed=sceneIds.length||reviews.some(([,r])=>r.review.managedAssetNames?.includes(a.name));
   if(!managed)return {...a,reviewedSceneIds};
   const legacyEpisodes=(a.episodes||[]).map(Number).filter(n=>!reviews.some(([ep])=>Number(ep)===n)),legacySceneIds=reviews.filter(([ep])=>(a.episodes||[]).map(Number).includes(Number(ep))).flatMap(([,r])=>r.review.scenes.filter(s=>!r.review.published[s.id]).map(s=>s.id));
-  const versions=reviews.flatMap(([,r])=>reviewRoster(r.review).filter(i=>i.category===a.category&&i.name===a.name).flatMap(i=>[{description:i.description},...(i.alternatives||[])])),reviewPromptAlternatives=[...new Map(versions.filter(i=>i.description).map(i=>[i.description,i])).values()];
-  return {...a,sceneIds:[...new Set(sceneIds)],legacyEpisodes,legacySceneIds,reviewedSceneIds,reviewPromptAlternatives:reviewPromptAlternatives.length>1?reviewPromptAlternatives:[]};
+  const versions=reviews.flatMap(([,r])=>reviewRoster(r.review).filter(i=>i.name===a.name).flatMap(i=>[{description:i.description},...(i.alternatives||[])])),reviewPromptAlternatives=[...new Map(versions.filter(i=>i.description).map(i=>[i.description,i])).values()];
+  return {...a,reviewedCategory:true,sceneIds:[...new Set(sceneIds)],legacyEpisodes,legacySceneIds,reviewedSceneIds,reviewPromptAlternatives:reviewPromptAlternatives.length>1?reviewPromptAlternatives:[]};
  });
+}
+// Adoption is an explicit editor action: never overwrite an existing prompt
+// just because a newly published information card contains another version.
+export function completedReviewPrompt(asset){
+ if(!characterAppearanceIssue(asset))return '';
+ return (asset.reviewPromptAlternatives||[]).find(v=>v.description?.trim()&&!characterAppearanceIssue({...asset,description:v.description}))?.description||'';
 }

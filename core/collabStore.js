@@ -61,6 +61,7 @@ export const ASSET_PROMPT_MODES = { single: '单人多视图', group: '多人群
 export const inferAssetPromptMode = (asset) => {
   if (asset.category !== 'character') return ['scene', 'prop'].includes(asset.category) ? asset.category : 'free';
   const text = `${asset.name || ''}\n${stripCharacterPromptPrefix(asset.description)}`;
+  if (/非人(?:形|巨型)|纯生物形态|三首龙/.test(text) && !/具有人形|人类面貌|人形四肢/.test(text)) return 'free';
   // Generic occupations (司机、助理、工作人员) can be one person; require a collective or an explicit count.
   const group = /群像|群演|一群|一众|众人|男女老少|男女老幼|百姓|民众|村民们|弟子们|士兵们|人群|群众|一家[二两三四五六七八九十\d]+口|(?:[2-9]\d*|[二两三四五六七八九十]+)\s*(?:个\s*人|人(?!称)|位(?:人物|角色|男女)|名(?:人物|角色|男女|百姓|村民|士兵|弟子))/.test(text);
   return group ? 'group' : 'single';
@@ -246,7 +247,7 @@ export const characterBaselineAsset = (asset,assets=[]) => {
 export const resolveAssetReference = (asset, assets, selectedId = null) => {
   const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
   const peers=assetReferencePeers(asset,assets);
-  if (selectedId !== null) return peers.find((item) => item.id !== asset.id && item.id === selectedId && hasImage(item)) || null;
+  if (selectedId !== null) return (assets || []).find((item) => item.id !== asset.id && item.id === selectedId && hasImage(item)) || null;
   if (asset.category !== 'character' && (asset.category !== 'scene' || !sceneIdentity(asset.name))) return null;
   const first = asset.category==='character'?characterBaselineAsset(asset,assets):peers.find(hasImage);
   return first && first.id !== asset.id && hasImage(first) ? first : null;
@@ -260,6 +261,24 @@ export const isCharacterWardrobeVariant = (asset, assets = []) => {
   if(baseline?.name===asset.name)return false;
   if (asset.characterBaselineName && asset.characterBaselineName !== asset.name) return true;
   return Boolean(baseline && baseline.name !== asset.name);
+};
+
+export const isSceneLightingVariant = (asset, assets = []) => {
+  if (asset?.category !== 'scene' || !sceneIdentity(asset.name)?.time) return false;
+  const baseline=assetReferencePeers(asset,assets)[0];
+  return Boolean(baseline && baseline.name !== asset.name);
+};
+
+// A wardrobe-only first card must not silently become the actor's face anchor.
+// This is a conservative structural check, not a fixed-field or word-count rule.
+export const characterAppearanceIssue = (asset, assets = []) => {
+  if (asset?.category !== 'character' || asset.detailStatus === 'nonvisual') return '';
+  const text = readAssetPrompt(asset).content;
+  if (characterReferenceName(asset) || isCharacterWardrobeVariant(asset, assets)) return '';
+  if (/群像|群体|群演|默认\s*6\s*人|非人(?:形|巨型)|纯生物形态|龙鳞|蛇鳞|狼毛|羽毛|机械机关|自动机|无眼鼻口/.test(`${asset.name} ${text}`)) return '';
+  const wardrobe = /(?:服装(?:与鞋履|差异)?|妆造(?:与固定配饰)?)[：:]|(?:衬衣|衬衫|长裤|夹克|礼服|实验室长褂|白衣|黑衣)/.test(text);
+  const face = /脸型|[方圆长鹅蛋]脸|面部骨相|面容|五官|颧骨|下颌|鼻梁|鼻翼|眼距|眼形|眼型/.test(text);
+  return wardrobe && !face ? '首次人物基准缺少脸型、五官等外貌描述，请补齐信息卡，或在美术采用已补齐的提示词版本后再生成图片。' : '';
 };
 
 // 人物是主实体，服饰/妆造是人物下的一对多分支。
@@ -371,6 +390,7 @@ const misplacedVisualProp = (description) => {
 // touches descriptions/images; callers may render and generate from this view.
 export const normalizeArtAssets = (assets) => {
   let normalized = (assets || []).flatMap((asset) => {
+    if(asset?.reviewedCategory)return [{...asset}];
     if (!asset || !['character', 'prop'].includes(asset.category)) return asset ? [{ ...asset }] : [];
     const content = readAssetPrompt(asset).content;
     if (HARD_NON_VISUAL_ASSET.test(content)) return [];
@@ -383,6 +403,7 @@ export const normalizeArtAssets = (assets) => {
     return [{ ...asset, category: 'character' }];
   });
   normalized = normalized.filter((asset) => asset.category !== 'character'
+    || asset.reviewedCategory
     || hasAssetImage(asset)
     || readAssetPrompt(asset).customized
     || !inflatedCharacterVariant(asset));

@@ -38,8 +38,7 @@ async function lockProject(client,pid,uid){
  return ensureCollabDomain(client,row,uid);
 }
 const getEpisode=(row,number)=>{const match=numberedEpisodes(row.episodes).find(e=>e.number===number);if(!match)fail('本集不存在，请刷新核对');return match.episode;};
-const reviewedOutput=(record,number)=>{
- const entries=new Map();Object.values(record.published||{}).forEach(s=>s.items.filter(i=>i.detailStatus!=='nonvisual').forEach(i=>entries.set(i.category+'\0'+i.name,i)));
+const reviewedOutput=(entries,number)=>{
  return `### 第${number}集\n`+Object.entries({character:'人物',scene:'场景',prop:'道具'}).map(([key,title])=>`${title}：\n${[...entries.values()].filter(i=>i.category===key).map(i=>`- ${i.name} ${i.description}`).join('\n')||'- 无'}`).join('\n');
 };
 function artReviewRepository(pool){
@@ -54,7 +53,7 @@ function artReviewRepository(pool){
    if(Number(p.baseVersion)!==Number(old?.version||0))fail('本集已有其他核实修改，本地版本保留，请刷新并核对云端版本');
    let next;
    if(action==='save'){
-    validateReview(p.data,episode,number);next={...p.data,published:old?.published||{},managedAssetNames:old?.managedAssetNames||[],version:Number(old?.version||0)+1,lastWriteId:p.writeId,updatedBy:uid,updatedAt:Date.now()};delete next.pending;delete next.syncError;delete next.writeId;
+    validateReview(p.data,episode,number);next={...p.data,published:old?.published||{},managedAssetNames:old?.managedAssetNames||[],classificationCorrections:old?.classificationCorrections||[],publicationWarnings:old?.publicationWarnings||[],version:Number(old?.version||0)+1,lastWriteId:p.writeId,updatedBy:uid,updatedAt:Date.now()};delete next.pending;delete next.syncError;delete next.writeId;
    }else{
     if(!old)fail('请先保存并核实本集清单');validateReview(old,episode,number);
     // References to earlier episodes remain provenance. Only the selected
@@ -64,10 +63,24 @@ function artReviewRepository(pool){
     for(const id of p.sceneIds){const s=next.scenes.find(s=>s.id===id);if(!s||!verified(s))fail(`场景 ${id} 尚未核实或细节待补齐`,400);next.published[id]={id:s.id,source:s.source,items:structuredClone(s.items),signature:signature(s),at:Date.now(),actor:uid};}
     const full=next.scenes.every(s=>next.published[s.id]?.signature===signature(s));
     if(full){const ids=new Set(next.scenes.map(s=>s.id));for(const id of Object.keys(next.published))if(!ids.has(id))delete next.published[id];}
-    const entries=new Map();Object.values(next.published).forEach(s=>s.items.filter(i=>i.detailStatus!=='nonvisual').forEach(i=>{if(entries.has(i.name)&&entries.get(i.name).category!==i.category)fail(`资产 ${i.name} 类别相互矛盾`,400);entries.set(i.name,i);}));
-    for(const item of entries.values()){
-     const existing=(await client.query('select * from collab_assets where project_id=$1 and name=$2',[pid,item.name])).rows[0];
-     if(existing&&existing.category!==item.category)fail(`资产 ${item.name} 已存在于其他类别，请先改名核对`,400);
+    const groups=new Map(),selected=new Map(),entries=new Map();
+    const collect=(map,item)=>{if(item.detailStatus==='nonvisual')return;if(!map.has(item.name))map.set(item.name,[]);map.get(item.name).push(item);};
+    Object.values(next.published).forEach(s=>s.items.forEach(i=>collect(groups,i)));
+    // Only newly published confirmations can correct a classification. Historical
+    // published snapshots remain the user's original confirmation, not a new vote.
+    next.scenes.filter(s=>p.sceneIds.includes(s.id)).forEach(s=>s.items.forEach(i=>collect(selected,i)));
+    next.classificationCorrections||=[];
+    next.publicationWarnings=(old.publicationWarnings||[]).filter(w=>groups.has(w.name)&&!selected.has(w.name));
+    for(const [name,items] of groups){
+     const existing=(await client.query('select * from collab_assets where project_id=$1 and name=$2',[pid,name])).rows[0];
+     const candidates=selected.get(name)||items,categories=[...new Set(candidates.map(i=>i.category))];
+     const category=!selected.has(name)&&existing?existing.category:categories.includes(existing?.category)?existing.category:categories[0];
+     const item={...(candidates.find(i=>i.category===category)||items[0]),category};entries.set(name,item);
+     if(selected.has(name)&&categories.length>1)next.publicationWarnings.push({name,categories,category,message:`资产 ${name} 分类待核对，已按 ${category} 发布并保留原始核实条目`});
+     if(existing&&existing.category!==category){
+      await client.query('update collab_assets set category=$3 where project_id=$1 and name=$2',[pid,name,category]);
+      next.classificationCorrections.push({name,assetId:existing.id,from:existing.category,to:category,actor:uid,at:Date.now()});
+     }
      // Never overwrite an existing prompt, reference settings, ID or images.
      await client.query(`insert into collab_assets(project_id,category,name,description,first_episode,episodes,image_url) values($1,$2,$3,$4,$5,$6,'') on conflict(project_id,name) do update set episodes=(select array_agg(distinct e order by e) from unnest(collab_assets.episodes || excluded.episodes) e),description=case when coalesce(collab_assets.description,'')='' then excluded.description else collab_assets.description end`,[pid,item.category,item.name,item.description,Math.min(number,Math.max(1,Number(item.firstEpisode)||number)),[number]]);
     }
@@ -80,7 +93,7 @@ function artReviewRepository(pool){
      for(const name of legacyNames)if(!entries.has(name))await client.query('update collab_assets set episodes=array_remove(episodes,$3) where project_id=$1 and name=$2',[pid,name,number]);
     }
     next.version=old.version+1;next.lastWriteId=p.writeId;next.updatedAt=Date.now();next.updatedBy=uid;
-    previous.output=reviewedOutput(next,number);previous.fingerprint=`art-review-${next.version}`;
+    previous.output=reviewedOutput(entries,number);previous.fingerprint=`art-review-${next.version}`;
     row.analysis_output=mergePublicationOutput(row.analysis_output,previous.output,number);
    }
    progress[number]={...previous,review:next};

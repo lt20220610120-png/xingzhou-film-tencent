@@ -145,10 +145,10 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   try{
   if(choice.sceneIds){
    await store.update(choice.episodeNumber,r=>{for(const id of choice.sceneIds)if(!isSceneVerified(r.scenes.find(s=>s.id===id)))r=editArtReview(r,{type:'approve',sceneId:id},accountId);return r;});
-   await store.publish(choice.episodeNumber,choice.sceneIds);setNotice(`第 ${choice.episodeNumber} 集已发布 ${choice.sceneIds.length} 场到美术与资产，已有图片和编辑保留。`);
+   const saved=await store.publish(choice.episodeNumber,choice.sceneIds);setNotice(`第 ${choice.episodeNumber} 集已发布 ${choice.sceneIds.length} 场到美术与资产，已有图片和编辑保留。${(saved.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean).join('；')}`);
   }else{
-   let count=0;const failures=[];for(const e of episodes){const r=store.snapshot().episodes[e.episodeNumber];if(!isReviewCurrent(r,e))continue;const ids=r.scenes.filter(isSceneVerified).map(s=>s.id);if(!ids.length)continue;try{await store.publish(e.episodeNumber,ids);count+=ids.length;}catch(e){failures.push(e.message);}}
-   setNotice(`已发布 ${count} 场；未核实部分继续保留。`);if(failures.length)setError([...new Set(failures)].join('；'));
+   let count=0;const failures=[],warnings=[];for(const e of episodes){const r=store.snapshot().episodes[e.episodeNumber];if(!isReviewCurrent(r,e))continue;const ids=r.scenes.filter(isSceneVerified).map(s=>s.id);if(!ids.length)continue;try{const saved=await store.publish(e.episodeNumber,ids);count+=ids.length;warnings.push(...(saved.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean));}catch(e){failures.push(e.message);}}
+   setNotice(`已发布 ${count} 场；未核实部分继续保留。${[...new Set(warnings)].join('；')}`);if(failures.length)setError([...new Set(failures)].join('；'));
   }
   await refresh({manual:true});
   }finally{publishTasks.current.delete(publishKey);}

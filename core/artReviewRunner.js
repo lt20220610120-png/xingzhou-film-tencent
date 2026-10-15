@@ -4,11 +4,33 @@ import {listCollabEpisodes} from './collabEpisodes.js';
 import {decodeArtReviewOutput,decodeReviewJson,applyArtReviewCard,applyArtReviewCandidate,artReviewContext,buildArtReviewInstruction,isReviewCurrent,newArtReview,reviewRoster,needsArtReviewDetails,reviewSceneSignature,isSceneVerified,artMappingHasOtherEpisode} from './artReview.js';
 import {getArtReviewStore,summarizeArtReview} from './artReviewPersistence.js';
 import {artWorkflowState,artEpisodeReady,artEpisodeConfirmed} from './artWorkflow.js';
+import {characterAppearanceIssue} from './collabStore.js';
 
 // Two compact batches can run together; only local checkpoint writes are serialized.
 export async function fillArtReviewDetails({store,episode,project,genre,profile,api,job,onProgress,eligible}){
  const number=episode.episodeNumber,current=store.snapshot().episodes[number];
- const pending=reviewRoster(current).filter(i=>needsArtReviewDetails(i)&&(!eligible||eligible.some(old=>old.id===i.id&&old.name===i.name&&old.note===i.note)));
+ const eligibleItem=i=>!eligible||eligible.some(old=>old.id===i.id&&old.name===i.name&&old.note===i.note);
+ // Reuse an already repaired identity from this project's unchanged earlier
+ // episodes before asking AI to redesign the same named card at another cost.
+ const allEpisodes=listCollabEpisodes(project.episodes);
+ const validRecords=Object.fromEntries(Object.entries(store.snapshot().episodes).filter(([n,r])=>isReviewCurrent(r,allEpisodes.find(e=>e.episodeNumber===Number(n)))));
+ const available=artReviewContext(validRecords,episode,{allowUnverified:true}).available
+  .filter(i=>i.detailStatus!=='nonvisual'&&!needsArtReviewDetails(i)&&!characterAppearanceIssue(i))
+  .sort((a,b)=>Number(b.episode)-Number(a.episode));
+ const inherited=reviewRoster(current).filter(i=>!i.manual&&needsArtReviewDetails(i)&&eligibleItem(i))
+  .map(item=>({item,previous:available.find(i=>i.category===item.category&&i.name===item.name)})).filter(i=>i.previous);
+ if(inherited.length&&!job.cancelled)await store.update(number,r=>{
+  if(!isReviewCurrent(r,episode))return r;
+  for(const {item,previous}of inherited){
+   const latest=reviewRoster(r).find(i=>i.id===item.id),prior=store.snapshot().episodes[previous.episode];
+   if(!latest||latest.manual||latest.name!==item.name||latest.category!==item.category||latest.note!==item.note||latest.description!==item.description||!needsArtReviewDetails(latest))continue;
+   if(!isReviewCurrent(prior,allEpisodes.find(e=>e.episodeNumber===Number(previous.episode)))||!reviewRoster(prior).some(i=>i.name===previous.name&&i.category===previous.category&&i.description===previous.description&&i.detailStatus!=='nonvisual'&&!needsArtReviewDetails(i)&&!characterAppearanceIssue(i)))continue;
+   r=applyArtReviewCard(r,latest,{item:{category:latest.category,name:latest.name,description:previous.description}});
+   r.history.push({at:Date.now(),reason:'继承前集已补齐信息卡',sourceEpisode:previous.episode,itemId:latest.id,previousDescription:latest.description});
+  }
+  return r;
+ });
+ const pending=reviewRoster(store.snapshot().episodes[number]).filter(i=>needsArtReviewDetails(i)&&eligibleItem(i));
  const batches=[];for(let n=0;n<pending.length;n+=6)batches.push(pending.slice(n,n+6));
  const errors=[];job.taskIds||=[];let next=0,completed=0;
  const worker=async()=>{while(next<batches.length&&!job.cancelled){

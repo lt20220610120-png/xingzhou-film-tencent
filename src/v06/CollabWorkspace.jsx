@@ -9,7 +9,7 @@ import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
 import {runArtReviewAnalysis} from '../../core/artReviewRunner.js';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
-import {projectPublishedReviewAssets} from '../../core/artReview.js';
+import {projectPublishedReviewAssets,completedReviewPrompt} from '../../core/artReview.js';
 import ArtReviewSection from './ArtReviewSection.jsx';
 import {readCollabNavigation,rememberCollabNavigation} from '../../core/collabNavigation.js';
 import {createCloudCache} from '../../core/cloudCache.js';
@@ -32,10 +32,10 @@ import {
 } from 'lucide-react';
 import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
-  sectionsForRole, parseAssetName, findBaseMates, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
+  sectionsForRole, parseAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
-  ASSET_PROMPT_MODES, normalizeArtAssets,
+  ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant,
 } from '../../core/collabStore.js';
 import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
@@ -316,10 +316,24 @@ function ForceEpisodeAnalysisDialog({ episodeNumber, onCancel, onConfirm }) {
 const assetReferenceKey = (projectId, assetId) => `xz-asset-reference:${projectId}:${assetId}`;
 const requiresCharacterReference = (asset, assets) => asset?.category === 'character'
   && isCharacterWardrobeVariant(asset, assets);
+const requiresAssetImageReference = (asset, assets) => requiresCharacterReference(asset, assets) || isSceneLightingVariant(asset, assets);
+const missingAssetImageReferenceMessage = asset => asset?.category==='scene'
+  ? '这是场景时间版本，请先生成或选择场景基准参考图；也可在参考选项中明确选择“不引用参考”。'
+  : '这是人物差异造型，请先生成或选择人物基准参考图；也可在参考选项中明确选择“不引用参考”。';
 const readAssetReferenceChoice = (projectId, assetId) => {
   try { return localStorage.getItem(assetReferenceKey(projectId, assetId)); } catch { return null; }
 };
-function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate }) {
+const assetLocalReferenceKey = (accountId, projectId, assetId) => `xz-asset-local-reference:${accountId||'local'}:${projectId}:${assetId}`;
+const readAssetLocalReference = (accountId, projectId, assetId) => {
+  try { const value=JSON.parse(localStorage.getItem(assetLocalReferenceKey(accountId,projectId,assetId))||'null');return value?.kind==='image'&&typeof value.filePath==='string'&&value.filePath?value:null; } catch { return null; }
+};
+const resolveAssetImageReference = (asset, assets, choice, projectId, accountId) => {
+  if(choice!=='__local__')return resolveAssetReference(asset,assets,choice);
+  const localReference=readAssetLocalReference(accountId,projectId,asset.id);
+  return localReference?{id:'__local__',name:localReference.name||'本机参考图',category:'reference',image_url:`xzmedia:///${encodeURIComponent(localReference.filePath)}`,localReference}:null;
+};
+const assetImageReferences = refAsset => refAsset?.localReference?[refAsset.localReference]:refAsset?autoReferences(`@${refAsset.name}`,[refAsset]):[];
+function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -342,10 +356,11 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     try { if (id === null) localStorage.removeItem(referenceScope); else localStorage.setItem(referenceScope, id); } catch {}
     setReferenceChoice({ scope: referenceScope, id });
   };
-  const mates = useMemo(() => findBaseMates(assets, asset.name).filter((m) => m.category === asset.category && (m.image_url || m.images?.some((image) => image.url))), [assets, asset.name]);
+  const mates = useMemo(() => assets.filter((m) => m.id !== asset.id && (m.image_url || m.images?.some((image) => image.url))), [assets, asset.id]);
   const defaultReference = resolveAssetReference(asset, assets);
-  const refAsset = resolveAssetReference(asset, assets, refId);
-  const referenceRequired=requiresCharacterReference(asset, assets);
+  const refAsset = resolveAssetImageReference(asset, assets, refId, project.id, typeof accountId==='string'?accountId:'local');
+  const localReference=readAssetLocalReference(accountId,project.id,asset.id);
+  const referenceRequired=requiresAssetImageReference(asset, assets);
   const explicitlyNoReference=refId==='';
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = uniqueAssetImages([...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages]).map(image => ({...image, projectId:project.id, assetId:asset.id}));
@@ -355,18 +370,20 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const generate = async () => {
     if (generating || busy || !canEdit) return;
     if (!profile && !pendingImage) { setError('请先在画布或 API 配置中添加图片生成接口'); return; }
-    if(!pendingImage&&referenceRequired&&!refAsset&&!explicitlyNoReference){setError('这是人物差异造型，请先生成或选择人物基准参考图；也可在参考选项中明确选择“不引用参考”。');return;}
+    if(!pendingImage&&referenceRequired&&!refAsset&&!explicitlyNoReference){setError(missingAssetImageReferenceMessage(asset));return;}
+    const appearanceIssue=characterAppearanceIssue(asset, assets);
+    if(!pendingImage&&!refAsset&&appearanceIssue){setError(appearanceIssue);return;}
     setError(''); setBusy(true);
     try {
       if (beforeGenerate) await beforeGenerate();
       const prompt = buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project));
       const generationProfile = profile || {};
       if (onGenerateImage) {
-        const attached = await onGenerateImage({ asset, profile: generationProfile, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
+        const attached = await onGenerateImage({ asset, profile: generationProfile, prompt, size, references: assetImageReferences(refAsset) });
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
       }
       else {
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile?.protocol, provider: profile?.provider, libtvOwnerKey:profile?.libtvOwnerKey, endpoint: profile?.endpoint, apiKey: profile?.apiKey, model: profile?.model, prompt, size, references: refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [] });
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile?.protocol, provider: profile?.provider, libtvOwnerKey:profile?.libtvOwnerKey, endpoint: profile?.endpoint, apiKey: profile?.apiKey, model: profile?.model, prompt, size, references: assetImageReferences(refAsset) });
         const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
         if (attached) clearAssetImageRecovery(project.id, asset.id);
         await refresh();
@@ -381,6 +398,18 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     setBusy(true); setError('');
     try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r?.url) { clearAssetImageRecovery(project.id,asset.id); setLocalImages((current) => [...current.filter((item) => item.id !== r.id), r]); setSelectedImageId(r.id); } if (r) await refresh(); }
     catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  const importReference = async () => {
+    if(busy||generating||!canEdit)return;
+    setBusy(true);setError('');
+    try {
+      const file=api.mediaImportFile?await api.mediaImportFile('image'):(await api.mediaImportFiles('image'))?.[0];
+      if(!file)return;
+      const reference={...file,id:crypto.randomUUID(),kind:'image'};
+      localStorage.setItem(assetLocalReferenceKey(accountId,project.id,asset.id),JSON.stringify(reference));
+      setRefId('__local__');
+    } catch(e) { setError(readableCloudError(e)); }
     finally { setBusy(false); }
   };
   const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
@@ -408,12 +437,16 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
       <div className="collab-image-controls">
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{formats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
-        {(mates.length > 0||referenceRequired) && <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?'等待人物基准参考图':"默认（不引用参考）"}</option><option value="">不引用参考</option>{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>}
+        <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?`等待${asset.category==='scene'?'场景':'人物'}基准参考图`:"默认（不引用参考）"}</option><option value="">不引用参考</option>{localReference&&<option value="__local__">本机参考 {localReference.name}</option>}{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>
+        {(api.mediaImportFile||api.mediaImportFiles)&&<button type="button" className="secondary" onClick={importReference} disabled={busy||generating||!canEdit}>选择本机参考图</button>}
+        {!mates.length&&<small className="collab-ref-hint">项目暂无可选参考图。可先上传或生成资产图片，再在此选择。</small>}
         <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit || pendingImage?.reason==='expired'}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : pendingImage?.reason==='expired'?'结果链接不可用':(pendingImage?.receiptId||pendingImage?.taskId) ? '恢复原结果（不重新生图）' : pendingImage?.filePath ? '继续保存图片' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || generating || !canEdit}><Upload size={14} /> 上传</button></div>
         {pendingImage?.receiptId&&<div className="image-recovery-actions"><button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开生成结果。保存原图后可点击上传，不会重新生图。');}catch(e){setError(e.message);}}}>打开已生成结果</button><button className="ghost" disabled={busy||generating||!canEdit} onClick={()=>{if(window.confirm('放弃这张待下载结果？原恢复记录仍保留在本机；之后点击生成图片会重新调用接口并可能产生费用。')){clearAssetImageRecovery(project.id,asset.id);setError('已解除旧结果的重试状态，可上传原图，或点击生成图片重新付费生成。');}}}>放弃旧结果</button></div>}
-        {refAsset && <small className="collab-ref-hint">{asset.category==='scene'?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`将参考 ${refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态`}</small>}
-        {referenceRequired&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
-        {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">请先生成或选择人物基准参考图，避免差异造型生成另一张脸。</small>}
+        {refAsset && <small className="collab-ref-hint">{refAsset.localReference?`将使用本机参考图：${refAsset.name}`:parseAssetName(asset.name).base===parseAssetName(refAsset.name).base?(asset.category==='scene'?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`将参考 ${refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态`):`已手选项目参考图：${refAsset.name}`}</small>}
+        {referenceRequired&&asset.category!=='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
+        {referenceRequired&&asset.category==='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次无法保证场景布局一致。</small>}
+        {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">{asset.category==='scene'?'请先生成或选择场景基准参考图，避免只改变光线时重新设计布局。':'请先生成或选择人物基准参考图，避免差异造型生成另一张脸。'}</small>}
+        {!refAsset&&characterAppearanceIssue(asset, assets)&&<small className="collab-ref-hint" role="status">{characterAppearanceIssue(asset, assets)}</small>}
         {error && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
@@ -426,7 +459,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
 /* ================================================================
  * 每行资产工作区：身份信息 → 描述编辑 → 生图框
  * ================================================================ */
-function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, draftStore }) {
+function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, draftStore, accountId }) {
   const [revisionModelId,setRevisionModelId,revisionProfile]=useWindowModel(`asset-revision:${project.id}:${asset.id}`,state.apiProfiles||[],state.activeApiId);
   const prefixed = asset.description ?? '';
   const [draft, setDraft] = useState(() => draftStore.read(project.id, asset.id)?.content ?? prefixed);
@@ -440,6 +473,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const [modifying, setModifying] = useState(false);
   const [modifyError, setModifyError] = useState('');
   const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style, projectCharacterComposition(project));
+  const completedDescription=completedReviewPrompt({...asset,description:draft});
   useEffect(() => {
     draftStore.reconcile(project.id, asset);
     const pending = draftStore.read(project.id, asset.id);
@@ -510,6 +544,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
           <PencilLine size={15} /><strong>{asset.name} 提示词</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
+        {completedDescription&&<div className="collab-notice" role="status">清单已有补齐外貌的信息卡；原提示词保留，可直接采用完整版本后生图。<button className="secondary" disabled={!canEdit||modifying||saving} onClick={async()=>{editContent(completedDescription);await save().catch(()=>{});}}>采用已补齐信息卡</button></div>}
         <FormattedEditor commitDelay={1200} aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings">
@@ -524,7 +559,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         <small className="collab-draft-status" role="status">{saveNotice || '可直接手动编辑；单张和批量生成均使用最新提示词。'}</small>
         {saveError && <div className="collab-error" role="alert">{saveError}</div>}
       </section>
-      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} />
+      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} />
       {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
           <h2>AI 修改提示词</h2><ModelSelect profiles={state.apiProfiles||[]} value={revisionModelId} onChange={setRevisionModelId} disabled={modifying} label="修改提示词模型"/>
@@ -733,9 +768,11 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
           asset = { ...asset, description: draft.content };
         }
         const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
-        const refAsset = resolveAssetReference(asset, liveAssets, referenceChoice);
-        if(!readAssetImageRecovery(project.id,asset.id)&&requiresCharacterReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error('请先生成或选择人物基准参考图，或明确选择不引用参考');
-        const references = refAsset ? autoReferences(`@${refAsset.name}`, [refAsset]) : [];
+        const refAsset = resolveAssetImageReference(asset, liveAssets, referenceChoice, project.id, typeof accountId==='string'?accountId:'local');
+        if(!readAssetImageRecovery(project.id,asset.id)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
+        const appearanceIssue=characterAppearanceIssue(asset, liveAssets);
+        if(!readAssetImageRecovery(project.id,asset.id)&&!refAsset&&appearanceIssue)throw new Error(appearanceIssue);
+        const references = assetImageReferences(refAsset);
         const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
         const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||episode||0, filePath: generated.filePath });
@@ -851,7 +888,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
       <div className="collab-art-body art-workbench-rows">
         {list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${batchSelectedIds.includes(selected.id) ? 'is-selected' : ''}`} aria-label={selected.name}>
           <AssetIdentity asset={selected} index={index} checked={batchSelectedIds.includes(selected.id)} onToggle={() => setBatchSelectedIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])} generating={generatingAssetIds.has(selected.id)} />
-          <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
+          <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
         {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `本集没有${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
@@ -920,12 +957,12 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
               <AssetIdentity asset={selected} index={groupIndex} generating={generatingAssetIds.has(selected.id)}>
                 <nav className="character-outfit-picker" aria-label={`${group.base} 服装选择`}>{group.variants.map((variant, index) => <button type="button" key={variant.id} aria-pressed={selected.id === variant.id} onClick={() => setOutfits((current) => ({ ...current, [group.base]: variant.id }))}><span>{String(index + 1).padStart(2, '0')}</span><b>{variant.variant || '基础形象'}</b>{generatingAssetIds.has(variant.id) && <Loader2 size={12} className="spin" />}</button>)}</nav>
               </AssetIdentity>
-              <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
+              <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
             </article>
           </section>;
         }) : list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className="art-workbench-row" aria-label={selected.name}>
           <AssetIdentity asset={selected} index={index} generating={generatingAssetIds.has(selected.id)} />
-          <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} />
+          <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
         {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `暂无${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
@@ -1317,7 +1354,7 @@ export function CollabWorkspace({ state, api, account }) {
     const cachedProject = readCache(`project-${lastId}`);
     const cachedAssets = readCache(`assets-${lastId}`);
     if (cachedProject) {
-      setProject(cachedProject); setAssets(projectPublishedReviewAssets(cachedProject,normalizeArtAssets(cachedAssets || [])));
+      setProject(cachedProject); setAssets(normalizeArtAssets(projectPublishedReviewAssets(cachedProject,cachedAssets || [])));
       const lastSection = localStorage.getItem('xz-collab-last-section');
       setSection(lastSection && sectionsForRole(cachedProject.myRole).includes(lastSection) ? lastSection : sectionsForRole(cachedProject.myRole)[0]);
     }
@@ -1327,7 +1364,7 @@ export function CollabWorkspace({ state, api, account }) {
       api.collabListAssets({ projectId: lastId }),
     ]).then(([p, a]) => {
       if (requestId !== refreshRequestRef.current) return;
-      const normalizedAssets=projectPublishedReviewAssets(p,normalizeArtAssets(a || []));
+      const normalizedAssets=normalizeArtAssets(projectPublishedReviewAssets(p,a || []));
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${lastId}`, p); writeCache(`assets-${lastId}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
@@ -1362,7 +1399,7 @@ export function CollabWorkspace({ state, api, account }) {
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
       p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
-      const normalizedAssets=projectPublishedReviewAssets(p,normalizeArtAssets(a || []));
+      const normalizedAssets=normalizeArtAssets(projectPublishedReviewAssets(p,a || []));
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, normalizedAssets);
       if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
@@ -1393,7 +1430,7 @@ export function CollabWorkspace({ state, api, account }) {
     // 有缓存先立即显示，再后台拉取最新
     const cachedProject = readCache(`project-${id}`);
     if (cachedProject) {
-      setProject(cachedProject); setAssets(projectPublishedReviewAssets(cachedProject,normalizeArtAssets(readCache(`assets-${id}`) || [])));
+      setProject(cachedProject); setAssets(normalizeArtAssets(projectPublishedReviewAssets(cachedProject,readCache(`assets-${id}`) || [])));
       setSection(sectionsForRole(cachedProject.myRole)[0]);
       localStorage.setItem('xz-collab-last-project', id);
     } else {
@@ -1405,7 +1442,7 @@ export function CollabWorkspace({ state, api, account }) {
         api.collabListAssets({ projectId: id }),
       ]);
       if (requestId !== refreshRequestRef.current) return;
-      const normalizedAssets=projectPublishedReviewAssets(p,normalizeArtAssets(a || []));
+      const normalizedAssets=normalizeArtAssets(projectPublishedReviewAssets(p,a || []));
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${id}`, p); writeCache(`assets-${id}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);

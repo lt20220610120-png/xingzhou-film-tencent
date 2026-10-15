@@ -347,3 +347,8 @@ test('refresh during a new retry never retires its pending receipt because of an
  finally{release();await task;}
  assert.equal(f.disk.episodes[1].pending,false);assert.equal(f.saveCalls.length,1);
 });
+
+test('publication acknowledgements preserve server classification corrections and unresolved warnings',async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));const publish=f.api.collabArtReviewPublish;f.api.collabArtReviewPublish=async p=>({...await publish(p),classificationCorrections:[{name:'【三首龙】',assetId:'same-id',from:'prop',to:'character',actor:'owner',at:123}],publicationWarnings:[{name:'【同名】',message:'分类待核对'}]});
+ await f.store.publish(1,['1-1','1-2']);const record=f.store.snapshot().episodes[1];assert.equal(record.classificationCorrections?.[0]?.assetId,'same-id');assert.equal(record.publicationWarnings?.[0]?.message,'分类待核对');assert.ok(summarizeArtReview(f.store.snapshot(),f.project).warnings.includes('分类待核对'));
+});

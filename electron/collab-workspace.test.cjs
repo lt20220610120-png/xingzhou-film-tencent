@@ -53,7 +53,8 @@ test('CollabWorkspace：身份权限过滤与七个功能区', () => {
   assert.match(ws, /COLLAB_ART_SKILL_NAME/);
   assert.match(ws, /buildCollabAnalysisMessages/);
   // 美术：复用与 @参考
-  assert.match(ws, /findBaseMates/);
+  assert.match(ws, /resolveAssetImageReference/);
+  assert.match(ws, /const defaultReference = resolveAssetReference\(asset, assets\)/);
   assert.match(ws, /buildImagePrompt/);
   // 实时刷新轮询
   assert.match(ws, /setInterval\(refreshProject/);

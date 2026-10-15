@@ -42,7 +42,7 @@ export function libtvGenerationParams(model,input){
  if(mode!=='mixed2video'&&((mode==='text2video'&&refs.length)||(/image|frames/.test(mode)&&(count('video')||count('audio')))||(mode==='video2video'&&(count('image')||count('audio')))||(mode==='videoEdit2video'&&count('audio'))))throw Error('当前模式不支持这组参考素材');
  const custom=input.libtvParams||{};
  for(const k of Object.keys(custom))if(unsafe.has(k)||['model','prompt','count','modeType','imageList','videoList','audioList'].includes(k))throw Error('额外参数不能覆盖模型、提示词、模式或素材');
- const params={model:model.name,prompt:String(input.prompt||''),...(Object.keys(items).length&&model.kind==='video'?{modeType:mode}:{}),...(props.count?{count:libtvEnum(props.count).includes(1)?1:libtvEnum(props.count)[0]}:{})};
+ const params={model:model.name,prompt:String(input.prompt||''),...(Object.keys(items).length&&(model.kind==='video'||refs.length)?{modeType:mode}:{}),...(props.count?{count:libtvEnum(props.count).includes(1)?1:libtvEnum(props.count)[0]}:{})};
  if(!params.prompt.trim())throw Error('请填写提示词');
  if(props.prompt?.maxLength&&params.prompt.length>props.prompt.maxLength)throw Error('提示词超出当前模型限制');
  const definitions=libtvParameters(model,mode);

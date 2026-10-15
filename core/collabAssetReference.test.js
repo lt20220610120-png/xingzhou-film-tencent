@@ -24,7 +24,8 @@ test('explicit alternate reference and no-reference override the automatic ancho
   assert.equal(resolveAssetReference(assets[1], assets, 'third').id, 'third');
   assert.equal(resolveAssetReference(assets[1], assets, ''), null);
   assert.equal(resolveAssetReference(assets[1], assets, 'deleted'), null);
-  assert.equal(resolveAssetReference(assets[1], assets, 'other'), null);
+  assert.equal(resolveAssetReference(assets[1], assets, 'other').id, 'other', 'explicit project-image selection may use another character');
+  assert.equal(resolveAssetReference(assets[1], assets).id, 'base', 'automatic reference still follows the same character baseline');
 });
 
 test('default reference becomes available after the first image arrives without affecting explicit opt-out', () => {
@@ -53,8 +54,9 @@ test('same scene place and interior default to the earliest imaged time variant 
   assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets).id, 'dawn');
   assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'night').id, 'night');
   assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, ''), null);
-  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'living-room'), null);
-  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'outside'), null);
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'living-room').id, 'living-room');
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets, 'outside').id, 'outside');
+  assert.equal(resolveAssetReference(sceneAssets[4], sceneAssets).id, 'dawn', 'manual choices do not change the automatic same-place interior anchor');
   assert.equal(resolveAssetReference(sceneAssets[3], sceneAssets), null);
 });
 
@@ -66,5 +68,6 @@ test('new scene baseline ids without time anchor later lighting cards', () => {
   ];
 
   assert.equal(resolveAssetReference(assets[1], assets).id, 'base');
-  assert.equal(resolveAssetReference(assets[1], assets, 'room'), null);
+  assert.equal(resolveAssetReference(assets[1], assets, 'room').id, 'room');
+  assert.equal(resolveAssetReference(assets[1], assets).id, 'base');
 });

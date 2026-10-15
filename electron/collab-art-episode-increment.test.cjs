@@ -70,12 +70,13 @@ test('编号异常以界面错误阻止追加和分析，不在 render 中猜 or
   assert.doesNotMatch(ui, /collabEpisodeNumber\([^)]*,\s*(?:index|ordinal|i\s*\+\s*1)/);
 });
 
-test('V5人物差异资产在单张与批量生图前要求基准图，scene 提示使用布局光线文案', () => {
+test('人物差异及场景时间资产在单张与批量生图前要求基准图，scene 提示使用布局光线文案', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
   assert.match(ui, /requiresCharacterReference/);
+  assert.match(ui, /requiresAssetImageReference[^;]+isSceneLightingVariant/);
   assert.match(ui, /请先生成或选择人物基准参考图/);
   assert.match(ui, /明确不引用参考[^<]*不会锁定身份一致性/);
   assert.match(ui, /保持同地点布局，仅改变时间光线/);
   const batch = ui.match(/const generateBatch[\s\S]*?if \(episode === null\)/)?.[0] || '';
-  assert.match(batch, /requiresCharacterReference/);
+  assert.match(batch, /requiresAssetImageReference/);
 });
