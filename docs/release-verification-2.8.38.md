@@ -29,4 +29,8 @@
 - SHA256：ddfb3b67488b45f2694cdf920c27f2426a74bb86d007662b75a9d46b8180f4fd。
 - 公开链接：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.38/Xingzhou-Film-Tencent-Setup-2.8.38.exe
 
-发布与安装后的核验结果将在完成后补充。私有原稿、账号、项目快照与完整生成日志仅保留本机output/art2838-live，不提交源码仓库。
+已发布正式GitHub Release、双仓库main签名清单（源仓库65bf7aa）及官方备用源。备用源Ed25519签名、清单一致、65536字节Range/总大小和服务器整包SHA256通过。本机已静默安装并启动，ProductVersion为2.8.38.0，安装app.asar与验收构建完全一致，主进程响应正常。
+
+实际React隔离界面验收48集/60场、三基准完整外貌、参考入口、本机导入、变体默认参考、旧提示词采用完整卡、全项目无图仍显示入口；1600/1280无横溢，pageErrors为0。真实本机checkpoint再次读取确认published48、pending0、warnings0、stale0。原临时入口关闭stdout/stderr管道的回归正常退出0且成功写文件。
+
+私有原稿、账号、项目快照与完整生成日志仅保留本机output/art2838-live，不提交源码仓库。公开整包独立下载103609162字节，SHA256与本机及GitHub asset digest一致；双仓库main清单完全一致，下载HEAD为200。完整报告output/release-2838-public.json，备用源报告output/release-2838-mirror.json。
