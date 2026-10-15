@@ -85,6 +85,16 @@
 .art-workbench .collab-art-head-right { align-items:flex-end; width:100%; margin-left:0; }
 .art-workbench .collab-art-head-right .window-model-select { flex:1 1 280px; max-width:480px; margin:0; }
 .art-workbench .collab-art-head-right button,.art-workbench .collab-art-head-right select { height:40px; min-height:40px; margin:0; }
+.asset-category-batch-controls { display:flex; flex:1 1 650px; flex-wrap:wrap; align-items:flex-end; justify-content:flex-end; gap:7px; min-width:0; margin-left:auto; }
+.asset-category-batch-controls > label { display:grid; gap:4px; margin:0; min-width:0; font-size:12px; color:#616c8f; }
+.asset-category-batch-controls .window-model-select { flex:1 1 200px; max-width:300px; }
+.asset-category-batch-controls select { width:100%; max-width:100%; margin:0; text-overflow:ellipsis; }
+.asset-category-batch-controls button { white-space:nowrap; flex-shrink:0; }
+.asset-category-batch-status { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 0 0; font-size:13px; color:#616c8f; }
+.asset-category-batch-status small { flex-basis:100%; font-size:12px; }
+.asset-character-select { display:inline-flex; align-items:center; gap:5px; margin:0; white-space:nowrap; font-size:12px; color:#616c8f; }
+.asset-character-select input { width:15px; height:15px; margin:0; accent-color:#233365; }
+@container(max-width:900px) { .asset-category-batch-controls { flex-basis:100%; justify-content:flex-start; } }
 .art-workbench .collab-cat-tabs { padding: 3px; gap: 2px; border-radius: 7px; background: #e0e5f3; }
 .art-workbench .collab-cat-tabs button { min-height: 28px; padding: 5px 12px; font-size:14px; border-radius: 5px; }
 .art-workbench .collab-cat-tabs button.active { color: #fff; background: #232d4c; }

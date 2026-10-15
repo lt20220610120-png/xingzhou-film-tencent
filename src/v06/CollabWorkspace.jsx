@@ -3,7 +3,7 @@ import{CHARACTER_COMPOSITIONS,projectCharacterComposition,readComposedAssetPromp
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
-import {planArtImageBatch,runArtImageBatch} from '../../core/artImageBatch.js';
+import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
@@ -902,6 +902,21 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const syncPanel=<>{analysisJob?.notice&&<p className="collab-notice">{analysisJob.notice}</p>}{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}<AnalysisSyncDetails job={analysisJob}/></>;
   const [category, setCategory] = useState('character');
   const [search, setSearch] = useState('');
+  const batchProfiles=mediaModelChoices(state,'image');
+  const [batchProfileId,setBatchProfileId,batchProfile]=useWindowModel(`batch-image:${project.id}`,batchProfiles);
+  const [batchSelectedIds,setBatchSelectedIds]=useState([]);
+  const previousBatchAssets=useRef({scope:'',assets:[]});
+  const [batchBusy,setBatchBusy]=useState(false);
+  const batchRunning=useRef(false);
+  const [imageConcurrency,setImageConcurrency]=useState(2);
+  const [imageProgress,setImageProgress]=useState(null);
+  const [batchError,setBatchError]=useState('');
+  const stopImages=useRef(false);
+  const batchFormats=imageModelFormats(batchProfile);
+  const [preferredBatchSize,setBatchSize]=useState(IMAGE_FORMATS[0].size);
+  const batchSize=batchFormats.some(f=>f.size===preferredBatchSize)?preferredBatchSize:batchFormats[0].size;
+  useEffect(()=>()=>{stopImages.current=true;},[]);
+
   const [showArchived,setShowArchived]=useState(false);
   const archivedAssets=assets.filter(a=>Array.isArray(a.sceneIds)&&!a.sceneIds.length&&!a.episodes?.length);
   const [outfits, setOutfits] = useState({});
@@ -913,6 +928,18 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const list = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const characterGroups = category === 'character' ? groupCharacterAssets(categoryAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
   const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category);
+  useEffect(()=>{
+    const scope=`${project.id}:${category}:${showArchived}`;
+    const previous=previousBatchAssets.current;
+    setBatchSelectedIds(current=>previous.scope!==scope?ungeneratedAssets(categoryAssets).map(asset=>asset.id):reconcileAssetSelection(current,previous.assets,categoryAssets));
+    previousBatchAssets.current={scope,assets:categoryAssets};
+  },[project.id,category,showArchived,assets]);
+  const selectedIds=batchSelectedIds.filter(id=>categoryAssets.some(asset=>asset.id===id));
+  const pendingAssets=ungeneratedAssets(categoryAssets);
+  const allPendingSelected=pendingAssets.length?pendingAssets.every(asset=>selectedIds.includes(asset.id)):selectedIds.length>0;
+  const toggleAsset=id=>setBatchSelectedIds(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);
+  const toggleGroup=group=>setBatchSelectedIds(current=>group.variants.every(asset=>current.includes(asset.id))?current.filter(id=>!group.variants.some(asset=>asset.id===id)):[...new Set([...current,...group.variants.map(asset=>asset.id)])]);
+
   const onGenerateImage = useCallback(async ({ asset, profile, prompt, size, references = [] }) => {
     if (generatingAssetIdsRef.current.has(asset.id)) return;
     generatingAssetIdsRef.current.add(asset.id);
@@ -929,6 +956,48 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
     }
   }, [api, project.id, refresh]);
 
+  const imagePlan=()=>planAssetCategoryBatch(assets,{category,selectedIds:batchSelectedIds,readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
+  const generateBatch = async () => {
+    const profile=batchProfile;
+    const jobs = imagePlan().filter(({asset})=>!generatingAssetIdsRef.current.has(asset.id));
+    if (!profile || !jobs.length || batchBusy || batchRunning.current || showArchived || !canEdit) return;
+    batchRunning.current=true;setBatchError('');setBatchBusy(true);stopImages.current=false;setImageProgress({total:jobs.length,completed:0,failed:0});
+    jobs.forEach(({asset}) => generatingAssetIdsRef.current.add(asset.id));
+    setGeneratingAssetIds((current) => new Set([...current, ...jobs.map(({asset}) => asset.id)]));
+    let liveAssets=[...assets];
+    try {
+      const outcome = await runArtImageBatch(jobs,{concurrency:imageConcurrency,isStopped:()=>stopImages.current,onProgress:setImageProgress,generate:async (asset) => {
+        const draft = draftStore.read(project.id, asset.id);
+        if (draft) {
+          await draftStore.save(api, project.id, asset.id, draft.content);
+          asset = { ...asset, description: draft.content };
+        }
+        const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
+        const refAsset = resolveAssetImageReference(asset, liveAssets, referenceChoice, project.id, typeof accountId==='string'?accountId:'local');
+        if(!readAssetImageRecovery(project.id,asset.id)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
+        const appearanceIssue=characterAppearanceIssue(asset, liveAssets);
+        if(!readAssetImageRecovery(project.id,asset.id)&&!refAsset&&appearanceIssue)throw new Error(appearanceIssue);
+        const references = assetImageReferences(refAsset);
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
+        if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
+        const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||0, filePath: generated.filePath });
+        if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');
+        clearAssetImageRecovery(project.id, asset.id);
+        liveAssets=liveAssets.map(a=>a.id===asset.id?{...a,images:[...(a.images||[]),attached]}:a);
+        return attached;
+      }});
+      const completedIds=new Set(outcome.results.filter(result=>result.status==='fulfilled').map(result=>result.asset.id));
+      setBatchSelectedIds(current=>current.filter(id=>!completedIds.has(id)));
+      const failed = outcome.results.flatMap(result => result.status === 'rejected' ? [`${result.asset.name}：${result.reason?.message || '生成失败'}`] : []);
+      setBatchError([outcome.remaining?`已暂停，剩余 ${outcome.remaining} 项未开始；进行中的结果已保存。`:'',failed.length ? `${failed.length} 项未完成：${failed.join('；')}` : ''].filter(Boolean).join(' '));
+      await refresh();
+    } catch(error){setBatchError(readableCloudError(error));
+    } finally {
+      jobs.forEach(({asset}) => generatingAssetIdsRef.current.delete(asset.id));
+      setGeneratingAssetIds((current) => { const next = new Set(current); jobs.forEach(({asset}) => next.delete(asset.id)); return next; });
+      batchRunning.current=false;setBatchBusy(false);
+    }
+  };
   if (!assets.length) {
     return <div className="collab-empty"><Box size={30} />{syncPanel}<p>暂无资产卡片，请先在「清单核实」发布清单，或手动添加资产。</p><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14} /> 手动添加资产</button>{manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} onClose={() => setManualOpen(false)} />}</div>;
   }
@@ -939,29 +1008,38 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
       <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="collab-art-head">
         <b><Box size={16} /> 资产总览</b>
-        {!!archivedAssets.length&&<button className="secondary" onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
+        {!!archivedAssets.length&&<button className="secondary" disabled={batchBusy} onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
         <button className="secondary manual-add-button" onClick={() => { setManualName(''); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
         <div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
-            <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
+            <button key={key} disabled={batchBusy} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
           ))}
         </div>
+        <div className="asset-category-batch-controls" aria-label="当前分类批量生图">
+          <ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy||showArchived} label="资产批量生图模型" displayLabel="生图模型"/>
+          <label>画幅<select aria-label="资产批量生成画幅" value={batchSize} disabled={batchBusy||showArchived} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(format=><option key={format.value} value={format.size}>{format.label}</option>)}</select></label>
+          <label>并发<select aria-label="资产图片并发数量" value={imageConcurrency} disabled={batchBusy||showArchived} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张</option>)}</select></label>
+          <button className="secondary" disabled={batchBusy||showArchived||(!pendingAssets.length&&!selectedIds.length)} onClick={()=>setBatchSelectedIds(allPendingSelected?[]:pendingAssets.map(asset=>asset.id))}>{allPendingSelected?'取消全选':'全选未生成'}</button>
+          <button className="primary" disabled={!canEdit||batchBusy||showArchived||!batchProfile||!selectedIds.length} onClick={generateBatch}><Sparkles size={14}/>{batchBusy?'批量生成中…':`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
+        </div>
       </div>
+      <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${categoryAssets.length} 项 · 默认选择未生成资产；人物包含全部妆造，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>停止后续生成</button>}</div>
+      {batchError&&<div className="collab-error" role="alert">{batchError}</div>}
       <div className="art-workbench-subhead"><span>全剧{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项<span className="art-workbench-caption">{category === 'character' ? '按人物定位，框内切换妆造' : '提示词与生成结果一一对应'}</span></span><input type="search" aria-label="搜索全剧资产" placeholder="搜索角色、妆造或资产" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
       <div className="asset-library-layout"><AssetQuickNav entries={locations} locator={locator} rail /><div className="collab-art-body art-workbench-rows">
         {category === 'character' ? characterGroups.map((group, groupIndex) => {
           const selected = group.variants.find((item) => item.id === outfits[group.base]) || group.variants[0];
           return <section ref={locator.register(group.variants[0].id)} tabIndex={-1} className="character-asset-workspace art-character-group" key={group.base} aria-label={`${group.base} 角色主档案`}>
-            <header className="art-character-header"><div><span className="art-group-label">角色主档案</span><h3>{group.base}</h3><span>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || (item.image_url ? 1 : 0)), 0)} 张图片</span></div><button className="ghost" onClick={() => { setManualName(`${group.base}-`); setManualOpen(true); }} disabled={!canEdit}><Plus size={13} /> 添加妆造</button></header>
-            <article className="art-workbench-row" aria-label={selected.name}>
-              <AssetIdentity asset={selected} index={groupIndex} generating={generatingAssetIds.has(selected.id)}>
-                <nav className="character-outfit-picker" aria-label={`${group.base} 服装选择`}>{group.variants.map((variant, index) => <button type="button" key={variant.id} aria-pressed={selected.id === variant.id} onClick={() => setOutfits((current) => ({ ...current, [group.base]: variant.id }))}><span>{String(index + 1).padStart(2, '0')}</span><b>{variant.variant || '基础形象'}</b>{generatingAssetIds.has(variant.id) && <Loader2 size={12} className="spin" />}</button>)}</nav>
+            <header className="art-character-header"><div><label className="asset-character-select"><input type="checkbox" aria-label={`选择 ${group.base} 全部妆造`} checked={group.variants.every(asset=>selectedIds.includes(asset.id))} ref={node=>{if(node)node.indeterminate=group.variants.some(asset=>selectedIds.includes(asset.id))&&!group.variants.every(asset=>selectedIds.includes(asset.id));}} disabled={!canEdit||batchBusy||showArchived} onChange={()=>toggleGroup(group)}/>已选 {group.variants.filter(asset=>selectedIds.includes(asset.id)).length}/{group.variants.length}</label><span className="art-group-label">角色主档案</span><h3>{group.base}</h3><span>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || (item.image_url ? 1 : 0)), 0)} 张图片</span></div><button className="ghost" onClick={() => { setManualName(`${group.base}-`); setManualOpen(true); }} disabled={!canEdit}><Plus size={13} /> 添加妆造</button></header>
+            <article className={`art-workbench-row ${selectedIds.includes(selected.id)?'is-selected':''}`} aria-label={selected.name}>
+              <AssetIdentity asset={selected} index={groupIndex} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)}>
+                <nav className="character-outfit-picker" aria-label={`${group.base} 服装选择`}>{group.variants.map((variant, index) => <button type="button" key={variant.id} aria-pressed={selected.id === variant.id} onClick={() => setOutfits((current) => ({ ...current, [group.base]: variant.id }))}><span>{String(index + 1).padStart(2, '0')}</span><b>{variant.variant || '基础形象'}{selectedIds.includes(variant.id)?' · 已选':''}</b>{generatingAssetIds.has(variant.id) && <Loader2 size={12} className="spin" />}</button>)}</nav>
               </AssetIdentity>
               <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
             </article>
           </section>;
-        }) : list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className="art-workbench-row" aria-label={selected.name}>
-          <AssetIdentity asset={selected} index={index} generating={generatingAssetIds.has(selected.id)} />
+        }) : list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${selectedIds.includes(selected.id)?'is-selected':''}`} aria-label={selected.name}>
+          <AssetIdentity asset={selected} index={index} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)} />
           <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
         {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `暂无${ASSET_CATEGORIES[category]}资产`}</div>}

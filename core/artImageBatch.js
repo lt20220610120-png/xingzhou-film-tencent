@@ -2,14 +2,20 @@ import {withStorageWork} from './storageWork.js';
 import {assetHasImages} from './assetImages.js';
 import {assetReferencePeers,characterBaselineAsset} from './collabStore.js';
 
-export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()=>null}={}){
+export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()=>null,includeGenerated=false}={}){
  const unique=[...new Map(assets.filter(a=>['character','scene','prop'].includes(a.category)).map(a=>[a.id,a])).values()];
- return unique.filter(a=>!assetHasImages(a)).sort((a,b)=>(a.first_episode||Infinity)-(b.first_episode||Infinity)).map(asset=>{
+ return unique.filter(a=>includeGenerated||!assetHasImages(a)).sort((a,b)=>(a.first_episode||Infinity)-(b.first_episode||Infinity)).map(asset=>{
   const selected=readReference(asset.id),recovery=readRecovery(asset.id);
   const peers=assetReferencePeers(asset,unique);
   const base=selected?peers.find(a=>a.id===selected):asset.category==='character'?characterBaselineAsset(asset,unique):asset.category==='scene'?peers[0]:null;
   return {asset,dependency:!recovery&&selected!==''&&base&&base.id!==asset.id&&!assetHasImages(base)?base.id:null};
  });
+}
+
+export function planAssetCategoryBatch(assets,{category,selectedIds,readReference,readRecovery}={}){
+ const selected=selectedIds==null?null:new Set(selectedIds);
+ return planArtImageBatch(assets,{readReference,readRecovery,includeGenerated:!!selected}).filter(({asset})=>
+  asset.category===category&&!(Array.isArray(asset.sceneIds)&&!asset.sceneIds.length&&!asset.episodes?.length)&&(!selected||selected.has(asset.id)));
 }
 
 // Only the read/download layer retries. A failed generation is recorded once.
