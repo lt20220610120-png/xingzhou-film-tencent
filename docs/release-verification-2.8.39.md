@@ -22,4 +22,8 @@ npm run dist完成：2138/2138测试通过，0失败；前端构建、NSIS打包
 
 安装包release/2.8.39/Xingzhou-Film-Tencent-Setup-2.8.39.exe，103610951字节，SHA256为12b747f0f7f3939f07d7df7078c408bbb243d3c9b04b96a47d75a02765bc6e3e。
 
-公开地址：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.39/Xingzhou-Film-Tencent-Setup-2.8.39.exe 。公开发布与本机安装结果完成后补充。
+公开地址：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.39/Xingzhou-Film-Tencent-Setup-2.8.39.exe 。已发布正式Release、双仓库main签名清单（源仓库ef8e6d6）和官方备用源。公开整包完整下载103610951字节、SHA256与本机和GitHub asset digest一致，两清单一致；备用源Ed25519签名、65536字节Range/总大小和服务器完整哈希通过。
+
+本机正常关闭旧窗口后安装启动2.8.39，ProductVersion为2.8.39.0，app.asar与验收构建完全一致，主进程响应正常。升级前后D:/行舟影视/xingzhou-data.json完整哈希相同，API配置、媒体配置和74个导演项目相同。
+
+正式更新链路实测：同产品fetchUpdateManifest、createUpdateFetch及interpretUpdateResult从官方源读取签名2.8.39；2.8.37/2.8.38均返回available=true及“发现新版本2.8.39”，2.8.39返回当前最新。记录output/asset2839-inapp-update-verification.json。公开验证output/release-2839-public.json，安装验证output/asset2839-install-verification.json。
