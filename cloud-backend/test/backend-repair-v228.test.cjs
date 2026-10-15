@@ -217,7 +217,9 @@ test('script continuity: opaque colliding source cannot be rebuilt from episodes
   assert.throws(()=>composeDirectorScript('前言\n第19集\n手写十九与二十集混排',current,incoming),e=>e.status===409);
   const row=collab({genre:'[COLLAB_PROJECT]\n[COLLAB_SOURCE:source]',script:'协作完整原稿\nEP20\n20-1 家 清晨 内',episodes:current});
   const pool=fixturePool([row,director({owner_id:'alice',script:opaque,episodes:incoming})]);
-  await assert.rejects(extendRepository(pool).refreshDirectorPrompts('copy','alice'),e=>e.status===409);
+  const readable=await extendRepository(pool).refreshDirectorPrompts('copy','alice');
+  assert.deepEqual(readable.episodes,row.episodes);assert.equal(readable.script,row.script);
+  assert.equal(readable.director_sync_warning.code,'EPISODE_IDENTITY_CONFLICT');
   assert.deepEqual(pool.projects()[0],row);assert.equal(pool.projects()[1].script,opaque);
   const first=composeDirectorScript(opaque,current,[current[0]]);
   assert.ok(first.startsWith(opaque));

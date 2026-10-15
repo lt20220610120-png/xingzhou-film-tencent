@@ -92,8 +92,23 @@ export function listCollabEpisodes(episodes) {
 }
 
 export function inspectCollabEpisodes(episodes) {
-  try { return { episodes: listCollabEpisodes(episodes), error: '' }; }
-  catch (error) { return { episodes: [], error: error?.message || '分集编号无效' }; }
+  const groups=new Map(),issues=[];
+  for(const [index,episode] of (Array.isArray(episodes)?episodes:[]).entries()){
+    if(isCollabSettingEpisode(episode))continue;
+    try{
+      const number=collabEpisodeNumber(episode);
+      if(!number)throw identityError('分集记录无效，请核对原文');
+      if(!groups.has(number))groups.set(number,[]);
+      groups.get(number).push({index,episode});
+    }catch(error){issues.push({type:'invalid',number:null,message:error?.message||'分集编号无效',rows:[{index,episode}]});}
+  }
+  const valid=[];
+  for(const [number,rows] of groups){
+    if(rows.length>1)issues.push({type:'duplicate',number,message:`协作项目存在重复的第 ${number} 集，未按数组顺序自动重编号`,rows});
+    else valid.push({...rows[0].episode,episodeNumber:number});
+  }
+  issues.sort((a,b)=>a.rows[0].index-b.rows[0].index);
+  return {episodes:valid,error:issues.map(issue=>issue.message).join('；'),issues};
 }
 
 export function nextCollabEpisodeNumber(episodes) {

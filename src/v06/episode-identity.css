@@ -1,0 +1,21 @@
+.episode-identity-panel{margin:0 0 18px;padding:12px 16px;border:1px solid #d6dfe4;border-radius:12px;background:#f7fafb;color:#243943;font-size:13px;line-height:1.65;min-width:0;}
+.episode-identity-panel.has-issues{border-color:#ddbc70;background:#fffaf0;}
+.episode-identity-panel summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere;}
+.episode-identity-panel p{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;}
+.episode-identity-panel h3{font-size:15px;margin:12px 0 6px;}
+.episode-identity-panel button{border:1px solid #b7c9d0;border-radius:7px;padding:6px 10px;background:#fff;color:#244a5a;cursor:pointer;font:inherit;}
+.episode-identity-panel button:disabled{opacity:.5;cursor:default;}
+.episode-identity-panel button:focus-visible,.episode-identity-panel summary:focus-visible{outline:2px solid #397ca0;outline-offset:3px;}
+.episode-identity-warning{color:#795416;}
+.episode-identity-error{color:#a42c28;background:#fff1ee;border:1px solid #e1ada5;padding:8px 10px;border-radius:7px;}
+.episode-identity-version,.episode-identity-history>details{margin-top:9px;padding:9px 12px;border:1px solid #d6dfe4;border-radius:8px;background:#fff;}
+.episode-identity-text header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;}
+.episode-identity-text header b{overflow-wrap:anywhere;}
+.episode-identity-panel pre{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:#f6f8f9;border:1px solid #e0e5e8;border-radius:6px;font:inherit;line-height:1.8;user-select:text;}
+.episode-identity-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;}
+.episode-identity-editor{display:grid;gap:10px;border-top:1px solid #d8e1e6;padding-top:10px;margin-top:12px;}
+.episode-identity-editor label{display:grid;gap:4px;}
+.episode-identity-editor input,.episode-identity-editor textarea{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid #afc0cb;border-radius:6px;background:#fff;color:#1e303a;font:inherit;}
+.episode-identity-editor textarea{min-height:240px;resize:vertical;line-height:1.8;}
+.episode-identity-all,.episode-identity-history{margin-top:12px;}
+@media(max-width:700px){.episode-identity-panel{padding:10px;}.episode-identity-text header{align-items:flex-start;flex-direction:column;}.episode-identity-actions button{max-width:100%;white-space:normal;}.episode-identity-version{padding:8px;}}

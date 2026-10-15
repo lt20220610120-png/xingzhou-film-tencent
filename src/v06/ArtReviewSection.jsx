@@ -1,7 +1,7 @@
 import React, {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {Check,CheckCheck,ChevronDown,ChevronLeft,ChevronRight,ClipboardCheck,CloudUpload,Loader2,MapPin,Package,PencilLine,Plus,RefreshCw,Undo2,Users,X} from 'lucide-react';
-import {listCollabEpisodes} from '../../core/collabEpisodes.js';
+import {inspectCollabEpisodes} from '../../core/collabEpisodes.js';
 import {parseAssetName} from '../../core/collabStore.js';
 import {ART_REVIEW_CATEGORIES,artReviewContext,editArtReview,isReviewCurrent,isSceneVerified,reviewRoster,reviewAssetKey,reviewName,reviewSceneSignature,needsArtReviewDetails} from '../../core/artReview.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
@@ -85,7 +85,8 @@ function ReviewScene({scene,record,canChange,onAct,onUpdate,onEdit,onAdd,onPubli
 }
 
 export default function ArtReviewSection({project,assets,api,state,accountId,canEdit,refresh,analysisJob,onAnalyze,onStop,onOpenArt}){
- const episodes=useMemo(()=>listCollabEpisodes(project.episodes),[project.episodes]);
+ const episodeInspection=useMemo(()=>inspectCollabEpisodes(project.episodes),[project.episodes]);
+ const episodes=episodeInspection.episodes;
  const store=useMemo(()=>getArtReviewStore({api,projectId:project.id,accountId}),[api,project.id,accountId]);
  const navScope={accountId,projectId:project.id,section:'art-review'};
  const [number,setNumber]=useState(()=>restoredCollabEpisode(readCollabNavigation(navScope).episodeNumber,episodes)),[,rerender]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(0),[error,setError]=useState(''),[notice,setNotice]=useState(''),[editor,setEditor]=useState(null),[confirmation,setConfirmation]=useState(null),[assignment,setAssignment]=useState(null),[picker,setPicker]=useState(null);
@@ -154,7 +155,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   }finally{publishTasks.current.delete(publishKey);}
  });};
  if(loading)return <div className="art-review-loading"><Loader2 className="spin" size={20}/>正在读取核实清单…</div>;
- if(!episode||!record)return <div className="collab-notice">请先在信息读取中添加剧本分集。</div>;
+ if(!episode||!record)return <div className="collab-notice">{episodeInspection.error?'分集编号待核对。请在页面上方展开冲突版本并处理；已有资产与历史版本仍保留。':'请先在信息读取中添加剧本分集。'}</div>;
  const canChange=canEdit&&current;
  const feedback=[
   {text:busy>0?'正在后台保存或发布…':''},

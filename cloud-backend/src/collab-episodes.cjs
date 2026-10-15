@@ -1,7 +1,7 @@
 const {randomUUID} = require('node:crypto');
 const {lockDirectorReferences} = require('./director-source.cjs');
 const isSetting = episode => episode.kind === 'setting' || episode.title === '设定和小传';
-const conflict = message => Object.assign(new Error(message), {status: 409});
+const conflict = message => Object.assign(new Error(message), {status: 409,code:'EPISODE_IDENTITY_CONFLICT'});
 const invalid = message => Object.assign(new Error(message), {status: 400});
 const INTERNAL_GENRE = /\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_SOURCE|COLLAB_LOCAL_SOURCE|RECYCLE_UNTIL)(?::[^\]]*)?\]/g;
 const publicGenre = value => String(value || '').replace(INTERNAL_GENRE, '').trim();
@@ -82,7 +82,7 @@ function numberedEpisodes(episodes = []) {
   const seen=new Set();
   return (Array.isArray(episodes)?episodes:[]).filter(ep=>ep&&!isSetting(ep)).map(episode=>{
     const number=episodeNumber(episode);
-    if(!number||seen.has(number))throw invalid('分集编号无法可靠解析、相互矛盾或重复，请核对原文编号');
+    if(!number||seen.has(number))throw Object.assign(invalid('分集编号无法可靠解析、相互矛盾或重复，请核对原文编号'),{code:'EPISODE_IDENTITY_CONFLICT'});
     seen.add(number); return {episode,number};
   });
 }

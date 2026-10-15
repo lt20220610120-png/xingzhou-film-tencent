@@ -11,6 +11,7 @@ import {runArtReviewAnalysis} from '../../core/artReviewRunner.js';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
 import {projectPublishedReviewAssets,completedReviewPrompt} from '../../core/artReview.js';
 import ArtReviewSection from './ArtReviewSection.jsx';
+import EpisodeIdentityPanel from './EpisodeIdentityPanel.jsx';
 import {readCollabNavigation,rememberCollabNavigation} from '../../core/collabNavigation.js';
 import {createCloudCache} from '../../core/cloudCache.js';
 import {useAssetImageActivity} from './useAssetImageActivity.js';
@@ -42,7 +43,7 @@ import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabil
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
-import { collabEpisodeNumber, inspectCollabEpisodes, listCollabEpisodes, nextCollabEpisodeNumber } from '../../core/collabEpisodes.js';
+import { collabEpisodeNumber, inspectCollabEpisodes, listCollabEpisodes } from '../../core/collabEpisodes.js';
 import '../art-workbench.css';
 import ArtWorkflowControl from './ArtWorkflowControl.jsx';
 import {artWorkflowState} from '../../core/artWorkflow.js';
@@ -148,6 +149,7 @@ function ImageLightbox({ image, alt, onClose }) {
  * ================================================================ */
 function InfoSection({ project, assets, refresh, api, state, canEdit, accountId, onOpenReview, onProjectChange }) {
   const [script, setScript] = useState(project.script || '');
+  const scriptSource=useRef({projectId:project.id,value:project.script||''});
   const [genre, setGenre] = useState(project.genre || '');
   const [selectedStyle, setSelectedStyle] = useState(project.style || '');
   const [saving, setSaving] = useState(false);
@@ -160,7 +162,7 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
   const reviewStore=getArtReviewStore({api,projectId:project.id,accountId});
   const workflow=artWorkflowState(reviewStore.snapshot(),project);
 
-  useEffect(() => { setScript(project.script || ''); }, [project.id]);
+  useEffect(() => { const previous=scriptSource.current,next=project.script||'';scriptSource.current={projectId:project.id,value:next};setScript(current=>previous.projectId!==project.id||current===previous.value?next:current); }, [project.id, project.script]);
   useEffect(() => { setGenre(project.genre || ''); }, [project.id]);
   useEffect(() => { setSelectedStyle(project.style || ''); }, [project.id, project.style]);
 
@@ -242,7 +244,7 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
 
 function AppendCollabEpisodeDialog({ project, api, onClose, onAppended }) {
   const episodeInspection = inspectCollabEpisodes(project.episodes);
-  const suggestedNumber = episodeInspection.error ? 1 : nextCollabEpisodeNumber(project.episodes);
+  const suggestedNumber = Math.max(0,...episodeInspection.episodes.map(episode=>episode.episodeNumber)) + 1;
   const [episodeNumber, setEpisodeNumber] = useState(suggestedNumber);
   const [title, setTitle] = useState(`第 ${suggestedNumber} 集`);
   const [content, setContent] = useState('');
@@ -1612,6 +1614,7 @@ export function CollabWorkspace({ state, api, account }) {
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
+        <EpisodeIdentityPanel key={project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
         {section === 'art-review' && <ArtReviewEntry key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}

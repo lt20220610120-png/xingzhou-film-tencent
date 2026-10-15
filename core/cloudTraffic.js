@@ -1,3 +1,4 @@
+import {inspectCollabEpisodes} from './collabEpisodes.js';
 export function imagePreviewIdentity(image) {
   try {
     const url=new URL(image.url);
@@ -13,6 +14,8 @@ export function createDirectorSync() {
   let lastKey='',lastSnapshot='';
   return async (project,source,update) => {
     if(!source || project.myRole!=='producer' || project.locked) return project;
+    const inspection=inspectCollabEpisodes(source.episodes);
+    if(inspection.error)return {...project,director_sync_warning:`导演源分集编号待核对，本次未同步：${inspection.error}`};
     const key=`${project.id}:${source.id}`;
     const updates={script:source.masterScript||'',episodes:source.episodes||[]};
     const snapshot=JSON.stringify(updates);

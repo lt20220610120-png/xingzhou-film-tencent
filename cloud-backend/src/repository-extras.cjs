@@ -1,6 +1,8 @@
 const {threeWayMerge}=require('./three-way-merge.cjs');
 const {mergeDirectorEpisodes,patchShot}=require('./storyboard-merge.cjs');
-const {composeDirectorScript, publicGenre, collabGenre, editableCollab, ensureCollabDomain}=require('./collab-episodes.cjs');
+const {composeDirectorScript, numberedEpisodes, publicGenre, collabGenre, editableCollab, ensureCollabDomain}=require('./collab-episodes.cjs');
+const {isDeepStrictEqual}=require('node:util');
+const {applyEpisodeIdentityChange,composeEpisodeIdentityScript,filterRemovedDirectorEpisodes}=require('./episode-identity-repair.cjs');
 const {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences}=require('./director-source.cjs');
 const {sourceProtection}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
@@ -193,8 +195,17 @@ function extendRepository(pool) {
         if(!source){await client.query('COMMIT');return row;}
         const director=await readableDirector(client.query.bind(client),source,uid);
         if(!director){await client.query('COMMIT');return row;}
-        const episodes=mergeDirectorEpisodes(row.episodes,director.episodes);
-        const script=composeDirectorScript(director.script,row.episodes,director.episodes);
+        let episodes,script;
+        try {
+          numberedEpisodes(row.episodes);numberedEpisodes(director.episodes);
+          const incoming=filterRemovedDirectorEpisodes(row.episodes||[],director.episodes||[]);
+          episodes=mergeDirectorEpisodes(row.episodes,incoming);numberedEpisodes(episodes);
+          script=(row.episodes||[]).some(ep=>ep.episodeIdentityHistory?.length)
+            ?composeEpisodeIdentityScript(episodes):composeDirectorScript(director.script,row.episodes,incoming);
+        }catch(error){
+          if(error.code!=='EPISODE_IDENTITY_CONFLICT')throw error;
+          await client.query('COMMIT');return {...row,director_sync_warning:{code:error.code,message:error.message}};
+        }
         if(JSON.stringify(episodes)!==JSON.stringify(row.episodes)||script!==row.script){
           const saved=(await client.query('update collab_projects set episodes=$2,script=$3,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes),script])).rows[0];
           await client.query('COMMIT');return saved;
@@ -206,10 +217,33 @@ function extendRepository(pool) {
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const locked=await lockAuthorizedProject(client,pid,uid,['producer']);
-        const row=uid?await ensureCollabDomain(client,locked,uid):null;
+        if(!uid||!editableCollab(locked)){await client.query('ROLLBACK');return null;}
+        if(!fields||!Array.isArray(fields.episodes)||fields.episodes.some(ep=>!ep||typeof ep!=='object'||Array.isArray(ep))
+          ||(fields.script!==undefined&&typeof fields.script!=='string'))throw statusError(400,'导演分集列表或总稿无效');
+        numberedEpisodes(fields.episodes);numberedEpisodes(locked.episodes);
+        const row=await ensureCollabDomain(client,locked,uid);
         if(!row){await client.query('ROLLBACK');return null;}
-        const episodes=mergeDirectorEpisodes(row.episodes,fields.episodes||[]);
-        const script=fields.script===undefined?row.script:composeDirectorScript(fields.script,row.episodes,fields.episodes||[]);
+        const incoming=filterRemovedDirectorEpisodes(row.episodes||[],fields.episodes);
+        const episodes=mergeDirectorEpisodes(row.episodes,incoming);numberedEpisodes(episodes);
+        const script=(row.episodes||[]).some(ep=>ep.episodeIdentityHistory?.length)?composeEpisodeIdentityScript(episodes)
+          :fields.script===undefined?row.script:composeDirectorScript(fields.script,row.episodes,incoming);
+        const saved=(await client.query('update collab_projects set episodes=$2,script=$3,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes),script])).rows[0];
+        await client.query('COMMIT');return saved;
+      }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+    },
+    async resolveEpisodeIdentity(pid,payload,uid) {
+      const client=await pool.connect();
+      try {await client.query('BEGIN');
+        const row=await lockAuthorizedProject(client,pid,uid,['producer']);
+        if(!uid||!editableCollab(row)){await client.query('ROLLBACK');return null;}
+        // Do not invoke strict snapshot normalization while repairing legacy
+        // identity conflicts. Retain the same live-reference authorization.
+        if(!String(row.genre||'').includes('[COLLAB_PROJECT]')&&!await lockDirectorReferences(client,row,uid)){await client.query('ROLLBACK');return null;}
+        if(!Array.isArray(payload.baseEpisodes)||!isDeepStrictEqual(payload.baseEpisodes,row.episodes||[]))throw Object.assign(statusError(409,'分集已被协作者修改，请刷新核对后再修正，当前原稿未被覆盖'),{code:'EPISODE_IDENTITY_STALE'});
+        const episodes=applyEpisodeIdentityChange(row.episodes,payload);
+        const carrier=episodes.find(ep=>ep.episodeIdentityHistory?.length)||episodes[0];
+        carrier.episodeIdentityHistory=[...(carrier.episodeIdentityHistory||[]),{at:new Date().toISOString(),reason:payload.operation,previousProjectScript:String(row.script||'')}];
+        const script=composeEpisodeIdentityScript(episodes);
         const saved=(await client.query('update collab_projects set episodes=$2,script=$3,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes),script])).rows[0];
         await client.query('COMMIT');return saved;
       }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}

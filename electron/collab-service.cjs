@@ -60,6 +60,7 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     saveArtReview:p=>call('art-review-save',p),
     publishArtReview:p=>call('art-review-publish',p),
     appendEpisode:p=>call('art-episode-append',p),
+    resolveEpisodeIdentity:p=>call('episode-identity-resolve',p),
     patchStoryboard: p => call('storyboard-patch',p),
     createProject: (p) => call('project-create', p), listProjects: () => call('project-list', {summary:true}), getProject: (p) => call('project-get', p), updateProject: (p) => call('project-update', p), linkDirector: (p) => call('project-link-director', p), setProjectLocked: (p) => call('project-lock', p), deleteProject: (p) => call('project-delete', p), restoreProject: (p) => call('project-restore', p),
     createDirectorProject: (p) => call('director-project-create', p), listDirectorProjects: (p={}) => call('director-project-list',p), getDirectorProject: (p) => call('director-project-get', p), updateDirectorProject: (p) => call('director-project-update', p), deleteDirectorProject: (p) => call('director-project-delete', p), setDirectorProjectLocked: (p) => call('director-project-lock', p),

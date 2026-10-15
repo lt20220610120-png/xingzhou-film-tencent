@@ -1,5 +1,5 @@
 import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignature,confirmPublishedUnassigned} from './artReview.js';
-import {listCollabEpisodes} from './collabEpisodes.js';
+import {listCollabEpisodes,inspectCollabEpisodes} from './collabEpisodes.js';
 import {artWorkflowState} from './artWorkflow.js';
 
 const stores=new Map();
@@ -78,7 +78,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
     if(!local||!hasLocalDraft(local)&&(p.review.version||0)>(local.version||0))next.episodes[n]={...structuredClone(p.review),pending:false};
    }
    const legacy=await api.analysisLoad?.({projectId});
-   for(const episode of listCollabEpisodes(project.episodes))if(!next.episodes[episode.episodeNumber]){
+   for(const episode of inspectCollabEpisodes(project.episodes).episodes)if(!next.episodes[episode.episodeNumber]){
     const n=episode.episodeNumber,output=project.analysis_progress?.[n]?.output||legacy?.episodes?.[n]?.outputs?.filter(Boolean).join('\n\n')||'';
     const record=importLegacyArtReview(episode,{output,assets,genre:project.genre});
     next.episodes[n]={...record,pending:record.status!=='empty',...(record.status!=='empty'?{writeId:crypto.randomUUID()}:{})};
@@ -87,7 +87,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
     const recovered=record.cloudReceipt&&record.syncError&&rejectedReviewRequest(record.syncError)?retireRejectedReceipt(record,record.syncError):record;
     next.episodes[number]=confirmPublishedUnassigned(recovered);
    }
-   await persist(next);loaded=true;episodes=listCollabEpisodes(project.episodes);return ledger;
+   await persist(next);loaded=true;episodes=inspectCollabEpisodes(project.episodes).episodes;return ledger;
   });},
   update(number,reduce){return enqueue(async()=>{
    const current=ledger.episodes[number];if(!current)throw Error('请先读取本集核实清单');
@@ -153,5 +153,5 @@ export function getArtReviewStore({api,projectId,accountId=''}){
 }
 export function summarizeArtReview(ledger,project){
  const records=Object.entries(ledger.episodes||{}).filter(([,r])=>r.status!=='empty'),published=records.filter(([,r])=>!r.pending&&fullyPublished(r)),pending=records.filter(([,r])=>r.pending||!fullyPublished(r));
- return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>[...(r.warnings||[]),...(r.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean)]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),stale:project?listCollabEpisodes(project.episodes).filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
+ return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>[...(r.warnings||[]),...(r.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean)]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),identityError:project?inspectCollabEpisodes(project.episodes).error:'',stale:project?inspectCollabEpisodes(project.episodes).episodes.filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
 }

@@ -266,6 +266,7 @@ ipcMain.handle('collab-get-project',(_,payload)=>collabService.getProject(payloa
 ipcMain.handle('collab-patch-storyboard',(_,p)=>collabService.patchStoryboard(p));
 ipcMain.handle('collab-update-project',(_,payload)=>collabService.updateProject(payload));
 ipcMain.handle('collab-append-episode',(_,payload)=>collabService.appendEpisode(payload));
+ipcMain.handle('collab-resolve-episode-identity',(_,p)=>collabService.resolveEpisodeIdentity(p));
 ipcMain.handle('collab-link-director',(_,payload)=>collabService.linkDirector(payload));
 ipcMain.handle('collab-set-project-locked',(_,payload)=>collabService.setProjectLocked(payload));
 const directorLiveStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','director-live-local');

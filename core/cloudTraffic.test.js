@@ -10,7 +10,7 @@ test('signature rotation keeps preview mounted, but replacing original changes i
 test('unchanged local director source skips repeat write while edits and failed saves retry',async()=>{
   const sync=createDirectorSync(); let writes=0,fail=false;
   const update=async()=>{writes++;if(fail)throw Error('offline');return {id:'p',script:'merged'};};
-  const project={id:'p',myRole:'producer'},source={id:'d',masterScript:'first',episodes:[{id:'e',script:'text'}]};
+  const project={id:'p',myRole:'producer'},source={id:'d',masterScript:'first',episodes:[{id:'e',episodeNumber:1,title:'第1集',content:'1-1 房间 日 内\n正文'}]};
   await sync(project,source,update);
   assert.equal(await sync({...project,script:'cloud edits'},structuredClone(source),update).then(p=>p.script),'cloud edits');
   assert.equal(writes,1);

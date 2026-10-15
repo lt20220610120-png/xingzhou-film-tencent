@@ -18,7 +18,7 @@ test('同步导演项目时完整读取标题、内容、类型和提示词', as
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(read('src/v06/CollabWorkspace.jsx'),/api.collabGetProject/);
   const {createDirectorSync}=await import('../core/cloudTraffic.js');
-  const episode={id:'e',title:'标题',content:'正文',genre:'都市',prompts:['提示词']};let saved;
+  const episode={id:'e',episodeNumber:1,title:'标题',content:'正文',genre:'都市',prompts:['提示词']};let saved;
   await createDirectorSync()({id:'p',myRole:'producer'},{id:'d',episodes:[episode]},async payload=>(saved=payload));
   assert.deepEqual(saved.updates.episodes,[episode]);
   assert.match(server,/refreshDirectorPrompts/);

@@ -64,7 +64,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'producer-status') return ok({ isProducer: producer });
 
   const COLLAB_ACTIONS = ['project-get','project-update','project-delete','project-restore','project-lock','project-link-director','stats-get',
-    'art-episode-append','analysis-publish','art-review-save','art-review-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
+    'episode-identity-resolve','art-episode-append','analysis-publish','art-review-save','art-review-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
   if(projectId&&COLLAB_ACTIONS.includes(action)) {
@@ -75,7 +75,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   // Ordinary writes fail closed. Restore may reactivate a recycled project;
   // project-lock may unlock a live one, but cannot mutate a recycled one.
   const WRITE_ACTIONS = ['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
-    'project-update','project-delete','project-link-director','art-episode-append','analysis-publish','art-review-save','art-review-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
+    'episode-identity-resolve','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','art-review-save','art-review-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
   if (WRITE_ACTIONS.includes(action)) {
     if (!projectId) return DENY;
     const row = collabRow || await repo.getProject(projectId,user.id);
@@ -109,6 +109,13 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'project-get') {
     try {const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
+  }
+  if (action === 'episode-identity-resolve') {
+    if(await roleOf(projectId,user,repo)!=='producer')return DENY;
+    try {
+      const saved=await repo.resolveEpisodeIdentity(projectId,payload,user.id);
+      return saved?ok(await attachRole(saved,user,repo)):DENY;
+    }catch(error){if(error.status)return {status:error.status,body:{error:error.message,...(error.code?{code:error.code}:{})}};throw error;}
   }
   if (action === 'art-episode-append') {
     if (await repo.isProjectLocked(projectId)) return LOCKED;
