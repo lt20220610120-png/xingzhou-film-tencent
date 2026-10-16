@@ -14,7 +14,7 @@
 
 ## 验证
 
-- 新增 core/storyboardReferences.test.js：先复现混入重复 asset-image/非媒体/外国项目行，再修复通过。参考相关23项测试通过，覆盖旧稿清理、真实音频保留、别名重排、输入不变及幂等。
+- 新增 core/storyboardReferences.test.js：先复现混入重复 asset-image/非媒体/其他项目行，再修复通过。参考相关23项测试通过，覆盖旧稿清理、真实音频保留、别名重排、输入不变及幂等。
 - npm test：2172/2172 通过，0失败，日志 output/tests-2842.log。npm run build 通过。
 - scripts/verify-history-assets-ui.cjs：真实React隔离页，28px图标、卡片小于150px、取消/确认/保存/重载、全删/详情/导出及其他项目保留通过；资产工具栏1120–2048px既有对齐保持。
 - scripts/verify-storyboard-references-ui.cjs：真实React隔离页，48张正常图片与48条错误内部记录模拟旧云分镜和未保存本地稿；清理后无假音频且文字保留，模拟保存/提交仅含48张 image。
@@ -25,4 +25,10 @@
 
 ## 发布
 
-- 安装包与软件内更新的公开验证结果待完成后补录。
+- 版本2.8.42，功能提交b870d69；NSIS安装包制作及运行时冒烟检查通过：qa/packaged-smoke-2.8.42-1792185430790/report.json。
+- 正式非草稿Release、两个仓库main/latest.json及官方备用源已发布。安装包103617580字节，SHA256：2eb657a4ece616e1fe006bd0fa7e1535b854b3416e56a21be49c6914d0a38e49。
+- 公开下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.42/Xingzhou-Film-Tencent-Setup-2.8.42.exe 。本机安装包release/2.8.42/Xingzhou-Film-Tencent-Setup-2.8.42.exe。
+- 完整公开下载103617580字节；SHA256与本机、签名清单及GitHub asset digest一致，两份main清单相同。证据output/release-2842-public.json。
+- 正式客户端更新模块验证Ed25519签名和当前本地清单一致；2.8.40/2.8.41发现2.8.42，2.8.42显示已最新。优先官方IP源Range请求206、65536字节、MZ头与总大小通过。证据output/storyboard2842-inapp-update-verification.json。
+- 验证限制：本机Node直连域名备用源时TLS握手中断，未将该单独探测记为通过；正式客户端使用的优先官方IP源完整验证通过。公开GitHub整包完整下载通过。
+- 本次不关闭或替换用户正在使用的软件，不修改真实项目、音频或素材；可在软件内检查更新并安装。
