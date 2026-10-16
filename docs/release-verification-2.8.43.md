@@ -30,4 +30,6 @@
 - 最终全量npm test：2191/2191通过（142.4秒，output/tests-2843-final.log）；npm run build通过。界面验收通过，无pageerror，宽度1280/2048px无横向溢出。
 - NSIS安装包及打包应用运行验证通过，qa/packaged-smoke-2.8.43-1792191445947。保留原用户运行窗口，未在本机替换安装。
 - 本地包release/2.8.43/Xingzhou-Film-Tencent-Setup-2.8.43.exe，103623601字节，SHA256 efcbc317af579dd612c75fe442cd97db9610312526be507a0241da778a2599bc。
-- 正式发布、公开整包和软件内更新验证完成后补录。
+- 正式GitHub Release、两仓库main签名latest.json及官方备用源已发布。公开整包完整下载103623601字节，SHA256/GitHub asset digest/本地包一致，两份main清单相同。证据output/release-2843-public.json与release-2843-public-manifest.json。
+- 正式客户端更新函数实测：2.8.41/2.8.42发现2.8.43，2.8.43显示最新；官方优先IP源签名验证通过，Range 65536字节状态206、MZ与总大小一致。证据output/storyboard2843-inapp-update-verification.json。域名备用源本机Node直连曾TLS中断，未重复记为通过，优先IP源已验证。
+- 云端最终回滚目录/opt/xingzhou-backups/art-episode-parser-2.8.43-20261016T225505Z。功能提交87457ef；安装包公开地址https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.43/Xingzhou-Film-Tencent-Setup-2.8.43.exe 。
