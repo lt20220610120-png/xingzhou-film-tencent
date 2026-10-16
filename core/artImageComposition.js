@@ -1,4 +1,5 @@
 import{CHARACTER_PROMPT_PREFIXES,defaultAssetPromptPrefix,readAssetPrompt,serializeAssetPrompt,buildImagePrompt}from'./collabStore.js';
+import {isCreatureAsset} from './artSubjectType.js';
 
 export const DEFAULT_CHARACTER_COMPOSITION='portrait-four';
 export const CHARACTER_COMPOSITIONS={
@@ -15,11 +16,14 @@ export function defaultComposedAssetPromptPrefix(asset,style,mode,composition=DE
 }
 function decodeAsset(asset){
  const raw=String(asset.description||'').replace(/\r\n/g,'\n');
- const match=raw.match(/^(【生图前置 · (?:单人多视图|多人群像|自由构图|场景|道具)】\n)【构图绑定 · (project|custom|portrait-four|portrait-five)】\n/);
+ const match=raw.match(/^(【生图前置 · (?:单人多视图|生物多视图|多人群像|自由构图|场景|道具)】\n)【构图绑定 · (project|custom|portrait-four|portrait-five)】\n/);
  return match?{asset:{...asset,description:match[1]+raw.slice(match[0].length)},binding:match[2]}:{asset,binding:null};
 }
 export function readComposedAssetPrompt(asset,style,projectComposition=DEFAULT_CHARACTER_COMPOSITION){
- const decoded=decodeAsset(asset),settings=readAssetPrompt(decoded.asset,style);
+ const decoded=decodeAsset(asset);let settings=readAssetPrompt(decoded.binding==='custom'?asset:decoded.asset,style);
+ const autoBinding=decoded.binding&&decoded.binding!=='custom';
+ const oldFactoryFive=Object.keys(CHARACTER_PROMPT_PREFIXES).some(s=>settings.prefix===defaultComposedAssetPromptPrefix(asset,s,'single','portrait-five'));
+ if(decoded.binding!=='custom'&&settings.mode==='single'&&isCreatureAsset({...asset,description:settings.content})&&(autoBinding||oldFactoryFive))settings={...settings,mode:'creature',prefix:defaultAssetPromptPrefix(asset,style,'creature'),customized:false};
  const factoryPrefix=settings.mode==='single'&&Object.values(CHARACTER_PROMPT_PREFIXES).includes(settings.prefix);
  const composition=decoded.binding||(!settings.customized||factoryPrefix?'project':'custom');
  const target=composition==='project'?projectComposition:composition;

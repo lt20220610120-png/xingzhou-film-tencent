@@ -357,3 +357,5 @@
   .collab-append-import { flex-wrap:wrap; }
   .collab-append-import>span { margin-left:0; }
 }
+.art-script-context{padding:12px 13px;border:1px solid #e1e5f2;border-radius:10px;background:#f8f9fd;color:#586780;font-size:12px;line-height:1.75;max-height:250px;overflow-y:auto;overscroll-behavior:contain}
+.art-script-context p{margin:0}.art-script-context small{display:block;margin-top:8px;color:#987046}

@@ -52,7 +52,7 @@ function unitHeaders(text) {
   for (const raw of String(text||'').split(/\r?\n/)) {
     const line=raw.trim().replace(/^(?:(?:#{1,6}|[-*•>]|\d+[.)])\s*)+/, '').replace(/^\*\*|\*\*$/g,'');
     // Only structural headings (not a character's dialogue mentioning a chapter).
-    if(!/^(?:第\s*[\d零〇一二两三四五六七八九十百千IVXLCDM]+\s*(?:[集章幕部节]|回(?!合))|(?:Episode|EP|Chapter|Act|Part|Section)(?=\s|[\d零〇一二两三四五六七八九十百千IVXLCDM]))/i.test(line))continue;
+    if(!/^(?:第\s*[\d零〇一二两三四五六七八九十百千IVXLCDM]+\s*(?:[集章幕部节]|回(?!合))|(?:Episode|EP|Chapter|Act|Part|Section)(?=\s|[\d零〇一二两三四五六七八九十百千]+|[IVXLCDM]+(?![A-Za-z0-9])))/i.test(line))continue;
     const pattern=/(?:第|[兼及和与/／、])\s*([\d零〇一二两三四五六七八九十百千IVXLCDM]+)\s*(集|章|幕|部|回(?!合)|节)|\b(Episode|EP|Chapter|Act|Part|Section)\s*([\d零〇一二两三四五六七八九十百千IVXLCDM]+)(?![A-Za-z0-9])/gi;
     let matches=0;
     for(const match of line.matchAll(pattern)) {
@@ -65,7 +65,11 @@ function unitHeaders(text) {
 }
 function episodeNumber(episode) {
   if (!episode || isSetting(episode)) return 0;
-  if(unitHeaders(episode.title).length>1||unitHeaders(episode.content).length>1)return 0;
+  // Bilingual labels can repeat one episode identity. Keep unitHeaders lossless:
+  // publication validates whole analysis blocks separately from source identity.
+  for(const units of [unitHeaders(episode.title),unitHeaders(episode.content)]){
+    if(units.length>1&&units.some(unit=>unit.kind!=='episode'))return 0;
+  }
   const numbers=[];
   for(const key of ['episodeNumber','number','episode','episode_number']) {
     if(episode[key] !== undefined && episode[key] !== null && episode[key] !== '') {
@@ -100,8 +104,7 @@ function appendArtEpisodeSnapshot(row, payload) {
   const title = String(payload.title || `第${number}集`).trim();
   if (!Number.isInteger(number) || number < 1 || number > 10000) throw invalid('集数必须是 1—10000 的整数');
   if (!content || content.length > 500000 || !title || title.length > 200) throw invalid('请输入有效的本集标题和剧本内容');
-  const units=unitHeaders(content);
-  if (episodeNumber({episodeNumber:number,title,content})!==number || units.length>1 || unitHeaders(title).length>1) {
+  if (episodeNumber({episodeNumber:number,title,content})!==number) {
     throw invalid('剧本或标题中的集数与所选集数不一致，请只添加指定一集');
   }
   const indexed = numberedEpisodes(row.episodes);

@@ -1,3 +1,4 @@
+import {isCreatureAsset,creaturePromptPrefix} from './artSubjectType.js';
 // ============================================================
 // collabStore.js — 项目协作领域逻辑（纯函数）
 // 身份权限 / 美术清单解析 / 资产复用识别
@@ -56,12 +57,12 @@ const stripCharacterPromptPrefix = (description = '') => {
   return text;
 };
 
-export const ASSET_PROMPT_MODES = { single: '单人多视图', group: '多人群像', free: '自由构图', scene: '场景', prop: '道具' };
+export const ASSET_PROMPT_MODES = { single: '单人多视图', creature: '生物多视图', group: '多人群像', free: '自由构图', scene: '场景', prop: '道具' };
 
 export const inferAssetPromptMode = (asset) => {
   if (asset.category !== 'character') return ['scene', 'prop'].includes(asset.category) ? asset.category : 'free';
   const text = `${asset.name || ''}\n${stripCharacterPromptPrefix(asset.description)}`;
-  if (/非人(?:形|巨型)|纯生物形态|三首龙/.test(text) && !/具有人形|人类面貌|人形四肢/.test(text)) return 'free';
+  if (isCreatureAsset(asset)) return 'creature';
   // Generic occupations (司机、助理、工作人员) can be one person; require a collective or an explicit count.
   const group = /群像|群演|一群|一众|众人|男女老少|男女老幼|百姓|民众|村民们|弟子们|士兵们|人群|群众|一家[二两三四五六七八九十\d]+口|(?:[2-9]\d*|[二两三四五六七八九十]+)\s*(?:个\s*人|人(?!称)|位(?:人物|角色|男女)|名(?:人物|角色|男女|百姓|村民|士兵|弟子))/.test(text);
   return group ? 'group' : 'single';
@@ -69,6 +70,7 @@ export const inferAssetPromptMode = (asset) => {
 
 export const defaultAssetPromptPrefix = (asset, style = 'AI真人', mode = inferAssetPromptMode(asset)) => {
   if (mode === 'free') return '';
+  if (mode === 'creature') return creaturePromptPrefix(style);
   if (mode === 'scene') return SCENE_PROMPT_PREFIX;
   if (mode === 'prop') return PROP_PROMPT_PREFIX;
   const single = CHARACTER_PROMPT_PREFIXES[style] || CHARACTER_PROMPT_PREFIX;
@@ -91,7 +93,7 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
   const lineBreak = String.fromCharCode(10);
   const headerEnd = normalizedRaw.indexOf(lineBreak);
   const header = headerEnd >= 0 ? normalizedRaw.slice(0, headerEnd) : '';
-  const headerMatch = header.match(/^【生图前置 · (单人多视图|多人群像|自由构图|场景|道具)】$/);
+  const headerMatch = header.match(/^【生图前置 · (单人多视图|生物多视图|多人群像|自由构图|场景|道具)】$/);
   const contentMarker = `${lineBreak}${lineBreak}【资产描述】${lineBreak}`;
   const contentAt = headerEnd >= 0 ? normalizedRaw.indexOf(contentMarker, headerEnd) : -1;
   const saved = headerMatch && contentAt >= 0
@@ -101,6 +103,9 @@ export const readAssetPrompt = (asset, style = 'AI真人') => {
     const compositionBinding = saved[2].match(/^【构图绑定 · (project|custom|portrait-four|portrait-five)】\n/);
     if (compositionBinding) saved[2] = saved[2].slice(compositionBinding[0].length);
     const mode = Object.keys(ASSET_PROMPT_MODES).find(key => ASSET_PROMPT_MODES[key] === saved[1]);
+    if(mode==='single'&&compositionBinding?.[1]!=='custom'&&isCreatureAsset({...asset,description:saved[3]})&&
+      (Object.values(CHARACTER_PROMPT_PREFIXES).includes(saved[2])||Object.values(LEGACY_CHARACTER_PROMPT_PREFIXES).includes(saved[2])||compositionBinding&&compositionBinding[1]!=='custom'))
+      return {mode:'creature',prefix:creaturePromptPrefix(style),content:saved[3],customized:false};
     const legacyStyle = Object.keys(LEGACY_CHARACTER_PROMPT_PREFIXES)
       .find(key => saved[2] === LEGACY_CHARACTER_PROMPT_PREFIXES[key]);
     const inheritedCurrentStyle = Object.keys(CHARACTER_PROMPT_PREFIXES)
@@ -272,7 +277,7 @@ export const isSceneLightingVariant = (asset, assets = []) => {
 // A wardrobe-only first card must not silently become the actor's face anchor.
 // This is a conservative structural check, not a fixed-field or word-count rule.
 export const characterAppearanceIssue = (asset, assets = []) => {
-  if (asset?.category !== 'character' || asset.detailStatus === 'nonvisual') return '';
+  if (asset?.category !== 'character' || asset.detailStatus === 'nonvisual' || isCreatureAsset(asset)) return '';
   const text = readAssetPrompt(asset).content;
   if (characterReferenceName(asset) || isCharacterWardrobeVariant(asset, assets)) return '';
   if (/群像|群体|群演|默认\s*6\s*人|非人(?:形|巨型)|纯生物形态|龙鳞|蛇鳞|狼毛|羽毛|机械机关|自动机|无眼鼻口/.test(`${asset.name} ${text}`)) return '';
@@ -398,7 +403,7 @@ export const normalizeArtAssets = (assets) => {
     const evidence = `${asset.name || ''} ${content}`;
     const visiblyAnthropomorphic = positiveAnthropomorphicCharacter(evidence);
     const visiblyHuman = positiveVisibleCharacter(evidence) && humanVisualEvidence(content);
-    if (misplacedVisualProp(content)) return [{ ...asset, category: 'prop' }];
+    if (misplacedVisualProp(content)&&!isCreatureAsset(asset)) return [{ ...asset, category: 'prop' }];
     if (NON_VISUAL_CHARACTER.test(evidence) && !visiblyAnthropomorphic && !visiblyHuman) return [];
     return [{ ...asset, category: 'character' }];
   });
@@ -503,7 +508,7 @@ export const parseArtAnalysis = (text) => {
         characters.push(entry);
         continue;
       }
-      if (misplacedVisualProp(evidence)) {
+      if (misplacedVisualProp(evidence)&&!isCreatureAsset({...entry,category:'character'})) {
         delete entry.generatable;
         entry.category = 'prop';
         cats.prop.push(entry);
@@ -515,7 +520,7 @@ export const parseArtAnalysis = (text) => {
         && parseAssetName(`【${referenceName}】`).base === parseAssetName(entry.name).base;
       const nonVisual = NON_VISUAL_CHARACTER.test(`${entry.name} ${evidence}`)
         && !explicitlyAnthropomorphic && !(explicitlyVisible && structuredHumanDescription);
-      if (nonVisual || (!explicitlyVisible && !entry.reuseOf && !structuredHumanDescription && !sameCharacterReference)) entry.generatable = false;
+      if (nonVisual || (!explicitlyVisible && !entry.reuseOf && !structuredHumanDescription && !sameCharacterReference && !isCreatureAsset({...entry,category:'character'}))) entry.generatable = false;
       characters.push(entry);
     }
     cats.character = characters;
@@ -608,7 +613,7 @@ export const buildImagePrompt = (asset, refAsset, style, options) => {
   // remain ignored; only the typed option explicitly overrides the prefix.
   const prefix=typeof options?.prefix==='string'?options.prefix:settings.prefix;
   if (prefix) parts.push(prefix);
-  if (style) parts.push(`画风：${style}`);
+  if (style) parts.push(`画风：${settings.mode==='creature'&&style==='AI真人'?'写实生物摄影':style}`);
   if (refAsset) {
     const hasReferenceImage = Boolean(refAsset.image_url || refAsset.images?.some((image) => image.url));
     const reference = hasReferenceImage ? '' : readAssetPrompt(refAsset, style).content;
@@ -618,7 +623,10 @@ export const buildImagePrompt = (asset, refAsset, style, options) => {
     const currentContent = projectionIsCurrent ? asset.generationDescription : settings.content;
     const currentScene = asset.category === 'scene' ? sceneIdentity(asset.name) : null;
     const referenceScene = refAsset.category === 'scene' ? sceneIdentity(refAsset.name) : null;
-    if (currentScene && referenceScene && currentScene.key === referenceScene.key) {
+    if(settings.mode==='creature'){
+      parts.push(hasReferenceImage?`参考生物图片（${referenceId}保持同一物种、体型、毛色、花纹和解剖结构，不引入人物）：${refAsset.name}`:`参考生物设定：${refAsset.name}\n${reference}`);
+      parts.push(`本次生物外观与状态：${currentContent}`);
+    } else if (currentScene && referenceScene && currentScene.key === referenceScene.key) {
       parts.push(hasReferenceImage
         ? `参考场景图片（${referenceId}保持同一地点的空间布局、结构、陈设和材质一致）：${refAsset.name}`
         : `参考场景（保持同一地点的空间布局、结构、陈设和材质一致）：${refAsset.name}\n${reference}`);

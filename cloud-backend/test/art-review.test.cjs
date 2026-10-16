@@ -70,3 +70,26 @@ test('earlier reference changes do not block selected episode publication; malfo
  f.row.episodes=[{...episode,title:'第2集',episodeNumber:2,content:episode.content.replaceAll('1-','2-')},episode];const second=record();second.episodeNumber=2;second.sourceContent=f.row.episodes[0].content;second.scenes=sourceScenes(second.sourceContent,2).map((s,i)=>({...s,items:[item('【角色-'+i+'】')]}));second.scenes.forEach(s=>s.approval={signature:signature(s)});second.dependencies={1:'old approved ledger'};
  await f.repo.saveArtReview('p',{episodeNumber:2,data:second,baseVersion:0,writeId:crypto.randomUUID()},'owner');await f.repo.publishArtReview('p',{episodeNumber:2,baseVersion:1,sceneIds:['2-1'],writeId:crypto.randomUUID()},'owner');assert.equal(f.row.assets.length,1);
 });
+
+test('40-episode fast approval publishes through the real client store and repository, including bilingual dialogue and missing details',async()=>{
+ const {getArtReviewStore}=await import('../../core/artReviewPersistence.js');
+ const {newArtReview,projectPublishedReviewAssets,isSceneVerified}=await import('../../core/artReview.js');
+ const {approveAllArtReviews,publishAllArtReviews}=await import('../../core/artReviewBatch.js');
+ const f=fixture();
+ f.row.episodes=process.env.XZ_PRIVATE_EPISODES_FIXTURE?JSON.parse(require('node:fs').readFileSync(process.env.XZ_PRIVATE_EPISODES_FIXTURE,'utf8'))[0].episodes:Array.from({length:40},(_,i)=>({episodeNumber:i+1,title:`第${i+1}集 / Episode ${i+1}`,content:`第${i+1}集\nEpisode ${i+1}\n${i+1}-1 工会 日 内\n${i===29?'Activate the Dissolution circle.':'人物对白'}`}));
+ const {numberedEpisodes}=require('../src/collab-episodes.cjs'),episodes=numberedEpisodes(f.row.episodes).map(({episode,number})=>({...episode,episodeNumber:number})),source=JSON.stringify(f.row.episodes);
+ assert.equal(episodes.length,40);
+ const ledger={episodes:{}};
+ for(const ep of episodes){const r=newArtReview(ep);const card={...item('【杰伊-维修服】'),description:'',ready:false};r.status='generated';r.roster=[card];r.scenes.forEach(s=>{s.mappingReady=true;s.items=[structuredClone(card)];});ledger.episodes[ep.episodeNumber]=r;}
+ let disk=structuredClone(ledger),saves=0,publishes=0;
+ const api={artReviewLoadLocal:async()=>disk,artReviewSaveLocal:async({data})=>{disk=structuredClone(data);},analysisLoad:async()=>null,
+ collabArtReviewSave:async p=>{saves++;return f.repo.saveArtReview('p',p,'owner');},collabArtReviewPublish:async p=>{publishes++;return f.repo.publishArtReview('p',p,'owner');}};
+ const project={...f.row,id:crypto.randomUUID()},store=getArtReviewStore({api,projectId:project.id,accountId:'fast-publish'});await store.load(project);
+ const approved=await approveAllArtReviews(store,episodes,'owner');assert.equal(approved.skipped,0);assert.ok(approved.count>=40);
+ const result=await publishAllArtReviews(store,episodes);assert.deepEqual(result.failures,[]);assert.equal(result.count,approved.count);assert.equal(saves,40);assert.equal(publishes,40);
+ assert.equal(f.row.assets.length,1);assert.equal(f.row.assets[0].episodes.length,40);assert.equal(f.row.assets[0].description,'');
+ const projected=projectPublishedReviewAssets(f.row,f.row.assets);assert.equal(projected.length,1);assert.ok(projected[0].episodes.includes(1));
+ assert.ok(Object.values(store.snapshot().episodes).every(r=>!r.pending&&r.scenes.every(isSceneVerified)&&Object.keys(r.published).length===r.scenes.length));
+ const replay=await publishAllArtReviews(store,episodes);assert.deepEqual(replay.failures,[]);assert.equal(saves,40);assert.equal(publishes,40,'repeat click must not duplicate writes');
+ assert.equal(JSON.stringify(f.row.episodes),source,'source manuscript is unchanged');
+});

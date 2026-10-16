@@ -23,7 +23,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  const enqueueCloud=fn=>{const promise=cloudChain.then(fn);cloudChain=promise.catch(()=>{});return promise;};
  const patchRecord=(number,reduce)=>enqueue(()=>persistRecord(number,reduce(structuredClone(ledger.episodes[number]))));
  // Do not expose an edit or cloud acknowledgement until its local checkpoint succeeds.
- const persist=async next=>{await api.artReviewSaveLocal({projectId,data:structuredClone(next)});ledger=next;notify();};
+ const persist=async next=>{try{await api.artReviewSaveLocal({projectId,data:structuredClone(next)});}catch(error){error.artCheckpointFailure=true;throw error;}ledger=next;notify();};
  const persistRecord=async(number,record)=>{const next=structuredClone(ledger);next.episodes[number]=record;await persist(next);return record;};
  // Confirmed rejections retire their immutable payload; ambiguous network
  // failures retain the receipt and request ID for an idempotent recovery.
@@ -68,6 +68,8 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  const store={
   snapshot:()=>ledger,
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  setContext(value){return enqueue(()=>persist({...structuredClone(ledger),scriptContext:structuredClone(value)}));},
+  setAnalysisRun(value){return enqueue(()=>persist({...structuredClone(ledger),analysisRun:structuredClone(value)}));},
   setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},
   async load(project,assets=[]){return enqueue(async()=>{
    const next=loaded?structuredClone(ledger):await api.artReviewLoadLocal({projectId})||{episodes:{}};next.episodes||={};
@@ -153,5 +155,5 @@ export function getArtReviewStore({api,projectId,accountId=''}){
 }
 export function summarizeArtReview(ledger,project){
  const records=Object.entries(ledger.episodes||{}).filter(([,r])=>r.status!=='empty'),published=records.filter(([,r])=>!r.pending&&fullyPublished(r)),pending=records.filter(([,r])=>r.pending||!fullyPublished(r));
- return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:records.flatMap(([,r])=>[...(r.warnings||[]),...(r.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean)]),syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),identityError:project?inspectCollabEpisodes(project.episodes).error:'',stale:project?inspectCollabEpisodes(project.episodes).episodes.filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
+ return {completed:records.length,published:published.length,pending:pending.length,pendingEpisodes:pending.map(([n])=>Number(n)),warnings:[...new Set([...(ledger.scriptContext?.summary?.warnings||[]),...(ledger.analysisRun?.notes||[]),...records.flatMap(([,r])=>[...(r.warnings||[]),...(r.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean)])])],syncErrors:records.filter(([,r])=>r.syncError).map(([n,r])=>({episode:Number(n),error:r.syncError})),identityError:project?inspectCollabEpisodes(project.episodes).error:'',stale:project?inspectCollabEpisodes(project.episodes).episodes.filter(e=>!isReviewCurrent(ledger.episodes[e.episodeNumber],e)).length:0,...(project?{workflow:artWorkflowState(ledger,project)}:{})};
 }

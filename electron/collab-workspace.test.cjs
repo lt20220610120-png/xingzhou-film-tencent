@@ -48,10 +48,10 @@ test('CollabWorkspace：身份权限过滤与七个功能区', () => {
   for (const section of ['InfoSection', 'ArtSection', 'AssetsSection', 'StoryboardSection', 'InviteSection', 'StatsSection', 'GroupSection']) {
     assert.match(ws, new RegExp(`function ${section}`), `缺少功能区组件 ${section}`);
   }
-  // 信息读取：画风选择 / 题材填写 / 分析模型 / 锁定 Skill
+  // 信息读取：画风选择 / 全剧背景自动读取 / 分析模型；内置规则不占UI。
   assert.match(ws, /COLLAB_STYLES\.map/);
-  assert.match(ws, /COLLAB_ART_SKILL_NAME/);
-  assert.match(ws, /buildCollabAnalysisMessages/);
+  assert.match(ws, /runContinuousArtAnalysis/);
+  assert.match(ws, /自动分析的剧本背景/);
   // 美术：复用与 @参考
   assert.match(ws, /resolveAssetImageReference/);
   assert.match(ws, /const defaultReference = resolveAssetReference\(asset, assets\)/);
@@ -111,11 +111,11 @@ test('内置美术 Skill 锁死且包含分级输出规则', async () => {
   assert.match(mod.COLLAB_ART_SKILL, /第一级：集/);
   assert.match(mod.COLLAB_ART_SKILL, /人物：\/ 场景：\/ 道具：/);
   assert.match(mod.COLLAB_ART_SKILL, /复用免描/);
-  const messages = mod.buildCollabAnalysisMessages({ style: 'AI真人', genre: '现代都市', script: '第1集……' });
+  const messages = mod.buildCollabAnalysisMessages({ style: 'AI真人', genre: '验证时代唯一设定2843', script: '第1集……' });
   assert.equal(messages.length, 2);
   assert.doesNotMatch(messages[0].content, /画风：AI真人/);
   assert.match(messages[0].content, /不加入AI真人、3D动漫或2D动漫画风前置/);
-  assert.match(messages[0].content, /【题材与时代 · 请先读取】\n现代都市/);
+  assert.match(messages[1].content, /验证时代唯一设定2843/);assert.doesNotMatch(messages[0].content, /验证时代唯一设定2843/);
   const ws = read('src/v06/CollabWorkspace.jsx');
   assert.doesNotMatch(ws, /selectSkill.*COLLAB_ART_SKILL/, 'Skill 必须锁定不可选择');
 });

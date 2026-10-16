@@ -7,8 +7,10 @@ import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch} from '../../c
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
-import {runArtReviewAnalysis} from '../../core/artReviewRunner.js';
+import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
+import {artScriptFingerprint} from '../../core/artScriptContext.js';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
+import {artReviewFailureSummary} from '../../core/artReviewBatch.js';
 import {projectPublishedReviewAssets,completedReviewPrompt} from '../../core/artReview.js';
 import ArtReviewSection from './ArtReviewSection.jsx';
 import EpisodeIdentityPanel from './EpisodeIdentityPanel.jsx';
@@ -38,7 +40,6 @@ import {
   summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
   ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant,
 } from '../../core/collabStore.js';
-import { COLLAB_ART_SKILL_NAME, buildEpisodeAnalysisMessages, buildCollabAnalysisMessages } from '../../core/collabArtSkill.js';
 import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
@@ -54,12 +55,12 @@ const analysisJobKey = (accountId,projectId) => `${accountId||'local'}:${project
 const artSyncNotice = result => `本机已保存 ${result.completed} 集候选清单；${result.published} 集已发布${result.pending?`；${result.pending} 集有本地未发布内容`:''}。`;
 const fmtTime = (v) => { try { return new Date(v).toLocaleString('zh-CN', { hour12: false }); } catch { return v || '—'; } };
 
-const runAnalysis = args => runArtReviewAnalysis(args);
+const runAnalysis = args => runContinuousArtAnalysis(args);
 
 const stopAnalysis = async ({ projectId, api, accountId }) => {
   const job = collabAnalysisJobs.get(analysisJobKey(accountId,projectId));
   if (!job || job.status !== 'running') return;
-  job.cancelled = true; job.status = 'stopping'; job.notice = '正在停止分析…';
+  job.cancelled = true; job.wakeRetry?.(); job.status = 'stopping'; job.notice = '正在停止分析…';
   await Promise.allSettled([...new Set([job.taskId,...(job.taskIds||[])].filter(Boolean))].map(taskId=>api.cancelAiTask?.({taskId})));
 };
 
@@ -76,7 +77,7 @@ function useCollabAnalysisJob(project,api,accountId,assets=[]) {
       const old=collabAnalysisJobs.get(key);
       if(old?.syncing||['running','stopping'].includes(old?.status))return;
       const summary=summarizeArtReview(ledger,project);
-      collabAnalysisJobs.set(key,{...old,...summary,status:summary.pending?'pending':'completed',notice:artSyncNotice(summary),error:summary.syncErrors.map(item=>`第 ${item.episode} 集：${item.error}`).join('\n')});update();
+      collabAnalysisJobs.set(key,{...old,...summary,status:summary.pending?'pending':'completed',notice:artSyncNotice(summary),error:artReviewFailureSummary(summary.syncErrors)});update();
     }).catch(error=>{if(!cancelled){collabAnalysisJobs.set(key,{status:'failed',error:error.message});update();}});
     update(); const timer = setInterval(update, 500); return () => {cancelled=true;unsubscribe();clearInterval(timer);};
   }, [projectId,accountId,api,project.analysis_progress]);
@@ -88,7 +89,6 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   if (['running', 'stopping'].includes(collabAnalysisJobs.get(key)?.status)||collabAnalysisJobs.get(key)?.syncing) return collabAnalysisJobs.get(key);
   if (!profile) throw new Error('请选择一个已配置的大语言模型');
   if (!profile.model?.trim()) throw new Error('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称');
-  if (!genre?.trim()) throw new Error('请先填写题材与时代设定（如：现代都市 / 古代玄幻 / 民国谍战）');
   const allEpisodes = listCollabEpisodes(project.episodes);
   if (!allEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先添加剧本分集');
   const scope = targetEpisodeNumbers?.length ? `第 ${targetEpisodeNumbers.join('、')} 集` : '全部分集';
@@ -150,7 +150,6 @@ function ImageLightbox({ image, alt, onClose }) {
 function InfoSection({ project, assets, refresh, api, state, canEdit, accountId, onOpenReview, onProjectChange }) {
   const [script, setScript] = useState(project.script || '');
   const scriptSource=useRef({projectId:project.id,value:project.script||''});
-  const [genre, setGenre] = useState(project.genre || '');
   const [selectedStyle, setSelectedStyle] = useState(project.style || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -161,9 +160,10 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
   const analyzing = ['running','stopping'].includes(analysisJob?.status);
   const reviewStore=getArtReviewStore({api,projectId:project.id,accountId});
   const workflow=artWorkflowState(reviewStore.snapshot(),project);
+  const scriptContext=reviewStore.snapshot().scriptContext;
+  const contextCurrent=scriptContext?.complete&&scriptContext.signature===artScriptFingerprint(project);
 
   useEffect(() => { const previous=scriptSource.current,next=project.script||'';scriptSource.current={projectId:project.id,value:next};setScript(current=>previous.projectId!==project.id||current===previous.value?next:current); }, [project.id, project.script]);
-  useEffect(() => { setGenre(project.genre || ''); }, [project.id]);
   useEffect(() => { setSelectedStyle(project.style || ''); }, [project.id, project.style]);
 
   const saveInfo = async (updates) => {
@@ -178,8 +178,13 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
     if (!selectedStyle) { setError('请先选择画风（AI真人 / 3D动漫 / 2D动漫）'); return; }
     setError(''); setNotice('');
     try {
-      if (genre !== (project.genre || '')) api.collabUpdateProject({ projectId: project.id, updates: { genre } }).catch(()=>{});
-      const result=await startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, accountId });
+      let analysisProject=project;
+      if(script!==(project.script||'')){
+        const saved=await api.collabUpdateProject({projectId:project.id,updates:{script}});
+        analysisProject={...project,...(saved?.id?saved:{}),script};onProjectChange?.(analysisProject);
+      }
+      const result=await startCollabArtAnalysis({ project:analysisProject, assets, genre:project.genre, profile, api, refresh, accountId });
+      await refresh();
       if(result.workflow?.mode==='guided'&&result.workflow.phase==='review')onOpenReview(result.workflow.episodeNumber);
     } catch (e) { setError(readableCloudError(e)); }
   };
@@ -197,19 +202,15 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
           ))}
         </div>
         <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
-        <div className="collab-panel-title"><FileText size={15} /> 题材</div>
-        <textarea className="collab-genre-input" aria-label="剧本题材与时代" value={genre} disabled={!canEdit}
-          onChange={(e) => setGenre(e.target.value)} onBlur={() => canEdit && genre !== (project.genre || '') && saveInfo({ genre })}
-          placeholder={'填写题材与时代设定\n例如：现代都市、青春恋爱、甜宠'} />
+        <div className="collab-panel-title"><FileText size={15} /> 剧本背景</div>
+        <div className="art-script-context" role="region" aria-label="自动分析的剧本背景">
+          {contextCurrent?<FormattedText text={scriptContext.genre}/>:<><p>开始分析后，模型会先通读全剧，确定背景、时代、族群与故事风格。</p>{scriptContext?.complete&&<small>剧本已有变化，将重新分析。上次结果仍保留。</small>}</>}
+        </div>
         <div className="collab-panel-title"><Sparkles size={15} /> 分析模型</div>
         <select aria-label="分析模型" value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!canEdit || analyzing}>
           {!apiProfiles.length && <option value="">请先在 API 接口中添加模型</option>}
           {apiProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}
         </select>
-        </div>
-        <div className="collab-locked-skill">
-          <span className="art-skill-label"><Check size={14}/>内置美术规则</span>
-          <b>{COLLAB_ART_SKILL_NAME}</b>
         </div>
         <div className="art-config-execution">
         <ArtWorkflowControl workflow={workflow} onChange={mode=>reviewStore.setWorkflow(mode)} disabled={!canEdit||analyzing} onOpenReview={onOpenReview}/>
@@ -550,7 +551,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         <FormattedEditor commitDelay={1200} aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings">
-          <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.composition==='custom'?'手写前置 · 已保留':promptSettings.composition==='project'?'跟随项目默认':'本卡独立构图'}</small></div>
+          <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'creature', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.mode==='creature'&&promptSettings.composition!=='custom'?'生物三视图 · 无人物场景':promptSettings.composition==='custom'?'手写前置 · 已保留':promptSettings.composition==='project'?'跟随项目默认':'本卡独立构图'}</small></div>
           {asset.category==='character'&&promptSettings.mode==='single'&&<label className="art-prompt-mode art-composition-select"><b>人物构图</b><select aria-label="人物图片构图" value={promptSettings.composition} disabled={!canEdit||modifying} onChange={e=>changeComposition(e.target.value)} onBlur={()=>save().catch(()=>{})}><option value="project">跟随项目默认</option>{Object.entries(CHARACTER_COMPOSITIONS).map(([id,item])=><option key={id} value={id}>{item.label}</option>)}<option value="custom">手写前置（保留原文）</option></select><small>{promptSettings.composition==='project'?CHARACTER_COMPOSITIONS[projectCharacterComposition(project)].label:'单卡选择优先于项目默认'}</small></label>}
           <details className="art-prefix-editor"><summary>编辑前置 <span>{promptSettings.mode === 'group' ? '同图多人，各有不同' : promptSettings.prefix ? '查看并调整构图与画风要求' : '无额外前置'}</span></summary><textarea aria-label="生图前置" value={promptSettings.prefix} readOnly={!canEdit || modifying} onChange={event => editSettings({ prefix: event.target.value })} onBlur={() => save().catch(() => {})} placeholder="可自由填写，也可清空。不会再自动追加隐藏前置。" /><button type="button" className="ghost" disabled={!canEdit || modifying} onClick={() => changePromptMode(promptSettings.mode)}>恢复项目默认前置</button></details>
         </div>

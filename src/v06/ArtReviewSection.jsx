@@ -5,6 +5,7 @@ import {inspectCollabEpisodes} from '../../core/collabEpisodes.js';
 import {parseAssetName} from '../../core/collabStore.js';
 import {ART_REVIEW_CATEGORIES,artReviewContext,editArtReview,isReviewCurrent,isSceneVerified,reviewRoster,reviewAssetKey,reviewName,reviewSceneSignature,needsArtReviewDetails} from '../../core/artReview.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
+import {approveAllArtReviews,publishAllArtReviews,artReviewFailureSummary} from '../../core/artReviewBatch.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {readCollabNavigation,rememberCollabNavigation,restoredCollabEpisode} from '../../core/collabNavigation.js';
 import '../art-review.css';
@@ -135,11 +136,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   setConfirmation(null);
   if(choice.kind==='cloud'){const p=await api.collabGetProject({projectId:project.id});await store.useCloud(choice.episodeNumber,p);setNotice('已采用云端清单，本机冲突版本已另存历史备份。');return;}
   if(choice.kind==='approve-all'){
-   let count=0,skipped=0;
-   const changes=episodes.filter(e=>isReviewCurrent(store.snapshot().episodes[e.episodeNumber],e)).map(e=>({number:e.episodeNumber,reduce:r=>{
-    for(const scene of r.scenes){if(!scene.mappingReady&&!scene.items.length){skipped++;continue;}r=editArtReview(r,{type:'approve',sceneId:scene.id},accountId);count++;}return r;
-   }}));
-   await store.updateMany(changes);
+   const {count,skipped}=await approveAllArtReviews(store,episodes,accountId);
    setNotice(`本机已保存：核实 ${count} 场${skipped?`；${skipped} 场尚未读取，继续保留待核实`:''}。待补细节不影响名单核实。`);return;
   }
   const publishKey=choice.sceneIds?`episode:${choice.episodeNumber}`:'all';if(publishTasks.current.has(publishKey))return;publishTasks.current.add(publishKey);
@@ -148,8 +145,8 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
    await store.update(choice.episodeNumber,r=>{for(const id of choice.sceneIds)if(!isSceneVerified(r.scenes.find(s=>s.id===id)))r=editArtReview(r,{type:'approve',sceneId:id},accountId);return r;});
    const saved=await store.publish(choice.episodeNumber,choice.sceneIds);setNotice(`第 ${choice.episodeNumber} 集已发布 ${choice.sceneIds.length} 场到美术与资产，已有图片和编辑保留。${(saved.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean).join('；')}`);
   }else{
-   let count=0;const failures=[],warnings=[];for(const e of episodes){const r=store.snapshot().episodes[e.episodeNumber];if(!isReviewCurrent(r,e))continue;const ids=r.scenes.filter(isSceneVerified).map(s=>s.id);if(!ids.length)continue;try{const saved=await store.publish(e.episodeNumber,ids);count+=ids.length;warnings.push(...(saved.publicationWarnings||[]).map(w=>typeof w==='string'?w:w.message).filter(Boolean));}catch(e){failures.push(e.message);}}
-   setNotice(`已发布 ${count} 场；未核实部分继续保留。${[...new Set(warnings)].join('；')}`);if(failures.length)setError([...new Set(failures)].join('；'));
+   const {count,failures,warnings,blocked}=await publishAllArtReviews(store,episodes);
+   setNotice(`已发布 ${count} 场；未核实部分继续保留。${blocked?'本机核实结果已保留，处理项目问题后可再次发布。':''}${warnings.join('；')}`);if(failures.length)setError(artReviewFailureSummary(failures));
   }
   await refresh({manual:true});
   }finally{publishTasks.current.delete(publishKey);}

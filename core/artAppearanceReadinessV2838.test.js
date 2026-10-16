@@ -42,7 +42,7 @@ test('explicit project image selection accepts another asset while automatic ide
 test('nonhumanoid three-headed dragon keeps its anatomy and does not inherit human five-grid defaults',()=>{
  const dragon={category:'character',name:'【三首龙-魔兽】',description:'非人巨型魔兽形态，通体龙鳞、三首并列、龙爪与翼膜。'};
  assert.equal(core.characterAppearanceIssue(dragon),'');
- assert.equal(core.inferAssetPromptMode(dragon),'free');
+ assert.equal(core.inferAssetPromptMode(dragon),'creature');
  const prompt=buildComposedImagePrompt(dragon,null,'3D动漫','portrait-five');
  assert.doesNotMatch(prompt,/五格|无头|脸颈|4格统一排版/);
  assert.match(prompt,/三首并列/);

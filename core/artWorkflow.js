@@ -3,7 +3,7 @@ import {inspectCollabEpisodes} from './collabEpisodes.js';
 
 export const artWorkflowMode=ledger=>ledger?.workflow==='guided'?'guided':'automatic';
 export function artEpisodeReady(record,episode){
- return Boolean(isReviewCurrent(record,episode)&&record.scenes?.length
+ return Boolean(isReviewCurrent(record,episode)&&record.scenes?.length&&record.generation?.status!=='interrupted'
   &&(record.status==='generated'||record.scenes.every(isSceneVerified))
   &&record.scenes.every(s=>s.mappingReady||isSceneVerified(s))
   &&reviewRoster(record).every(i=>!needsArtReviewDetails(i)));
