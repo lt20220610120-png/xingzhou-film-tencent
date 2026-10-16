@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.XZ_PLAYWRIGHT_MODULE||'playwright');
 const base=process.env.XZ_QA_URL||'http://127.0.0.1:5801/';
-const out=path.resolve('output/playwright/history-assets-2.8.41');fs.mkdirSync(out,{recursive:true});
+const out=path.resolve('output/playwright/history-assets-2.8.42');fs.mkdirSync(out,{recursive:true});
 let browser,page;const errors=[],report={checks:[],realApiCalls:0};
 (async()=>{
  browser=await chromium.launch({channel:'msedge',headless:true});
@@ -23,13 +23,16 @@ let browser,page;const errors=[],report={checks:[],realApiCalls:0};
   window.__qa={saved:JSON.parse(localStorage.getItem('qa-state')||'null')||initial,exports:[],generationCalls:0};
   const empty=async()=>[],save=value=>{__qa.saved=structuredClone(value);localStorage.setItem('qa-state',JSON.stringify(value));};
   window.xingzhou={loadState:async()=>structuredClone(__qa.saved),saveState:async s=>save(s),loadDirectorProjects:async()=>structuredClone(__qa.saved.directorProjects),saveDirectorProjects:async projects=>save({...__qa.saved,directorProjects:projects}),
-   authSession:async()=>({id:'qa-owner',username:'qa-owner',roles:['director'],activeRole:'director'}),storageInfo:async()=>({dataDir:'隔离内存'}),appVersion:async()=>'2.8.41',generationList:empty,directorCollabListProjects:empty,collabIsProducer:async()=>true,collabListProjects:async()=>[structuredClone(project)],collabGetProject:async()=>structuredClone(project),collabListAssets:async()=>structuredClone(rows),collabListMembers:empty,collabListMedia:empty,collabListMessages:empty,collabListGroups:empty,analysisLoad:async()=>null,artReviewLoadLocal:async()=>null,artReviewSaveLocal:async()=>{},onMediaTaskStatus:()=>()=>{},onUpdateProgress:()=>()=>{},checkUpdate:async()=>({configured:false}),saveTxt:async p=>{__qa.exports.push(p);return '隔离验收.txt';},saveTxtBatch:async p=>{__qa.exports.push(p);return '隔离目录';},mediaGenerateImage:async()=>{__qa.generationCalls++;throw Error('禁止真实生成');}};
+   authSession:async()=>({id:'qa-owner',username:'qa-owner',roles:['director'],activeRole:'director'}),storageInfo:async()=>({dataDir:'隔离内存'}),appVersion:async()=>'2.8.42',generationList:empty,directorCollabListProjects:empty,collabIsProducer:async()=>true,collabListProjects:async()=>[structuredClone(project)],collabGetProject:async()=>structuredClone(project),collabListAssets:async()=>structuredClone(rows),collabListMembers:empty,collabListMedia:empty,collabListMessages:empty,collabListGroups:empty,analysisLoad:async()=>null,artReviewLoadLocal:async()=>null,artReviewSaveLocal:async()=>{},onMediaTaskStatus:()=>()=>{},onUpdateProgress:()=>()=>{},checkUpdate:async()=>({configured:false}),saveTxt:async p=>{__qa.exports.push(p);return '隔离验收.txt';},saveTxtBatch:async p=>{__qa.exports.push(p);return '隔离目录';},mediaGenerateImage:async()=>{__qa.generationCalls++;throw Error('禁止真实生成');}};
  });
  await page.goto(base,{waitUntil:'domcontentloaded'});
  await page.getByRole('button',{name:'导演工作台',exact:true}).click();
  await page.getByRole('button',{name:'历史提示词',exact:true}).click();
  await page.getByLabel('删除第1集提示词',{exact:true}).waitFor();
  assert.equal(await page.locator('.prompt-history-card').count(),3);
+ const compact=await page.locator('.prompt-history-card').first().evaluate(el=>{const b=el.querySelector('.prompt-history-delete').getBoundingClientRect(),c=el.getBoundingClientRect();return {width:b.width,height:b.height,cardHeight:c.height};});
+ assert.equal(compact.width,28);assert.equal(compact.height,28);assert.ok(compact.cardHeight<150,JSON.stringify(compact));
+ report.checks.push('逐集删除使用28px右上角小图标，卡片高度小于150px，确认交互保持');
  await page.screenshot({path:path.join(out,'01-history.png')});
  await page.getByLabel('删除第1集提示词',{exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'删除本集历史提示词',exact:true});

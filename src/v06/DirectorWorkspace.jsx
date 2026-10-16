@@ -786,7 +786,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onDeletePrompts, onE
       <div className="prompt-history-toolbar">
         <div className="prompt-history-title"><Save size={16}/> 历史提示词 · 共 {allPrompts.length} 条（除手动删除外永久保留，修改总剧本或添加集数都不会丢失）</div>
         <div className="prompt-history-export-actions">
-          <button className="secondary danger" disabled={!allPrompts.length} onClick={()=>requestDelete(null)}><Trash2 size={14}/> 删除全部历史提示词</button>
+          <button className="prompt-history-clear" aria-label="删除全部历史提示词" title="删除全部历史提示词" disabled={!allPrompts.length} onClick={()=>requestDelete(null)}><Trash2 size={14}/> 删除全部</button>
           {exportMode ? (
             <>
               <button className="ghost" onClick={() => setSelectedKeys(new Set(groups.map((group) => group.key)))}>全选</button>
@@ -815,7 +815,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onDeletePrompts, onE
               <span>{group.prompts.length} 条提示词</span>
               <small>{group.prompts.slice(0, 3).map((prompt) => prompt.label).join('、')}{group.prompts.length > 3 ? '…' : ''}</small>
               </button>
-              <button className="ghost danger prompt-history-delete" aria-label={`删除${groupTitle(group)}`} onClick={()=>requestDelete(group)}><Trash2 size={13}/> 删除本集历史提示词</button>
+              <button className="prompt-history-delete" aria-label={`删除${groupTitle(group)}`} title={`删除${groupTitle(group)}`} onClick={()=>requestDelete(group)}><Trash2 size={15}/></button>
             </article>
           ))}
         </div>

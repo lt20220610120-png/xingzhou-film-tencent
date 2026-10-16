@@ -90,7 +90,14 @@
 .prompt-history-card{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:16px;background:#fff;border:1px solid var(--line);border-radius:12px;cursor:pointer;text-align:left}
 .prompt-history-card:hover{border-color:var(--green);box-shadow:0 3px 12px rgba(0,0,0,.06)}
 .prompt-history-card .prompt-history-open{display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:6px;width:100%;min-width:0;margin:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;border-radius:4px}
-.prompt-history-card .prompt-history-delete{display:inline-flex;align-items:center;justify-content:center;align-self:flex-end;gap:5px;margin-top:6px;font-size:12px;white-space:normal}
+.prompt-history-card .prompt-history-delete{display:inline-flex;align-items:center;justify-content:center;position:absolute;right:10px;top:10px;width:28px;height:28px;min-height:28px;margin:0;padding:0;border:0;border-radius:7px;background:transparent;color:#9a8790;cursor:pointer}
+.prompt-history-card{position:relative}
+.prompt-history-card .prompt-history-open{padding-right:24px}
+.prompt-history-card .prompt-history-delete:hover{background:#fbeeed;color:#b64e48}
+.prompt-history-card .prompt-history-delete:focus-visible{outline:2px solid #8e7bcd;outline-offset:2px;background:#fbeeed;color:#b64e48}
+.prompt-history-export-actions .prompt-history-clear{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:6px 9px;border:1px solid #ecdeda;border-radius:8px;background:#fff;color:#aa625b;font-size:12px;font-weight:500}
+.prompt-history-export-actions .prompt-history-clear:hover:not(:disabled){background:#fbeeed;border-color:#e0bbb5}
+.prompt-history-export-actions .prompt-history-clear:focus-visible{outline:2px solid #8e7bcd;outline-offset:2px}
 .prompt-history-card strong{font-size:16px}
 .prompt-history-card span{font-size:12px;color:var(--muted)}
 .prompt-history-card small{font-size:11px;color:var(--muted);opacity:.8;word-break:break-all}

@@ -25,3 +25,11 @@
 .generation-auto-reference-note button{font-size:12px;padding:5px 10px}
 
 .generation-references .reference-duration{display:grid;grid-template-columns:1fr 38px 14px;gap:3px;align-items:center;font-size:11px;margin-top:4px}.generation-references .reference-duration input{width:38px;min-width:0;padding:2px 4px;font-size:11px}
+
+/* Only project storyboard references scroll here; whole-book imports keep their layout. */
+.generation-editor--reference-viewport .generation-prompt-area{align-self:start}
+.generation-editor--reference-viewport .generation-textarea-wrap{flex:none;height:240px;min-height:210px}
+.generation-editor--reference-viewport .generation-references{height:260px;min-height:170px;flex:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;align-content:flex-start;padding:10px;border:1px solid #e1e6f0;border-radius:12px;background:#fafbfe}
+.generation-editor--reference-viewport .generation-references:focus-visible{outline:2px solid #9d92e5;outline-offset:2px}
+.generation-editor--reference-viewport .generation-references figure{flex:0 0 110px;align-self:flex-start}
+.reference-unsupported{display:grid;place-items:center;width:96px;height:74px;font-size:11px;color:#8a7282}
