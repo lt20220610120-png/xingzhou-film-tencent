@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
   createInitialState,
+  appendDirectorEpisodePrompts,
   appendDirectorPromptHistory, collectDirectorPromptHistory,
   groupDirectorPromptHistory, deleteDirectorPromptsEverywhere,
   updateDirectorPromptEverywhere, buildPromptHistoryExport,
@@ -62,6 +63,41 @@ describe('导演历史提示词', () => {
     assert.equal(collectDirectorPromptHistory(project).length, 1);
     assert.equal(project.episodes[0].prompts.length, 1);
     assert.equal(project.episodes[1].prompts.length, 0);
+  });
+
+  it('按集删除包含仅存历史的记录，保留其他集、剧本及其他项目', () => {
+    let state = baseState();
+    state.directorProjects.push({ id: 'p2', promptHistory: [{ id: 'other', label: '1-1-1' }] });
+    state = appendDirectorPromptHistory(state, 'p1', [{ id: 'archived', label: '1-5-1', content: '旧稿提示词' }]);
+    const original = structuredClone(state);
+    const group = groupDirectorPromptHistory(collectDirectorPromptHistory(state.directorProjects[0])).find(g => g.key === '1');
+    state = deleteDirectorPromptsEverywhere(state, 'p1', group.prompts.map(p => p.id));
+    const project = state.directorProjects[0];
+    assert.deepEqual(collectDirectorPromptHistory(project).map(p => p.id), ['c']);
+    assert.deepEqual(new Set(project.deletedPromptIds), new Set(['a', 'b', 'archived']));
+    assert.equal(project.masterScript, original.directorProjects[0].masterScript);
+    assert.deepEqual(project.episodes.map(e => e.content), original.directorProjects[0].episodes.map(e => e.content));
+    assert.deepEqual(state.directorProjects[1], original.directorProjects[1]);
+  });
+
+  it('全部删除覆盖未编号记录，保存后旧提示词不能重新写入历史', () => {
+    let state = appendDirectorPromptHistory(baseState(), 'p1', [{ id: 'unnumbered', label: '', content: '未编号' }]);
+    const prompts = collectDirectorPromptHistory(state.directorProjects[0]);
+    state = deleteDirectorPromptsEverywhere(state, 'p1', prompts.map(p => p.id));
+    state = JSON.parse(JSON.stringify(state));
+    state = appendDirectorPromptHistory(state, 'p1', prompts);
+    assert.deepEqual(collectDirectorPromptHistory(state.directorProjects[0]), []);
+    assert.ok(state.directorProjects[0].episodes.every(e => !e.prompts.length));
+  });
+
+  it('整集历史删除后，迟到的生成缓存不能把仅存历史的旧记录重新写回分集', () => {
+    const archived = { id: 'archived', label: '1-5-1', content: '旧缓存' };
+    let state = appendDirectorPromptHistory(baseState(), 'p1', [archived]);
+    state = deleteDirectorPromptsEverywhere(state, 'p1', ['archived']);
+    state = appendDirectorEpisodePrompts(state, 'p1', 'e1', [archived, { id: 'new', label: '1-5-2', content: '新生成' }]);
+    const episode = state.directorProjects[0].episodes[0];
+    assert.ok(!episode.prompts.some(p => p.id === 'archived'));
+    assert.ok(episode.prompts.some(p => p.id === 'new'));
   });
 
   it('编辑同步历史与分集', () => {

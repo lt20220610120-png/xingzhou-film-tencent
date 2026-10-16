@@ -1009,6 +1009,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
       {syncPanel}
       <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="collab-art-head">
+        <div className="collab-art-head-left asset-category-heading">
         <b><Box size={16} /> 资产总览</b>
         {!!archivedAssets.length&&<button className="secondary" disabled={batchBusy} onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
         <button className="secondary manual-add-button" onClick={() => { setManualName(''); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
@@ -1016,6 +1017,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
             <button key={key} disabled={batchBusy} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
           ))}
+        </div>
         </div>
         <div className="asset-category-batch-controls" aria-label="当前分类批量生图">
           <ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy||showArchived} label="资产批量生图模型" displayLabel="生图模型"/>

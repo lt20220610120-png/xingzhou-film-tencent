@@ -90,6 +90,13 @@
 .asset-category-batch-controls .window-model-select { flex:1 1 200px; max-width:300px; }
 .asset-category-batch-controls select { width:100%; max-width:100%; margin:0; text-overflow:ellipsis; }
 .asset-category-batch-controls button { white-space:nowrap; flex-shrink:0; }
+.asset-library-workbench .collab-art-head { align-items:flex-end; }
+.asset-library-workbench .asset-category-heading { min-height:40px; gap:8px; }
+.asset-library-workbench .asset-category-heading > button,
+.asset-library-workbench .asset-category-batch-controls > button,
+.asset-library-workbench .asset-category-batch-controls select { height:40px; min-height:40px; box-sizing:border-box; margin:0; }
+.asset-library-workbench .asset-category-heading .collab-cat-tabs { height:40px; box-sizing:border-box; align-items:center; }
+.asset-library-workbench .asset-category-heading .collab-cat-tabs button { height:34px; min-height:34px; margin:0; }
 .asset-category-batch-status { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 0 0; font-size:13px; color:#616c8f; }
 .asset-category-batch-status small { flex-basis:100%; font-size:12px; }
 .asset-character-select { display:inline-flex; align-items:center; gap:5px; margin:0; white-space:nowrap; font-size:12px; color:#616c8f; }

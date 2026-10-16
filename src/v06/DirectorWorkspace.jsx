@@ -703,7 +703,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
       {/* 历史提示词：项目级永久保留，按集数分卡片，可导出文档 */}
       {mode === 'history' && (
-        <PromptHistoryPanel project={project} api={api} onDeletePrompt={handleSavePrompt} onEditPrompt={handleEditPrompt} />
+        <PromptHistoryPanel project={project} api={api} onDeletePrompt={handleSavePrompt} onDeletePrompts={ids=>setState(s=>deleteDirectorPromptsEverywhere(s,project.id,ids))} onEditPrompt={handleEditPrompt} />
       )}
     </main>
   );
@@ -712,11 +712,12 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 /* ================================================================
  * PromptHistoryPanel - 历史提示词（项目级，永不因剧本变动丢失）
  * ================================================================ */
-function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
+function PromptHistoryPanel({ project, api, onDeletePrompt, onDeletePrompts, onEditPrompt }) {
   const [openGroup, setOpenGroup] = useState(null);
   const [exportNotice, setExportNotice] = useState('');
   const [exportMode, setExportMode] = useState(false); // 选集导出模式
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const allPrompts = collectDirectorPromptHistory(project);
   const groups = groupDirectorPromptHistory(allPrompts);
   const activeGroup = groups.find((group) => group.key === openGroup);
@@ -729,6 +730,22 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
     return next;
   });
   const pickedGroups = groups.filter((group) => selectedKeys.has(group.key));
+
+  useEffect(()=>{setDeleteTarget(null);setOpenGroup(null);setExportMode(false);setSelectedKeys(new Set());},[project.id]);
+  const requestDelete = (group) => setDeleteTarget({
+    projectId: project.id,
+    title: group ? '删除本集历史提示词' : '删除全部历史提示词',
+    name: group ? groupTitle(group) : `《${project.name}》全部历史提示词`,
+    ids: (group ? group.prompts : allPrompts).map(prompt=>prompt.id),
+  });
+  const confirmDelete = () => {
+    if(!deleteTarget || deleteTarget.projectId!==project.id)return;
+    onDeletePrompts(deleteTarget.ids);
+    setDeleteTarget(null);
+    setOpenGroup(null);
+    setSelectedKeys(new Set());
+    notice(`已删除 ${deleteTarget.ids.length} 条历史提示词`);
+  };
 
   // 全部导出为一个文档
   const exportAllSingle = async () => {
@@ -769,6 +786,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
       <div className="prompt-history-toolbar">
         <div className="prompt-history-title"><Save size={16}/> 历史提示词 · 共 {allPrompts.length} 条（除手动删除外永久保留，修改总剧本或添加集数都不会丢失）</div>
         <div className="prompt-history-export-actions">
+          <button className="secondary danger" disabled={!allPrompts.length} onClick={()=>requestDelete(null)}><Trash2 size={14}/> 删除全部历史提示词</button>
           {exportMode ? (
             <>
               <button className="ghost" onClick={() => setSelectedKeys(new Set(groups.map((group) => group.key)))}>全选</button>
@@ -790,12 +808,15 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
       {!activeGroup && (
         <div className="prompt-history-grid">
           {groups.map((group) => (
-            <button key={group.key} className={`prompt-history-card${exportMode && selectedKeys.has(group.key) ? ' selected' : ''}`} onClick={() => exportMode ? toggleKey(group.key) : setOpenGroup(group.key)}>
+            <article key={group.key} className={`prompt-history-card${exportMode && selectedKeys.has(group.key) ? ' selected' : ''}`}>
+              <button className="prompt-history-open" aria-label={exportMode ? `选择${groupTitle(group)}` : `查看${groupTitle(group)}`} onClick={() => exportMode ? toggleKey(group.key) : setOpenGroup(group.key)}>
               {exportMode && <span className="prompt-history-check">{selectedKeys.has(group.key) ? '✓ 已选' : '点击选择'}</span>}
               <strong>{group.key === '未编号' ? '未编号' : `第 ${group.key} 集`}</strong>
               <span>{group.prompts.length} 条提示词</span>
               <small>{group.prompts.slice(0, 3).map((prompt) => prompt.label).join('、')}{group.prompts.length > 3 ? '…' : ''}</small>
-            </button>
+              </button>
+              <button className="ghost danger prompt-history-delete" aria-label={`删除${groupTitle(group)}`} onClick={()=>requestDelete(group)}><Trash2 size={13}/> 删除本集历史提示词</button>
+            </article>
           ))}
         </div>
       )}
@@ -804,6 +825,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
           <div className="prompt-history-detail-head">
             <button className="ghost" onClick={() => setOpenGroup(null)}><ArrowLeft size={15}/> 返回全部集数</button>
             <span>{activeGroup.key === '未编号' ? '未编号提示词' : `第 ${activeGroup.key} 集提示词`}（{activeGroup.prompts.length} 条）</span>
+            <button className="ghost danger" onClick={()=>requestDelete(activeGroup)}><Trash2 size={14}/> 删除本集历史提示词</button>
           </div>
           <div className="prompt-list director-prompt-grid">
             {activeGroup.prompts.map((prompt, i) => (
@@ -812,6 +834,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onEditPrompt }) {
           </div>
         </div>
       )}
+      <DeleteConfirm open={Boolean(deleteTarget)&&deleteTarget.projectId===project.id} title={deleteTarget?.title} name={`${deleteTarget?.name||''}（${deleteTarget?.ids.length||0} 条）`} detail="确认后会删除这些历史提示词，并同步移除分集中的对应提示词。剧本正文、分集和已生成的图片、视频文件保留。此操作无法恢复。" onCancel={()=>setDeleteTarget(null)} onConfirm={confirmDelete}/>
     </div>
   );
 }

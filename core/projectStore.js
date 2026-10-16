@@ -616,7 +616,7 @@ export const appendDirectorEpisodePrompts = (state, projectId, episodeId, newPro
     if (project.id !== projectId) return project;
     const episodes = (project.episodes || []).map((episode) => {
       if (episode.id !== episodeId) return episode;
-      const tombstones = episode.deletedPromptIds || [];
+      const tombstones = [...(project.deletedPromptIds || []), ...(episode.deletedPromptIds || [])];
       const seen = new Set((episode.prompts || []).map((item) => item.id));
       const added = (newPrompts || []).filter((item) => item && item.id && !seen.has(item.id) && !tombstones.includes(item.id));
       return { ...episode, ...extraUpdates, prompts: [...(episode.prompts || []), ...added] };
