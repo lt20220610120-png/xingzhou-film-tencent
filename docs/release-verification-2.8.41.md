@@ -18,4 +18,9 @@
 
 ## 发布
 
-全量测试、正式打包与公开发布结果在执行后补充。无云端部署需求。
+- npm run release 全流程通过：2169/2169 测试，0 失败；Vite 构建、NSIS 制作与安装包运行时检查均通过。运行时证据 qa/packaged-smoke-2.8.41-1792158581109/report.json。
+- 独立只读复核未发现阻止发布的问题；再次运行 10 项历史回归及 UI 脚本语法检查通过。
+- 正式 Release、两个仓库 main/latest.json 和官方备用源均已发布。正式客户端更新模块核实 Ed25519 签名与本地清单一致，2.8.39／2.8.40 返回发现 2.8.41，2.8.41 返回当前最新；备用源 65536 字节 Range、MZ 头及总大小通过。证据 output/history2841-inapp-update-verification.json。
+- 安装包 release/2.8.41/Xingzhou-Film-Tencent-Setup-2.8.41.exe，103613690 字节；SHA256：163bce9f9c39cbd983bd377b87587c54f1b02872de6f5936cdfe35936be77f2a。
+- 公开下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.41/Xingzhou-Film-Tencent-Setup-2.8.41.exe 。
+- 本次不进行云端部署，不操作用户真实提示词或媒体；没有付费生成。发布后可在软件内检查更新。
