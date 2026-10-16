@@ -23,4 +23,5 @@
 - 正式 Release、两个仓库 main/latest.json 和官方备用源均已发布。正式客户端更新模块核实 Ed25519 签名与本地清单一致，2.8.39／2.8.40 返回发现 2.8.41，2.8.41 返回当前最新；备用源 65536 字节 Range、MZ 头及总大小通过。证据 output/history2841-inapp-update-verification.json。
 - 安装包 release/2.8.41/Xingzhou-Film-Tencent-Setup-2.8.41.exe，103613690 字节；SHA256：163bce9f9c39cbd983bd377b87587c54f1b02872de6f5936cdfe35936be77f2a。
 - 公开下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.41/Xingzhou-Film-Tencent-Setup-2.8.41.exe 。
+- 公开整包下载校验通过：两份 main 清单相同，正式非草稿 Release 的 asset digest、本机 SHA256 与公开下载完整103613690字节的 SHA256 一致。证据 output/release-2841-public.json。
 - 本次不进行云端部署，不操作用户真实提示词或媒体；没有付费生成。发布后可在软件内检查更新。
