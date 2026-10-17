@@ -31,7 +31,7 @@ import {
   setDirectorProjectStyle, setDirectorProjectRatio, buildProjectPreamble, displayProjectStyle
 } from '../../core/projectStore.js';
 import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterSetting } from '../../core/scriptImport.js';
-import { getSceneVision, buildScenePromptRecords, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput } from '../../core/directorCreative.js';
+import { getSceneVision, buildScenePromptRecords, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput,buildCreativeSceneSubmission } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
@@ -302,6 +302,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       : (episode.quickSceneEdits?.[currentScene] ?? segments.find((s) => s.label === currentScene)?.content ?? ''))
     : '';
   const currentVision = currentScene ? getSceneVision(episode, currentScene) : '';
+  const currentCreativeSceneContent=segments.find(scene=>scene.label===currentScene)?.content||'';
   const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-quick-settings:${accountId}:${project.id}`,JSON.stringify({segmentationMode:'manual',maxDurationSeconds:30}));
   let quickSettings;try{quickSettings=JSON.parse(settingsJson);}catch{quickSettings={};}
   quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=0&&quickSettings.maxDurationSeconds<=35?quickSettings.maxDurationSeconds:30};
@@ -367,18 +368,19 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   };
 
   const runCreativeScene = async (sceneLabel) => {
-    if (batchBusy || isSceneRunning(sceneLabel) || isQuickRunActive(quickGeneration?.getSceneRun(project.id,episode.id,sceneLabel)) || !currentSkill) return;
+    if (batchBusy || isSceneRunning(sceneLabel) || isQuickRunActive(quickGeneration?.getSceneRun(project.id,episode.id,sceneLabel)) || !currentSkill || !directorProfile) return;
     const scene = segments.find((item) => item.label === sceneLabel);
     const vision = getSceneVision(episode, sceneLabel);
-    // 创造模式只依据可编辑的“导演构想”生成，不读取左侧只读剧本展示框。
-    if (!vision.trim()) return;
+    // 创造模式读取原始整场剧本（拍什么），结合本场导演构想（怎么拍）。
+    if (!scene?.content?.trim() || !vision.trim()) return;
     markSceneRunning(sceneLabel, true);
     try {
       if (currentSkill.id) {try{rememberPreference('xz-last-used-skill', currentSkill.id);}catch{}}
       const preamble = buildProjectPreamble(project);
-      const sourceText = `${preamble ? `${preamble}\n\n` : ''}【导演构想】\n${vision}`;
+      const sourceText = buildCreativeSceneSubmission({sceneLabel,sceneText:scene.content,vision,preamble});
       const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
       const outputParts = splitNumberedPromptOutput(result.output);
+      if(!outputParts.length)throw Error('模型未返回有效提示词，请检查所选模型后重试；原剧本和导演构想已保留');
       const newPrompts = buildScenePromptRecords({
         sceneLabel,
         parts: outputParts,
@@ -563,7 +565,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             <div className="creative-dual-panels">
               <article className="creative-script-panel">
                 <div className="creative-panel-title"><BookOpen size={16}/> 场景 {currentScene} · 剧本内容 <span className="readonly-badge">只读</span></div>
-                <FormattedEditor className="director-script-body" value={currentSceneContent} readOnly aria-label="当前场景剧本内容" />
+                <FormattedEditor className="director-script-body" value={currentCreativeSceneContent} readOnly aria-label="当前场景剧本内容" />
               </article>
               <article className="creative-vision-panel">
                 <div className="creative-panel-title"><Sparkles size={16}/> 场景 {currentScene} · 导演构想</div>
@@ -573,7 +575,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                   aria-label="导演构想"
                   placeholder={'阅读左侧剧本，在这里记录脑海中的画面。\n\n光影：\n运镜：\n人物动作：\n拍摄角度：\n构图：\n色彩与氛围：\n节奏与转场：'}
                 />
-                <small>按场景自动保存，可随时切换场景继续创作。</small>
+                <small>左侧是拍什么，右侧是怎么拍。生成时结合整场剧本、导演构想与所选 Skill；构想按场景自动保存。</small>
               </article>
             </div>
             <div className="creative-generation-controls">
@@ -587,7 +589,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 </select>
                 {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
               </label>
-              <button className="primary" onClick={() => runCreativeScene(currentScene)} disabled={isSceneRunning(currentScene) || !currentVision.trim() || !currentSkill}>
+              <button className="primary" onClick={() => runCreativeScene(currentScene)} disabled={isSceneRunning(currentScene) || !currentCreativeSceneContent.trim() || !currentVision.trim() || !currentSkill || !directorProfile}>
                 <Sparkles size={16}/> {isSceneRunning(currentScene) ? '生成中…' : `生成场景 ${currentScene} 提示词`}
               </button>
             </div>

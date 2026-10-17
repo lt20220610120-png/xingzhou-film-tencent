@@ -9,6 +9,7 @@ export function uniqueAssetImages(images = []) {
 
 export const assetHasImages = asset => Boolean(asset.image_url || asset.images?.length);
 export const ungeneratedAssets = assets => assets.filter(asset => !assetHasImages(asset));
+export const visibleArtAssets = (assets,onlyMissing=false) => onlyMissing?ungeneratedAssets(assets):assets;
 
 // Preserve manual selection, excluding newly completed images and adding new unfinished assets.
 export function reconcileAssetSelection(selected, previousAssets, assets) {

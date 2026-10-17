@@ -1,5 +1,11 @@
 export const getSceneVision = (episode, sceneLabel) => episode?.sceneVisions?.[sceneLabel] || '';
 
+export const buildCreativeSceneSubmission=({sceneLabel,sceneText,vision,preamble=''})=>{
+ if(!String(sceneText||'').trim())throw Error('当前场景剧本为空，请先核对本场剧本');
+ if(!String(vision||'').trim())throw Error('请先填写本场导演构想');
+ return `${preamble?`${preamble}\n\n`:''}【剧本场景 ${sceneLabel} · 拍什么】\n${sceneText}\n\n【导演构想】\n${vision}\n\n【创作任务】\n先通读上面完整的一场戏，理解人物、事件、动作、对白及情绪推进，再结合导演构想决定怎么拍，包括镜头、运镜、光影、色调、构图和节奏。以整场剧本为叙事依据，以导演构想为拍摄意图；未指定的拍法按所选完整 Skill 补齐，不遗漏场末内容，不把导演构想当作替代剧本。遵循所选 Skill 的规则与输出格式，输出最终提示词。`;
+};
+
 export const updateSceneVision = (episode, sceneLabel, content) => ({
   ...episode,
   sceneVisions: { ...(episode?.sceneVisions || {}), [sceneLabel]: content },

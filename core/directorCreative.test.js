@@ -1,7 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getSceneVision, updateSceneVision, buildScenePromptRecords, creativePromptsForScene, directorPromptMode } from './directorCreative.js';
+import { getSceneVision, updateSceneVision, buildScenePromptRecords, creativePromptsForScene, directorPromptMode,buildCreativeSceneSubmission } from './directorCreative.js';
+import {executeSkillWithAi} from './skillExecution.js';
 import { appendDirectorEpisodePrompts, appendDirectorPromptHistory, collectDirectorPromptHistory, updateDirectorPromptEverywhere, deleteDirectorPromptsEverywhere } from './projectStore.js';
+
+test('creative submission preserves the complete scene and shooting intent as separate inputs',()=>{
+ const scene='7-1 大厅 日 内\n'+('左侧原文（1）（2）对白与动作。'.repeat(2800))+'\n末尾对白：Thank you, brother.';
+ const vision='冷色侧逆光，先双人全景，再缓推到哥哥近景。';
+ const input=buildCreativeSceneSubmission({sceneLabel:'7-1',sceneText:scene,vision,preamble:'风格：真人电影级；画幅：9:16'});
+ assert.ok(input.includes(scene));assert.ok(input.includes(vision));assert.match(input,/拍什么/);assert.match(input,/怎么拍/);assert.match(input,/所选.*Skill/);
+ assert.throws(()=>buildCreativeSceneSubmission({sceneLabel:'7-1',sceneText:'',vision}),/剧本/);
+ assert.throws(()=>buildCreativeSceneSubmission({sceneLabel:'7-1',sceneText:scene,vision:' '}),/导演构想/);
+});
+test('creative scene, intent and selected full Skill reach the chosen model and remain with the saved output',async()=>{
+ let captured;
+ const input=buildCreativeSceneSubmission({sceneLabel:'7-1',sceneText:'7-1 大厅 日 内\n凯尔向哥哥道谢。\n最后动作：握手。',vision:'金色轮廓光，稳定双人镜头。',preamble:'本项目画幅：16:9'});
+ const skill={id:'chosen',name:'导演完整规则',importMethod:'skill-folder',content:'SELECTED_SKILL_MAIN：按编号输出提示词。',files:[{path:'references/camera.md',content:'SELECTED_CAMERA_RULE：保持轴线。'}]};
+ const response=await executeSkillWithAi({api:{aiChat:async args=>{captured=args;return '7-1-1\n固定全景，金色轮廓光，凯尔握住哥哥的手。';}},state:{skills:[skill],apiProfiles:[]},profile:{id:'selected-model',model:'mock-director'},skillId:skill.id,input});
+ const messages=captured.messages.map(m=>m.content).join('\n');assert.match(messages,/最后动作：握手/);assert.match(messages,/金色轮廓光/);assert.match(messages,/SELECTED_SKILL_MAIN/);assert.match(messages,/SELECTED_CAMERA_RULE/);assert.equal(captured.profileId,'selected-model');
+ const [record]=buildScenePromptRecords({sceneLabel:'7-1',parts:[{content:response.output}],generationMode:'creative',sourceText:input,skill:skill.name});assert.equal(record.sourceText,input);assert.match(record.content,/凯尔握住哥哥/);assert.equal(record.sceneLabel,'7-1');
+});
 
 test('导演构想按场景独立保存并可重新读取', () => {
   const episode = { sceneVisions: { '1-1': '旧构想' } };

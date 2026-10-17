@@ -6,7 +6,7 @@ import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } fr
 import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
-import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
+import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection,visibleArtAssets } from '../../core/assetImages.js';
 import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
 import AssetSceneLinks from './AssetSceneLinks.jsx';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
@@ -915,15 +915,18 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   useEffect(()=>()=>{stopImages.current=true;},[]);
 
   const [showArchived,setShowArchived]=useState(false);
+  const [onlyMissing,setOnlyMissing]=useState(false);
   const archivedAssets=assets.filter(a=>Array.isArray(a.sceneIds)&&!a.sceneIds.length&&!a.episodes?.length);
   const [outfits, setOutfits] = useState({});
-  const locator = useAssetLocator(`${project.id}:${category}`);
+  const locator = useAssetLocator(`${project.id}:${category}:${onlyMissing}`);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
   const categoryAssets = assets.filter((a) => a.category === category&&(showArchived?archivedAssets.includes(a):!archivedAssets.includes(a)));
-  const list = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const characterGroups = category === 'character' ? groupCharacterAssets(categoryAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
+  const pendingAssets=ungeneratedAssets(categoryAssets);
+  const displayAssets=visibleArtAssets(categoryAssets,onlyMissing);
+  const list = displayAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const characterGroups = category === 'character' ? groupCharacterAssets(displayAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
   const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category);
   useEffect(()=>{
     const scope=`${project.id}:${category}:${showArchived}`;
@@ -931,8 +934,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
     setBatchSelectedIds(current=>previous.scope!==scope?ungeneratedAssets(categoryAssets).map(asset=>asset.id):reconcileAssetSelection(current,previous.assets,categoryAssets));
     previousBatchAssets.current={scope,assets:categoryAssets};
   },[project.id,category,showArchived,assets]);
-  const selectedIds=batchSelectedIds.filter(id=>categoryAssets.some(asset=>asset.id===id));
-  const pendingAssets=ungeneratedAssets(categoryAssets);
+  const selectedIds=batchSelectedIds.filter(id=>displayAssets.some(asset=>asset.id===id));
   const allPendingSelected=pendingAssets.length?pendingAssets.every(asset=>selectedIds.includes(asset.id)):selectedIds.length>0;
   const toggleAsset=id=>setBatchSelectedIds(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);
   const toggleGroup=group=>setBatchSelectedIds(current=>group.variants.every(asset=>current.includes(asset.id))?current.filter(id=>!group.variants.some(asset=>asset.id===id)):[...new Set([...current,...group.variants.map(asset=>asset.id)])]);
@@ -953,7 +955,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
     }
   }, [api, project.id, refresh]);
 
-  const imagePlan=()=>planAssetCategoryBatch(assets,{category,selectedIds:batchSelectedIds,readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
+  const imagePlan=()=>planAssetCategoryBatch(assets,{category,selectedIds,readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
   const generateBatch = async () => {
     const profile=batchProfile;
     const jobs = imagePlan().filter(({asset})=>!generatingAssetIdsRef.current.has(asset.id));
@@ -1022,9 +1024,9 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
           <button className="primary" disabled={!canEdit||batchBusy||showArchived||!batchProfile||!selectedIds.length} onClick={generateBatch}><Sparkles size={14}/>{batchBusy?'批量生成中…':`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
         </div>
       </div>
-      <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${categoryAssets.length} 项 · 默认选择未生成资产；人物包含全部妆造，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>停止后续生成</button>}</div>
+      <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${displayAssets.length} 项 · ${onlyMissing?'仅生成当前分类未出图的资产与妆造':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>停止后续生成</button>}</div>
       {batchError&&<div className="collab-error" role="alert">{batchError}</div>}
-      <div className="art-workbench-subhead"><span>全剧{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项<span className="art-workbench-caption">{category === 'character' ? '按人物定位，框内切换妆造' : '提示词与生成结果一一对应'}</span></span><input type="search" aria-label="搜索全剧资产" placeholder="搜索角色、妆造或资产" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      <div className="art-workbench-subhead"><span>全剧{ASSET_CATEGORIES[category]} · {onlyMissing?`${displayAssets.length}/${categoryAssets.length}`:categoryAssets.length} 项<span className="art-workbench-caption">{category === 'character' ? '按人物定位，框内切换妆造' : '提示词与生成结果一一对应'}</span></span><div className="asset-view-filters"><button type="button" className={`secondary asset-missing-filter ${onlyMissing?'active':''}`} aria-pressed={onlyMissing} disabled={batchBusy} onClick={()=>setOnlyMissing(value=>!value)}>只看未生成（{pendingAssets.length}）</button><input type="search" aria-label="搜索全剧资产" placeholder="搜索角色、妆造或资产" value={search} onChange={(event) => setSearch(event.target.value)} /></div></div>
       <div className="asset-library-layout"><AssetQuickNav entries={locations} locator={locator} rail /><div className="collab-art-body art-workbench-rows">
         {category === 'character' ? characterGroups.map((group, groupIndex) => {
           const selected = group.variants.find((item) => item.id === outfits[group.base]) || group.variants[0];
@@ -1041,7 +1043,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
           <AssetIdentity asset={selected} index={index} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)} />
           <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
-        {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `暂无${ASSET_CATEGORIES[category]}资产`}</div>}
+        {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : onlyMissing?'当前分类已全部生成图片':`暂无${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} initialName={manualName} initialCategory={category} onClose={() => setManualOpen(false)} />}
