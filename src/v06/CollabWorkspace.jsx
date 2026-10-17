@@ -8,7 +8,7 @@ import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection } from '../../core/assetImages.js';
 import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
-import {artScriptFingerprint} from '../../core/artScriptContext.js';
+import AssetSceneLinks from './AssetSceneLinks.jsx';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
 import {artReviewFailureSummary} from '../../core/artReviewBatch.js';
 import {projectPublishedReviewAssets,completedReviewPrompt} from '../../core/artReview.js';
@@ -160,8 +160,6 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
   const analyzing = ['running','stopping'].includes(analysisJob?.status);
   const reviewStore=getArtReviewStore({api,projectId:project.id,accountId});
   const workflow=artWorkflowState(reviewStore.snapshot(),project);
-  const scriptContext=reviewStore.snapshot().scriptContext;
-  const contextCurrent=scriptContext?.complete&&scriptContext.signature===artScriptFingerprint(project);
 
   useEffect(() => { const previous=scriptSource.current,next=project.script||'';scriptSource.current={projectId:project.id,value:next};setScript(current=>previous.projectId!==project.id||current===previous.value?next:current); }, [project.id, project.script]);
   useEffect(() => { setSelectedStyle(project.style || ''); }, [project.id, project.style]);
@@ -202,10 +200,6 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
           ))}
         </div>
         <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
-        <div className="collab-panel-title"><FileText size={15} /> 剧本背景</div>
-        <div className="art-script-context" role="region" aria-label="自动分析的剧本背景">
-          {contextCurrent?<FormattedText text={scriptContext.genre}/>:<><p>开始分析后，模型会先通读全剧，确定背景、时代、族群与故事风格。</p>{scriptContext?.complete&&<small>剧本已有变化，将重新分析。上次结果仍保留。</small>}</>}
-        </div>
         <div className="collab-panel-title"><Sparkles size={15} /> 分析模型</div>
         <select aria-label="分析模型" value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!canEdit || analyzing}>
           {!apiProfiles.length && <option value="">请先在 API 接口中添加模型</option>}
@@ -621,7 +615,7 @@ function AssetIdentity({ asset, index, checked, onToggle, generating, children }
     <div className="art-row-index"><span>{String(index + 1).padStart(2, '0')}</span>{onToggle && <input type="checkbox" aria-label={`选择 ${asset.name} 批量生成`} checked={checked} onChange={onToggle} />}</div>
     <strong>{parsed.base || asset.name}</strong>
     {parsed.variant && <span className="art-row-variant">{parsed.variant}</span>}
-    {!!asset.sceneIds?.length && <small title={asset.sceneIds.join('、')}>对应场景 · {asset.sceneIds.join('、')}</small>}
+    {!!asset.sceneIds?.length && <AssetSceneLinks key={asset.id} sceneIds={asset.sceneIds} name={parsed.base || asset.name}/>}
     {Array.isArray(asset.sceneIds)&&!asset.sceneIds.length&&!asset.episodes?.length&&<small>已移出场景 · 历史图片保留</small>}
     <small>{asset.reused ? `复用自第 ${asset.first_episode} 集` : asset.first_episode ? `首现 · 第 ${asset.first_episode} 集` : ASSET_CATEGORIES[asset.category]}</small>
     <span className={`art-row-state ${generating ? 'generating' : imageCount ? 'ready' : ''}`}>{generating ? <Loader2 size={11} className="spin" /> : <span />}{generating ? '生成中' : imageCount ? `${imageCount} 张图片` : '待生成'}</span>

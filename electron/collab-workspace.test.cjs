@@ -51,7 +51,7 @@ test('CollabWorkspace：身份权限过滤与七个功能区', () => {
   // 信息读取：画风选择 / 全剧背景自动读取 / 分析模型；内置规则不占UI。
   assert.match(ws, /COLLAB_STYLES\.map/);
   assert.match(ws, /runContinuousArtAnalysis/);
-  assert.match(ws, /自动分析的剧本背景/);
+  assert.doesNotMatch(ws, /自动分析的剧本背景/);
   // 美术：复用与 @参考
   assert.match(ws, /resolveAssetImageReference/);
   assert.match(ws, /const defaultReference = resolveAssetReference\(asset, assets\)/);

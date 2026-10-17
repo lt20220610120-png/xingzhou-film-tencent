@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.XZ_PLAYWRIGHT_MODULE||'playwright');
 const base=process.env.XZ_QA_URL||'http://127.0.0.1:5802/';
-const out=path.resolve('output/playwright/art-analysis-2.8.43');fs.mkdirSync(out,{recursive:true});
+const out=path.resolve('output/playwright/art-analysis-2.8.44');fs.mkdirSync(out,{recursive:true});
 let browser,page;const errors=[],report={checks:[],realApiCalls:0};
 (async()=>{
  const {defaultComposedAssetPromptPrefix,serializeComposedAssetPrompt}=await import('../core/artImageComposition.js');
@@ -47,7 +47,8 @@ let browser,page;const errors=[],report={checks:[],realApiCalls:0};
  },{oldDescription});
  await page.goto(base,{waitUntil:'domcontentloaded'});
  await page.getByRole('button',{name:'项目协作',exact:true}).click();await page.locator('.collab-rail').getByRole('button',{name:'信息读取',exact:true}).click();
- await page.getByRole('region',{name:'自动分析的剧本背景'}).waitFor();
+ await page.getByRole('button',{name:'分析 / 继续未完成',exact:true}).waitFor();
+ assert.equal(await page.getByRole('region',{name:'自动分析的剧本背景'}).count(),0);
  assert.equal(await page.getByLabel('剧本题材与时代',{exact:true}).count(),0);assert.equal(await page.getByText('内置美术规则',{exact:true}).count(),0);
  await page.screenshot({path:path.join(out,'01-info-before.png')});
  await page.getByRole('button',{name:'分析 / 继续未完成',exact:true}).click();
@@ -61,7 +62,7 @@ let browser,page;const errors=[],report={checks:[],realApiCalls:0};
  const counts=await page.evaluate(()=>({types:__artqa.calls.map(c=>c.type),episodes:__artqa.calls.filter(c=>c.type==='episode').map(c=>c.episode),context:__artqa.ledger.scriptContext,genre:__artqa.project.genre,records:Object.values(__artqa.ledger.episodes).map(r=>({n:r.episodeNumber,status:r.status,failure:r.failure})),notes:__artqa.ledger.analysisRun.notes}));
  report.debug=counts;fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));
  assert.equal(counts.context.complete,true);assert.ok(counts.context.chunks.length>=2);assert.match(counts.genre,/架空现代纽约/);assert.ok(counts.records.every(r=>r.status==='generated'&&!r.failure));assert.deepEqual(counts.episodes,[1,1,2,2,3]);assert.equal(counts.types.filter(t=>t==='details').length,2);
- assert.ok(counts.notes.some(n=>n.includes('自动修复')));assert.equal(await page.getByRole('region',{name:'自动分析的剧本背景'}).getByText(/纽约/).count()>0,true);
+ assert.ok(counts.notes.some(n=>n.includes('自动修复')));assert.equal(await page.getByRole('region',{name:'自动分析的剧本背景'}).count(),0);
  await page.locator('.art-config-status summary').click();await page.screenshot({path:path.join(out,'02-analysis-complete.png')});
  const count=await page.evaluate(()=>__artqa.calls.length);await page.getByRole('button',{name:'分析 / 继续未完成',exact:true}).click();await page.waitForTimeout(800);assert.equal(await page.evaluate(()=>__artqa.calls.length),count);
  report.checks.push('一次启动完成3集：解析完整但截断的清单重试、错名关联重试、漏描述自动补齐，完整结果不重复请求；全文背景分段缓存并保存云genre');
