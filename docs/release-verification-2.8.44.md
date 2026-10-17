@@ -17,4 +17,7 @@
 - 最终npm test通过2191/2191（133.2秒，output/tests-2844-final.log），npm run build通过；旧界面source contract按用户新要求由“存在背景展示”改为“不展示”，其他分析流程断言保留。
 - 上版真实React回归通过：全文背景分段缓存与genre保存、停止重试、3集自动修复完成、生物单张/批量构图、全部核实发布→美术显示。证据output/playwright/art-analysis-2.8.44/。
 - 独立最终复核通过，真实Edge验证Enter/ArrowDown进入列表、PageDown滚动、Escape回焦、第七套妆造切换收起与无资产写入；未发现重要遗留。
-- 安装包与公开更新验证完成后补录。
+- NSIS安装包及打包运行验证通过（qa/packaged-smoke-2.8.44-1792204511230）；未关闭或替换用户正在运行的软件。包release/2.8.44/Xingzhou-Film-Tencent-Setup-2.8.44.exe，103625120字节，SHA256 cdf96676d8b4644ba6449897110030db413334c0c5a96a432a25b46c25661332。
+- 功能提交0e545b4；正式GitHub Release、两仓库main签名latest.json与官方备用源已发布。公开完整下载103625120字节，大小/SHA256/GitHub asset digest与本地一致，两份清单相同。证据output/release-2844-public.json、release-2844-public-manifest.json。
+- 正式客户端更新函数发现2.8.42/2.8.43→2.8.44，当前2.8.44显示最新。官方优先IP源签名通过，Range 65536字节返回206，MZ及总大小一致。证据output/storyboard2844-inapp-update-verification.json。域名备用源曾出现本机Node TLS中断，未重复记为通过，优先IP源已验证。
+- 公开安装包https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.44/Xingzhou-Film-Tencent-Setup-2.8.44.exe 。
