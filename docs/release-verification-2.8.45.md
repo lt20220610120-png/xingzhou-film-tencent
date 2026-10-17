@@ -16,4 +16,7 @@
 - scripts/verify-missing-creative-ui.cjs使用完整生产React和隔离API：93个人物妆造→8未生成，定位7组、主角仅2套缺图造型；已有图片预先手动勾选后开筛选，批量仅8次mock请求，实际保存7个正确待生成ID，失败87仍可见；已有主角基准用于参考但不重新生成。搜索/切分类/刷新/成功消失/全完成0项/恢复全部及1120–2048px无横向溢出。
 - 同UI脚本验证第7集2场：实际aiChat包含整场末尾、导演构想、所选完整Skill及镜头附件、所选模型和16:9项目设定；无快速局部改写或其他场景串入。两场同时请求、反序回包仍各自保存，当前场景只展示本场创造结果，历史与sourceText完整；空回包报错且不添加假记录。
 - 独立最终复核通过，无重要遗留。仅mock生成，真实调用0。UI证据output/playwright/missing-creative-2.8.45/。
-- 安装包、公开发布与软件内更新验证完成后补录。
+- NSIS安装包和打包运行验证通过，qa/packaged-smoke-2.8.45-1792246248079。包release/2.8.45/Xingzhou-Film-Tencent-Setup-2.8.45.exe，103625238字节，SHA256 7b40a572acb064e3104b2d4317f72f26a34da57fefa7f3b77500da8c8667599f。未关闭或替换用户当前运行软件。
+- 功能提交38075a7；首次GitHub上传网络断连后，复用同版本Release重传成功。正式Release、双main签名latest.json及官方备用源已发布；公开整包完整下载103625238字节，大小/SHA256/GitHub asset digest/本地包一致，两份main清单相同。证据output/release-2845-public.json与release-2845-public-manifest.json。
+- 正式客户端更新函数实测2.8.43/44发现2.8.45，2.8.45显示最新；优先官方IP源签名、Range 65536字节状态206、MZ与总大小一致。证据output/storyboard2845-inapp-update-verification.json；域名备用源本机Node曾TLS中断，不重复记为通过，优先IP源已验证。
+- 公开包https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.45/Xingzhou-Film-Tencent-Setup-2.8.45.exe 。
