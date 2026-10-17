@@ -1,0 +1,27 @@
+[Unit]
+Description=Win AI gateway (New API)
+After=network-online.target win-ai-port-guard.service
+Requires=win-ai-port-guard.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=win-ai
+Group=win-ai
+WorkingDirectory=/var/lib/win-ai
+EnvironmentFile=/etc/win-ai/service.env
+ExecStart=/opt/win-ai/bin/new-api-v1.0.0-rc.45 --port 8317 --log-dir /var/log/win-ai
+Restart=on-failure
+RestartSec=5
+MemoryMax=512M
+CPUQuota=80%
+TasksMax=128
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/win-ai /var/log/win-ai
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

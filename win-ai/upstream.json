@@ -1,0 +1,12 @@
+{
+  "name": "Win AI",
+  "version": "0.1.0",
+  "upstream": "https://github.com/QuantumNous/new-api",
+  "upstreamVersion": "v1.0.0-rc.45",
+  "binary": "new-api-v1.0.0-rc.45",
+  "binarySha256": "0eb9bcda72b25f840226d2493f2ef1074471fa511298213bca89672add7ceee9",
+  "sourceUrl": "https://codeload.github.com/QuantumNous/new-api/zip/refs/tags/v1.0.0-rc.45",
+  "sourceSha256": "a0803486aaad5af71144a3cb344c4a336fa9e8a00fa3202073ef9e3f3508f3e8",
+  "license": "AGPL-3.0",
+  "modifications": "Original binary unchanged. Win AI branding and operating options use the official admin API. Added independent static welcome page, documentation and deployment configuration."
+}
