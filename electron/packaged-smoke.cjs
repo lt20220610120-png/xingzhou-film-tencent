@@ -118,12 +118,13 @@ module.exports = function configurePackagedSmoke(app) {
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{
           const file=path.join(mediaDir,name);
           fs.writeFileSync(file,index===0?Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO3ZtqsAAAAASUVORK5CYII=','base64'):Buffer.from([index,1,2,3]));
-          return `xzmedia:///${encodeURIComponent(file)}`;
+          return `xzmedia://local/${encodeURIComponent(file)}`;
         });
         const {net}=require('electron');
         const results=await Promise.all(files.map(async url=>{try{const response=await net.fetch(url);return {status:response.status,length:(await response.arrayBuffer()).byteLength};}catch(error){return {error:String(error)};}}));
         const image=await win.webContents.executeJavaScript(`new Promise(resolve=>{const img=new Image();img.onload=()=>resolve({loaded:true,width:img.naturalWidth});img.onerror=()=>resolve({loaded:false});img.src=${JSON.stringify(files[0])};})`);
         report.localMedia={results,image};
+        report.videoPreview=await require('./video-preview-smoke.cjs')(win,mediaDir);
         report.workBuddy.bridge = await win.webContents.executeJavaScript('typeof window.xingzhou?.workBuddyOpen === "function" && typeof window.xingzhou?.onWorkBuddyState === "function"');
         report.artReview = await win.webContents.executeJavaScript(`(async () => {
           const api = window.xingzhou;

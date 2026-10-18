@@ -5,10 +5,11 @@ test('资料迁移复制素材、所有进度和备份，并改写本机路径�
  const {source,target}=await fixture(t);const original=path.join(source,'画布素材','a.png');
  await fs.mkdir(path.dirname(original));await fs.writeFile(original,'image');
  const custom=path.join(source,'参考片','a.mp4');await fs.mkdir(path.dirname(custom));await fs.writeFile(custom,'video');
- const state={directorProjects:[{id:'p',mediaFile:original}],scriptProjects:[{id:'s',draft:'保留文字',referenceVideo:custom}]};await fs.writeFile(path.join(source,'xingzhou-data.json'),JSON.stringify(state));
+ const state={directorProjects:[{id:'p',mediaFile:original,legacyUrl:'xzmedia:///'+encodeURIComponent(original),url:'xzmedia://local/'+encodeURIComponent(original)}],scriptProjects:[{id:'s',draft:'保留文字',referenceVideo:custom}]};await fs.writeFile(path.join(source,'xingzhou-data.json'),JSON.stringify(state));
  for(const dir of ['analysis-checkpoints','art-review-checkpoints','director-live-local','导演工作台的项目/quick-generation/account']){await fs.mkdir(path.join(source,dir),{recursive:true});await fs.writeFile(path.join(source,dir,'progress.json'),JSON.stringify({filePath:original}));}
  await load().prepareDataDirectory(source,target,state);
  const saved=JSON.parse(await fs.readFile(path.join(target,'xingzhou-data.json'),'utf8'));assert.equal(saved.directorProjects[0].mediaFile,path.join(target,'画布素材','a.png'));assert.equal(saved.scriptProjects[0].draft,'保留文字');
+ assert.equal(saved.directorProjects[0].url,'xzmedia://local/'+encodeURIComponent(path.join(target,'画布素材','a.png')));assert.equal(saved.directorProjects[0].legacyUrl,saved.directorProjects[0].url);
  for(const dir of ['analysis-checkpoints','art-review-checkpoints','director-live-local','导演工作台的项目/quick-generation/account'])assert.equal(JSON.parse(await fs.readFile(path.join(target,dir,'progress.json'),'utf8')).filePath,path.join(target,'画布素材','a.png'));
  assert.equal(await fs.readFile(original,'utf8'),'image');assert.equal(await fs.readFile(path.join(target,'画布素材/a.png'),'utf8'),'image');
  assert.equal(saved.scriptProjects[0].referenceVideo,path.join(target,'参考片/a.mp4'));assert.equal(await fs.readFile(saved.scriptProjects[0].referenceVideo,'utf8'),'video');

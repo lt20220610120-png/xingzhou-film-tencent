@@ -3,7 +3,7 @@ const exists=async p=>{try{await fs.lstat(p);return true;}catch(e){if(e.code==='
 const inside=(root,p)=>{const rel=path.relative(root,p);return rel!==''&&!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel);};
 function rewritePaths(value,source,target){
  if(typeof value==='string'){
-  if(value.startsWith('xzmedia:///')){try{const p=decodeURIComponent(value.slice(11));if(inside(source,p))return 'xzmedia:///'+encodeURIComponent(path.join(target,path.relative(source,p)));}catch{}return value;}
+  if(/^xzmedia:\/\/(?:local\/|\/)/.test(value)){try{const p=decodeURIComponent(value.replace(/^xzmedia:\/\/(?:local\/|\/)/,''));if(inside(source,p))return 'xzmedia://local/'+encodeURIComponent(path.join(target,path.relative(source,p)));}catch{}return value;}
   return path.isAbsolute(value)&&inside(source,path.resolve(value))?path.join(target,path.relative(source,value)):value;
  }
  if(Array.isArray(value))return value.map(v=>rewritePaths(v,source,target));

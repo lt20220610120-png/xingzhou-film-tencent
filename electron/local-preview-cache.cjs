@@ -5,7 +5,7 @@ function createLocalPreviewCache({directory,maxBytes=128*1024*1024,maxAgeMs=30*8
   const identity=cacheIdentity(url,'preview-v1:'+account);
   return account&&identity?path.join(typeof directory==='function'?directory():directory,identity.replace(/\.[^.]+$/,'.webp')):null;
  };
- const local=file=>'xzmedia:///'+encodeURIComponent(file);
+ const local=file=>'xzmedia://local/'+encodeURIComponent(file);
  const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
  return {
   async get(url,account) {

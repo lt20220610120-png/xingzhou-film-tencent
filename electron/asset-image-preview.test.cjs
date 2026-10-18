@@ -38,8 +38,8 @@ test('preview, export and reference reads share bytes while each preview still c
     checks++;if(!allowed)throw Error('无权访问');return {id:'image',url};
   }});
   const first=await preview({imageId:'image'});
-  assert.match(first.url,/^xzmedia:\/\/\//);
-  assert.equal(decodeURIComponent(first.url.slice('xzmedia:///'.length)),path.join(directory,path.basename(decodeURIComponent(first.url.slice('xzmedia:///'.length)))));
+  assert.match(first.url,/^xzmedia:\/\/local\//);
+  assert.equal(decodeURIComponent(first.url.slice('xzmedia://local/'.length)),path.join(directory,path.basename(decodeURIComponent(first.url.slice('xzmedia://local/'.length)))));
   await preview({imageId:'image'});
   assert.equal((await readMediaBytes(url.replace('signature=a','signature=b'),options)).bytes.toString(),'original');
   assert.equal(checks,2);assert.equal(downloads,1);

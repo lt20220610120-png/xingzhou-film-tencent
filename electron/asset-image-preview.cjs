@@ -25,7 +25,7 @@ function createAssetImagePreview({resolveImage,readBytes,readAccount,previewCach
     if(readAccount()!==account)throw new Error('账号已切换，请重新打开图片');
     if(!/^image\/(png|jpeg|webp|gif)$/.test(result.mime))throw new Error('图片内容格式不正确');
     const url=result.filePath
-      ? `xzmedia:///${encodeURIComponent(result.filePath)}`
+      ? `xzmedia://local/${encodeURIComponent(result.filePath)}`
       : `data:${result.mime};base64,${result.bytes.toString('base64')}`;
     return {...image,originalUrl:image.url,url};
   };

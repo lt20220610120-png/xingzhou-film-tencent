@@ -1,0 +1,30 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {createLocalMediaHandler,LOCAL_MEDIA_PRIVILEGES,exportMediaFile}=require('./local-media.cjs');
+test('local video protocol is standard and supports tail reads, seeking, HEAD and invalid ranges',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-video-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const file=path.join(root,'视频.mp4');fs.writeFileSync(file,'0123456789');const handle=createLocalMediaHandler(()=>root);
+ assert.equal(LOCAL_MEDIA_PRIVILEGES.standard,true);assert.equal(LOCAL_MEDIA_PRIVILEGES.stream,true);
+ const request=(options={})=>new Request(`xzmedia://local/${encodeURIComponent(file)}`,options);
+ let r=await handle(request({headers:{range:'bytes=3-5'}}));assert.equal(r.status,206);assert.equal(r.headers.get('content-range'),'bytes 3-5/10');assert.equal(await r.text(),'345');
+ r=await handle(request({headers:{range:'bytes=-3'}}));assert.equal(await r.text(),'789');
+ r=await handle(request({headers:{range:'bytes=4-'}}));assert.equal(await r.text(),'456789');
+ r=await handle(request({method:'HEAD'}));assert.equal(r.headers.get('content-length'),'10');assert.equal(r.headers.get('content-type'),'video/mp4');assert.equal(await r.text(),'');
+ r=await handle(request({headers:{range:'bytes=20-'}}));assert.equal(r.status,416);assert.equal(r.headers.get('content-range'),'bytes */10');
+ assert.equal((await handle(request({headers:{range:'bytes=1-2,4-5'}}))).status,416);
+ assert.equal((await handle(new Request('xzmedia:///%ZZ'))).status,400);
+ assert.equal((await handle(new Request(`xzmedia:///${encodeURIComponent(path.join(root,'missing.mp4'))}`))).status,404);
+ assert.equal((await handle(new Request(`xzmedia:///${encodeURIComponent(__filename)}`))).status,403);
+ assert.equal((await handle(request({method:'POST'}))).status,405);
+ const controller=new AbortController();controller.abort();assert.equal((await handle(request({signal:controller.signal}))).status,499);
+});
+test('download preserves original bytes, recovers missing local copy from URL, and honors cancel',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-export-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const file=path.join(root,'source.mp4'),dest=path.join(root,'saved.mp4');fs.writeFileSync(file,Buffer.from([0,1,2,255]));
+ let downloads=0;const deps={showSaveDialog:async()=>({filePath:dest}),downloadToFile:async()=>{downloads++;return file;},mediaDir:()=>root};
+ assert.equal(await exportMediaFile({filePath:file,kind:'video'},deps),dest);assert.deepEqual(fs.readFileSync(dest),fs.readFileSync(file));assert.equal(downloads,0);
+ await exportMediaFile({filePath:path.join(root,'missing.mp4'),url:'https://example.com/video.mp4',kind:'video'},deps);assert.equal(downloads,1);
+ assert.equal(await exportMediaFile({filePath:file},{...deps,showSaveDialog:async()=>({canceled:true})}),null);
+ await assert.rejects(exportMediaFile({url:'file:///private' },deps),/下载地址无效/);
+});

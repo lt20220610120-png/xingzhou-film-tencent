@@ -327,7 +327,7 @@ const readAssetLocalReference = (accountId, projectId, assetId) => {
 const resolveAssetImageReference = (asset, assets, choice, projectId, accountId) => {
   if(choice!=='__local__')return resolveAssetReference(asset,assets,choice);
   const localReference=readAssetLocalReference(accountId,projectId,asset.id);
-  return localReference?{id:'__local__',name:localReference.name||'本机参考图',category:'reference',image_url:`xzmedia:///${encodeURIComponent(localReference.filePath)}`,localReference}:null;
+  return localReference?{id:'__local__',name:localReference.name||'本机参考图',category:'reference',image_url:`xzmedia://local/${encodeURIComponent(localReference.filePath)}`,localReference}:null;
 };
 const assetImageReferences = refAsset => refAsset?.localReference?[refAsset.localReference]:refAsset?autoReferences(`@${refAsset.name}`,[refAsset]):[];
 function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId }) {

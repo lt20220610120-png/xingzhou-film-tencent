@@ -28,7 +28,7 @@ export function autoReferences(prompt, assets) {
     return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,kind:'image',url:image.url}] : [];
   });
 }
-export const mediaSource = item => item.filePath ? `xzmedia:///${encodeURIComponent(item.filePath)}` : item.url || '';
+export const mediaSource = item => item.filePath ? `xzmedia://local/${encodeURIComponent(item.filePath)}` : (item.url || '').replace(/^xzmedia:\/\/\//, 'xzmedia://local/');
 
 export function appendImportedReferences(existing, files, kind, caps = {}) {
   const capKey = {image:'maxImages',audio:'maxAudios',video:'maxVideos'}[kind];

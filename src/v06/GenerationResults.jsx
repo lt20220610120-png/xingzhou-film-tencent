@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { RefreshCw, Download, Copy, Film, Trash2, X } from 'lucide-react';
+import React, { useCallback, useState } from 'react';
+import { RefreshCw, Download, Copy, Film, Trash2 } from 'lucide-react';
 import models from '../../core/feituo-models.json';
 import { mediaSource } from '../../core/generationReferences.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
+import { MediaPreview } from './MediaPreview.jsx';
 
 const names = { submitting: '提交中', submitted: '排队 / 生成中', downloading: '下载中', success: '已完成', failed: '失败', uncertain: '待核对' };
 const clearable = task => ['success', 'failed'].includes(task.status);
@@ -17,12 +18,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const candidates = tasks.filter(clearable);
-  useEffect(() => {
-    if (!preview) return;
-    const close = event => { if (event.key === 'Escape') setPreview(null); };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [preview]);
+  const closePreview = useCallback(() => setPreview(null), []);
   const askClear = selected => { setPreview(null); setError(''); setNotice(''); setCleanup(selected); };
   const confirmClear = async () => {
     if (busy || !cleanup?.length) return;
@@ -34,9 +30,19 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     } catch (cause) { setError(cause.message || '清理失败，请重试'); }
     finally { setBusy(false); }
   };
+  const exportTask = async task => {
+    let saved = false;
+    const files = task.files?.length ? task.files : [task.filePath];
+    for (const [index, filePath] of files.entries()) {
+      const result = await api.mediaExportFile({ filePath, url: task.urls?.[index] || task.url, kind: task.kind });
+      if (!result) break;
+      saved = true;
+    }
+    return saved;
+  };
   const download = async task => {
     setError('');
-    try { for (const filePath of task.files?.length ? task.files : [task.filePath]) await api.mediaExportFile({ filePath, url: task.url, kind: task.kind }); }
+    try { if (await exportTask(task)) setNotice('文件已保存'); }
     catch (cause) { setError(cause.message); }
   };
   return <section className="generation-results generation-results-refined">
@@ -66,7 +72,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
       </div>{task.costYuan != null && <small>¥{Number(task.costYuan).toFixed(2)}</small>}</footer>
     </article>)}</div>
     {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p><small>生成作品后，可在这里预览、下载或复用</small></div>}
-    {preview && <div className="generation-preview-overlay" role="dialog" aria-modal="true" aria-label="作品预览"><button aria-label="关闭预览" onClick={() => setPreview(null)}><X/></button>{preview.kind === 'image' ? <img src={mediaSource(preview)} alt="生成结果大图"/> : <video src={mediaSource(preview)} controls autoPlay/>}</div>}
+    {preview && <MediaPreview key={preview.id} item={preview} onClose={closePreview} onDownload={exportTask}/>}
     <DeleteConfirm open={!!cleanup} title={cleanup?.length === 1 ? '清除这条生成结果？' : '清除全部生成结果？'}
       detail={`将清除当前列表中选定的 ${cleanup?.length || 0} 条已完成或失败的结果及其本地副本，清除后无法在这里恢复。另存到其他文件夹的下载、云端协作素材和仍被使用的文件会保留。运行中和待核对的任务会保留。`}
       confirmLabel="确认清除" busy={busy} error={error} onCancel={() => { if (!busy) { setCleanup(null); setError(''); } }} onConfirm={confirmClear}/>
