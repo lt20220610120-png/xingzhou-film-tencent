@@ -151,6 +151,7 @@ module.exports = function configurePackagedSmoke(app) {
           sandbox:win.webContents.getLastWebPreferences().sandbox===true,
           devToolsDisabled:!win.webContents.isDevToolsOpened(),
         };
+        report.winAI=await require('./win-ai-packaged-smoke.cjs')(win);
         const {session}=require('electron');
         session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:/^https?:/.test(details.url)}));
         await win.webContents.executeJavaScript("new Promise(resolve=>{const frame=document.createElement('iframe');frame.id='security-canvas-check';frame.onload=()=>resolve(true);frame.onerror=()=>resolve(false);frame.src='xzapp://canvas/index.html#/canvas';document.body.append(frame);setTimeout(()=>resolve(false),5000);})");

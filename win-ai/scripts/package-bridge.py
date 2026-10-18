@@ -9,11 +9,11 @@ WIN = ROOT/'win-ai'
 version = json.loads((WIN/'upstream.json').read_text(encoding='utf-8'))['version']
 out = ROOT/'release/win-ai'/version/('Win-AI-'+version+'.zip')
 out.parent.mkdir(parents=True, exist_ok=True)
-bridge = ['server.cjs', 'postgres-repository.cjs', 'win-ai-identity.cjs', 'win-ai-repository.cjs', 'win-ai-sqlite.py', 'win-ai-lookup.cjs', 'win-ai-payment.cjs']
+bridge = ['server.cjs', 'postgres-repository.cjs', 'win-ai-identity.cjs', 'win-ai-repository.cjs', 'win-ai-sqlite.py', 'win-ai-lookup.cjs', 'win-ai-payment.cjs', 'win-ai-web-auth.cjs']
 old = ROOT/'release/win-ai/0.1.0/Win-AI-0.1.0.zip'
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as bundle:
     for path in WIN.rglob('*'):
-        if not path.is_file() or '__pycache__' in path.parts or path.suffix == '.pyc' or path.name.endswith('.dpapi.xml'):
+        if not path.is_file() or '__pycache__' in path.parts or path.suffix == '.pyc' or path.name.endswith('.dpapi.xml') or path.name in {'renew-server-once.py', 'server-renewal-quote.py'}:
             continue
         bundle.writestr('win-ai/'+path.relative_to(WIN).as_posix(), path.read_bytes().replace(b'\r\n', b'\n'))
     for name in bridge:

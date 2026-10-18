@@ -41,7 +41,7 @@ let password = '';
     const creds = JSON.parse(execFileSync('ssh',['-i',path.join(process.env.USERPROFILE,'.ssh/xingzhou_tencent_test'),'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+path.join(process.env.USERPROFILE,'.ssh/known_hosts_xingzhou'),'ubuntu@106.55.41.128','sudo cat /etc/win-ai/admin.json'],{encoding:'utf8'}));
     password = creds.password;
     await page.setViewportSize({width:1440,height:1000});
-    await page.goto(origin+'/sign-in');
+    await page.goto(origin+'/sign-in?admin=1',{waitUntil:'domcontentloaded',timeout:60000});
     await page.getByRole('textbox').first().fill(creds.username);
     await page.locator('input[type=password]').fill(creds.password);
     await page.getByRole('button',{name:/^(登录|Sign in)$/}).click();
@@ -49,13 +49,15 @@ let password = '';
     await page.getByRole('link',{name:'概览',exact:true}).waitFor({state:'visible',timeout:30000});
     await page.waitForLoadState('networkidle');
     await page.screenshot({path:path.join(out,'dashboard.png'),fullPage:true});
-    for (const route of ['/channels','/keys','/users']) {
-      await page.goto(origin+route,{waitUntil:'networkidle'});
-      assert.equal(new URL(page.url()).pathname,route,'Session failed on '+route);
+    for (const route of ['/channels','/keys','/users','/models','/usage-logs','/usage-logs/task','/system-settings/billing/model-pricing','/system-settings/billing/payment']) {
+      await page.goto(origin+route,{waitUntil:'domcontentloaded',timeout:60000});
+      await page.locator('main').waitFor({state:'visible',timeout:30000});
+      assert(new URL(page.url()).pathname.startsWith(route),'Session failed on '+route);
       assert.match(await page.title(),/Win AI/);
-      await page.screenshot({path:path.join(out,route.slice(1)+'.png'),fullPage:true});
+      await page.screenshot({path:path.join(out,route.slice(1).replaceAll('/','-')+'.png'),fullPage:true});
     }
     // Refresh uses a Secure HttpOnly cookie across real HTTPS requests.
+    await page.goto(origin+'/users',{waitUntil:'networkidle'});
     await page.reload({waitUntil:'networkidle'});
     assert.equal(new URL(page.url()).pathname,'/users');
     assert.equal((await context.request.get(origin+'/api/setup')).status(),200);

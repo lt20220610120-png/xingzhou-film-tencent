@@ -23,7 +23,9 @@ function createServer(env = process.env, deps = {}) {
   const traffic = new Map(); let trafficSince=Date.now();
   const identity=require('./win-ai-identity.cjs').createWinAIIdentity({repository,clientSecret:env.WIN_AI_OAUTH_CLIENT_SECRET,lookup:deps.winAILookup||require('./win-ai-lookup.cjs').createWinAILookup(env)});
   const identityHttp=require('./win-ai-identity.cjs').createWinAIHttpHandler(identity);
+  const webAuth=require('./win-ai-web-auth.cjs').createWinAIWebAuth({repository,identity,mailer});
   const server=http.createServer((request, response) => {
+    if(request.url?.startsWith('/api/win-ai/web/')){void webAuth(request,response);return;}
     if(request.url?.startsWith('/api/win-ai/')){void identityHttp(request,response);return;}
     if(require('./update-download.cjs').serveUpdate(request,response,env.UPDATE_FILES_DIR||'/opt/xingzhou-updates'))return;
     if (request.method === 'GET' && request.url === '/healthz') {
@@ -87,6 +89,7 @@ function createServer(env = process.env, deps = {}) {
           const user = await repository.findBySession(tokenHash(bearer));
           if (!user) return send({ status: 401, body: { error: '请先登录账号' } });
           if (user.banned) return send({ status: 403, body: { error: '账号已被停用' } });
+          if(Array.isArray(user.roles)&&user.roles.length===0&&!user.is_admin&&!user.is_producer&&!['logout','win-ai-entry','profile-update','unlock'].includes(action))return send({status:403,body:{error:'当前账号可使用 Win AI；影视工作权限需由管理员开通'}});
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
           if (action === 'win-ai-entry') return send({status:200,body:{ticket:await identity.issue(tokenHash(bearer),payload.challenge),expiresIn:60}});
           if(action==='profile-update')return send(await require('./profile.cjs').updateProfile(payload,user,repository));

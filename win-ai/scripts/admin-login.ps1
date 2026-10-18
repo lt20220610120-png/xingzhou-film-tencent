@@ -21,4 +21,4 @@ Set-Clipboard -Value $credential.GetNetworkCredential().Password
 Write-Host ('管理员账号：' + $credential.UserName)
 Write-Host '密码已复制到剪贴板，请在打开的登录页粘贴。'
 Write-Host '凭据已通过 Windows DPAPI 加密，仅当前 Windows 账户能够解密。修改站点密码后，请删除本机旧凭据缓存后重新保存。'
-& (Join-Path $PSScriptRoot 'open-site.ps1') -Page 'https://winai.xingzhoufilm.cn/sign-in'
+& (Join-Path $PSScriptRoot 'open-site.ps1') -Page 'https://winai.xingzhoufilm.cn/sign-in?admin=1'

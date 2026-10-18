@@ -1,6 +1,6 @@
 {
   "name": "Win AI",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "upstream": "https://github.com/QuantumNous/new-api",
   "upstreamVersion": "v1.0.0-rc.45",
   "binary": "new-api-v1.0.0-rc.45",

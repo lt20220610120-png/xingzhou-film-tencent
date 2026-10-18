@@ -16,7 +16,7 @@ import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Film, BookOpen, Library, ScrollText, Settings, Sparkles, KeyRound,
+  Film, BookOpen, Library, ScrollText, Settings, Sparkles, KeyRound, Network,
   FileText, Bot, Plus, X, Star, Trash2, Save, Upload, Download,
   Video, PenLine, MessageSquare, HardDrive, UserRound, Users,
   RefreshCw, FolderOpen, Check, ArrowLeft, AlertCircle, LogOut, ShieldCheck, Palette
@@ -1468,7 +1468,7 @@ function App() {
   const toolsNav = [
     ['skills', Library, 'Skill 库'],
     ['apis', KeyRound, 'API 接口'],
-    ['winai', KeyRound, 'Win AI'],
+    ['winai', Network, 'Win AI'],
     ['settings', Settings, '设置'],
     ['recycle', Trash2, '回收站'],
   ];

@@ -5,6 +5,7 @@ test "$(id -u)" = 0
 test "$(realpath "$stage")" = /home/ubuntu/xingzhou-winai-v2846-stage
 app=/opt/xingzhou-cloud-backend
 node "$stage/win-ai/test/postgres-identity.cjs"
+node "$stage/win-ai/test/postgres-web-auth.cjs"
 node --check "$stage/cloud-backend/src/server.cjs"
 node --check "$stage/cloud-backend/src/win-ai-identity.cjs"
 backup=/opt/win-ai/backups/identity-$(date -u +%Y%m%dT%H%M%SZ)
@@ -12,7 +13,7 @@ install -d -m 700 "$backup" "$backup/src" "$backup/dropin"
 cp -a /etc/nginx/conf.d/win-ai.conf "$backup/nginx.conf"
 if test -f /etc/nginx/conf.d/win-ai-ip-https.conf; then cp -a /etc/nginx/conf.d/win-ai-ip-https.conf "$backup/ip-https.conf"; fi
 cp -a /opt/win-ai/public "$backup/public"
-files=(server.cjs postgres-repository.cjs win-ai-identity.cjs win-ai-repository.cjs win-ai-sqlite.py win-ai-lookup.cjs win-ai-payment.cjs)
+files=(server.cjs postgres-repository.cjs win-ai-identity.cjs win-ai-repository.cjs win-ai-sqlite.py win-ai-lookup.cjs win-ai-payment.cjs win-ai-web-auth.cjs)
 for name in "${files[@]}"; do
   if test -f "$app/src/$name"; then cp -a "$app/src/$name" "$backup/src/$name"; fi
 done

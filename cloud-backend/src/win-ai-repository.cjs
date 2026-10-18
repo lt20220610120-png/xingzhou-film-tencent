@@ -2,6 +2,18 @@ function extendWinAIRepository(pool){
  const valid='join app_users u on u.id=g.user_id join app_sessions s on s.id=g.session_id and s.user_id=u.id where u.banned=false and s.expires_at>now()';
  const fields='u.id,u.username,u.display_name,g.session_id,g.kind,g.challenge';
  return {
+  async winAIRegister(input){
+   const client=await pool.connect();
+   try{
+    await client.query('begin');
+    const code=await client.query('select email from email_codes where email=$1 and code_hash=$2 and expires_at>now() for update',[input.email,input.emailCodeHash]);
+    if(!code.rows[0])throw Object.assign(new Error('邮箱验证码无效或已过期'),{status:400});
+    const result=await client.query("insert into app_users(username,display_name,email,password_hash,roles,active_role,is_admin,is_producer) values($1,$1,$2,$3,'{}',null,false,false) returning id,username,password_hash",[input.username,input.email,input.passwordHash]);
+    await client.query('delete from email_codes where email=$1',[input.email]);
+    await client.query('commit');return result.rows[0];
+   }catch(error){await client.query('rollback');if(error.code==='23505')throw Object.assign(new Error('账号或邮箱已注册，请直接登录或找回密码'),{status:409});throw error;}finally{client.release();}
+  },
+  async winAIRevokeIdentity(hash){await pool.query("delete from app_sessions where id in (select session_id from win_ai_auth_grants where token_hash=$1 and kind='identity' and challenge='web' and expires_at>now())",[hash]);await pool.query("delete from win_ai_auth_grants where token_hash=$1 and kind='identity'",[hash]);},
   async winAISourceForNative(nativeId,observedSource){if(observedSource)await pool.query('insert into win_ai_user_links(native_user_id,source_user_id) values($1,$2) on conflict(native_user_id) do nothing',[nativeId,observedSource]);const r=await pool.query('select source_user_id from win_ai_user_links where native_user_id=$1',[nativeId]);return r.rows[0]?.source_user_id||null;},
   async winAIGrant(g){await pool.query('delete from win_ai_auth_grants where expires_at<now()');const r=await pool.query(`insert into win_ai_auth_grants(token_hash,kind,user_id,session_id,challenge,expires_at) select $1,$2,u.id,s.id,$3,to_timestamp($4/1000.0) from app_users u join app_sessions s on s.user_id=u.id where s.token_hash=$5 and s.expires_at>now() and not u.banned returning user_id as id,session_id`,[g.hash,g.kind,g.challenge||'',g.expires,g.sessionHash]);return r.rows[0]||null;},
   async winAIGetGrant(kind,hash,challenge,consume=false){

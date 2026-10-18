@@ -59,4 +59,4 @@ function copyDependency(name, from) {
   const exe = path.join(output,'win-unpacked',`${pkg.build.productName}.exe`);
   await require('./verify-packaged-runtime.cjs').verify(exe,pkg.version,Object.fromEntries(installed));
   console.log(`VERIFIED_INSTALLER ${path.join(output,`Xingzhou-Film-Tencent-Setup-${pkg.version}.exe`)}`);
-})().catch(error=>{console.error(error);process.exitCode=1;});
+})().catch(error=>{console.error(error);process.exit(1);});

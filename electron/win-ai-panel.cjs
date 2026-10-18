@@ -12,6 +12,9 @@ function createWinAIPanel({getWindow,accessService,entry,WebContentsView,session
   const verifier=crypto.randomBytes(32).toString('base64url'),challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
   const grant=await entry(challenge);if(expected!==epoch||ownerToken!==accessService.token())throw new Error('Win AI 登录已变更，请重新打开');
   const ownSession=session.fromPartition('xingzhou-win-ai-'+crypto.randomUUID());partition=ownSession;controller=new AbortController();
+  // Electron includes the Chinese app name in its default UA. protocol.handle
+  // converts Chromium headers to Fetch ByteString before invoking our handler.
+  ownSession.setUserAgent(ownSession.getUserAgent().replace(/[^\x20-\x7e]/g,''));
   ownSession.setPermissionCheckHandler?.((_wc,permission,origin)=>permission==='clipboard-sanitized-write'&&origin===ORIGIN&&expected===epoch);
   ownSession.setPermissionRequestHandler((wc,permission,callback)=>callback(wc===view?.webContents&&permission==='clipboard-sanitized-write'&&expected===epoch));
   const handler=transport({session:ownSession,signal:controller.signal});
@@ -22,7 +25,11 @@ function createWinAIPanel({getWindow,accessService,entry,WebContentsView,session
   ownView.webContents.on('did-create-window',popup=>{paymentWindows.add(popup);popup.on('closed',()=>{paymentWindows.delete(popup);if(expected===epoch&&!ownView.webContents.isDestroyed?.())void ownView.webContents.reload();});popup.webContents.setWindowOpenHandler(()=>({action:'deny'}));for(const event of ['will-navigate','will-redirect'])popup.webContents.on(event,(e,url)=>{try{if(same(url)){e.preventDefault();popup.close();return;}if(new URL(url).protocol!=='https:')e.preventDefault();}catch{e.preventDefault();}});});
   for(const event of ['will-navigate','will-redirect'])ownView.webContents.on(event,(e,url)=>{if(!same(url))e.preventDefault();});
   getWindow().contentView.addChildView(ownView);
-  try{await ownView.webContents.loadURL(ORIGIN+'/api/win-ai/bootstrap',{postData:[{type:'rawData',bytes:Buffer.from(new URLSearchParams({ticket:grant.ticket,verifier}).toString())}],extraHeaders:'Content-Type: application/x-www-form-urlencoded\r\n'});if(expected!==epoch)throw new Error('Win AI 打开已取消');ready=true;setBounds(bounds);
+  try{const bootstrap=await handler(new Request(ORIGIN+'/api/win-ai/bootstrap',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ticket:grant.ticket,verifier}).toString()}));
+   const location=bootstrap.headers.get('location');void bootstrap.body?.cancel().catch(()=>{});
+   if(bootstrap.status!==303||!location||new URL(location,ORIGIN).href!==ORIGIN+'/api/win-ai/start')throw new Error('Win AI 登录交接失败，请重新连接');
+   if(expected!==epoch||ownerToken!==accessService.token())throw new Error('Win AI 打开已取消');
+   await ownView.webContents.loadURL(ORIGIN+'/api/win-ai/start');if(expected!==epoch)throw new Error('Win AI 打开已取消');ready=true;setBounds(bounds);
    timer=interval(()=>{authorize(expected).catch(async()=>{if(expected!==epoch)return;await close();onState({closed:true,error:'行舟账号已退出或暂时无法验证，请重新连接 Win AI'});});},15000);timer?.unref?.();return{connected:true};
   }catch(error){if(expected===epoch)await close();throw error;}
  }
