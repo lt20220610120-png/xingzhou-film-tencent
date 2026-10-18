@@ -7,6 +7,7 @@ import {normalizeDirectorImportText} from './directorImportText.js';
 
 import {markPromptTimingStale,formatPromptTimingMetadata} from './promptTiming.js';
 import { normalizeCreatorProject } from './creatorWorkspace.js';
+import {isProtectedSkill} from './clientDistribution.js';
 
 // ---------- 工具函数 ----------
 let _uidCounter = 0;
@@ -361,13 +362,13 @@ export const addSkill = (state, nameOrSkill, type, content) => {
 export const updateSkill = (state, skillId, updates) => ({
   ...state,
   skills: state.skills.map(s =>
-    s.id === skillId ? { ...s, ...updates, updatedAt: now() } : s
+    s.id === skillId && !isProtectedSkill(s) ? { ...s, ...updates, updatedAt: now() } : s
   ),
 });
 
 export const removeSkill = (state, skillId) => ({
   ...state,
-  skills: state.skills.filter(s => s.id !== skillId),
+  skills: state.skills.filter(s => s.id !== skillId || isProtectedSkill(s)),
 });
 
 // ==============================

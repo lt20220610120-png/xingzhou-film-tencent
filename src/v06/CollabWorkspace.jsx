@@ -373,7 +373,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     setError(''); setBusy(true);
     try {
       if (beforeGenerate) await beforeGenerate();
-      const prompt = buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project));
+      const prompt = buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project);
       const generationProfile = profile || {};
       if (onGenerateImage) {
         const attached = await onGenerateImage({ asset, profile: generationProfile, prompt, size, references: assetImageReferences(refAsset) });
@@ -447,7 +447,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {error && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
-      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project))} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
+      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
       <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
@@ -770,7 +770,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         const appearanceIssue=characterAppearanceIssue(asset, liveAssets);
         if(!readAssetImageRecovery(project.id,asset.id)&&!refAsset&&appearanceIssue)throw new Error(appearanceIssue);
         const references = assetImageReferences(refAsset);
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references });
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
         const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||episode||0, filePath: generated.filePath });
         if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');
@@ -977,7 +977,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
         const appearanceIssue=characterAppearanceIssue(asset, liveAssets);
         if(!readAssetImageRecovery(project.id,asset.id)&&!refAsset&&appearanceIssue)throw new Error(appearanceIssue);
         const references = assetImageReferences(refAsset);
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project)), size: batchSize, references });
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references });
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
         const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||0, filePath: generated.filePath });
         if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');

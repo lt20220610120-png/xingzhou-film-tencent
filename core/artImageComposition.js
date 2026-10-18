@@ -1,5 +1,6 @@
 import{CHARACTER_PROMPT_PREFIXES,defaultAssetPromptPrefix,readAssetPrompt,serializeAssetPrompt,buildImagePrompt}from'./collabStore.js';
 import {isCreatureAsset} from './artSubjectType.js';
+import {artLocaleConstraint} from './artLocale.js';
 
 export const DEFAULT_CHARACTER_COMPOSITION='portrait-four';
 export const CHARACTER_COMPOSITIONS={
@@ -34,7 +35,8 @@ export function serializeComposedAssetPrompt({composition,...settings}){
  if(!bindingValues.has(composition))return serializeAssetPrompt(settings);
  return serializeAssetPrompt({...settings,prefix:`【构图绑定 · ${composition}】\n${settings.prefix||''}`});
 }
-export function buildComposedImagePrompt(asset,refAsset,style,projectComposition=DEFAULT_CHARACTER_COMPOSITION){
+export function buildComposedImagePrompt(asset,refAsset,style,projectComposition=DEFAULT_CHARACTER_COMPOSITION,world){
  const settings=readComposedAssetPrompt(asset,style,projectComposition);
- return buildImagePrompt(asset,refAsset,style,{prefix:settings.prefix});
+ const prompt=buildImagePrompt(asset,refAsset,style,{prefix:settings.prefix});
+ return world ? `${prompt}\n\n${artLocaleConstraint(world)}` : prompt;
 }

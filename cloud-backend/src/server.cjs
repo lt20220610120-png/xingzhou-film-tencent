@@ -24,6 +24,7 @@ function createServer(env = process.env, deps = {}) {
   const identity=require('./win-ai-identity.cjs').createWinAIIdentity({repository,clientSecret:env.WIN_AI_OAUTH_CLIENT_SECRET,lookup:deps.winAILookup||require('./win-ai-lookup.cjs').createWinAILookup(env)});
   const identityHttp=require('./win-ai-identity.cjs').createWinAIHttpHandler(identity);
   const webAuth=require('./win-ai-web-auth.cjs').createWinAIWebAuth({repository,identity,mailer});
+  const protectedSkills=deps.protectedSkills||require('./protected-skills.cjs').createProtectedSkills({directory:env.PROTECTED_SKILLS_DIR});
   const server=http.createServer((request, response) => {
     if(request.url?.startsWith('/api/win-ai/web/')){void webAuth(request,response);return;}
     if(request.url?.startsWith('/api/win-ai/')){void identityHttp(request,response);return;}
@@ -94,6 +95,7 @@ function createServer(env = process.env, deps = {}) {
           if (action === 'win-ai-entry') return send({status:200,body:{ticket:await identity.issue(tokenHash(bearer),payload.challenge),expiresIn:60}});
           if(action==='profile-update')return send(await require('./profile.cjs').updateProfile(payload,user,repository));
           if (action === 'unlock') return send(await unlock(payload, user, repository));
+          if(['protected-skill-start','protected-skill-status','protected-skill-cancel'].includes(action))return send(await protectedSkills(action,payload,user));
           if(action==='generation-reference-upload-url'){
             if(!referenceStore)return send({status:503,body:{error:'临时素材服务尚未配置'}});
             try{return send({status:200,body:await referenceStore.issue(payload,user)});}catch(error){return send({status:error.status||503,body:{error:error.status?error.message:'临时素材服务暂不可用，请重试'}});}

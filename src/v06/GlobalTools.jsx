@@ -1,3 +1,5 @@
+import {FnkoImageConfiguration} from './FnkoImageConfiguration.jsx';
+import {isProtectedSkill,cleanClient} from '../../core/clientDistribution.js';
 import {VideoApiConfiguration} from './VideoApiConfiguration.jsx';
 import {LibTVConnection} from './LibTVConnection.jsx';
 import {validateVideoAdapter} from '../../core/videoProviderConfig.js';
@@ -262,18 +264,18 @@ export function SkillLibrary({ state, setState }) {
 
         {visibleSkills.map((skill) => (
           <article key={skill.id} className="resource-card skill-card-enhanced" data-type={skill.type}>
-            <div className="skill-card-badges"><span className="skill-type-badge">{typeLabels[skill.type] || '自定义'}</span>
-            <span className="skill-source-badge">{skill.importMethod === 'skill-folder' ? `完整 Skill · ${buildSkillManifest(skill).totalFiles} 个文件` : skill.importMethod === 'document' ? '文档导入' : '手动编写'}</span></div>
+            <div className="skill-card-badges"><span className="skill-type-badge">{isProtectedSkill(skill)?'自带':typeLabels[skill.type] || '自定义'}</span>
+            {!isProtectedSkill(skill)&&<span className="skill-source-badge">{skill.importMethod === 'skill-folder' ? `完整 Skill · ${buildSkillManifest(skill).totalFiles} 个文件` : skill.importMethod === 'document' ? '文档导入' : '手动编写'}</span>}</div>
             <h3 title={skill.name}>{skill.name}</h3>
             <p>{skill.description || `${skill.content?.slice(0, 80) || ''}${skill.content?.length > 80 ? '……' : ''}`}</p>
             {skill.updatedAt && <div className="skill-meta"><small>更新于 {new Date(skill.updatedAt).toLocaleDateString('zh-CN')}</small></div>}
-            <div className="card-tools">
+            {!isProtectedSkill(skill)&&<div className="card-tools">
               <button className="secondary" onClick={() => { setEditingSkill(skill); setDialogOpen(true); }}>
                 <PenLine size={14} /> 编辑
               </button>
               <button className="secondary" onClick={() => setDescriptionTarget(skill)}>查看简介</button>
               <button className="card-delete" title="删除 Skill" aria-label={`删除 Skill ${skill.name}`} onClick={() => setDeleteTarget(skill)}><Trash2 size={14}/></button>
-            </div>
+            </div>}
           </article>
         ))}
       </div>
@@ -305,7 +307,7 @@ export function SkillLibrary({ state, setState }) {
 /* ================================================================
  * ApiForm - API 配置表单
  * ================================================================ */
-export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
+export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, onCancel }) {
   const providerOptions = Object.values(API_PROVIDERS);
   const [form, setForm] = useState(() => ({
     name: initial.name || '', provider: initial.provider || 'custom', endpoint: initial.endpoint || '',
@@ -357,7 +359,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
     onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: isLocalAccount ? '' : form.endpoint.trim(), model: form.model.trim(), apiKey: isLocalAccount ? '' : form.apiKey.trim(), reasoningEffort:isDoubaoWork?'high':form.reasoningEffort, capabilities: normalizeCapabilities(form.capabilities) });
   };
   return <form className="api-config-form" onSubmit={handleSubmit}>
-    <p className="api-form-intro">{isDoubaoWork ? '豆包工作后台连接暂不可用。已停用前台自动提交，避免抢占窗口和影响你的客户端对话；可切换其他已接通服务商。' : isChatGPTWeb ? '使用 ChatGPT 网页账号额度，无需 API Key；使用网页默认模型。完成独立登录后测试正文，连接失败时不会改用其他接口。' : isGeminiWeb ? '使用 Gemini 网页账号额度，无需 API Key。先完成下方登录，再测试正文；这与 Gemini 按量 API 配置独立。' : isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : isFt ? '飞拓视频接口使用公开模型编号，支持本地素材与公网素材参考；型号参数按最新内置目录显示。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '填写上游地址与密钥，读取型号后选择视频协议；特殊格式可在自定义协议中按文档配置。'}</p>
+    <p className="api-form-intro">{isDoubaoWork ? '豆包工作后台连接暂不可用。已停用前台自动提交，避免抢占窗口和影响你的客户端对话；可切换其他已接通服务商。' : isChatGPTWeb ? '使用 ChatGPT 网页账号额度，无需 API Key；使用网页默认模型。完成独立登录后测试正文，连接失败时不会改用其他接口。' : isGeminiWeb ? '使用 Gemini 网页账号额度，无需 API Key。先完成下方登录，再测试正文；这与 Gemini 按量 API 配置独立。' : isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : isFt ? 'FT视频接口使用公开模型编号，支持本地素材与公网素材参考；型号参数按最新内置目录显示。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '保存语音模型配置；当前版本暂无独立语音生成工作台。' : '填写上游地址与密钥，读取型号后选择视频协议；特殊格式可在自定义协议中按文档配置。'}</p>
     <div className="api-form-fields">
       <label>配置名称<input value={form.name} onChange={e => update('name', e.target.value)} placeholder="例如：剧本分析主力、备用接口" autoFocus /></label>
       {kind === 'chat' && <label>服务商<select value={form.provider} onChange={e => handleProviderChange(e.target.value)}>{providerOptions.map(p => <option value={p.type} key={p.type}>{p.name}</option>)}</select></label>}
@@ -369,7 +371,7 @@ export function ApiForm({ initial = {}, kind = 'chat', onSave, onCancel }) {
       {!isLocalAccount && <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>}
       {kind === 'chat' && !isLocalAccount && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
     </div>
-    {kind==='video'&&<VideoApiConfiguration form={form} update={update}/>}
+    {kind==='video'&&<VideoApiConfiguration clean={clean} form={form} update={update}/>}{kind==='image'&&/^https:\/\/fanke2026\.xyz(?:\/|$)/.test(form.endpoint||'')&&<FnkoImageConfiguration form={form} update={update}/>}
     {kind==='image' && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
     {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <FormattedText text={testResult.reply}/>}</div>}
     <div className="modal-actions"><button type="button" className="ghost" onClick={onCancel}>取消</button>{kind === 'chat' && <button type="button" className="secondary" onClick={handleTest} disabled={testing||isDoubaoWork}><RefreshCw size={14} className={testing ? 'spin' : ''}/>{testing ? '等待正文…' : '测试正文'}</button>}<button type="submit" className="primary" disabled={isDoubaoWork}><Save size={14}/>保存配置</button></div>
@@ -429,7 +431,7 @@ export function ApiLibrary({ state, setState }) {
     </article>)}{!filtered.length && <div className="api-empty"><KeyRound size={28}/><h3>{query ? '没有匹配的接口' : '添加你的第一个接口'}</h3><p>{query ? '尝试搜索模型名称或服务商地址。' : activeApiKind === 'chat' ? '可以选择本机 Codex、Gemini 或 ChatGPT 网页账号，也可以添加文本 API。' : '准备好服务商地址、模型名称和 API Key 即可开始。'}</p>{!query && <button className="primary" onClick={() => openForm()}><Plus size={14}/>添加接口</button>}</div>}</div>
     <Dialog open={libtvOpen} title="连接 LibTV 账号" onClose={()=>setLibTVOpen(false)}>{libtvOpen&&<LibTVConnection state={state} setState={setState} onClose={()=>setLibTVOpen(false)}/>}</Dialog>
     <Dialog open={importOpen} title="从接口导入模型" onClose={()=>setImportOpen(false)}><ModelImport onSave={importModels} onCancel={()=>setImportOpen(false)}/></Dialog>
-    <Dialog open={dialogOpen} title={`${editingApi ? '编辑' : '添加'}${kinds.find(k => k[0] === activeApiKind)[1]}`} onClose={closeForm}><ApiForm key={`${activeApiKind}-${editingApi?.id || 'new'}`} kind={activeApiKind} initial={editingApi || {}} onSave={handleSave} onCancel={closeForm}/></Dialog>
+    <Dialog open={dialogOpen} title={`${editingApi ? '编辑' : '添加'}${kinds.find(k => k[0] === activeApiKind)[1]}`} onClose={closeForm}><ApiForm key={`${activeApiKind}-${editingApi?.id || 'new'}`} clean={cleanClient(state)} kind={activeApiKind} initial={editingApi || {}} onSave={handleSave} onCancel={closeForm}/></Dialog>
     <DeleteConfirm open={!!deleteTarget} title="删除 API 配置" name={deleteTarget?.name} detail="只删除此接口配置，已生成的内容仍会保留。" onCancel={() => setDeleteTarget(null)} onConfirm={handleDelete}/>
   </div>;
 }

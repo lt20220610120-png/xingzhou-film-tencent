@@ -9,7 +9,7 @@ export function normalizeCapabilities(raw = {}) {
     const items = strings(source); if (items.length) result[key] = items;
   }
   for(const [key,alias] of Object.entries({maxImages:'max_image_refs',maxVideos:'max_video_refs',maxAudios:'max_audio_refs',minImages:'min_image_refs',maxPrompt:'prompt_max_chars',maxTotalRefs:'max_total_refs',maxVisualRefs:'max_visual_refs'})){
-    const v=raw[key]!==undefined?raw[key]:raw[alias];if(v===null)result[key]=null;else if(v!==undefined&&v!==''&&Number.isSafeInteger(Number(v))&&Number(v)>=0&&Number(v)<=1000000)result[key]=Number(v);
+    const v=raw[key]!==undefined?raw[key]:key==='maxPrompt'&&raw.promptMaxChars!==undefined?raw.promptMaxChars:raw[alias];if(v===null)result[key]=null;else if(v!==undefined&&v!==''&&Number.isSafeInteger(Number(v))&&Number(v)>=0&&Number(v)<=1000000)result[key]=Number(v);
   }
   for(const [key,alias] of Object.entries({audioRequiresImage:'audio_requires_image',audioRequiresVisual:'audio_requires_visual'})){const v=raw[key]??raw[alias];if(typeof v==='boolean')result[key]=v;}
   const byResolution=raw.durationByResolution||raw.resolution_durations;

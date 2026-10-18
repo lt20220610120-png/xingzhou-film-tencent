@@ -1,5 +1,5 @@
 import {useEffect,useRef} from 'react';
-import {generationMediaProfiles} from '../../core/canvasStore.js';
+import {generationMediaProfiles,historicalMediaProfile} from '../../core/canvasStore.js';
 export function GenerationMonitor({state,api,account}) {
  const current=useRef({state,account});current.current={state,account};
  useEffect(()=>{
@@ -10,7 +10,7 @@ export function GenerationMonitor({state,api,account}) {
     const rows=await api.generationList();
     for(let job of rows){
      if(stopped)break;
-     const profile=generationMediaProfiles(current.current.state,job.kind).find(p=>p.id===job.profileId);
+     const profile=generationMediaProfiles(current.current.state,job.kind).find(p=>p.id===job.profileId)||historicalMediaProfile(current.current.state,job.profileId);
      if((job.provider==='libtv'||job.downloadReceiptId || ((job.jobId||job.url)&&profile&&(profile.apiKey||profile.videoAdapter?.authMode==='none')))&&!['success','failed','uncertain'].includes(job.status)&&(!job.nextPollAt||Date.now()>=job.nextPollAt))job=await api.generationRefresh({id:job.id,apiKey:profile?.apiKey,endpoint:profile?.endpoint});
      if(job.status==='success'&&job.projectId&&!job.mediaId){
       try{const existing=await api.collabListMedia({projectId:job.projectId});

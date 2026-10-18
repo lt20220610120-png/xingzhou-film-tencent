@@ -8,6 +8,12 @@ exports.verify = async (exe,version,dependencies={}) => {
   const bundled = JSON.parse(asar.extractFile(archive,'package.json').toString());
   assert.equal(bundled.version,version);
   const entries=asar.listPackage(archive);
+  assert.ok(!entries.some(name=>/(?:^|[\\/])(?:xingzhou-data\.json|director-projects\.json|local-provider-migration\.json|protected-skill-vault-2850)(?:$|[\\/])/.test(name)),'Private workspace data must not ship');
+  const vault=path.resolve(__dirname,'../output/protected-skill-vault-2850');
+  if(fs.existsSync(vault)){
+    const needles=fs.readdirSync(vault).filter(n=>n.endsWith('.json')).flatMap(n=>{const source=JSON.parse(fs.readFileSync(path.join(vault,n),'utf8'));return [source.content,...(source.files||[]).map(f=>f.content)].filter(s=>typeof s==='string'&&s.length>300).map(s=>s.slice(0,300));});
+    for(const entry of entries.filter(n=>/\.(?:js|cjs|mjs|json|html|md|txt)$/.test(n))){const relative=entry.replace(/^[/\\]/,'');if(asar.statFile(archive,relative).files)continue;const data=asar.extractFile(archive,relative).toString();assert.ok(!needles.some(s=>data.includes(s)),`Private Skill body found in ${entry}`);}
+  }
   assert.ok(!entries.some(name=>/electron[\\/]access-service\.cjs$|core[\\/]accessControl\.cjs$/.test(name)),'Legacy local permission modules must not ship');
   const {getCurrentFuseWire,FuseV1Options}=require('@electron/fuses');
   const fuses=await getCurrentFuseWire(exe);

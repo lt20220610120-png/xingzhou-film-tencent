@@ -1,3 +1,4 @@
+const fnko=require('./fnko-client.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -102,7 +103,7 @@ function createGenerationJobs(dir,options={}) {
       // Reuse carries generation settings, never a previous paid task's identity.
       for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
-      const job = { ...snapshot, ...(input.kind==='video'?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
+      const job = { ...snapshot, ...((input.kind==='video'||fnko.isFnkoEndpoint(endpoint))?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
       if(input.provider==='libtv'){
         if(!libtv())throw Error('LibTV 连接器尚未就绪，请先连接账号');
         save(job);
@@ -116,6 +117,15 @@ function createGenerationJobs(dir,options={}) {
         })();
         libtvRunning.set(job.id,work);work.finally(()=>libtvRunning.delete(job.id)).catch(()=>{});
         return task;
+      }
+      if(fnko.isFnkoEndpoint(endpoint)){
+        save(job);
+        try{
+          const result=await fnko.submit({...input,idempotencyKey:job.id});
+          const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.status==='success'?'downloading':'submitted',url:result.videoUrl,urls:result.resultUrls,error:result.errorMessage,costYuan:result.costYuan,nextPollAt:Date.now()+30000});
+          if(result.status==='success'&&result.resultUrls?.length){try{const files=[];for(const url of result.resultUrls)files.push(await fnko.download({...saved,apiKey,url},dir));return save({...saved,status:'success',filePath:files[0],files});}catch{return save({...saved,warning:'原任务已完成，下载未完成；刷新仅下载原结果，不重新生成。'});}}
+          return saved;
+        }catch(e){save({...job,status:e.beforeSubmission?'failed':'uncertain',submissionAttempted:!e.beforeSubmission,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});if(!e.beforeSubmission)e.generationJobId=job.id;throw e;}
       }
       const ftHost=(()=>{try{return new URL(endpoint).origin==='https://feituokuajing.com';}catch{return false;}})();
       if (input.kind==='video'&&(!ftHost||!['auto','feituo',undefined].includes(input.videoProtocol))) {
@@ -161,6 +171,23 @@ function createGenerationJobs(dir,options={}) {
             if(job.status!=='downloading'&&!libtvResult(raw,job))return save({...job,warning:'LibTV 原任务尚未完成，刷新只查询原节点，不会重新生成'});
             job=save({...job,status:'downloading'});return save({...job,...await libtv().download(accountId,job,dir),status:'success',warning:''});
           }catch(e){return save({...job,warning:e.message});}
+        }
+        if(fnko.isFnkoEndpoint(job.endpoint)){
+          if(job.status==='success'||job.status==='failed')return job;
+          if(!endpoint||new URL(endpoint).origin!==new URL(job.endpoint).origin)return save({...job,warning:'请使用原站新Key查询；未向其他站点发送密钥'});
+          if(!job.jobId&&job.status==='downloading'&&job.urls?.length){
+            try{const files=[];for(const url of job.urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});}
+            catch(e){return save({...job,warning:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});}
+          }
+          if(!job.jobId)return save({...job,warning:'提交尚未确认，请用原请求编号核对站点任务日志，不自动重发'});
+          try{
+            const result=await fnko.status({...job,apiKey});
+            if(result.status==='failed')return save({...job,status:'failed',error:result.errorMessage||'原任务失败'});
+            if(result.status!=='success')return save({...job,status:'submitted',warning:result.warning||'',nextPollAt:Date.now()+30000});
+            const urls=result.resultUrls?.length?result.resultUrls:[result.videoUrl].filter(Boolean);
+            if(!urls.length)throw Error('原任务结果尚未就绪');
+            job=save({...job,status:'downloading',url:urls[0],urls});const files=[];for(const url of urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});
+          }catch(e){return save({...job,warning:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});}
         }
         const generic=job.kind==='video'&&job.endpoint&&(new URL(job.endpoint).origin!=='https://feituokuajing.com'||!['auto','feituo',undefined].includes(job.videoProtocol));
         const credentialOrigin=job.endpoint?new URL(job.endpoint).origin:job.model?.startsWith('ft-')?'https://feituokuajing.com':null;

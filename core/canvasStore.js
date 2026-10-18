@@ -99,15 +99,20 @@ export const isFeituoEndpoint = (endpoint) => {
 // Older versions stored a separate profile for each model, sometimes only for
 // video. Keep those IDs so pending jobs can still locate their credentials.
 export const feituoCredentialProfile = (state) => {
-  const profiles = (state.mediaProfiles || []).filter((profile) => isFeituoEndpoint(profile.endpoint) && String(profile.apiKey || '').trim());
+  const profiles = (state.mediaProfiles || []).filter((profile) => !profile.legacyTaskOnly && isFeituoEndpoint(profile.endpoint) && String(profile.apiKey || '').trim());
   return profiles.find((profile) => profile.id === state.activeVideoApiId)
     || profiles.find((profile) => profile.id === state.activeImageApiId)
     || profiles[0] || null;
 };
 
+export function historicalMediaProfile(state,id){
+ const profile=(state.mediaProfiles||[]).find(p=>p.id===id);
+ if(profile&&isFeituoEndpoint(profile.endpoint)&&!profile.apiKey){const shared=(state.mediaProfiles||[]).find(p=>isFeituoEndpoint(p.endpoint)&&p.apiKey?.trim());return shared?{...profile,apiKey:shared.apiKey}:profile;}return profile;
+}
+
 export const generationMediaProfiles = (state, kind) => {
   const credential = feituoCredentialProfile(state);
-  const profiles = (state.mediaProfiles || []).filter((profile) => profile.kind === kind).map((profile) =>
+  const profiles = (state.mediaProfiles || []).filter((profile) => profile.kind === kind && !profile.legacyTaskOnly).map((profile) =>
     isFeituoEndpoint(profile.endpoint) && credential
       ? { ...profile, apiKey: profile.apiKey||credential.apiKey }
       : profile);
@@ -162,10 +167,10 @@ export const addMediaProfile = (state, profile) => {
   return next;
 };
 
-export const updateMediaProfile = (state, profileId, updates) => ({
-  ...state,
-  mediaProfiles: (state.mediaProfiles || []).map((p) => p.id === profileId ? { ...p, ...updates } : p),
-});
+export const updateMediaProfile = (state, profileId, updates) => {
+ const source=(state.mediaProfiles||[]).find(p=>p.id===profileId);
+ return {...state,mediaProfiles:(state.mediaProfiles||[]).map(p=>p.id===profileId?{...p,...updates}:source?.fnkoOwnerGroup&&p.fnkoOwnerGroup===source.fnkoOwnerGroup&&updates.apiKey?.trim()&&(!p.apiKey||p.apiKey===source.apiKey)?{...p,apiKey:updates.apiKey.trim()}:p)};
+};
 
 export const removeMediaProfile = (state, profileId) => {
   const mediaProfiles = (state.mediaProfiles || []).filter((p) => p.id !== profileId);

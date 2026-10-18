@@ -153,10 +153,11 @@ async function imageReferenceFile(reference, index) {
 
 // OpenAI-compatible APIs use multipart /images/edits when reference images are supplied.
 // https://developers.openai.com/api/reference/resources/images/methods/edit
-async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, references = [], destDir, signal }) {
+async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, resolution, references = [], destDir, signal }) {
   if (!endpoint?.trim()) throw new Error('请先在画布中配置图片生成 API');
   if (!prompt?.trim()) throw new Error('请填写画面描述');
   if (!model?.trim()) throw new Error('请先在 API 接口中填写图片模型名称');
+  if(require('./fnko-client.cjs').isFnkoEndpoint(endpoint))return require('./fnko-client.cjs').generateImage({endpoint,apiKey,model,prompt,ratio,resolution:resolution||size,references,destDir,signal});
   if(isFeituoEndpoint(endpoint)) {
     const sizes={'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4','1152x768':'3:2','768x1152':'2:3'};
     const result=await require('./feituo-client.cjs').submit({kind:'image',apiKey,model,prompt,ratio:ratio||sizes[size]||'auto',references,signal});

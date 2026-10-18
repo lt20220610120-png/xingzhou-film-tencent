@@ -1,3 +1,4 @@
+import {initializeClientDistribution} from '../core/clientDistribution.js';
 import {migrateDirectorReplies,retireDirectorReplies} from '../core/directorLegacyReplies.js';
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
 import {cleanupRecycle} from '../core/projectRecycle.js';
@@ -1319,7 +1320,7 @@ function App() {
       const [saved, directorProjects, info] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null), api.storageInfo()]);
       const cachedDirectory=localStorage.getItem(STORAGE+'-data-dir');
       const recoverRecycle=!cachedDirectory||cachedDirectory===info.dataDir;
-      setState(current => recoverCreatorTasks(mergePersistedState(current, mergeDirectorSnapshot(saved,directorProjects),{recoverRecycle})));
+      setState(current => initializeClientDistribution(recoverCreatorTasks(mergePersistedState(current, mergeDirectorSnapshot(saved,directorProjects),{recoverRecycle})),{fresh:saved===null&&directorProjects===null&&!localStorage.getItem(STORAGE)}));
       try { localStorage.setItem(STORAGE+'-data-dir',info.dataDir); } catch { /* disk remains primary */ }
       setStorageLoadError('');
       setInitialized(true);

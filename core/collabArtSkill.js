@@ -4,11 +4,13 @@
 // ============================================================
 
 export const COLLAB_ART_SKILL_NAME = '剧本美术清单 v5（内置）';
+import {ART_LOCALE_RULES} from './artLocale.js';
 
 import skillV5 from './artAssetSkillV5.json' with { type: 'json' };
 export const COLLAB_ART_SKILL_VERSION = skillV5.version;
 export const COLLAB_ART_SKILL = Object.entries(skillV5.files).map(([name,content])=>`【内置文件：${name}】\n${content}`).join('\n\n') + `
 【行舟影视输出适配】
+${ART_LOCALE_RULES}
 第一级：集（### 第N集）；第二级：人物：/ 场景：/ 道具：；第三级：- 【资产名】。
 复用免描：只列同一资产名与复用集数。人物服装的【内层】【中层】【外层】【下装】【足饰】属于描述字段，不另立资产条目。
 群演默认6人静态群像（剧本有明确数量时沿用），同图多人个体有差异，纯白背景、全身完整、无表情无动作。

@@ -1,3 +1,4 @@
+import {isProtectedSkill} from '../../core/clientDistribution.js';
 import {prepareDirectorEpisodeAddition,directorEpisodeCount} from '../../core/directorAppendEpisode.js';
 import {normalizeDirectorImportText} from '../../core/directorImportText.js';
 const rememberPreference=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
@@ -587,7 +588,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 }}>
                   {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                 </select>
-                {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
+                {currentSkill && <small className="skill-file-count">{isProtectedSkill(currentSkill)?'自带规则已启用':`完整 Skill · ${buildSkillManifest(currentSkill).totalFiles} 个文件已附上`}</small>}
               </label>
               <button className="primary" onClick={() => runCreativeScene(currentScene)} disabled={isSceneRunning(currentScene) || !currentCreativeSceneContent.trim() || !currentVision.trim() || !currentSkill || !directorProfile}>
                 <Sparkles size={16}/> {isSceneRunning(currentScene) ? '生成中…' : `生成场景 ${currentScene} 提示词`}
@@ -642,7 +643,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                       }}>
                         {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                       </select>
-                      {currentSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(currentSkill).totalFiles} 个文件已附上</small>}
+                      {currentSkill && <small className="skill-file-count">{isProtectedSkill(currentSkill)?'自带规则已启用':`完整 Skill · ${buildSkillManifest(currentSkill).totalFiles} 个文件已附上`}</small>}
                     </label>
                     <button
                       className="primary compact"

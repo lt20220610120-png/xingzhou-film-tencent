@@ -4,6 +4,7 @@ function listUrl(endpoint) {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('请输入有效的接口地址');
   url.search = ''; url.hash = '';
   if(url.hostname==='feituokuajing.com'){url.pathname='/api/open/v1/models';return url.toString();}
+  if(url.hostname==='fanke2026.xyz'){url.pathname=url.pathname.includes('/api/open/v1')?'/api/open/v1/models':url.pathname.includes('/api/feituo/v1')?'/api/feituo/v1/models':'/v1/models';return url.toString();}
   if(['maxforai.top','9yapi.shop'].includes(url.hostname)){url.pathname='/v1/models';return url.toString();}
   url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|responses|messages|images\/(?:generations|edits)|contents\/generations\/tasks|video\/generations|videos|audio\/(?:speech|transcriptions)|models)$/, '');
   if (!url.pathname || url.pathname === '/') url.pathname = '/v1';
@@ -39,7 +40,7 @@ async function discoverModels(config, fetchFn = require('./win-ai-api-fetch.cjs'
       const fallback=providerVideoCapabilities(provider,String(id));
       seen.add(id); result.push({id:String(id), endpoint:config.modelListPath?config.endpoint.trim():url.replace(/\/models$/, ''), name:String(item.display_name || item.name || id), kind,
         output_modalities:item.output_modalities || item.architecture?.output_modalities,
-        capabilities:kind==='video'?{...fallback,...discovered}:discovered});
+        ...(item.modelVersion!==undefined?{modelVersion:item.modelVersion,pricingVersion:item.pricingVersion??0,tokenPricingVersion:item.tokenPricingVersion??0,pricing:item.pricing}:{}),capabilities:kind==='video'?{...fallback,...discovered}:discovered});
     }
     next = '';
     if (body.has_more && body.last_id && config.protocol === 'anthropic') {

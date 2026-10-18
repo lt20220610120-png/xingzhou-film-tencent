@@ -1,4 +1,5 @@
 import { parseStructuredJson } from './directorSegmentation.js';
+import {isProtectedSkill} from './clientDistribution.js';
 import { sourceDialogues, normalizeDialogueText, normalizeDialogueMode, unmarkedDirectorActionRanges } from './directorDialogue.js';
 
 const SECTIONS = ['基础设定', '整体视听', '连续台词', '画面内容', '人物起止与运动轨迹'];
@@ -10,6 +11,7 @@ const issue = (code, message, evidence) => ({ code, message, ...(evidence !== un
 const values = (text, label) => [...text.matchAll(new RegExp(`^${label}[\\t ]*[：:][\\t ]*([^\\n]*)`, 'gm'))].map(match => match[1].trim());
 
 export const identifyPromptContract = skill => {
+  if(isProtectedSkill(skill)&&skill.id==='builtin:video-prompt-fast-v8-2')return 'fast-v8';
   const documents = [String(skill?.content || ''), ...(skill?.files || []).map(file => String(file?.content || ''))].join('\n');
   const structural = SECTIONS.every(section => documents.includes(`【${section}】`)) && SHOT_FIELDS.every(field => new RegExp(`${field}[：:]`).test(documents));
   return structural && /光影基调/.test(documents) && /D\s*0?1/.test(documents) && /(?:同场|整场)/.test(documents) && /(?:逐字|复用)/.test(documents) ? 'fast-v8' : 'generic';

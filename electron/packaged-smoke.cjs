@@ -36,6 +36,11 @@ module.exports = function configurePackagedSmoke(app) {
         report.creatorWorkspace = {docxRoundTrip:creatorRoundTrip.value.replace(/\n\n/g,'\n').trim() === creatorContent,
           bridge:await win.webContents.executeJavaScript("['saveCreatorDocument','importCreatorVideo','loadState','saveState'].every(name=>typeof window.xingzhou?.[name]==='function')")};
         const { pathToFileURL } = require('node:url');
+        const {initializeClientDistribution}=await import(pathToFileURL(path.join(__dirname,'../core/clientDistribution.js')).href);
+        const {createInitialState}=await import(pathToFileURL(path.join(__dirname,'../core/projectStore.js')).href);
+        const clean=initializeClientDistribution(createInitialState(),{fresh:true});
+        report.cleanClient={edition:clean.clientEdition==='clean-v1',skills:clean.skills.length===3&&clean.skills.every(s=>s.protected&&!s.content&&!s.files),empty:['directorProjects','apiProfiles','mediaProfiles','canvases'].every(k=>clean[k].length===0),ftClient:typeof require('./fnko-client.cjs').submit==='function',protectedBridge:typeof require('./protected-skill-client.cjs').requestProtectedSkill==='function'};
+        if(!Object.values(report.cleanClient).every(Boolean))throw Error('Clean client package validation failed');
         const videoProvider=require('./video-provider.cjs');
         const videoConfig=await videoProvider.config({endpoint:'https://example.invalid/v1',videoProtocol:'videos-json'});
         const {profileModels}=await import(pathToFileURL(path.join(__dirname,'../core/videoCatalog.js')).href);
