@@ -18,4 +18,10 @@
 - 测试使用隔离模拟接口；未执行真实付费生成，未读取或改写用户项目/图片/提示词，无云端部署或数据库迁移，保留现有无关Win AI改动。
 - 安装包103739497字节，SHA256 b550e3e29fa179521b55e4684748b4d98bfcb1337e560f7acf6704830913f3ca。
 
-公开发布校验将在发布后补记。
+## 发布与更新
+
+- 功能98b4361，签名清单2bf3074。正式发布2.8.51，非草稿/预发行。公开包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.51/Xingzhou-Film-Tencent-Setup-2.8.51.exe 。本机包：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.51/Xingzhou-Film-Tencent-Setup-2.8.51.exe 。
+- 两份公开main更新清单完全相同，版本、下载URL、大小103739497及SHA256 b550e3e29fa179521b55e4684748b4d98bfcb1337e560f7acf6704830913f3ca一致。GitHub资产digest和HEAD200/Content-Length与本地一致。证据output/release-2851-public.json。
+- 软件正式更新传输器验证签名成功，2.8.49/2.8.50均发现2.8.51，2.8.51不重复提示更新；优先官方IP镜像Range206/65536字节及总长一致。output/storyboard2851-inapp-update-verification.json。保持既有域名TLS故障回退方案，不以裸IP跳过证书验证。
+- 根软件更新记忆与开发交接手册已同步。用户当前窗口未被强制关闭或改写，升级可走软件内更新或公开安装包。
+
