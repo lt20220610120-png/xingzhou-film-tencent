@@ -51,7 +51,7 @@ let password = '';
     await page.screenshot({path:path.join(out,'dashboard.png'),fullPage:true});
     for (const route of ['/channels','/keys','/users','/models','/usage-logs','/usage-logs/task','/system-settings/billing/model-pricing','/system-settings/billing/payment']) {
       await page.goto(origin+route,{waitUntil:'domcontentloaded',timeout:60000});
-      await page.locator('main').waitFor({state:'visible',timeout:30000});
+      await page.locator('main').first().waitFor({state:'visible',timeout:30000});
       assert(new URL(page.url()).pathname.startsWith(route),'Session failed on '+route);
       assert.match(await page.title(),/Win AI/);
       await page.screenshot({path:path.join(out,route.slice(1).replaceAll('/','-')+'.png'),fullPage:true});

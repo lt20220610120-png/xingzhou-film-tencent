@@ -7,3 +7,11 @@ test('native SPA login/signup/recovery navigations cross into full browser entry
   context.history.pushState({},'',url.pathname+url.search);assert.equal(target,expected);
  }
 });
+test('native query normalization preserves owner entry without a document reload loop',()=>{
+ let navigations=0;const storage=new Map(),location={pathname:'/sign-in',search:'?admin=1',href:'https://winai.xingzhoufilm.cn/sign-in?admin=1',replace(){navigations++;}};
+ const update=(state,_title,value)=>{const url=new URL(value,location.href);Object.assign(location,{pathname:url.pathname,search:url.search,href:url.href});context.history.state=state;};
+ const context={location,history:{state:null,pushState:update,replaceState:update},sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},URL,URLSearchParams,addEventListener(){},queueMicrotask:fn=>fn()};
+ vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname,'../../win-ai/public/account-routing.js'),'utf8'),context);
+ context.history.replaceState({native:true},'','/sign-in');
+ assert.equal(navigations,0);assert.equal(location.search,'?admin=1');assert.equal(context.history.state.native,true);
+});

@@ -14,3 +14,9 @@
 最终安装包：`release/2.8.48/Xingzhou-Film-Tencent-Setup-2.8.48.exe`，103629780字节，SHA256 `45fbc3c04f0865d758572a41b10b8813ac5e803276dd07bdd556494693e4ae1c`。
 
 真实上游/售价/收款商户尚未配置，未付费调用或真实充值；扫码图片不能代替商户接口。用户称ICP备案已提交待审核，未核实最终结果。公网直连和外部支付回调仍需跨网络验收，拥有者SOCKS与软件专用传输不代替公众可达性。
+
+补充实际连接：设置中文app名的真实Electron连接生产证书固定传输，自动OAuth普通角色1/额度0、再次进入同账本、钱包、换号隔离、源停用后真实API Key与原生会话403均通过，output/win-ai-sso-result.json ok=true。两名QA通过原生正式安全证明删除，output/win-ai-2848-cleanup.json记录原生/来源各2、真实用户修改0、root-only凭据移除。
+
+发布核对：正式GitHub Release资产digest/大小/HEAD200、两份main签名清单一致，官方IP镜像签名/Range65536与总长度通过。output/release-2848-public.json、release-2848-mirror.json。网站来源包50497227字节，SHA256 8aff3bc3cb4f183dd368a1ded463cc4a445fb2921a364f452224c37e9000612f，服务器与本机一致，逐文件内容及ZIP CRC校验通过。公开源码包是当前任务最终修正版；普通公网TLS仍失败，不把拥有者通道当作外部访问证明。
+
+静态补充：owner标记下原生SPA剥离admin参数时仅用原始history.replaceState恢复，避免强制文档导航可能造成循环；路由与web-auth10项专项通过。此修正不作为冷加载timeout的已确认根因。
