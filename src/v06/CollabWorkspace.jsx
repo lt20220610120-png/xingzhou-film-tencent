@@ -1,3 +1,5 @@
+import {retainAssetOrder} from '../../core/stableAssetOrder.js';
+import {assetRevisionJobs} from '../../core/assetRevisionJobs.js';
 import ProjectCompositionControl from './ProjectCompositionControl.jsx';
 import{CHARACTER_COMPOSITIONS,projectCharacterComposition,readComposedAssetPrompt as readAssetPrompt,serializeComposedAssetPrompt as serializeAssetPrompt,defaultComposedAssetPromptPrefix as defaultAssetPromptPrefix,buildComposedImagePrompt as buildImagePrompt}from'../../core/artImageComposition.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
@@ -26,7 +28,7 @@ import {StoryboardWorkbench} from './StoryboardWorkbench.jsx';
 // 身份：制片(producer) / 美术(artist) / 协作者(collaborator)
 // 功能区：信息读取 / 美术 / 资产 / 分镜 / 邀请协作 / 数据 / 项目群
 // ============================================================
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, Plus, X, Users, FileText, Palette, Box, Clapperboard,
@@ -37,8 +39,8 @@ import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
   sectionsForRole, parseAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
-  summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetRevisionMessages, buildAssetGenerationJobs,
-  ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant,
+  summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetGenerationJobs,
+  ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant, characterBaselineAsset, wardrobeDescription,
 } from '../../core/collabStore.js';
 import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
@@ -467,7 +469,9 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const [saving, setSaving] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
-  const [modifying, setModifying] = useState(false);
+  const revisionJobs=useMemo(()=>assetRevisionJobs(draftStore),[draftStore]);
+  const revisionJob=useSyncExternalStore(listener=>revisionJobs.subscribe(project.id,asset.id,listener),()=>revisionJobs.read(project.id,asset.id));
+  const modifying=revisionJob?.status==='running';
   const [modifyError, setModifyError] = useState('');
   const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style, projectCharacterComposition(project));
   const completedDescription=completedReviewPrompt({...asset,description:draft});
@@ -479,6 +483,8 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     draftRef.current = next;
     setDraft(next);
   }, [asset.id, asset.description, project.style]);
+
+  useEffect(()=>draftStore.subscribe(project.id,asset.id,()=>{const next=draftStore.read(project.id,asset.id)?.content??prefixed;draftRef.current=next;setDraft(next);}),[draftStore,project.id,asset.id,prefixed]);
 
   const edit = (content) => {
     draftRef.current = content;
@@ -518,20 +524,12 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     finally { setSaving(false); }
   };
 
-  const modifyPrompt = async () => {
+  const modifyPrompt = () => {
     if (!canEdit || !instruction.trim() || modifying) return;
-    const profile=revisionProfile;
-    if (!profile) { setModifyError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
-    setModifying(true); setModifyError('');
-    try {
-      const messages = buildAssetRevisionMessages({ instruction, originalContent: promptSettings.content, category: asset.category });
-      const output = await api.aiChat({ profileId:profile.profileId||profile.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, reasoningEffort: profile.reasoningEffort, messages, timeout: 10 * 60 * 1000 });
-      const nextDescription = String(output || '').trim();
-      if (!nextDescription) throw new Error('模型没有返回新的提示词');
-      editContent(nextDescription); setModifyOpen(false); setInstruction('');
-      await save();
-    } catch (error) { setModifyError(readableCloudError(error)); }
-    finally { setModifying(false); }
+    if (!revisionProfile) { setModifyError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
+    const request={projectId:project.id,asset,assets,project,inputDescription:draftRef.current,instruction:instruction.trim(),profile:{...revisionProfile},api,refresh};
+    setModifyError('');setModifyOpen(false);setInstruction('');
+    void revisionJobs.start(request);
   };
 
   return (
@@ -551,9 +549,11 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         </div>
         <div className="collab-asset-actions">
           <button className="primary" onClick={() => save().catch(() => {})} disabled={!canEdit || saving || modifying}><Save size={14} /> {saving ? '保存中…' : '保存提示词'}</button>
-          <button className="secondary" onClick={() => { setModifyError(''); setModifyOpen(true); }} disabled={!canEdit || modifying}>AI 修改提示词</button>
+          <button className="secondary" onClick={() => { setModifyError(''); setInstruction(revisionJob?.instruction||''); setModifyOpen(true); }} disabled={!canEdit || modifying}>{modifying?'AI 后台修改中…':'AI 修改提示词'}</button>
         </div>
-        <small className="collab-draft-status" role="status">{saveNotice || '可直接手动编辑；单张和批量生成均使用最新提示词。'}</small>
+        <small className="collab-draft-status" role="status">{modifying?'AI 正在后台修改，可切换其他卡片；完成后自动写回本卡。':revisionJob?.status==='completed'?'AI 修改已完成并保存到云端。':saveNotice || '可直接手动编辑；单张和批量生成均使用最新提示词。'}</small>
+        {revisionJob?.status==='error'&&<div className="collab-error" role="alert">AI 修改未完成：{revisionJob.error}。修改意见已保留，可重试。</div>}
+        {revisionJob?.status==='conflict'&&<div className="collab-notice" role="status">{revisionJob.error}<button type="button" className="secondary" disabled={!canEdit||modifying} onClick={()=>{edit(revisionJob.description);void save().catch(()=>{});}}>采用 AI 结果</button></div>}
         {saveError && <div className="collab-error" role="alert">{saveError}</div>}
       </section>
       <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} />
@@ -572,7 +572,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   );
 }
 
-function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', initialCategory = 'character', initialEpisode = null }) {
+function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', initialCategory = 'character', initialEpisode = null, baseline = null }) {
   const [name, setName] = useState(initialName); const [description, setDescription] = useState(''); const [category, setCategory] = useState(initialCategory); const [episodes, setEpisodes] = useState(initialEpisode ? [initialEpisode] : []); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const dialogRef = useRef(null);
   const projectEpisodes = inspectCollabEpisodes(project.episodes).episodes.map((item) => item.episodeNumber);
@@ -590,12 +590,12 @@ function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', i
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   };
   const toggleEpisode = (ep) => setEpisodes((xs) => xs.includes(ep) ? xs.filter((x) => x !== ep) : [...xs, ep].sort((a, b) => a - b));
-  const submit = async () => { if (!name.trim() || !episodes.length) { setError('请填写资产名称并选择至少一集'); return; } setBusy(true); try { await api.collabCreateAsset({ projectId: project.id, name: `【${name.trim().replace(/^【|】$/g, '')}】`, category, episodes, description }); await refresh(); onClose(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const submit = async () => { if(baseline&&(!parseAssetName(name).variant||parseAssetName(name).base!==parseAssetName(baseline.name).base)){setError('请沿用人物名称并填写新妆造名称，例如：'+parseAssetName(baseline.name).base+'-面试装');return;} if (!name.trim() || !episodes.length) { setError('请填写资产名称并选择至少一集'); return; } setBusy(true); try { await api.collabCreateAsset({ projectId: project.id, name: `【${name.trim().replace(/^【|】$/g, '')}】`, category, episodes, firstEpisode:Math.min(...episodes), description:baseline?wardrobeDescription(baseline,description):description }); await refresh(); onClose(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
   return createPortal(
     <div className="veil collab-manual-asset-veil" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} className="modal collab-manual-asset-modal" role="dialog" aria-modal="true" aria-labelledby="manual-asset-title" onKeyDown={handleDialogKeyDown}>
-        <header className="manual-asset-header"><div><span className="eyebrow">ASSET LIBRARY</span><h2 id="manual-asset-title">手动添加资产</h2></div><button type="button" className="ghost" onClick={onClose} disabled={busy} aria-label="关闭添加资产"><X size={19} /></button></header>
-        <div className="manual-asset-body">
+        <header className="manual-asset-header"><div><span className="eyebrow">ASSET LIBRARY</span><h2 id="manual-asset-title">{baseline?'添加妆造':'手动添加资产'}</h2></div><button type="button" className="ghost" onClick={onClose} disabled={busy} aria-label="关闭添加资产"><X size={19} /></button></header>
+        <div className="manual-asset-body">{baseline&&<p className="collab-notice">人物基准：{baseline.name}。自动继承第一套人物设定与参考图，只填写本次服装/状态差异。</p>}
           <div className="manual-asset-fields"><label>资产名称<input value={name} disabled={busy} onChange={(e) => setName(e.target.value)} placeholder="例如：姜蓝-白衣常服" /></label><label>资产类型<select value={category} disabled={busy} onChange={(e) => setCategory(e.target.value)}>{Object.entries(ASSET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label></div>
           <label className="manual-description-field">资产描绘<textarea value={description} disabled={busy} onChange={(e) => setDescription(e.target.value)} placeholder="描述形象、服装或场景细节，可在创建后继续编辑。" /></label>
           <div className="manual-episode-heading"><b>同步到集数</b><span>已选 {episodes.length} 集</span><button type="button" className="ghost" disabled={busy || !projectEpisodes.length} onClick={() => setEpisodes(episodes.length === projectEpisodes.length ? [] : projectEpisodes)}>{episodes.length === projectEpisodes.length && projectEpisodes.length ? '清空选择' : '选择全部'}</button></div>
@@ -921,6 +921,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const locator = useAssetLocator(`${project.id}:${category}:${onlyMissing}`);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
+  const [manualBaseline,setManualBaseline]=useState(null);
   const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
   const categoryAssets = assets.filter((a) => a.category === category&&(showArchived?archivedAssets.includes(a):!archivedAssets.includes(a)));
   const pendingAssets=ungeneratedAssets(categoryAssets);
@@ -1009,7 +1010,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
         <div className="collab-art-head-left asset-category-heading">
         <b><Box size={16} /> 资产总览</b>
         {!!archivedAssets.length&&<button className="secondary" disabled={batchBusy} onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
-        <button className="secondary manual-add-button" onClick={() => { setManualName(''); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
+        <button className="secondary manual-add-button" onClick={() => { setManualName('');setManualBaseline(null); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
         <div className="collab-cat-tabs">
           {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
             <button key={key} disabled={batchBusy} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
@@ -1031,7 +1032,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
         {category === 'character' ? characterGroups.map((group, groupIndex) => {
           const selected = group.variants.find((item) => item.id === outfits[group.base]) || group.variants[0];
           return <section ref={locator.register(group.variants[0].id)} tabIndex={-1} className="character-asset-workspace art-character-group" key={group.base} aria-label={`${group.base} 角色主档案`}>
-            <header className="art-character-header"><div><label className="asset-character-select"><input type="checkbox" aria-label={`选择 ${group.base} 全部妆造`} checked={group.variants.every(asset=>selectedIds.includes(asset.id))} ref={node=>{if(node)node.indeterminate=group.variants.some(asset=>selectedIds.includes(asset.id))&&!group.variants.every(asset=>selectedIds.includes(asset.id));}} disabled={!canEdit||batchBusy||showArchived} onChange={()=>toggleGroup(group)}/>已选 {group.variants.filter(asset=>selectedIds.includes(asset.id)).length}/{group.variants.length}</label><span className="art-group-label">角色主档案</span><h3>{group.base}</h3><span>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || (item.image_url ? 1 : 0)), 0)} 张图片</span></div><button className="ghost" onClick={() => { setManualName(`${group.base}-`); setManualOpen(true); }} disabled={!canEdit}><Plus size={13} /> 添加妆造</button></header>
+            <header className="art-character-header"><div><label className="asset-character-select"><input type="checkbox" aria-label={`选择 ${group.base} 全部妆造`} checked={group.variants.every(asset=>selectedIds.includes(asset.id))} ref={node=>{if(node)node.indeterminate=group.variants.some(asset=>selectedIds.includes(asset.id))&&!group.variants.every(asset=>selectedIds.includes(asset.id));}} disabled={!canEdit||batchBusy||showArchived} onChange={()=>toggleGroup(group)}/>已选 {group.variants.filter(asset=>selectedIds.includes(asset.id)).length}/{group.variants.length}</label><span className="art-group-label">角色主档案</span><h3>{group.base}</h3><span>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || (item.image_url ? 1 : 0)), 0)} 张图片</span></div><button className="ghost" onClick={() => { setManualName(`${group.base}-`);setManualBaseline(characterBaselineAsset(group.main,assets)||group.main); setManualOpen(true); }} disabled={!canEdit}><Plus size={13} /> 添加妆造</button></header>
             <article className={`art-workbench-row ${selectedIds.includes(selected.id)?'is-selected':''}`} aria-label={selected.name}>
               <AssetIdentity asset={selected} index={groupIndex} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)}>
                 <nav className="character-outfit-picker" aria-label={`${group.base} 服装选择`}>{group.variants.map((variant, index) => <button type="button" key={variant.id} aria-pressed={selected.id === variant.id} onClick={() => setOutfits((current) => ({ ...current, [group.base]: variant.id }))}><span>{String(index + 1).padStart(2, '0')}</span><b>{variant.variant || '基础形象'}{selectedIds.includes(variant.id)?' · 已选':''}</b>{generatingAssetIds.has(variant.id) && <Loader2 size={12} className="spin" />}</button>)}</nav>
@@ -1046,7 +1047,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
         {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : onlyMissing?'当前分类已全部生成图片':`暂无${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
       </div>
-      {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} initialName={manualName} initialCategory={category} onClose={() => setManualOpen(false)} />}
+      {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} initialName={manualName} initialCategory={category} baseline={manualBaseline} onClose={() => setManualOpen(false)} />}
     </div>
   );
 }
@@ -1385,7 +1386,10 @@ function StartProjectDialog({ directorProjects, onClose, onCreate, busy, error }
  * CollabWorkspace 主组件
  * ================================================================ */
 export function CollabWorkspace({ state, api, account }) {
-  const draftStore = useMemo(() => createAssetDraftStore(localStorage, account?.id || 'local'), [account?.id]);
+  const accountScope=useRef(account?.id||'local');accountScope.current=account?.id||'local';
+  const draftStore = useMemo(() => {const id=account?.id||'local';return createAssetDraftStore(localStorage,id,{isCurrent:()=>accountScope.current===id});}, [account?.id]);
+  const assetOrders=useMemo(()=>new Map(),[account?.id]);
+  const prepareAssets=(p,rows)=>{const next=normalizeArtAssets(retainAssetOrder(assetOrders.get(p.id)||[],projectPublishedReviewAssets(p,rows)));assetOrders.set(p.id,next);return next;};
   // 缓存优先：先展示上次的云端数据，网络请求返回后再刷新（解决“2G 般的显现慢”）
   const cloudCache=useMemo(()=>createCloudCache(localStorage,account?.id),[account?.id]);
   const readCache=cloudCache.read,writeCache=cloudCache.write;
@@ -1433,7 +1437,7 @@ export function CollabWorkspace({ state, api, account }) {
     const cachedProject = readCache(`project-${lastId}`);
     const cachedAssets = readCache(`assets-${lastId}`);
     if (cachedProject) {
-      setProject(cachedProject); setAssets(normalizeArtAssets(projectPublishedReviewAssets(cachedProject,cachedAssets || [])));
+      setProject(cachedProject); setAssets(prepareAssets(cachedProject,cachedAssets || []));
       const lastSection = localStorage.getItem('xz-collab-last-section');
       setSection(lastSection && sectionsForRole(cachedProject.myRole).includes(lastSection) ? lastSection : sectionsForRole(cachedProject.myRole)[0]);
     }
@@ -1443,7 +1447,7 @@ export function CollabWorkspace({ state, api, account }) {
       api.collabListAssets({ projectId: lastId }),
     ]).then(([p, a]) => {
       if (requestId !== refreshRequestRef.current) return;
-      const normalizedAssets=normalizeArtAssets(projectPublishedReviewAssets(p,a || []));
+      const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${lastId}`, p); writeCache(`assets-${lastId}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
@@ -1478,7 +1482,7 @@ export function CollabWorkspace({ state, api, account }) {
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
       p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
-      const normalizedAssets=normalizeArtAssets(projectPublishedReviewAssets(p,a || []));
+      const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, normalizedAssets);
       if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
@@ -1509,7 +1513,7 @@ export function CollabWorkspace({ state, api, account }) {
     // 有缓存先立即显示，再后台拉取最新
     const cachedProject = readCache(`project-${id}`);
     if (cachedProject) {
-      setProject(cachedProject); setAssets(normalizeArtAssets(projectPublishedReviewAssets(cachedProject,readCache(`assets-${id}`) || [])));
+      setProject(cachedProject); setAssets(prepareAssets(cachedProject,readCache(`assets-${id}`) || []));
       setSection(sectionsForRole(cachedProject.myRole)[0]);
       localStorage.setItem('xz-collab-last-project', id);
     } else {
@@ -1521,7 +1525,7 @@ export function CollabWorkspace({ state, api, account }) {
         api.collabListAssets({ projectId: id }),
       ]);
       if (requestId !== refreshRequestRef.current) return;
-      const normalizedAssets=normalizeArtAssets(projectPublishedReviewAssets(p,a || []));
+      const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${id}`, p); writeCache(`assets-${id}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);

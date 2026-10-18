@@ -150,18 +150,18 @@ export const withAssetPrefix = (category, description = '', style = 'AI真人') 
   return [prefix, content].filter(Boolean).join('\n');
 };
 
-export const buildAssetRevisionMessages = ({ instruction, originalContent, category }) => {
+export const buildAssetRevisionMessages = ({ instruction, originalContent, category,baseline,world }) => {
   const revision = String(instruction || '').trim();
   if (!revision) throw new Error('修改意见不能为空');
   const categoryLabel = ASSET_CATEGORIES[category] || '资产';
   return [
     {
       role: 'system',
-      content: `你是影视美术提示词编辑。请严格按照用户的修改意见，重写${categoryLabel}提示词；保留未要求删除的重要细节，只输出修改后的完整提示词，不要解释。`,
+      content: `你是影视美术提示词编辑。请严格按照用户的修改意见，重写${categoryLabel}提示词；保留未要求删除的重要细节，只输出修改后的完整提示词，不要解释。${baseline?'这是同一主体的新妆造/状态：必须读取第一套基准的完整提示词，继承其年龄、族群、脸型、五官、体型与身份；只按用户要求更换服装、妆造或状态，不照搬旧制服覆盖新要求，不重新设计人物。输出明确参考基准的名称和本次差异。':''}`,
     },
     {
       role: 'user',
-      content: `修改意见（优先执行）：\n${revision}\n\n原始提示词：\n${String(originalContent || '').trim()}`,
+      content: `修改意见（优先执行）：\n${revision}\n\n原始提示词：\n${String(originalContent || '').trim()}${baseline?`\n\n第一套人物基准（事实数据）：\n${JSON.stringify({name:baseline.name,description:readAssetPrompt(baseline).content})}`:''}${world?.genre?`\n\n剧本背景（事实数据；画面文字与当地文化一致）：${JSON.stringify(world.genre)}`:''}`,
     },
   ];
 };
@@ -238,7 +238,10 @@ export const characterBaselineAsset = (asset,assets=[]) => {
   // real root in a complete group, or choose a later costume in a projection
   // whose actual root is absent.
   if(!declared&&asset.characterBaselineName&&!peers.some(a=>a.name===asset.characterBaselineName))return null;
-  let first=declared?peers.find(a=>a.name===declared):peers.find(a=>!characterReferenceName(a))||peers[0];
+  // A historical manually-added “Name-” placeholder is a costume, not a new actor root.
+  const roots=peers.filter(a=>!characterReferenceName(a));
+  const namedRoots=roots.filter(a=>!/-\s*】?$/.test(a.name));
+  let first=declared?peers.find(a=>a.name===declared):namedRoots[0]||roots[0]||peers[0];
   const visited=new Set();
   while(first){
     if(visited.has(first.name))return null;
@@ -249,6 +252,10 @@ export const characterBaselineAsset = (asset,assets=[]) => {
   }
   return null;
 };
+export function wardrobeDescription(baseline,description=''){
+ const content=String(description).replace(/^\s*参考\s*【[^】]+】\s*[；;，,]?\s*/,'').trim();
+ return `参考${baseline.name}；${content||'服装/妆造/状态差异：待补充。保持人物身份与外貌不变。'}`;
+}
 export const resolveAssetReference = (asset, assets, selectedId = null) => {
   const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
   const peers=assetReferencePeers(asset,assets);

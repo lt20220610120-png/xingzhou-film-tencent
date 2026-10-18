@@ -116,6 +116,7 @@
   gap: 0;
   min-width: 0;
   border: 1px solid var(--art-line);
+  border-left-width: 3px;
   border-radius: 9px;
   background: #fff;
   overflow: clip;
