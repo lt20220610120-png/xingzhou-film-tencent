@@ -19,7 +19,7 @@
 - 核心回归：core/ftUpgrade.test.js，assetImageRecovery、fnko-client、fnko-direct；模拟已确认失败可重试、未确认任务不重发、URL-only结果下载重试、有jobId则重查新签名地址、重启继续原任务、Key不进入job文件。
 - 真实React/Edge界面：output/ui2850-verification.json及clean2850-skills.png。新资料3张仅元数据卡片无工具；旧自定义Skill工具保留；新视频协议无上游快捷和品牌标签；图片/视频目录刷新及空目录移除型号通过，最终美术提示词含当地语言约束。
 - 独立复核两轮：受保护Skill7项专项及8种非法端点阻断；FT原问题均修复并回归。无真实付费请求。
-- npm run build通过；NSIS制作、ASAR扫描无私有Skill正文/开发者数据、实际安装运行时通过。qa/packaged-smoke-2.8.50-1792341107851/report.json；新增cleanClient全部true，原视频Range206/播放拖动/同字节下载、Win AI、权限及画布隔离均通过。
-- 安装包：103744389字节，SHA256 a420e6f8ab9385aa1f01ba0a93018039e7942cda79d4ec290db37493b1d3de65。
+- npm run build通过；NSIS制作、ASAR扫描无私有Skill正文/开发者数据、实际安装运行时通过。qa/packaged-smoke-2.8.50-1792341385061/report.json；新增cleanClient全部true，原视频Range206/播放拖动/同字节下载、Win AI、权限及画布隔离均通过。
+- 安装包：103744761字节，SHA256 13cbd379ef6871c41ad483967faec8cb5deb84bad0dbc94ab8d72f600f3bc39e。
 
 公开更新与下载安装校验将在发布后补记。
