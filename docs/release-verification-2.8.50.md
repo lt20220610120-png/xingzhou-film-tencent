@@ -15,11 +15,17 @@
 
 ## 验证证据
 
-- 全量npm test：2240通过，0失败。output/tests-2850-final.log。其后窄改动（过期签名URL重查、迁移资料隐藏旧快捷）另经专项回归与UI/打包验证。
+- 全量npm test：2240通过，0失败。output/tests-2850-final.log。最终代码再次全量2240项通过（198.5秒），含过期签名URL重查、迁移资料隐藏旧快捷与模型导入中性标签；专项/UI/打包同步通过。
 - 核心回归：core/ftUpgrade.test.js，assetImageRecovery、fnko-client、fnko-direct；模拟已确认失败可重试、未确认任务不重发、URL-only结果下载重试、有jobId则重查新签名地址、重启继续原任务、Key不进入job文件。
 - 真实React/Edge界面：output/ui2850-verification.json及clean2850-skills.png。新资料3张仅元数据卡片无工具；旧自定义Skill工具保留；新视频协议无上游快捷和品牌标签；图片/视频目录刷新及空目录移除型号通过，最终美术提示词含当地语言约束。
 - 独立复核两轮：受保护Skill7项专项及8种非法端点阻断；FT原问题均修复并回归。无真实付费请求。
 - npm run build通过；NSIS制作、ASAR扫描无私有Skill正文/开发者数据、实际安装运行时通过。qa/packaged-smoke-2.8.50-1792341385061/report.json；新增cleanClient全部true，原视频Range206/播放拖动/同字节下载、Win AI、权限及画布隔离均通过。
 - 安装包：103744761字节，SHA256 13cbd379ef6871c41ad483967faec8cb5deb84bad0dbc94ab8d72f600f3bc39e。
 
-公开更新与下载安装校验将在发布后补记。
+## 公开发布核验
+
+- 功能提交9244ced、导入窗口补全267ecd2，签名清单decf620。安装包公开地址：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.50/Xingzhou-Film-Tencent-Setup-2.8.50.exe 。本地：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.50/Xingzhou-Film-Tencent-Setup-2.8.50.exe 。
+- 双main清单完全一致，版本2.8.50、103744761字节、SHA256 13cbd379ef6871c41ad483967faec8cb5deb84bad0dbc94ab8d72f600f3bc39e。GitHub资产digest及HEAD200/总长度一致，非draft/prerelease。
+- 正式软件内更新传输器验证签名，2.8.48/49发现2.8.50、2.8.50不重复更新；优先官方IP镜像Range206、65536字节及总长度一致。证据output/release-2850-public.json与storyboard2850-inapp-update-verification.json。
+- 发布前模型导入窗口追加中性标签导致重建候选包，官方镜像拒绝同号不同哈希。已对先前候选包/清单完整备份并原子替换最终包，随后才更新GitHub双清单；最终三源哈希重新核对。备份/opt/xingzhou-backups/update2850-candidate-20261018T164040Z。
+- 未关闭或覆盖用户正在编辑的旧窗口，新版本启动后执行本机备份迁移；其余两位老用户由版本自带迁移执行。新Key尚未配置，真实模型调用待配置后验证，真实付费请求0。
