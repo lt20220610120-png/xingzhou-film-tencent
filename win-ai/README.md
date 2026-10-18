@@ -1,62 +1,34 @@
-# Win AI 0.1.0
+# Win AI 0.2.1
 
-行舟影视的独立 AI 中转站首版。模板确认为 [QuantumNous/new-api](https://github.com/QuantumNous/new-api)，使用官方 v1.0.0-rc.45 Linux 二进制，未修改上游程序。Win AI 首页、文档、品牌配置和部署脚本在本目录。
+基于 QuantumNous/new-api 官方 v1.0.0-rc.45 原程序的自有中转站。站点品牌、首页、接口文档和钱包属于 Win AI，账号身份由行舟影视管理。
 
 - 网站：https://winai.xingzhoufilm.cn/
 - 控制台：https://winai.xingzhoufilm.cn/dashboard/overview
-- 文档：https://winai.xingzhoufilm.cn/docs
-- API Base URL：https://winai.xingzhoufilm.cn/v1
-- 部署包：https://winai.xingzhoufilm.cn/downloads/Win-AI-0.1.0.zip
+- API：https://winai.xingzhoufilm.cn/v1
+- 接口文档：https://winai.xingzhoufilm.cn/docs
+- 收款步骤：https://winai.xingzhoufilm.cn/payment-setup
+- 行舟客户端：2.8.47，左侧 Win AI 自动使用当前账号，无需再次注册。
 
-## 当前可用范围
+## 使用和运营
 
-已部署真实后台，包括渠道、模型、用户、API 令牌和日志。尚未配置任何真实上游，因此没有可调用的真实模型。充值、订阅购买与自助注册关闭，管理员可手动建立测试用户。协议兼容的中转站可以作为上游，私有协议需另写适配。后续的行舟影视专属栏目与付费不在本版；行舟客户端仍为 2.8.45。
+普通用户从行舟影视进入；控制台提供令牌、模型、用量、钱包和订单。源码未复制上游密码；网关以行舟 UUID 独立记账，新用户零额度、普通角色。退出或换号关闭页面，来源账号停用后拒绝网页和外部 API Key。密码注册关闭，OAuth 按需创建对应账本身份。独立网站当前的“行舟影视”登录入口需要从软件交接身份，未实现独立网页的行舟密码登录表单。
 
-本机普通域名 TLS 连接存在间歇性中断；不能据服务器内网成功宣称所有用户外网访问正常。为站点拥有者提供受保护的 SSH SOCKS 访问助手，使用已有 SSH 授权和独立 Chrome 配置，不改变系统代理或浏览器主配置。普通用户公开域名稳定访问仍需解决网络/接入问题，不能把该拥有者助手当作面向客户的解决方案。
+尚未填写任何真实模型上游或收款商户，因此当前没有真实模型可调用，也不能真实充值。支付参照用户截图的支付宝/微信、固定/自定义金额、订单二维码、到账和订单记录；截图实际链路为 `/epay/submit.php` → `cashier.haozpay.com`，但该平台的正式接口文档和自有商户资料仍需取得。不能把收银台网址直接填作商户网关，也不照搬与业务不符的“日用品/服装”等商品描述。详见 [收款配置](docs/payment-setup.md)。
 
-## 本机打开与登录
+普通域名公网 TLS 当前线路不稳定。客户端内部页面及 Win AI 模型请求使用既有官方 IP CA 与证书指纹连接，不需要用户 SSH，也不关闭 TLS 验证。普通第三方客户端与外部支付平台的公网可达性仍需跨网络验收，不能以软件内成功代替。
 
-双击 `打开WinAI网站.cmd`；管理员使用 `打开WinAI管理后台.cmd`。管理员用户名 **WinAIAdmin**。登录助手将本机 DPAPI 加密保存的密码复制到剪贴板，再打开登录页；它不把密码写入日志或显示在终端。首次保存从既有 SSH 授权读取服务器 root-only 凭据。修改密码后需同步更新凭据保存与本机缓存。
+独立 IP HTTPS 证书已签发并自动续期，测试端口8443仅服务器本机可验证，当前Windows直连仍重置；暂不作为对客稳定地址。证书位于 `/etc/win-ai/ip-tls`，未替换现有客户端固定的443证书。
 
-DPAPI 缓存为 `%LOCALAPPDATA%/WinAI/admin.dpapi.xml`，只能由当前 Windows 用户解密。服务器凭据在 `/etc/win-ai/admin.json`，会话/加密配置在 `/etc/win-ai/service.env`，均 root:root 0600。部署包不包含任何真实密钥或密码。
+## 管理与部署
 
-访问助手端口 `127.0.0.1:18319`，进程为指向已授权主机的 SSH。关闭独立 Chrome 后，可结束对应拥有者 SSH 进程；不应结束其他 SSH 连接。该助手仅用于站点拥有者本机，普通用户无需也不应获取服务器 SSH 授权。
+本机双击 `打开WinAI管理后台.cmd`，管理员 WinAIAdmin，密码由本机 DPAPI 保存并在用户使用助手时复制。服务器凭据 `/etc/win-ai/admin.json`、service.env 和 identity.env 均 root-only，禁止写入源码或发布包。拥有者 SSH/SOCKS 助手只用于本机管理，不向普通用户分发 SSH 密钥。
 
-## 部署与恢复
+当前升级从完整 tencent 仓库根目录执行 `python win-ai/scripts/deploy-identity.py`：先临时 PG schema 验证，再增量迁移、备份后端文件、配置只读网关身份查询和官方 OAuth、钱包、Nginx。失败恢复原后端/代理，不删除新增的空身份表或现有用户资料。只适用于当前已有行舟后端及0.1网关的授权服务器。
 
-部署包包含官方 Linux 程序、原项目对应源码、许可证与本目录文件。已有授权的 Windows 主机运行：
+`deploy.py/install.sh/publish-site.sh` 是0.1基础安装归档流程；升级后的服务器禁止重新执行它们重置身份设置。0.2部署包保留0.1官方制品、最新 Win AI 文件及必需身份桥代码，按其中 UPGRADE.md 升级。恢复须先核对当前生产版本、备份、账号和订单状态，不能直接覆盖 SQLite。
 
-```powershell
-python scripts/deploy.py
-```
+## 验证和交接
 
-`deploy.py` 固定使用既有 SSH key 与严格 known_hosts，打包时统一 LF，校验 upstream.json 的官方程序及源码哈希。未携带的官方制品从 GitHub 下载，也可复用本工作区 output/win-ai-research 缓存。目标 `/home/ubuntu/win-ai-stage-0.1.0`，先执行 `install.sh`，再 `publish-site.sh`。脚本仅适用于当前已授权腾讯云主机，不是任意新服务器的一键安装器。
+统一身份设计 [docs/unified-login.md](docs/unified-login.md)，当前验收 [docs/verification-0.2.1.md](docs/verification-0.2.1.md)。真实 PG 临时 schema、实际 SQLite 分类器、软件内免注册/重复进入/换号/钱包刷新验证均使用独立测试用户；回调和上游付费测试仅在网络隔离、临时数据库中进行。没有真实扣款或真实付费模型调用。
 
-独立目录：程序 `/opt/win-ai`，SQLite `/var/lib/win-ai/gateway.db`，日志 `/var/log/win-ai`。Nginx 配置 `/etc/nginx/conf.d/win-ai.conf`；证书 `/etc/letsencrypt/live/winai.xingzhoufilm.cn`，certbot DNS-01 自动续期；hook 读取既有服务器秘密，不复制云密钥。仅新增 `winai` A 记录，遇到冲突拒绝覆盖。
-
-官方程序监听 8317，独立 `win-ai-port-guard` 服务通过 IPv4/IPv6 INPUT 规则拒绝非回环访问；Nginx 负责 HTTPS。systemd 限制内存 512M、CPU 80%。行舟服务、数据库与原有站点文件保留。
-
-`publish-site.sh` 保存本站旧配置；语法、reload 或健康检查失败后恢复旧配置。首次无旧站则移除新增配置。Nginx graceful reload 期间旧默认站可能短暂响应，健康检查允许最多 5 次重试。更新前应额外备份 SQLite（使用 sqlite3 backup API）和 /etc/win-ai；不能仅复制正在写入的数据库文件。
-
-## 验证
-
-```powershell
-python -m compileall -q scripts test
-node --check public/site.js
-```
-
-`test/live-smoke.py` 在服务器检查品牌、地址、文档、注册关闭和鉴权。`test/mock-relay.py` 必须在独立网络命名空间运行：
-
-```bash
-sudo unshare --net sh -c 'ip link set lo up; exec python3 test/mock-relay.py'
-```
-
-测试用临时数据库与本地模拟上游验证非流式/SSE 转发、模型列表与上游密钥替换，不调用真实付费 API，不在生产渠道中写入测试模型。
-
-`test/browser.cjs` 使用本机已安装 Playwright 与 Chrome，经拥有者 SSH SOCKS 验证真实 HTTPS 页面，证据写入工作区 output/win-ai-browser。它不证明普通公网域名线路稳定。详见 docs/verification.md。
-
-## 开源声明
-
-Frontend design and development by New API contributors.
-
-New API Copyright (c) QuantumNous and contributors，AGPL-3.0。原始源码与许可证通过本站 `/source/` 提供；Win AI 版本配置和页面通过部署包提供。详见 upstream.json 的来源、哈希和改动说明。未复制 MaxForAi 的密钥、用户数据或专有运营内容。
+Frontend design and development by New API contributors. [New API](https://github.com/QuantumNous/new-api) Copyright QuantumNous and contributors，AGPL-3.0。原始对应源码和许可证通过本站 `/source/` 提供，版本来源和哈希见 upstream.json。网关官方原程序未修改。

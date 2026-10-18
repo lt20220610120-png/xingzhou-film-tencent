@@ -15,7 +15,7 @@ d = status['data']
 assert d['system_name'] == 'Win AI', d.get('system_name')
 assert d['server_address'] == 'https://winai.xingzhoufilm.cn'
 assert d['docs_link'] == 'https://winai.xingzhoufilm.cn/docs'
-assert not d['register_enabled'] and not d['password_register_enabled']
+assert d['register_enabled'] and not d['password_register_enabled']
 assert d['setup']
 assert 'QuantumNous/new-api' in d['footer_html']
 assert 'maxforai' not in json.dumps(d).lower()
@@ -29,4 +29,4 @@ for path in ['/v1/models', '/api/channel/', '/api/token/', '/api/option/']:
             assert result.get('success') is False or 'error' in result, path
     except urllib.error.HTTPError as e:
         assert e.code in (401,403), (path,e.code)
-print('PASS: brand, origin, docs, setup, closed registration and 4 authorization boundaries')
+print('PASS: brand, origin, docs, setup, OAuth-only provisioning, closed password registration and 4 authorization boundaries')

@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const {winAIFetch:fetch}=require('./win-ai-api-fetch.cjs');
 const { readMediaBytes, isMediaNetworkError } = require('./media-network.cjs');
 const requestSignal=(signal,timeout)=>signal?AbortSignal.any([signal,AbortSignal.timeout(timeout)]):AbortSignal.timeout(timeout);
 function waitForPoll(delay,signal){

@@ -9,6 +9,7 @@ import {UserProfile} from './v06/UserProfile.jsx';
 import {SidebarGroup} from './components/SidebarGroup.jsx';
 import {QuickRoleSwitch} from './components/QuickRoleSwitch.jsx';
 import {WorkspacePresence,WorkspaceActiveContext} from './components/WorkspacePresence.jsx';
+import {WinAIWorkspace} from './v06/WinAIWorkspace.jsx';
 import {navigationForRole,SHARED_WORKSPACES,ROLE_WORKSPACES} from '../core/workspaceNavigation.js';
 import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
@@ -1467,6 +1468,7 @@ function App() {
   const toolsNav = [
     ['skills', Library, 'Skill 库'],
     ['apis', KeyRound, 'API 接口'],
+    ['winai', KeyRound, 'Win AI'],
     ['settings', Settings, '设置'],
     ['recycle', Trash2, '回收站'],
   ];
@@ -1510,13 +1512,14 @@ function App() {
       {/* 主内容区域 */}
       <section className="content">
         {/* 全局 AI 按钮（画布页有自己的顶栏，不显示悬浮按钮） */}
-        {nav !== 'canvas' && (
+        {nav !== 'canvas' && nav !== 'winai' && (
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
         {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { flushEditing(); setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
         {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
+        {!!role&&nav==='winai'&&<WinAIWorkspace key={account?.id} account={account}/>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
         {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} active={!!role&&nav==='admin'}/></WorkspacePresence>}

@@ -10,7 +10,7 @@ function listUrl(endpoint) {
   url.pathname += '/models';
   return url.toString();
 }
-async function discoverModels(config, fetchFn = globalThis.fetch) {
+async function discoverModels(config, fetchFn = require('./win-ai-api-fetch.cjs').winAIFetch) {
   let url = listUrl(config.endpoint);
   const {knownVideoProvider}=await import('../core/videoProviderCatalogs.js');
   if(knownVideoProvider(config.endpoint)==='autodl'&&!config.modelListPath){const {autodlWorkflowCatalog}=await import('../core/autodlVideo.js');return autodlWorkflowCatalog().map(row=>({...row,endpoint:'https://autodl.art/api/v1/comfyui'}));}

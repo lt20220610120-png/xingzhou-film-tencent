@@ -21,7 +21,10 @@ function createServer(env = process.env, deps = {}) {
     ? require('./image-preview.cjs').createImagePreview({host:cosSigner.host,
       directory:env.COS_PREVIEW_CACHE_DIR || require('node:path').join(process.cwd(),'var','image-previews')}) : null);
   const traffic = new Map(); let trafficSince=Date.now();
+  const identity=require('./win-ai-identity.cjs').createWinAIIdentity({repository,clientSecret:env.WIN_AI_OAUTH_CLIENT_SECRET,lookup:deps.winAILookup||require('./win-ai-lookup.cjs').createWinAILookup(env)});
+  const identityHttp=require('./win-ai-identity.cjs').createWinAIHttpHandler(identity);
   const server=http.createServer((request, response) => {
+    if(request.url?.startsWith('/api/win-ai/')){void identityHttp(request,response);return;}
     if(require('./update-download.cjs').serveUpdate(request,response,env.UPDATE_FILES_DIR||'/opt/xingzhou-updates'))return;
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -85,6 +88,7 @@ function createServer(env = process.env, deps = {}) {
           if (!user) return send({ status: 401, body: { error: '请先登录账号' } });
           if (user.banned) return send({ status: 403, body: { error: '账号已被停用' } });
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
+          if (action === 'win-ai-entry') return send({status:200,body:{ticket:await identity.issue(tokenHash(bearer),payload.challenge),expiresIn:60}});
           if(action==='profile-update')return send(await require('./profile.cjs').updateProfile(payload,user,repository));
           if (action === 'unlock') return send(await unlock(payload, user, repository));
           if(action==='generation-reference-upload-url'){

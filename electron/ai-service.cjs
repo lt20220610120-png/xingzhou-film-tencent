@@ -98,7 +98,7 @@ function resolveProtocol({ endpoint = '', protocol = 'auto', provider = '' }) {
   if (/\/messages\/?$/.test(endpoint) || /api\.anthropic\.com/.test(endpoint) || provider === 'claudeCodePool') return 'anthropic';
   return 'chat';
 }
-async function requestChat(config, { fetchFn = fetch, timeout = 600000, onProgress, onDiagnostic } = {}) {
+async function requestChat(config, { fetchFn = require('./win-ai-api-fetch.cjs').winAIFetch, timeout = 600000, onProgress, onDiagnostic } = {}) {
   const { endpoint, apiKey = '', model, messages = [], requiresApiKey = true, signal } = config;
   if (!endpoint?.trim()) throw new Error('请填写接口地址');
   let parsedUrl;

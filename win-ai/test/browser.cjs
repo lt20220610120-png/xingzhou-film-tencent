@@ -58,12 +58,19 @@ let password = '';
     // Refresh uses a Secure HttpOnly cookie across real HTTPS requests.
     await page.reload({waitUntil:'networkidle'});
     assert.equal(new URL(page.url()).pathname,'/users');
-    for (const route of ['/api/setup','/api/user/register','/api/subscription/plans','/api/user/topup']) {
-      const response = await context.request.get(origin+route);
-      assert.equal(response.status(),403,route);
+    assert.equal((await context.request.get(origin+'/api/setup')).status(),200);
+    for(const route of ['/api/setup','/api/user/register']){
+      const response=await context.request.post(origin+route,{data:{}});assert.equal(response.status(),403,route);
     }
+    await page.goto(origin+'/wallet',{waitUntil:'networkidle'});
+    await page.getByText('当前余额',{exact:true}).waitFor();
+    await page.getByText('尚未启用在线充值。请使用兑换码或联系管理员。',{exact:true}).waitFor();
+    await page.screenshot({path:path.join(out,'wallet-owner.png'),fullPage:true});
+    await page.goto(origin+'/payment-setup',{waitUntil:'networkidle'});
+    await page.getByRole('heading',{name:'接上你自己的收款方式。'}).waitFor();
+    await page.screenshot({path:path.join(out,'payment-guide.png'),fullPage:true});
     assert.deepEqual(failures,[],'Uncaught page errors');
-    const result = {passed:true,origin,transport:'Valid public HTTPS certificate through an SSH SOCKS connection; direct-domain stability remains unverified',checks:['home brand and live status','clipboard address','390/768/1440 widths','3 documentation tabs','root admin UI login','dashboard, channels, keys, users','session reload','4 disabled payment/setup/registration endpoints','no uncaught page errors'],screenshots:out};
+    const result = {passed:true,origin,transport:'Valid public HTTPS certificate through an SSH SOCKS connection; direct-domain stability remains unverified',checks:['home brand and live status','clipboard address','390/768/1440 widths','3 documentation tabs','root admin UI login','dashboard, channels, keys, users','session reload','setup status readable; password signup and setup writes blocked','wallet visible; merchant configuration pending','payment setup guide','no uncaught page errors'],screenshots:out};
     fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
     console.log(JSON.stringify(result,null,2));
     await context.close();

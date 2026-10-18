@@ -1,0 +1,2 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {spawnSync}=require('node:child_process');const path=require('node:path');
+test('actual Win AI classifier checks relay override, PAT and refresh owners',()=>{const r=spawnSync(process.platform==='win32'?'python':'python3',[path.join(__dirname,'win-ai-classifier.py')],{encoding:'utf8',windowsHide:true});assert.equal(r.status,0,r.stderr);});
