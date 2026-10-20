@@ -29,7 +29,7 @@ function createGenerationJobs(dir,options={}) {
     if(changed){fs.writeFileSync(file+'.tmp',JSON.stringify(repaired));fs.renameSync(file+'.tmp',file);}
   }
   const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
-  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else rows[index] = job; fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); return job; };
+  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else rows[index] = job; fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
   const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
@@ -132,7 +132,7 @@ function createGenerationJobs(dir,options={}) {
         const provider=require('./video-provider.cjs');await provider.validate(input);await provider.config(input);
         save(job);
         try{
-          let prepared=input;try{await provider.preflight(input,{allowLocal:!!options.prepareVideoReferences});if(options.prepareVideoReferences)prepared=await options.prepareVideoReferences(input);await provider.preflight(prepared);}catch(e){const detail=String(e.message||'素材准备失败').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);save({...job,status:'failed',submissionAttempted:false,error:detail});throw Object.assign(new Error(detail),{beforeSubmission:true});}
+          let prepared=input;try{await provider.preflight(input,{allowLocal:!!options.prepareVideoReferences});if(options.prepareVideoReferences)prepared=await options.prepareVideoReferences({...input,referenceTaskId:job.id});await provider.preflight(prepared);}catch(e){const detail=String(e.message||'素材准备失败').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);save({...job,status:'failed',submissionAttempted:false,error:detail});throw Object.assign(new Error(detail),{beforeSubmission:true});}
           const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
           if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
         }catch(e){if(e.beforeSubmission){if(read().find(r=>r.id===job.id)?.status!=='failed')save({...job,status:'failed',submissionAttempted:false,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});throw e;}const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}

@@ -2,7 +2,7 @@
 // offsets so a segment that begins halfway through a speech keeps its speaker.
 const METADATA_LABELS = new Set(['人', '人物', '角色', '出场人物', '出场角色', '场景', '道具', '音效', '特写', '时间', '镜头', '动作', '画面', '说明', '景', '内景', '外景', '运镜', '光影', '声音', '音色', '限制', '画幅与风格', '光影基调', '节奏与环境声']);
 const ACTION_START = /^(?:[△Δ▲]|\d+\s*[-—]\s*\d+\s*景[：:]|(?:场景|景|人|人物|角色|出场人物|出场角色|动作|镜头|画面|特写|旁白说明)[\t ]*[：:]|[（(]\d+[）)]\s*$|[（(][^）)]+[）)]\s*$|【[^】]+】)/u;
-const SPEAKER_HEADER = /([\p{L}](?:[\p{L}\p{N}·]|\.(?!\.)){0,31}(?:[\t ]+(?:O\.?S\.?|V\.?O\.?))?(?:[\t ]*[（(][^）)\n]*[）)])*)[\t ]*[：:]/gu;
+const SPEAKER_HEADER = /([\p{L}](?:[\p{L}\p{N}·'’-]|\.(?!\.)){0,31}(?:[\t ]+[\p{Script=Latin}](?:[\p{Script=Latin}\p{N}'’-]|\.(?!\.)){0,31}){0,5}(?:[\t ]+(?:O\.?S\.?|V\.?O\.?))?(?:[\t ]*[（(][^）)\n]*[）)])*)[\t ]*[：:]/gu;
 const CAST_HEADER = /^(?:人|人物|角色|出场人物|出场角色)[\t ]*[：:][\t ]*(.*)$/u;
 // Colon labels inside a spoken announcement are words, not actors. This is a
 // category rule rather than a list of one project's system messages; explicit

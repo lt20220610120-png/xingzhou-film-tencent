@@ -6,6 +6,7 @@ import {directorSpeechBoundary} from './directorSpeechBoundaries.js';
 import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDirectorDurationLimit} from './directorDurationPolicy.js';
 import {validateDirectorSegmentTiming} from './directorTiming.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
+import {validateEditorialPlan} from './directorSceneBudget.js';
 export {markPromptTimingStale} from './promptTiming.js';
 
 const SHA256_K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
@@ -117,13 +118,15 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const tape=buildSceneSourceTape(snapshot.sourceSnapshot);
   if(plan.sourceText!==tape.sourceText || plan.sceneHeader!==tape.sceneHeader)return fail(state,'分段正文与固定原文不匹配，不能发布改写后的计划');
   const durationLimit=effectiveDirectorDurationLimit(snapshot.maxDurationSeconds);
+  const editorial=Boolean(plan.editorialBudget);
+  if(editorial&&!validateEditorialPlan(plan,tape,snapshot.maxDurationSeconds))return fail(state,'整场时长与固定分段计划不完整，草稿已保留');
   const existingPlan=(episode.quickScenePlans || []).find(p=>p.id===plan.id);
   const segmentIds=new Set();let end=0;
   for(const [i,segment] of plan.segments.entries()){
     const draft=run.segmentDrafts?.[segment.id];
     const timingTotal=segment.timing?(()=>{try{return estimateSegmentSeconds(segment.timing);}catch{return NaN;}})():segment.estimatedSeconds;
     const compressed=validWholeSceneCompression(segment,{maxDurationSeconds:snapshot.maxDurationSeconds,sourceLength:plan.sourceText.length,segmentCount:plan.segments.length,naturalEstimatedSeconds:timingTotal});
-    if(!directorSpeechBoundary({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,maxDurationSeconds:durationLimit}).ok)return fail(state,'分段计划截断了完整台词，草稿保留，请重新划分');
+    if(!editorial&&!directorSpeechBoundary({sourceText:plan.sourceText,sourceEnd:segment.sourceEnd,maxDurationSeconds:durationLimit}).ok)return fail(state,'分段计划截断了完整台词，草稿保留，请重新划分');
     if((segment.durationCompression||segment.naturalEstimatedSeconds!==undefined)&&!compressed)return fail(state,'整场压缩时长标记不符合30秒目标与30～35秒自然估时限制');
     if(compressed&&!validateDirectorSegmentTiming({sourceText:plan.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd,timing:segment.timing,maxDurationSeconds:snapshot.maxDurationSeconds,segmentIndex:i+1,wholeSceneCompression:true}).ok)return fail(state,'整场压缩仍须保留全部口播原字和自然估时，不能低报台词时长');
     if(!segment.id || segmentIds.has(segment.id) || segment.index!==i+1 || segment.sourceStart!==end || !Number.isInteger(segment.sourceEnd) || segment.sourceEnd<=end || segment.sourceEnd>plan.sourceText.length
@@ -144,6 +147,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
     ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),
+    ...(editorial?{editorialEstimatedSeconds:segment.editorialEstimatedSeconds,sceneEstimatedSeconds:plan.editorialBudget.totalEstimatedSeconds,timingRulesVersion:2}:{}),
     sceneAuditStatus:statusFor(segment),
     ...(quickReviewWarnings(run,segment.index).length?{sceneAuditWarnings:quickReviewWarnings(run,segment.index)}:{}),
   }]:[]);

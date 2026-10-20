@@ -7,6 +7,8 @@ import { identifyPromptContract, validateAndRepairGeneratedSegment, splitWholeSc
 import { createSceneSnapshot } from './directorQuickStore.js';
 import { effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
+import { buildEditorialSceneFacts, buildEditorialPlanningMessages, planEditorialScene } from './directorSceneBudget.js';
+import { parseStructuredJson } from './directorSegmentation.js';
 
 const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
 export const isQuickRunActive = run => Boolean(run && activePhases.has(run.phase));
@@ -38,7 +40,7 @@ const reusablePaidRanges=(run,tape)=>{
 };
 
 /** A scene transaction: no React closures or credentials belong in its checkpoint. */
-export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,commitProgress=null,groundedTiming=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
+export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,commitProgress=null,groundedTiming=false,editorialPlanning=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
   const runs=new Map(),listeners=new Set(),executions=new Map(),versions=new Map(),saveTails=new Map();
   let disposed=false;
   const emit=()=>{if(disposed)return;onChange();for(const listener of listeners)listener();};
@@ -135,9 +137,43 @@ export function createQuickGenerationController({getContext,executeText,executeS
       run.reviewIsAdvisory=true;
       const tape=buildSceneSourceTape(run.snapshot.sourceSnapshot);
       const sourceFor=segment=>({text:tape.sourceText.slice(segment.sourceStart,segment.sourceEnd),sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
+      if(editorialPlanning){
+        // Existing paid partitions are immutable history. Failed pre-generation
+        // plans can be rebuilt; never delete/repartition paid cards on upgrade.
+        const hasPaidWork=Object.values(run.segmentDrafts||{}).some(d=>d?.prompt?.content)
+          || (run.wholeSceneResponses||[]).some(r=>r?.output?.trim());
+        if(!run.plan?.editorialBudget&&!hasPaidWork&&run.plan){
+          run.previousPlans=[...(run.previousPlans||[]),clone(run.plan)];
+          run.nextPlanId=`plan-${run.id}-editorial-${uid()}`;
+          run.plan=null;run.lastPlanningOutput='';run.planIssues=[];run.planQualityFailures=0;
+        }
+        // Do not send old paid partitions through the retired 4-characters/sec
+        // recalibrator, including when continuing an earlier failed audit.
+        run.processingVersion=PROCESSING_VERSION;
+        if(!run.plan){
+          const facts=buildEditorialSceneFacts(tape);
+          run.phase='planning';await persist(run);
+          let assessment=run.editorialAssessment;
+          if(!assessment){
+            const output=await request(run,version,'plan',{messages:buildEditorialPlanningMessages({snapshot:run.snapshot,tape,facts}),maxOutputTokens:4096,profileId:run.snapshot.profileId});
+            run.lastPlanningOutput=output;await persist(run);
+            try{assessment=parseStructuredJson(output);}catch{assessment={};}
+            run.editorialAssessment=assessment;await persist(run);
+          }
+          const plan=planEditorialScene({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,assessment,facts});
+          const planId=run.nextPlanId||`plan-${run.id}`;
+          run.plan={...plan,id:planId,sceneLabel:run.snapshot.sceneLabel,
+            sourceHash:run.snapshot.sourceHash,settingsHash:run.snapshot.settingsHash,skillHash:run.snapshot.skillHash,profileHash:run.snapshot.profileHash,
+            rulesVersion:run.snapshot.rulesVersion,createdAt:new Date().toISOString(),
+            segments:plan.segments.map((s,i)=>({...s,id:`${planId}-segment-${i+1}`,index:i+1}))};
+          run.promptIds=plan.segments.map(()=>uid());run.commitKey=run.id;run.planIssues=[];run.lastPlanningOutput='';
+          run.planQualityFailures=0;run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];
+          await persist(run);
+        }
+      }
       // Older failed checkpoints often contain valid paid output rejected by
       // the former cast/OS parser. Recheck it locally before spending again.
-      if(run.processingVersion!==PROCESSING_VERSION){
+      if(!editorialPlanning&&run.processingVersion!==PROCESSING_VERSION){
         const recoveringVersion6=run.processingVersion===6;
         const recoveringVersion7=run.processingVersion===7||run.processingVersion===8;
         const recoveringVersion9=run.processingVersion===9;
@@ -207,7 +243,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
           if(validateScenePlan(packed.candidate,{tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,groundedTiming:true}).ok){run.lastPlanningOutput=JSON.stringify(packed.candidate);await persist(run);}
         }
       }
-      if(!run.plan){
+      if(!run.plan&&!editorialPlanning){
         let issues=run.planIssues||[];
         const acceptPlan=async validated=>{
           run.plan={...validated.plan,id:run.nextPlanId||`plan-${run.id}`,version:1,sceneLabel:run.snapshot.sceneLabel,

@@ -208,7 +208,7 @@ ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
 const artReviewStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','art-review-checkpoints');
 ipcMain.handle('art-review-load-local',(_,p)=>artReviewStore().load(p));
 ipcMain.handle('art-review-save-local',(_,p)=>artReviewStore().save(p));
-const promptArtEnabled=()=>isDev||require('../package.json').xingzhouPrivateTrial===true;
+const promptArtEnabled=()=>isDev||require('./local-trial-features.cjs').retainPrivateTrial(app.getPath('userData'),require('../package.json'));
 const promptArtStore=()=>require('./prompt-art-store.cjs').createPromptArtStore(getDataDir(),()=>readCloudSession()?.account?.id);
 ipcMain.handle('prompt-art-status',()=>({enabled:promptArtEnabled()}));
 for(const method of ['load','save','list'])ipcMain.handle(`prompt-art-${method}`,(_,payload)=>{
@@ -359,8 +359,21 @@ ipcMain.handle('collab-get-stats',(_,payload)=>collabService.getStats(payload));
 function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
 const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
 const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>accessService.readSession()});
-const generationManagers=createGenerationManagers({libtvService:getLibTV,prepareVideoReferences});
+const generationManagers=createGenerationManagers({libtvService:getLibTV,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
 const jobs=()=>generationManagers(mediaDir());
+async function manageGenerationReferences(action,payload={}){
+ const session=readCloudSession();if(!session?.token||!session.account?.id)throw Error('请先登录行舟账号');
+ // Reconcile terminal jobs after a restart or an earlier transient release failure.
+ const leaseIds=jobs().list().filter(j=>j.referenceAccountId===session.account.id&&['success','failed'].includes(j.status)).map(j=>j.id);
+ for(let offset=0;offset<leaseIds.length;offset+=2000)await require('./cloud-access-service.cjs').gateway('generation-reference-release',{leaseIds:leaseIds.slice(offset,offset+2000)},session.token);
+ if(readCloudSession()?.token!==session.token)throw Error('账号已切换，请重新操作');
+ const result=await require('./cloud-access-service.cjs').gateway(action,payload,session.token);
+ if(readCloudSession()?.token!==session.token)throw Error('账号已切换，请重新操作');
+ if(action==='generation-reference-cleanup')prepareVideoReferences.clearCache();
+ return result;
+}
+ipcMain.handle('generation-reference-list',()=>manageGenerationReferences('generation-reference-list'));
+ipcMain.handle('generation-reference-cleanup',(_,p)=>manageGenerationReferences('generation-reference-cleanup',p));
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
 ipcMain.handle('generation-list',()=>jobs().list());
@@ -374,7 +387,7 @@ ipcMain.handle('generation-submit',async(event,p)=>{
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
- return jobs().submit({...await renewImageReferences(p),accountId:p.provider==='libtv'?await libtvAccountId():undefined,signal:event.securitySignal});
+ return jobs().submit({...await renewImageReferences(p),referenceAccountId:String(readCloudSession()?.account?.id||''),accountId:p.provider==='libtv'?await libtvAccountId():undefined,signal:event.securitySignal});
 });
 ipcMain.handle('generation-refresh',async(_,p)=>jobs().refresh({...p,accountId:jobs().list().find(j=>j.id===p.id)?.provider==='libtv'?await libtvAccountId():undefined}));
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));

@@ -11,7 +11,7 @@ const installed = new Map();
 function copyTree(source,destination,skip=new Set()) {
   fs.mkdirSync(destination,{recursive:true});
   for(const entry of fs.readdirSync(source,{withFileTypes:true})) {
-    if(skip.has(entry.name) || /\.test\.(?:js|cjs)$/.test(entry.name)) continue;
+    if(skip.has(entry.name) || /\.(?:test|fixtures)\.(?:js|cjs)$/.test(entry.name)) continue;
     const from=path.join(source,entry.name), to=path.join(destination,entry.name);
     if(entry.isDirectory()) copyTree(from,to,skip);
     else if(entry.isFile()) fs.copyFileSync(from,to);

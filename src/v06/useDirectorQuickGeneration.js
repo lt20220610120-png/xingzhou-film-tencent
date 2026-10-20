@@ -63,7 +63,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     };
     controllerRef.current=createQuickGenerationController({
       getContext,checkpoints,onChange:()=>render(n=>n+1),cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
-      groundedTiming:true,maxQualityAttempts:3,
+      groundedTiming:true,editorialPlanning:true,maxQualityAttempts:3,
       executeText:async({messages,taskId,snapshot,maxOutputTokens=16384})=>{
         const context=getContext(snapshot),profile=context.profile;
         if(!profile)throw new Error('所选模型已不存在');

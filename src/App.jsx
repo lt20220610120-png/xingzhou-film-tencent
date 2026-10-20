@@ -1,3 +1,5 @@
+import {TemporaryReferenceManager} from './components/TemporaryReferenceManager.jsx';
+import './temporary-references.css';
 import {initializeClientDistribution} from '../core/clientDistribution.js';
 import {migrateDirectorReplies,retireDirectorReplies} from '../core/directorLegacyReplies.js';
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
@@ -1174,6 +1176,8 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
           <button className="secondary" onClick={() => api.openDataDir()}>打开资料文件夹</button>
         </div>
       </section>
+
+      <section className="settings-card"><h2>云端临时素材</h2><p>查看视频参考副本占用，清理到期或已结束任务的副本。</p><TemporaryReferenceManager api={api}/></section>
 
       <section className="settings-card update-card">
         <div className="settings-title">

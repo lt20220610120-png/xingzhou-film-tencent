@@ -22,6 +22,7 @@ export function DirectorQuickProgress({run,onStop,onResume,sourceView,onSourceVi
       <button className={sourceView==='plan'?'active':''} disabled={!run?.plan} onClick={()=>onSourceViewChange('plan')}>自动分段稿{run?.plan?` · ${run.plan.segments.length} 段`:''}</button>
     </div>
     {run&&<div className="quick-run-status" role="status"><span>{descriptions[run.phase]||run.phase}</span>{active?<button onClick={onStop}>停止</button>:['paused','failed','needs-review'].includes(run.phase)&&!stale?<button onClick={onResume}>继续未完成部分</button>:null}</div>}
+    {run?.plan?.editorialBudget&&<p>整场预计 {Math.round(run.plan.editorialBudget.totalEstimatedSeconds)} 秒 · 已划分 {run.plan.segments.length} 条 · 时长供拍摄参考</p>}
     {run?.plan&&run.phase!=='completed'&&<p>已生成 {Object.values(run.segmentDrafts||{}).filter(d=>d.prompt?.content).length}/{run.plan.segments.length} 条。生成内容先保存并展示到右侧，再核对并标注提醒。</p>}
     {run?.retryMessage&&<p role="status">{run.retryMessage}</p>}
     {!!run?.auditWarnings?.length&&<details className="quick-run-warning"><summary>提示词已展示，有 {run.auditWarnings.length} 项核对提醒</summary>{run.auditWarnings.map((item,i)=><p key={i}>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>)}</details>}

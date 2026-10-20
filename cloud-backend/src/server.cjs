@@ -96,9 +96,10 @@ function createServer(env = process.env, deps = {}) {
           if(action==='profile-update')return send(await require('./profile.cjs').updateProfile(payload,user,repository));
           if (action === 'unlock') return send(await unlock(payload, user, repository));
           if(['protected-skill-start','protected-skill-status','protected-skill-cancel'].includes(action))return send(await protectedSkills(action,payload,user));
-          if(action==='generation-reference-upload-url'){
+          if(['generation-reference-upload-url','generation-reference-list','generation-reference-cleanup','generation-reference-uploaded','generation-reference-release'].includes(action)){
             if(!referenceStore)return send({status:503,body:{error:'临时素材服务尚未配置'}});
-            try{return send({status:200,body:await referenceStore.issue(payload,user)});}catch(error){return send({status:error.status||503,body:{error:error.status?error.message:'临时素材服务暂不可用，请重试'}});}
+            const method=({'generation-reference-upload-url':'issue','generation-reference-list':'list','generation-reference-cleanup':'cleanup','generation-reference-uploaded':'uploaded','generation-reference-release':'release'})[action];
+            try{return send({status:200,body:await (method==='list'?referenceStore.list(user):referenceStore[method](payload,user))});}catch(error){return send({status:error.status||503,body:{error:error.status?error.message:'临时素材服务暂不可用，请重试'}});}
           }
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
