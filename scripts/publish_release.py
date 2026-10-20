@@ -5,6 +5,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 subprocess.run(['node', os.path.join(ROOT, 'scripts', 'sign-update.cjs'), '--check'], check=True)
 PACKAGE = json.load(open(os.path.join(ROOT, 'package.json'), encoding='utf-8'))
 VERSION = sys.argv[1] if len(sys.argv) > 1 else PACKAGE['version']
+if '-private' in VERSION:
+    raise SystemExit('本机试用版本不允许发布到公开更新通道')
 NOTES = sys.argv[2] if len(sys.argv) > 2 else ''
 if not NOTES:
     notes_file = os.path.join(ROOT, 'release-notes', f'{VERSION}.md')

@@ -1,19 +1,38 @@
-import React,{useRef,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {Upload,FolderOpen,Trash2} from 'lucide-react';
 import {parsePromptBook,bookOutline,entryValue,saveEntryValue,mergeEpisodeMedia,clearPromptBook,bookSharedReferences} from '../../core/promptBook.js';
 import {GenerationComposer} from './GenerationComposer.jsx';
+import {linkedPromptBook,loadFreshBinding,validateLinkedSubmission} from '../../core/promptArtBinding.js';
 
-export function PromptBookWorkspace({state,setState,api,onSubmit}){
- const workflow=state.generationWorkflow||{},books=workflow.books||[];
+export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
+ const workflow=state.generationWorkflow||{},books=(workflow.books||[]).filter(book=>!book.linkedProjectId||book.accountId===accountId);
  const book=books.find(b=>b.id===workflow.selectedBookId)||books[0];
  const entry=book?.entries.find(e=>e.id===book.selectedEntryId)||book?.entries[0];
  const outline=book?bookOutline(book):[];
  const episode=outline.find(e=>e.number===entry?.episode),scene=episode?.scenes.find(s=>s.number===entry?.scene);
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[error,setError]=useState('');
  const importing=useRef(false);
+ const [linkedProjects,setLinkedProjects]=useState(null),[linkedProjectId,setLinkedProjectId]=useState(''),[linkedAvailable,setLinkedAvailable]=useState(false);
+ const scope=useRef(accountId);scope.current=accountId;
+ useEffect(()=>{let alive=true;api.promptArtStatus?.().then(status=>{if(alive)setLinkedAvailable(Boolean(status?.enabled));});return()=>{alive=false;};},[api]);
  const changeWorkflow=transform=>setState(current=>({...current,generationWorkflow:{...transform(current.generationWorkflow||{}),updatedAt:new Date().toISOString()}}));
  const updateBook=(id,transform)=>changeWorkflow(workflow=>({...workflow,books:(workflow.books||[]).map(b=>b.id===id?transform(b):b)}));
  const select=id=>updateBook(book.id,b=>({...b,selectedEntryId:id}));
+ const pickLinked=async()=>{
+  setError('');try{const rows=await api.promptArtList({accountId});if(scope.current!==accountId)return;setLinkedProjects(rows);setLinkedProjectId(rows[0]?.projectId||'');}catch(problem){setError(problem.message);}
+ };
+ const importLinked=async()=>{
+  if(importing.current||!linkedProjectId)return;importing.current=true;setBusy(true);setError('');
+  try{
+   const {saved,snapshot}=await loadFreshBinding({api,projectId:linkedProjectId,accountId,localSources:state.directorProjects});
+   const next=linkedPromptBook(snapshot,saved.decisions,accountId);
+   if(scope.current!==accountId)throw Error('账号已变化，未载入旧账号项目');
+   if(books.some(book=>book.id===next.id)&&!window.confirm('重新载入会替换本联动项目在图视生成中的编辑；已生成视频保留。继续载入？'))return;
+   changeWorkflow(workflow=>({...workflow,selectedBookId:next.id,books:[...(workflow.books||[]).filter(book=>book.id!==next.id),next]}));
+   setLinkedProjects(null);const ready=Object.values(next.drafts).filter(draft=>draft.referenceBindingMode==='confirmed').length;
+   setNotice(`已载入 ${next.entries.length} 条，其中 ${ready} 条关联和图片就绪；其余条目保留待核对。`);
+  }catch(problem){setError(problem.message);}finally{importing.current=false;setBusy(false);}
+ };
  const importDocument=async()=>{
   if(importing.current)return;importing.current=true;setBusy(true);setError('');setNotice('');
   try{
@@ -67,7 +86,12 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
  };
  const references=entry?bookSharedReferences(book,entry):[];
  const currentValue=entry?entryValue(book,entry):null;
+ const submit=async input=>{
+  if(book.linkedProjectId)await validateLinkedSubmission({api,book,entry,value:input,accountId,localSources:state.directorProjects});
+  return onSubmit({...input,promptBookId:book.id,promptEntryId:entry.id,promptLabel:entry.label});
+ };
  return <section className="prompt-book-workspace" aria-label="整本提示词与素材">
+  {linkedAvailable&&<div className="prompt-art-panel"><button disabled={busy} onClick={pickLinked}>从联动美术项目载入</button>{linkedProjects&&<><label>联动项目<select aria-label="联动项目" disabled={busy} value={linkedProjectId} onChange={event=>setLinkedProjectId(event.target.value)}>{linkedProjects.map(project=><option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></label>{!linkedProjects.length&&<p>请先到项目协作的清单核实开启“提示词联动美术”。</p>}<button disabled={busy||!linkedProjectId} onClick={importLinked}>载入已确认关联</button></>}</div>}
   <div className="prompt-book-toolbar"><div><h2>整本提示词与素材</h2><p>上传含【1-1-1】编号的 TXT 或 Word（.docx），按集、场景逐条生成。提示词与素材会保存在本机，直到清除当前项目。</p></div><div className="prompt-book-actions"><button className="secondary" disabled={busy} onClick={importDocument}><Upload size={16}/>{busy?'正在导入…':'上传整本提示词'}</button><button className="danger" disabled={busy||!book} onClick={clearCurrent}><Trash2 size={16}/>清除当前项目</button></div></div>
   {books.length>0&&<label className="prompt-book-select">提示词文档<select aria-label="提示词文档" disabled={busy} value={book.id} onChange={e=>{const id=e.target.value;changeWorkflow(workflow=>({...workflow,selectedBookId:id}));setNotice('');setError('');}}>{books.map(b=><option key={b.id} value={b.id}>{b.name}（{b.entries.length} 条）</option>)}</select></label>}
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p className="prompt-book-notice" role="status">{notice}</p>}
@@ -79,7 +103,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit}){
    </nav>
    <div className="prompt-book-media"><div><strong>场景 {entry.episode}-{entry.scene} 素材</strong><small>{references.length?`图片 ${references.filter(r=>r.kind==='image').length} · 视频 ${references.filter(r=>r.kind==='video').length} · 音频 ${references.filter(r=>r.kind==='audio').length}；按场挂载，集级素材共享，移除只影响当前条目`:'尚未导入素材，可直接编辑提示词并生成'}</small></div><button disabled={busy} onClick={()=>importFolder('episode')}><FolderOpen size={15}/>导入本集文件夹</button><button disabled={busy} onClick={()=>importFolder('series')}><FolderOpen size={15}/>导入整部素材文件夹</button>{references.length>0&&<details className="prompt-book-media-details"><summary>查看当前场景已挂载素材（{references.length}）</summary><div>{references.map(ref=><span key={ref.id}>{ref.kind==='image'?'图片':ref.kind==='audio'?'音频':'视频'} · {ref.name}</span>)}</div></details>}</div>
    <div className="prompt-book-current"><strong>正在编辑 {entry.label}</strong>{entry.recommendedDurationSeconds&&<span className="prompt-duration">建议生成时长 {entry.recommendedDurationSeconds} 秒{entry.durationStatus==='needs-review'?' · 时长待复核':''}</span>}<span>文字修改自动保存</span>{!!book.drafts?.[entry.id]?.excludedIds?.length&&<button disabled={busy} onClick={()=>updateBook(book.id,b=>({...b,drafts:{...b.drafts,[entry.id]:{...b.drafts[entry.id],excludedIds:[],autoReferenceExclusions:[],autoReferenceSignature:null}}}))}>恢复本条移除的素材</button>}</div>
-   <GenerationComposer key={`${book.id}/${entry.id}`} state={state} api={api} kind="video" value={currentValue} referenceCandidates={references} onChange={value=>updateBook(book.id,b=>saveEntryValue(b,entry.id,value,currentValue))} onSubmit={input=>onSubmit({...input,promptBookId:book.id,promptEntryId:entry.id,promptLabel:entry.label})} onPick={importFiles} disabled={busy} episodeReferences/>
+   <GenerationComposer key={`${book.id}/${entry.id}`} state={state} api={api} kind="video" value={currentValue} referenceCandidates={references} onChange={value=>updateBook(book.id,b=>saveEntryValue(b,entry.id,value,currentValue))} onSubmit={submit} onPick={importFiles} disabled={busy} episodeReferences/>
   </>}
  </section>;
 }

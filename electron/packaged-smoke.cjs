@@ -25,6 +25,8 @@ module.exports = function configurePackagedSmoke(app) {
     win.webContents.on('did-fail-load', (_, code, description) => { report.errors.push(`Load failed ${code} ${description}`); finish(false); });
     win.webContents.once('did-finish-load', async () => {
       try {
+        report.promptArtTrial=(await win.webContents.executeJavaScript('window.xingzhou.promptArtStatus()')).enabled===Boolean(require('../package.json').xingzhouPrivateTrial);
+        if(!report.promptArtTrial)throw Error('Private trial feature gate mismatch');
         const {validateGeneratedImage}=require('./generated-image.cjs');
         const imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAACXBIWXMAAAAAAAAAAQCEeRdzAAAA1klEQVR4nC3PMUoDQRSA4f/NzKo4Yd1FTKURLMwNrOwsPIoHSCXWYpWLeAHxGPaCpYWaUZKJxp19Txbs/6/45S11V4ul3jmh9RjaC2LgVFJTu+uQcpkjxNwJq40wqZW+gwHklc4DJtEJxG3h4clzfihMj/4jJQYQHDYIchKel47jxqCDUW0EgCoIL+8O7eE1weO95+KyJ7RG8GIs1o71r3B2qpRP4WSsHEwM20AohbzrNU7HCvtCJUbljZ9v2BLLoRnJ7ONLb0uR1nodLjGH23GWwp6/+QMHFFqTxoOD/QAAAABJRU5ErkJggg==','base64');
         report.generatedImageValidation={png:await validateGeneratedImage(imageBytes)==='image/png',invalid:false};

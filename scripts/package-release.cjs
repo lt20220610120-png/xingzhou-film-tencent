@@ -4,6 +4,7 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
+if(pkg.version.includes('-private')&&process.env.XINGZHOU_PRIVATE_TRIAL!=='1')throw new Error('Private trial packaging requires XINGZHOU_PRIVATE_TRIAL=1');
 const staging = path.join(root, 'release', `staging-${pkg.version}-${Date.now()}`);
 const output = path.join(root, 'release', pkg.version);
 const installed = new Map();
@@ -51,7 +52,7 @@ function copyDependency(name, from) {
   const runtime = process.env.XINGZHOU_ELECTRON_DIST || path.join(root,'qa/electron-runtime');
   const config = {...pkg.build, electronVersion:require('electron/package.json').version, directories:{output,buildResources:'build'}, npmRebuild:false};
   if (fs.existsSync(path.join(runtime,'electron.exe'))) config.electronDist = runtime;
-  const stagePkg = {...pkg, scripts:{}, dependencies:{mammoth:installed.get('mammoth'),yjs:installed.get('yjs')}, devDependencies:{}, build:config};
+  const stagePkg = {...pkg, xingzhouPrivateTrial:process.env.XINGZHOU_PRIVATE_TRIAL==='1', scripts:{}, dependencies:{mammoth:installed.get('mammoth'),yjs:installed.get('yjs')}, devDependencies:{}, build:config};
   fs.writeFileSync(path.join(staging,'package.json'),JSON.stringify(stagePkg,null,2));
   fs.writeFileSync(path.join(staging,'runtime-dependencies.json'),JSON.stringify(Object.fromEntries(installed),null,2));
   console.log(`Staging ${installed.size} physical runtime packages in ${staging}`);

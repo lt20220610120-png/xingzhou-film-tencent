@@ -1524,7 +1524,7 @@ function App() {
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
         {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} active={!!role&&nav==='admin'}/></WorkspacePresence>}
-        {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} />}
+        {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} account={account} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
           ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html?v=${packageInfo.version}${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />

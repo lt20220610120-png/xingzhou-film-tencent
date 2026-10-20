@@ -208,6 +208,14 @@ ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
 const artReviewStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','art-review-checkpoints');
 ipcMain.handle('art-review-load-local',(_,p)=>artReviewStore().load(p));
 ipcMain.handle('art-review-save-local',(_,p)=>artReviewStore().save(p));
+const promptArtEnabled=()=>isDev||require('../package.json').xingzhouPrivateTrial===true;
+const promptArtStore=()=>require('./prompt-art-store.cjs').createPromptArtStore(getDataDir(),()=>readCloudSession()?.account?.id);
+ipcMain.handle('prompt-art-status',()=>({enabled:promptArtEnabled()}));
+for(const method of ['load','save','list'])ipcMain.handle(`prompt-art-${method}`,(_,payload)=>{
+ if(!promptArtEnabled())throw Error('提示词联动美术仅在本机试用版启用');
+ if(directoryMigration)throw Error('资料目录正在迁移，请完成后再操作');
+ return promptArtStore()[method](payload);
+});
 ipcMain.handle('collab-art-review-save',(_,p)=>collabService.saveArtReview(p));
 ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview(p));
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
@@ -356,7 +364,18 @@ const jobs=()=>generationManagers(mediaDir());
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
 ipcMain.handle('generation-list',()=>jobs().list());
-ipcMain.handle('generation-submit',async(event,p)=>jobs().submit({...await renewImageReferences(p),accountId:p.provider==='libtv'?await libtvAccountId():undefined,signal:event.securitySignal}));
+ipcMain.handle('generation-submit',async(event,p)=>{
+ if(p.referenceBindingMode){
+  if(!promptArtEnabled())throw Error('当前版本未启用提示词联动美术');
+  const {validateCompiledBinding,validateLinkedSubmission}=await import('../core/promptArtBinding.js');
+  validateCompiledBinding(p,['image','audio','video']);
+  const accountId=String(readCloudSession()?.account?.id||'');
+  const compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
+  p={...p,references:compiled.references};
+ }
+ if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
+ return jobs().submit({...await renewImageReferences(p),accountId:p.provider==='libtv'?await libtvAccountId():undefined,signal:event.securitySignal});
+});
 ipcMain.handle('generation-refresh',async(_,p)=>jobs().refresh({...p,accountId:jobs().list().find(j=>j.id===p.id)?.provider==='libtv'?await libtvAccountId():undefined}));
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});

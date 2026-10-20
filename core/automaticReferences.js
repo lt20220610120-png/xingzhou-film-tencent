@@ -111,6 +111,7 @@ export function removeGenerationReference(value,key,{allowedKinds=['image','audi
 // Persist the signature and identities in each draft. A description edit or a
 // manually erased tag is left alone; new names/media/models trigger a new match.
 export function matchBasicReferences(value,candidates=value.references||[],{allowedKinds=['image','audio','video'],onPromptEdit}={}) {
+ if(value.referenceBindingMode==='confirmed'||value.referenceBindingMode==='pending')return value;
  const originalPrompt=String(value.prompt||''),subjects=basicSubjects(originalPrompt);
  if(!subjects.length&&!value.autoReferenceOrder)return value;
  const references=[...(value.references||[])];
