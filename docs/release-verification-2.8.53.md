@@ -17,10 +17,14 @@
 - 真实React+Edge与生产完整CSS：1280/1700/2048宽度；筛选后恢复1项失败，取消搜索恢复4项中成功3/失败1，名单与原因完整，无旧结果跳过；取消放弃仍保留、确认只清1项，另一项目及其他分类/已有图恢复记录保持；下一次单独生成点击才提交1次。操作中禁用重入，页面错误0，本机参考图98×30px、无换行/溢出。output/art2853-ui-verification.json，art2853-toolbar-*.png、art2853-card-*.png。
 - 独立只读复核发现单卡重试等待云端提示词保存时可与批量放弃交叉，原调用会退化付费；已携带recoveryOnly跨await。真实延迟云保存回归通过：单卡点击重试→批量确认放弃→释放保存，最终明确跳过，paid/download/attach均0，原记录已解除。output/art2853-preflight-race.json。复核11项通过，无剩余具体发现。
 - npm run build通过；NSIS/ASAR知识产权与用户数据保护检查、实际安装运行时通过，qa/packaged-smoke-2.8.53-1792462294527/report.json。图片多格式校验、视频206/播放/拖动/下载同字节、纯净客户端及Win AI隔离等继承检查均通过。
-- 首次全量2260项有两项旧VM抽取测试夹具缺少setBatchKind，补齐依赖而未放宽断言，相关批量/恢复聚焦14/14通过。最终npm test 2260/2260通过、0失败，耗时176.9秒，output/tests-2853-final.log。Windows桌面相关另串行复验25/25通过；公开更新核对完成后补充。
+- 首次全量2260项有两项旧VM抽取测试夹具缺少setBatchKind，补齐依赖而未放宽断言，相关批量/恢复聚焦14/14通过。最终npm test 2260/2260通过、0失败，耗时176.9秒，output/tests-2853-final.log。Windows桌面相关另串行复验25/25通过；公开更新核对已完成，见下方。
 - 安装包103745864字节，SHA256 8f02874486af95df439c552bf52231a1ed15377e2ee8ec48930011a110f52f07；打包后未改变运行代码或安装包，仅补测试夹具。
 - 所有媒体生成/恢复验证使用隔离模拟接口，未触发真实付费任务、改写用户实际项目或删除原结果文件；保留无关Win AI未提交改动。
 
 ## 发布
 
-待最终验证后填写。
+- 正式发布2.8.53，非草稿/非预发行；功能771eec8，签名清单977ede7。
+- 公开安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.53/Xingzhou-Film-Tencent-Setup-2.8.53.exe 。本机：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.53/Xingzhou-Film-Tencent-Setup-2.8.53.exe 。
+- 两份公开main签名清单一致，版本、URL、大小103745864和SHA256 8f02874486af95df439c552bf52231a1ed15377e2ee8ec48930011a110f52f07与本机相同；GitHub资产digest与HEAD200/Content-Length通过。output/release-2853-public.json。
+- 软件真实更新传输器验签通过；2.8.51/52均发现2.8.53，当前2.8.53不重复更新。官方IP镜像Range206/65536字节与总长一致，output/storyboard2853-inapp-update-verification.json。沿用既有固定信任与域名TLS回退，不跳过证书验证。
+- 根软件更新记忆、开发交接手册已同步；未强制退出/替换用户当前窗口，用户可在软件内更新或下载安装包。
