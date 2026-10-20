@@ -50,6 +50,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
   if(importing.current||!entry)return;importing.current=true;setBusy(true);setError('');setNotice('');
   const bookId=book.id,episodeNumber=entry.episode;
   try{
+   if(book.importedBinding?.stage==='generation')throw Error('请先返回独立关联，再导入新增素材并核对');
    if(!api.generationImportEpisodeMedia)throw new Error('请在最新版桌面软件内导入素材文件夹。');
    const result=await api.generationImportEpisodeMedia({mode,episode:episodeNumber});if(!result)return;
    updateBook(bookId,b=>mergeEpisodeMedia(b,result.episodes,result.scenes));
@@ -61,6 +62,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
  const importFiles=async kind=>{
   if(importing.current||!entry)return;importing.current=true;setBusy(true);setError('');setNotice('');
   try{
+   if(book.importedBinding?.stage==='generation')throw Error('请先返回独立关联，再导入新增素材并核对');
    if(!api.generationImportEpisodeFiles)throw new Error('请更新桌面软件后再导入本集素材。');
    const result=await api.generationImportEpisodeFiles({episode:entry.episode,kind});if(!result)return;
    updateBook(book.id,b=>mergeEpisodeMedia(b,result.episodes));
@@ -90,7 +92,19 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
  const references=entry?bookSharedReferences(book,entry):[];
  const currentValue=entry?(book.importedBinding?importedEntryValue(book,entry):entryValue(book,entry)):null;
  const reviewing=book?.importedBinding?.stage==='review';
- const startAssociation=()=>{try{updateBook(book.id,current=>beginImportedBinding(current,accountId));setError('');}catch(problem){setError(problem.message);}};
+ const startAssociation=async()=>{
+  if(importing.current)return;importing.current=true;setBusy(true);setError('');
+  try{
+   let revision=book.importedBinding?.storeRevision||0;
+   if(book.importedBinding?.stage==='generation'){
+    const projectId=`imported:${book.id}`,saved=await api.promptArtLoad({accountId,projectId});
+    if((saved?.revision||0)!==revision)throw Error('关联已被其他窗口更新，请重新打开项目');
+    if(saved){const next=await api.promptArtSave({accountId,projectId,baseRevision:revision,data:{...saved,enabled:false}});revision=next.revision;}
+   }
+   if(scope.current!==accountId)throw Error('账号已变化');
+   updateBook(book.id,current=>{const next=beginImportedBinding(current,accountId);return {...next,importedBinding:{...next.importedBinding,storeRevision:revision}};});
+  }catch(problem){setError(problem.message);}finally{importing.current=false;setBusy(false);}
+ };
  const saveGenerationValue=value=>{
   if(book.importedBinding){
    if(value.prompt!==currentValue.prompt||JSON.stringify(value.references)!==JSON.stringify(currentValue.references)){setError('请点击“返回独立关联”修改提示词或选图，然后重新确认');return;}

@@ -161,9 +161,9 @@ export function linkedPromptBook(snapshot,decisions,accountId){
 export function validateCompiledBinding(value,allowedKinds){
  if(value.referenceBindingMode==='pending')throw Error(value.bindingIssue||'请先完成本条素材关联');
  if(value.referenceBindingMode!=='confirmed')return;
- if(value.prompt!==value.bindingCompiledPrompt)throw Error('联动提示词已修改，请回到清单核实重新关联');
+ if(value.prompt!==value.bindingCompiledPrompt)throw Error('联动提示词已修改，请返回关联页面重新确认');
  const ids=(value.references||[]).map(ref=>ref.id);
- if(JSON.stringify(ids)!==JSON.stringify(value.bindingExpectedReferences))throw Error('联动素材已修改，请回到清单核实重新选图');
+ if(JSON.stringify(ids)!==JSON.stringify(value.bindingExpectedReferences))throw Error('联动素材已修改，请返回关联页面重新选图');
  if((value.references||[]).some(ref=>!allowedKinds.includes(ref.kind)))throw Error('当前模型不支持本条必需参考素材，请切换模型');
  const aliases=new Set(numberedReferences(value.references||[]).map(ref=>ref.alias));
  for(const alias of value.prompt.match(/@(image|audio|video)\d+/g)||[])if(!aliases.has(alias))throw Error('存在没有对应图片的引用');

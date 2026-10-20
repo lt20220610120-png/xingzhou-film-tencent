@@ -27,7 +27,7 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
   if(stopped.current||!mounted.current)throw Error('任务已停止');
   if(live.current.accountId!==accountId||live.current.snapshot.signature!==captured.signature)throw Error('来源或账号已变化，旧 AI 结果未应用');
  };
- const visionAllowed=profile&&!['codexLocal','geminiWeb','doubaoWork','chatgptWeb'].includes(profile.provider)&&(!profile.protocol||['auto','chat'].includes(profile.protocol))&&!/\/(?:responses|messages)\/?$/.test(profile.endpoint||'');
+ const visionAllowed=profile&&!['codexLocal','geminiWeb','doubaoWork','chatgptWeb','claudeCodePool'].includes(profile.provider)&&(!profile.protocol||['auto','chat'].includes(profile.protocol))&&!/api\.anthropic\.com|\/(?:responses|messages)\/?$/.test(profile.endpoint||'');
  const readImages=async sceneCards=>{
   if(!vision)return [];
   if(!visionAllowed)throw Error('看图请选支持图片输入的 Chat Completions API；本机 Codex 当前用于文字核对');
