@@ -30,3 +30,11 @@
 安装包：103797991字节；SHA256 `367b3761a5ede2fdff74d8656ee40e5e74dd4b9f23479cb096b8b527ff2fa03d`。
 
 最终打包补充：AAC/OGG/FLAC/音频MP4/视频WebM按素材类型传输，避免本机已导入文件被网站归为错误节点。新增模拟读取断言通过，MV3完整流程复跑通过；最终NSIS与运行时复验通过。
+
+## 最终公开发布核验
+
+- 源码fe00304、音频类型补充e274b17，已推送main；官方Release非草稿，GitHub资产digest/HEAD200及双main签名清单一致。
+- 正式更新传输器验证Ed25519签名，2.8.55与2.8.54-private.1可发现2.8.56；官方IP源Range206、65536字节及总长度与最终包一致。证据output/release-2856-public.json、output/like2856-inapp-update-verification.json。
+- 首轮候选包上传后补充格式识别，镜像同号不同哈希保护正常拒绝覆盖；对先前候选包与清单完整备份，再原子替换为最终包并同步双GitHub清单，重新核验三源一致。备份：/opt/xingzhou-backups/update2856-candidate-20261020T183915Z.
+- 公开安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.56/Xingzhou-Film-Tencent-Setup-2.8.56.exe
+- 本机安装包：release/2.8.56/Xingzhou-Film-Tencent-Setup-2.8.56.exe。最终103797991字节，SHA256 367b3761a5ede2fdff74d8656ee40e5e74dd4b9f23479cb096b8b527ff2fa03d。
