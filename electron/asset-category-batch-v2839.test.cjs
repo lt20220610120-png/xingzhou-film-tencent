@@ -8,7 +8,7 @@ async function fixture({canEdit=true,hold=false}={}){
  const asset={id:'p',name:'道具',category:'prop',description:'完整道具描述'},project={id:crypto.randomUUID(),style:''};
  let selected=['p'],paid=0,release;const wait=hold?new Promise(resolve=>release=resolve):null;
  const scope={project,assets:[asset],canEdit,showArchived:false,batchBusy:false,batchRunning:{current:false},batchProfile:{id:'mock'},batchSize:'1024x1024',imageConcurrency:2,accountId:'a',
-  imagePlan:()=>selected.includes('p')?[{asset}]:[],generatingAssetIdsRef:{current:new Set()},stopImages:{current:false},setBatchError:()=>{},setBatchBusy:()=>{},setImageProgress:()=>{},setGeneratingAssetIds:()=>{},setBatchSelectedIds:fn=>selected=fn(selected),
+  imagePlan:()=>selected.includes('p')?[{asset}]:[],generatingAssetIdsRef:{current:new Set()},stopImages:{current:false},setBatchKind:()=>{},setBatchError:()=>{},setBatchBusy:()=>{},setImageProgress:()=>{},setGeneratingAssetIds:()=>{},setBatchSelectedIds:fn=>selected=fn(selected),
   runArtImageBatch,...recovery,api:{mediaGenerateImage:async()=>{paid++;if(wait)await wait;return {filePath:'C:/qa/image.png'};},collabAttachGeneratedAssetImage:async()=>({id:'saved',url:'https://example.test/saved.png'})},
   refresh:async()=>{},draftStore:{read:()=>null},readAssetReferenceChoice:()=>'',resolveAssetImageReference:()=>null,requiresAssetImageReference:()=>false,characterAppearanceIssue:()=>null,assetImageReferences:()=>[],buildImagePrompt:a=>a.description,projectCharacterComposition:()=>({}),readableCloudError:e=>e.message};
  const generate=new Function(...Object.keys(scope),handler+'\nreturn generateBatch;')(...Object.values(scope));
