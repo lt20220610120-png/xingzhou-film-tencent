@@ -101,9 +101,16 @@ function createGenerationJobs(dir,options={}) {
     async submit(input) {
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
-      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived'])delete snapshot[field];
+      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
       const job = { ...snapshot, ...((input.kind==='video'||fnko.isFnkoEndpoint(endpoint))?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
+      if(input.provider==='likeai'){
+        const service=typeof options.likeService==='function'?options.likeService():options.likeService;
+        if(!service)throw Error('Like连接组件尚未就绪');save(job);
+        try{const result=await service.submit({...input,id:job.id});let saved=save({...job,likeJobId:job.id,likeCanvasUrl:result.canvasUrl,jobId:result.taskId||result.id,nodeId:result.nodeId,status:result.status==='failed'?'failed':result.status==='uncertain'?'uncertain':'submitted',warning:result.message||'',nextPollAt:Date.now()+15000});
+          if(result.status==='success'){saved=save({...saved,status:'downloading'});try{return save({...saved,...await service.download(saved,dir),status:'success',warning:''});}catch(e){return save({...saved,warning:e.message});}}return saved;
+        }catch(e){save({...job,likeJobId:job.id,likeCanvasUrl:e.likeCanvasUrl,status:e.beforeSubmission?'failed':'uncertain',submissionAttempted:!e.beforeSubmission,error:e.message});throw e;}
+      }
       if(input.provider==='libtv'){
         if(!libtv())throw Error('LibTV 连接器尚未就绪，请先连接账号');
         save(job);
@@ -165,6 +172,13 @@ function createGenerationJobs(dir,options={}) {
       const work = (async () => {
         let job=read().find(r=>r.id===id);
         if (!job) throw new Error('任务不存在');
+        if(job.provider==='likeai'){
+          if(['success','failed'].includes(job.status))return job;
+          const service=typeof options.likeService==='function'?options.likeService():options.likeService;if(!service)return save({...job,warning:'Like连接组件尚未就绪'});
+          try{const result=await service.query(job);if(result.status==='failed')return save({...job,status:'failed',error:result.message||'Like网站原任务失败'});if(result.status!=='success')return save({...job,status:result.status==='uncertain'?'uncertain':'submitted',warning:result.message||'',nodeId:result.nodeId||job.nodeId,jobId:result.taskId||job.jobId,nextPollAt:Date.now()+15000});
+            job=save({...job,status:'downloading'});return save({...job,...await service.download(job,dir),status:'success',warning:'',error:''});
+          }catch(e){return save({...job,warning:e.message});}
+        }
         if(job.provider==='libtv'){
           if(job.status==='success'||job.status==='failed')return job;
           try{const raw=await libtv().query(accountId,job);if(libtvFailed(raw))return save({...job,status:'failed',error:'LibTV 官方任务失败，请打开原画布核对'});

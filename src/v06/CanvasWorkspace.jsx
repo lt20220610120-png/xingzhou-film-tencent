@@ -1,3 +1,4 @@
+import {LikeConnection} from './LikeConnection.jsx';
 import {FnkoImageConfiguration} from './FnkoImageConfiguration.jsx';
 import {cleanClient} from '../../core/clientDistribution.js';
 import {VideoApiConfiguration} from './VideoApiConfiguration.jsx';
@@ -62,7 +63,7 @@ export function MediaApiSettings({ state, setState, onClose }) {
     setNotice(editingId ? '接口修改已保存。' : '接口已添加，可在生成界面选择使用。');
   };
   const edit = (profile) => {
-    if(profile.provider==='libtv'){setMode('libtv');return;}
+    if(profile.provider==='likeai'){setMode('like');return;}if(profile.provider==='libtv'){setMode('libtv');return;}
     setNotice(''); setError('');
     if (profile.kind!=='video'&&isFeituoEndpoint(profile.endpoint)) {
       setMode('feituo'); setFeituoKey(credential?.apiKey || profile.apiKey || ''); setEditingId(null);
@@ -81,13 +82,13 @@ export function MediaApiSettings({ state, setState, onClose }) {
   return (
     <Dialog open title="生成接口设置" onClose={onClose}>
       <div className="media-api-settings">
-        <div className="media-api-modes">{!cleanClient(state)&&state.ftConnectionsVersion!==1&&<button className={mode === 'feituo' ? 'active' : ''} onClick={() => { setMode('feituo'); setError(''); setNotice(''); }}><KeyRound size={15} />FT快捷接入</button>}<button className={mode === 'custom' ? 'active' : ''} onClick={() => { setMode('custom'); setError(''); setNotice(''); }}>自定义接口</button><button className={mode==='libtv'?'active':''} onClick={()=>setMode('libtv')}>连接 LibTV</button></div>
+        <div className="media-api-modes">{!cleanClient(state)&&state.ftConnectionsVersion!==1&&<button className={mode === 'feituo' ? 'active' : ''} onClick={() => { setMode('feituo'); setError(''); setNotice(''); }}><KeyRound size={15} />FT快捷接入</button>}<button className={mode === 'custom' ? 'active' : ''} onClick={() => { setMode('custom'); setError(''); setNotice(''); }}>自定义接口</button><button className={mode==='libtv'?'active':''} onClick={()=>setMode('libtv')}>连接 LibTV</button><button className={mode==='like'?'active':''} onClick={()=>setMode('like')}>连接 Like画布</button></div>
         {mode === 'feituo' ? <form className="media-feituo-connection" onSubmit={saveFeituo}>
           <header><div><strong>一个 Key，所有FT模型</strong><p>保存一次，在生成界面直接切换模型，无需重复配置。</p></div><span className={credential ? 'connected' : ''}>{credential ? '已保存 Key' : '待填写 Key'}</span></header>
           <label htmlFor="feituo-api-key">FT API Key</label><input id="feituo-api-key" aria-label="FT API Key" placeholder="粘贴你的FT API Key" type="password" autoComplete="off" value={feituoKey} onChange={(event) => { setFeituoKey(event.target.value); setNotice(''); setError(''); }} />
           <div className="media-feituo-details"><small>{feituoModels.filter((model) => model.kind === 'video').length} 个视频模型 · {feituoModels.filter((model) => model.kind === 'image').length} 个图片模型</small></div>
           <button className="primary" type="submit"><Save size={15} />保存并启用</button>
-        </form> : mode==='libtv'?<LibTVConnection state={state} setState={setState} onClose={onClose}/>: <form className="media-api-form" onSubmit={save}>
+        </form> : mode==='like'?<LikeConnection state={state} setState={setState} onClose={onClose}/>:mode==='libtv'?<LibTVConnection state={state} setState={setState} onClose={onClose}/>: <form className="media-api-form" onSubmit={save}>
           <p className="media-api-hint">用于配置其他图片与视频服务；模型 ID 和接口地址请按该服务商文档填写。</p>
           <select aria-label="接口类型" value={form.kind} onChange={update('kind')}><option value="image">图片生成接口</option><option value="video">视频生成接口</option></select>
           <input aria-label="接口名称" placeholder="接口名称" value={form.name} onChange={update('name')} />

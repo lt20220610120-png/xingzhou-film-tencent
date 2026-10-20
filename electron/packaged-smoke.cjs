@@ -25,6 +25,7 @@ module.exports = function configurePackagedSmoke(app) {
     win.webContents.on('did-fail-load', (_, code, description) => { report.errors.push(`Load failed ${code} ${description}`); finish(false); });
     win.webContents.once('did-finish-load', async () => {
       try {
+        report.likeConnectorBridge=await win.webContents.executeJavaScript("['likeStatus','likePairing','likeBind','likeOpenProject','likeExtensionFolder'].every(k=>typeof window.xingzhou[k]==='function')");if(!report.likeConnectorBridge)throw Error('Like connector preload bridge missing');
         report.promptArtTrial=(await win.webContents.executeJavaScript('window.xingzhou.promptArtStatus()')).enabled===Boolean(require('../package.json').xingzhouPrivateTrial);
         if(!report.promptArtTrial)throw Error('Private trial feature gate mismatch');
         const {validateGeneratedImage}=require('./generated-image.cjs');

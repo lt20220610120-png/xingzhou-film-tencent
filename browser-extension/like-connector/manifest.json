@@ -1,0 +1,15 @@
+{
+ "manifest_version":3,
+ "name":"行舟影视 · Like画布连接",
+ "version":"1.0.0",
+ "description":"连接本机行舟影视与已登录的Like画布，记住项目、刷新后自动重连。",
+ "minimum_chrome_version":"120",
+ "permissions":["storage","alarms"],
+ "host_permissions":["http://127.0.0.1:18764/*","https://likeai.pro/*"],
+ "background":{"service_worker":"background.js"},
+ "action":{"default_popup":"popup.html","default_title":"行舟影视 Like连接"},
+ "content_scripts":[
+  {"matches":["https://likeai.pro/*"],"js":["main.js"],"world":"MAIN","run_at":"document_idle"},
+  {"matches":["https://likeai.pro/*"],"js":["content.js"],"run_at":"document_idle"}
+ ]
+}

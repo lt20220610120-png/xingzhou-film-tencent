@@ -45,7 +45,7 @@ function copyDependency(name, from) {
 (async()=>{
   if (!fs.existsSync(path.join(root,'dist/index.html'))) throw new Error('Run npm run build before packaging');
   fs.mkdirSync(staging,{recursive:true});
-  for (const folder of ['dist','electron','core','world-simulation','canvas-app','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
+  for (const folder of ['dist','electron','core','world-simulation','canvas-app','browser-extension','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
   copyTree(path.join(root,'cloud-backend/shared'),path.join(staging,'cloud-backend/shared'));
   copyDependency('mammoth',root);
   copyDependency('yjs',root);
