@@ -25,6 +25,11 @@
 
 ## 发布
 
-安装包已制作，待公开发布核对后补充签名清单、公开资产和官方源证据。
+已正式发布2.8.55，功能54f62bd/110b6a9；签名清单与公开包核对完成。
+
+- 公开安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.55/Xingzhou-Film-Tencent-Setup-2.8.55.exe
+- 本机安装包：release/2.8.55/Xingzhou-Film-Tencent-Setup-2.8.55.exe，103783426字节，SHA256 b77986422874632b4dd499187490498417df10f97defd514f7a44cd4e84bbe62。
+- 两份公开main签名更新清单相同，GitHub资产digest、HEAD200和总长与本机一致；官方IP源验签、Range206/65536字节与总长一致。output/release-2855-public.json、director2855-inapp-update-verification.json。旧private.1界面可发现55，但旧主进程会拒绝下载，因此须直接运行安装包；软件内更新实测解释器不等于旧二进制已修复。
+- 根软件更新记忆与开发交接已同步。没有关闭用户当前窗口，没有执行真实付费生成。
 
 - 发布前新增更新比较修复：newerVersion原先无法解析private后缀，修为按数值基线比较；先红后绿与更新相关5项、独立14项通过，并重新打包运行时验证。旧private.1自身仍是旧比较代码，因此首次升级须直接运行2.8.55安装包，不宣称旧private.1可在软件内完成下载。设备试用标记已提前保留。
