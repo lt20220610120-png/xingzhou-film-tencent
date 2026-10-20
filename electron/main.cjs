@@ -359,7 +359,7 @@ ipcMain.handle('generation-list',()=>jobs().list());
 ipcMain.handle('generation-submit',async(event,p)=>jobs().submit({...await renewImageReferences(p),accountId:p.provider==='libtv'?await libtvAccountId():undefined,signal:event.securitySignal}));
 ipcMain.handle('generation-refresh',async(_,p)=>jobs().refresh({...p,accountId:jobs().list().find(j=>j.id===p.id)?.provider==='libtv'?await libtvAccountId():undefined}));
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
-const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason},error:error.message});
+const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});
 async function libtvDirect(payload,signal){const input=await renewImageReferences(payload);if(input.kind==='image'&&!input.ratio){input.ratio=({'1280x720':'16:9','720x1280':'9:16','1024x1024':'1:1','1024x768':'4:3','768x1024':'3:4'})[input.size]||input.size||'16:9';}const job=await jobs().submit({...input,accountId:await libtvAccountId(),signal});try{return await jobs().waitForCompletion(job.id);}catch(e){if(input.kind==='image')return{pendingGeneration:{id:job.id},error:e.message};throw e;}}
 const fnkoDirect=(payload,signal)=>require('./fnko-direct.cjs').runFnkoDirect(payload,signal,{jobs:jobs(),renewImageReferences});
 async function completedFnkoFile(payload,signal){const result=await fnkoDirect(payload,signal);if(result.filePath)return result.filePath;throw Error((result.error||'任务仍在处理')+'；原任务已保存在生成结果中，请刷新原任务，不要重新提交。');}

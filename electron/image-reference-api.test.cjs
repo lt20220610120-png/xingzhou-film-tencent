@@ -59,10 +59,10 @@ test('multiple local/data references preserve order and explicit edits endpoints
   await generateImage({...f.input,endpoint:`${f.base}/v1/images/edits`,references:[{kind:'image',filePath:local},{kind:'image',url:`data:image/png;base64,${png.toString('base64')}`}]});
 });
 
-test('generation without a reference keeps the existing JSON request', async t => {
+test('GPT-compatible generation requests inline image bytes in a single JSON request', async t => {
   const f = await fixture(t, async (req, request) => {
     assert.equal(req.url,'/v1/images/generations');
-    const body = await request.json();assert.equal(body.model,'gpt-image-2.5');assert.equal(body.response_format,'url');
+    const body = await request.json();assert.equal(body.model,'gpt-image-2.5');assert.equal(body.response_format,'b64_json');
   });
   await generateImage(f.input);
   assert.equal(f.calls.length,1);

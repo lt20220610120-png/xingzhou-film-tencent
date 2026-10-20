@@ -1,6 +1,17 @@
 // Retry only reads, including interrupted response bodies. Generation POSTs must
 // never pass through this helper: the provider may already have billed them.
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+async function mediaErrorDetails(response){
+  const reader=response.body?.getReader?.();let text='';
+  try{
+    if(!/json/i.test(response.headers?.get('content-type')||''))return {};
+    if(reader){let size=0;const chunks=[];while(size<8192){const part=await reader.read();if(part.done)break;const bytes=Buffer.from(part.value);chunks.push(bytes.subarray(0,8192-size));size+=bytes.length;}text=Buffer.concat(chunks).toString('utf8');}
+    else if(response.text)text=(await response.text()).slice(0,8192);
+    const data=JSON.parse(text),message=data.error?.message||data.detail||data.message;
+    const clean=typeof message==='string'?message.replace(/https?:\/\/[^\s"<>]+/gi,'[结果地址]').replace(/\bsk-[a-z0-9_-]{8,}/gi,'[密钥已隐藏]').replace(/[\x00-\x1f]/g,' ').slice(0,240):'';
+    return {upstreamMessage:clean,upstreamCode:/^[\w.-]{1,80}$/.test(data.error?.code||'')?data.error.code:''};
+  }catch{return {};}finally{try{if(reader)await reader.cancel();else await response.body?.cancel?.();}catch{}}
+}
 
 function isMediaNetworkError(error) {
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|ABORT_ERR/.test(String(error?.cause?.code || error?.code || ''))
@@ -37,11 +48,11 @@ async function downloadMediaBytes(url, { fetchFn = mediaFetch || globalThis.fetc
       if (!response.ok) {
         const retryAfter = Number(response.headers?.get('retry-after'));
         if (retryAfter > 0) retryDelay = Math.min(2000, retryAfter * 1000);
-        await response.body?.cancel?.().catch(() => {});
-        throw Object.assign(new Error(`${label}失败（HTTP ${response.status}）`), { status: response.status, retryable: RETRYABLE_STATUS.has(response.status) });
+        const details=await mediaErrorDetails(response);
+        throw Object.assign(new Error(`${label}失败（HTTP ${response.status}）${details.upstreamMessage?`：${details.upstreamMessage}`:''}`), { status: response.status, retryable: RETRYABLE_STATUS.has(response.status),...details });
       }
       const bytes = Buffer.from(await response.arrayBuffer());
-      if (!bytes.length) throw new Error(`${label}返回空文件`);
+      if (!bytes.length) throw Object.assign(new Error(`${label}返回空文件`),{code:'MEDIA_CONTENT_EMPTY'});
       return { bytes, mime: (response.headers?.get('content-type') || '').split(';')[0].toLowerCase() };
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;

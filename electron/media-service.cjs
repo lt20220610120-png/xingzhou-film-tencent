@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const {winAIFetch:fetch}=require('./win-ai-api-fetch.cjs');
 const { readMediaBytes, isMediaNetworkError } = require('./media-network.cjs');
+const {validateGeneratedImage}=require('./generated-image.cjs');
 const requestSignal=(signal,timeout)=>signal?AbortSignal.any([signal,AbortSignal.timeout(timeout)]):AbortSignal.timeout(timeout);
 function waitForPoll(delay,signal){
  if(!signal)return new Promise(resolve=>setTimeout(resolve,delay));
@@ -69,17 +70,13 @@ async function generateFeituoVideo({ apiKey, model, prompt, ratio, duration, res
   throw new Error('飞拓视频生成超时，请稍后在任务记录中查看');
 }
 
-async function downloadToFile(url, destDir, ext) {
-  fs.mkdirSync(destDir, { recursive: true });
-  const file = path.join(destDir, `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`);
-  if (url.startsWith('data:')) {
-    const base64 = url.split(',')[1] || '';
-    fs.writeFileSync(file, Buffer.from(base64, 'base64'));
-    return file;
-  }
-  const { bytes } = await readMediaBytes(url, { timeoutMs: ext === 'mp4' ? 120000 : 60000 });
-  fs.writeFileSync(file, bytes);
-  return file;
+async function downloadToFile(url, destDir, ext,{verifyImage=false,fileName}={}) {
+  const file = path.join(destDir, fileName||`${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`);
+  const bytes=url.startsWith('data:')?Buffer.from(url.split(',')[1]||'','base64'):(await readMediaBytes(url, { timeoutMs: ext === 'mp4' ? 120000 : 60000 })).bytes;
+  if(verifyImage)await validateGeneratedImage(bytes);
+  const temporary=file+'.'+crypto.randomBytes(4).toString('hex')+'.part';
+  try{fs.mkdirSync(destDir,{recursive:true});fs.writeFileSync(temporary,bytes);fs.renameSync(temporary,file);return file;}
+  catch(error){try{fs.unlinkSync(temporary);}catch{}if(verifyImage)error.imageVerified=true;throw error;}
 }
 
 function imageReceiptPath(receiptId, destDir) {
@@ -101,14 +98,21 @@ function retryImageDownload(receiptId, destDir) {
     try { receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')); }
     catch { throw new Error('已保存的图片结果记录不存在，请先检查本地资料目录'); }
     try {
-      const filePath = await downloadToFile(receipt.source, destDir, 'png');
-      fs.unlinkSync(receiptPath);
+      // A stable filename closes the crash gap between writing bytes and sending
+      // the IPC result. Never fetch or generate again if verified bytes exist.
+      const fileName=`image-result-${receiptId}.png`,cached=path.join(destDir,fileName);
+      if(fs.existsSync(cached)){try{await validateGeneratedImage(fs.readFileSync(cached));return cached;}catch(error){if(error.code!=='IMAGE_CONTENT_INVALID')throw error;}}
+      const filePath = await downloadToFile(receipt.source, destDir, 'png',{verifyImage:true,fileName});
+      try{fs.writeFileSync(receiptPath+'.tmp',JSON.stringify({...receipt,verified:true,downloadedFile:fileName,verifiedAt:new Date().toISOString(),lastFailure:null}),{mode:0o600});fs.renameSync(receiptPath+'.tmp',receiptPath);}catch{/* The stable file can be recovered without changing the original receipt. */}
       return filePath;
     } catch (cause) {
-      const reason=[401,403,404,410].includes(cause.status)?'expired':isMediaNetworkError(cause)||isMediaNetworkError(cause.cause)?'network':'save';
-      const advice=reason==='expired'?'服务商结果链接不可用，请到服务商任务记录找回原图后上传；继续重试相同地址无法恢复。':reason==='network'?'请检查系统代理或网络；也可打开已生成结果，在浏览器保存原图后上传。':'请检查本地资料目录、磁盘空间或权限后继续保存。';
-      throw Object.assign(new Error(`图片已生成，但下载或保存未完成：${cause.message}。${advice} 不会自动重新生图。`), {
-        cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId, downloadReason:reason,
+      const reason=cause.status?'upstream':['IMAGE_CONTENT_INVALID','MEDIA_CONTENT_EMPTY'].includes(cause.code)?'invalid':isMediaNetworkError(cause)||isMediaNetworkError(cause.cause)?'network':'save';
+      const unavailable=[401,403,404,410].includes(cause.status)||/不存在|已过期|not found|expired/i.test(cause.upstreamMessage||'');
+      const advice=reason==='upstream'?(unavailable?'上游表示源图片不存在、过期或拒绝访问；这不是本地磁盘故障。可打开结果地址核对，仍不可用时主动放弃旧结果后再生成。':'上游结果地址下载失败，可稍后重试取回原图，或在浏览器核对。'):reason==='invalid'?'尚未确认生成了可显示的图片，请核对上游结果；不会把错误网页保存为图片。':reason==='network'?'请检查系统代理或网络；可在浏览器打开原结果后上传。':'请检查本地资料目录、磁盘空间或权限后继续保存。';
+      const verified=Boolean(cause.imageVerified);
+      try{fs.writeFileSync(receiptPath+'.tmp',JSON.stringify({...receipt,lastFailure:{reason,httpStatus:cause.status,upstreamCode:cause.upstreamCode,upstreamMessage:cause.upstreamMessage,verified,at:new Date().toISOString()}}),{mode:0o600});fs.renameSync(receiptPath+'.tmp',receiptPath);}catch{}
+      throw Object.assign(new Error(`${verified?'已验证图片，但本地保存未完成':'接口已返回结果，尚未取回有效图片'}：${cause.message}。${advice} 不会自动重新生图。`), {
+        cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId, downloadReason:reason,httpStatus:cause.status,upstreamCode:cause.upstreamCode,imageVerified:verified,
       });
     }
   })().finally(() => pendingImageDownloads.delete(receiptPath));
@@ -176,7 +180,11 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
     }
     // fetch adds the multipart boundary; GPT Image edits return base64 by default.
     delete headers['Content-Type'];
-  } else body = JSON.stringify({ model: model.trim(), prompt: prompt.trim(), size, n: 1, response_format: 'url' });
+  } else {
+    const inline=/^(?:gpt-image|dall-e)/i.test(model.trim());
+    const officialGpt=/^gpt-image/i.test(model.trim())&&new URL(base).hostname==='api.openai.com';
+    body=JSON.stringify({model:model.trim(),prompt:prompt.trim(),size,n:1,...(officialGpt?{}:{response_format:inline?'b64_json':'url'})});
+  }
   let response, data;
   try {
     response = await fetch(`${base}/images/${references.length ? 'edits' : 'generations'}`, {

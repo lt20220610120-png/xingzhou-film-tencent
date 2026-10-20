@@ -18,10 +18,21 @@ module.exports = function configurePackagedSmoke(app) {
     const { session } = require('electron');
     session.defaultSession.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']}, (_, done) => done({cancel:true}));
   });
+  let mainWindowClaimed=false;
   app.on('browser-window-created', (_, win) => {
+    if(mainWindowClaimed)return; // Run app checks once; image decoder windows have their own bounded lifecycle.
+    mainWindowClaimed=true;
     win.webContents.on('did-fail-load', (_, code, description) => { report.errors.push(`Load failed ${code} ${description}`); finish(false); });
     win.webContents.once('did-finish-load', async () => {
       try {
+        const {validateGeneratedImage}=require('./generated-image.cjs');
+        const imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAACXBIWXMAAAAAAAAAAQCEeRdzAAAA1klEQVR4nC3PMUoDQRSA4f/NzKo4Yd1FTKURLMwNrOwsPIoHSCXWYpWLeAHxGPaCpYWaUZKJxp19Txbs/6/45S11V4ul3jmh9RjaC2LgVFJTu+uQcpkjxNwJq40wqZW+gwHklc4DJtEJxG3h4clzfihMj/4jJQYQHDYIchKel47jxqCDUW0EgCoIL+8O7eE1weO95+KyJ7RG8GIs1o71r3B2qpRP4WSsHEwM20AohbzrNU7HCvtCJUbljZ9v2BLLoRnJ7ONLb0uR1nodLjGH23GWwp6/+QMHFFqTxoOD/QAAAABJRU5ErkJggg==','base64');
+        report.generatedImageValidation={png:await validateGeneratedImage(imageBytes)==='image/png',invalid:false};
+        try{await validateGeneratedImage(Buffer.from('<html>image missing</html>'));}catch(e){report.generatedImageValidation.invalid=e.code==='IMAGE_CONTENT_INVALID';}
+        report.generatedImageValidation.webp=await validateGeneratedImage(Buffer.from('UklGRpAAAABXRUJQVlA4WAoAAAAQAAAABwAABwAAQUxQSCsAAAABN6AgbQNG+JT/2YiI+EYNMAhJys28wRtk8BQhRFD+GClE9D8bVhBeQaZ8AFZQOCA+AAAA0AEAnQEqCAAIAAIANCUAToAelO4WjcAA/vtg0CSUG7etJ2p8SxB77CE19FsfzP9eOtvpIPZh75/K/yiAAAA=','base64'))==='image/webp';
+        report.generatedImageValidation.gif=await validateGeneratedImage(Buffer.from('R0lGODlhCAAIAPcfAAAAACQAAEgAAGwAAJAAALQAANgAAPwAAAAkACQkAEgkAGwkAJAkALQkANgkAPwkAABIACRIAEhIAGxIAJBIALRIANhIAPxIAABsACRsAEhsAGxsAJBsALRsANhsAPxsAACQACSQAEiQAGyQAJCQALSQANiQAPyQAAC0ACS0AEi0AGy0AJC0ALS0ANi0APy0AADYACTYAEjYAGzYAJDYALTYANjYAPzYAAD8ACT8AEj8AGz8AJD8ALT8ANj8APz8AAAAVSQAVUgAVWwAVZAAVbQAVdgAVfwAVQAkVSQkVUgkVWwkVZAkVbQkVdgkVfwkVQBIVSRIVUhIVWxIVZBIVbRIVdhIVfxIVQBsVSRsVUhsVWxsVZBsVbRsVdhsVfxsVQCQVSSQVUiQVWyQVZCQVbSQVdiQVfyQVQC0VSS0VUi0VWy0VZC0VbS0Vdi0Vfy0VQDYVSTYVUjYVWzYVZDYVbTYVdjYVfzYVQD8VST8VUj8VWz8VZD8VbT8Vdj8Vfz8VQAAqiQAqkgAqmwAqpAAqrQAqtgAqvwAqgAkqiQkqkgkqmwkqpAkqrQkqtgkqvwkqgBIqiRIqkhIqmxIqpBIqrRIqthIqvxIqgBsqiRsqkhsqmxsqpBsqrRsqthsqvxsqgCQqiSQqkiQqmyQqpCQqrSQqtiQqvyQqgC0qiS0qki0qmy0qpC0qrS0qti0qvy0qgDYqiTYqkjYqmzYqpDYqrTYqtjYqvzYqgD8qiT8qkj8qmz8qpD8qrT8qtj8qvz8qgAA/yQA/0gA/2wA/5AA/7QA/9gA//wA/wAk/yQk/0gk/2wk/5Ak/7Qk/9gk//wk/wBI/yRI/0hI/2xI/5BI/7RI/9hI//xI/wBs/yRs/0hs/2xs/5Bs/7Rs/9hs//xs/wCQ/ySQ/0iQ/2yQ/5CQ/7SQ/9iQ//yQ/wC0/yS0/0i0/2y0/5C0/7S0/9i0//y0/wDY/yTY/0jY/2zY/5DY/7TY/9jY//zY/wD8/yT8/0j8/2z8/5D8/7T8/9j8//z8/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQEBAAfACwAAAAACAAIAAAIMgD/2fM30N69fwTtKVxYcJ09gQIfjiNnsGC9iRTvKazXrp27f/cIQrR3y19Ee7YM/gsIADs=','base64'))==='image/gif';
+        report.generatedImageValidation.avif=await validateGeneratedImage(Buffer.from('AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUEAAAD5bWV0YQAAAAAAAAAvaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAFBpY3R1cmVIYW5kbGVyAAAAAA5waXRtAAAAAAABAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAASEAAAA6AAAAKGlpbmYAAAAAAAEAAAAaaW5mZQIAAAAAAQAAYXYwMUNvbG9yAAAAAGppcHJwAAAAS2lwY28AAAAUaXNwZQAAAAAAAAAIAAAACAAAABBwaXhpAAAAAAMICAgAAAAMYXYxQ4EgAAAAAAATY29scm5jbHgAAgACAACAAAAAF2lwbWEAAAAAAAAAAQABBAECgwQAAABCbWRhdAoMIAAAARfn180BDQAgMioQAMAAAKAQKABwIK6RZF4Y4be65ws3VfzVeTlwLnkNZaXBbDl7DroXROE=','base64'))==='image/avif';
+        if(!Object.values(report.generatedImageValidation).every(Boolean))throw Error('Generated image decoding validation failed');
         const JSZip = require('jszip');
         const zip = new JSZip();
         zip.file('[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
@@ -122,7 +133,7 @@ module.exports = function configurePackagedSmoke(app) {
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{
           const file=path.join(mediaDir,name);
-          fs.writeFileSync(file,index===0?Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO3ZtqsAAAAASUVORK5CYII=','base64'):Buffer.from([index,1,2,3]));
+          fs.writeFileSync(file,index===0?Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAACXBIWXMAAAAAAAAAAQCEeRdzAAAA1klEQVR4nC3PMUoDQRSA4f/NzKo4Yd1FTKURLMwNrOwsPIoHSCXWYpWLeAHxGPaCpYWaUZKJxp19Txbs/6/45S11V4ul3jmh9RjaC2LgVFJTu+uQcpkjxNwJq40wqZW+gwHklc4DJtEJxG3h4clzfihMj/4jJQYQHDYIchKel47jxqCDUW0EgCoIL+8O7eE1weO95+KyJ7RG8GIs1o71r3B2qpRP4WSsHEwM20AohbzrNU7HCvtCJUbljZ9v2BLLoRnJ7ONLb0uR1nodLjGH23GWwp6/+QMHFFqTxoOD/QAAAABJRU5ErkJggg==','base64'):Buffer.from([index,1,2,3]));
           return `xzmedia://local/${encodeURIComponent(file)}`;
         });
         const {net}=require('electron');

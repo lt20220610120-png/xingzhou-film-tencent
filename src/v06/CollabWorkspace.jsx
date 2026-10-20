@@ -4,7 +4,7 @@ import ProjectCompositionControl from './ProjectCompositionControl.jsx';
 import{CHARACTER_COMPOSITIONS,projectCharacterComposition,readComposedAssetPrompt as readAssetPrompt,serializeComposedAssetPrompt as serializeAssetPrompt,defaultComposedAssetPromptPrefix as defaultAssetPromptPrefix,buildComposedImagePrompt as buildImagePrompt}from'../../core/artImageComposition.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
-import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery } from '../../core/assetImageRecovery.js';
+import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery, assetImageRecoverySummary } from '../../core/assetImageRecovery.js';
 import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
@@ -439,14 +439,23 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?`等待${asset.category==='scene'?'场景':'人物'}基准参考图`:"默认（不引用参考）"}</option><option value="">不引用参考</option>{localReference&&<option value="__local__">本机参考 {localReference.name}</option>}{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>
         {(api.mediaImportFile||api.mediaImportFiles)&&<button type="button" className="secondary" onClick={importReference} disabled={busy||generating||!canEdit}>选择本机参考图</button>}
         {!mates.length&&<small className="collab-ref-hint">项目暂无可选参考图。可先上传或生成资产图片，再在此选择。</small>}
-        <div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating || busy || !canEdit || pendingImage?.reason==='expired'}>{generating || busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {generating || busy ? '处理中…' : pendingImage?.reason==='expired'?'结果链接不可用':(pendingImage?.receiptId||pendingImage?.taskId) ? '恢复原结果（不重新生图）' : pendingImage?.filePath ? '继续保存图片' : '生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy || generating || !canEdit}><Upload size={14} /> 上传</button></div>
-        {pendingImage?.receiptId&&<div className="image-recovery-actions"><button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开生成结果。保存原图后可点击上传，不会重新生图。');}catch(e){setError(e.message);}}}>打开已生成结果</button><button className="ghost" disabled={busy||generating||!canEdit} onClick={()=>{if(window.confirm('放弃这张待下载结果？原恢复记录仍保留在本机；之后点击生成图片会重新调用接口并可能产生费用。')){clearAssetImageRecovery(project.id,asset.id);setError('已解除旧结果的重试状态，可上传原图，或点击生成图片重新付费生成。');}}}>放弃旧结果</button></div>}
+        {pendingImage ? <section className="image-recovery-panel" aria-label="图片结果恢复">
+          <strong>{pendingImage.filePath?'原图等待保存':pendingImage.taskId?'生成任务待恢复':'图片结果待取回'}</strong>
+          <p>{assetImageRecoverySummary(pendingImage)}</p>
+          <div className="image-recovery-row"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit||pendingImage.reason==='expired'}>{generating||busy?<Loader2 size={14} className="spin"/>:<RefreshCw size={14}/>} {generating||busy?'处理中…':pendingImage.filePath?'继续保存图片':pendingImage.taskId?'查询原任务':'重试取回原图'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传原图</button></div>
+          <div className={`image-recovery-row${pendingImage.receiptId?'':' image-recovery-single'}`}>
+            {pendingImage.receiptId&&<button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开结果地址。如能看到原图，可保存后点击上传原图。');}catch(e){setError(e.message);}}}>打开结果地址</button>}
+            <button className="secondary image-recovery-abandon" disabled={busy||generating||!canEdit} onClick={()=>{if(window.confirm(`${pendingImage.taskId?'原生成任务可能仍在运行，放弃恢复不会取消上游任务。':'原恢复记录仍保留在本机。'}确定放弃旧结果？之后点击“生成图片”会重新调用接口并可能产生费用。`)){clearAssetImageRecovery(project.id,asset.id);setError('已放弃旧结果；可上传原图，或点击“生成图片”提交新任务（可能产生费用）。');}}}>放弃旧结果</button>
+          </div>
+          <small>恢复只取回原结果；放弃后再点“生成图片”会提交新任务，可能产生费用。</small>
+          {error&&<div className="image-recovery-error" role="status">{error}</div>}
+        </section>:<div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit}>{generating||busy?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {generating||busy?'处理中…':'生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传</button></div>}
         {refAsset && <small className="collab-ref-hint">{refAsset.localReference?`将使用本机参考图：${refAsset.name}`:parseAssetName(asset.name).base===parseAssetName(refAsset.name).base?(asset.category==='scene'?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`将参考 ${refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态`):`已手选项目参考图：${refAsset.name}`}</small>}
         {referenceRequired&&asset.category!=='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
         {referenceRequired&&asset.category==='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次无法保证场景布局一致。</small>}
         {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">{asset.category==='scene'?'请先生成或选择场景基准参考图，避免只改变光线时重新设计布局。':'请先生成或选择人物基准参考图，避免差异造型生成另一张脸。'}</small>}
         {!refAsset&&characterAppearanceIssue(asset, assets)&&<small className="collab-ref-hint" role="status">{characterAppearanceIssue(asset, assets)}</small>}
-        {error && <div className="collab-error">{error}</div>}
+        {error && !pendingImage && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
       {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
