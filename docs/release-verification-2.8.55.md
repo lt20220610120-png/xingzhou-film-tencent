@@ -21,8 +21,10 @@
 
 - 只读核实本机实际ASAR为2.8.54-private.1且xingzhouPrivateTrial=true，随后在真实userData写入设备试用迁移标记；public2.8.55读取为启用。公开包metadata=false，新用户运行时入口关闭。没有将用户项目、Key、私有Skill正文或本机标记打包；没有强制退出正在使用的窗口。
 - npm test最终2291/2291通过、0失败，output/director2855-final-tests.log；后加实际uploader+store跨重启联调1/1通过（同文件PUT一次、共享租约/换号/未确认保护、清理后可重新上传、本机源文件保留），electron/reference-management.test.cjs。独立最终复核5项及额外批量释放验证通过。
-- npm run build通过；NSIS/ASAR纯净安装/IP保护、熔断开关与真实安装运行时通过，qa/packaged-smoke-2.8.55-1792506386162/report.json。视频播放/Range/下载同字节、Win AI、3个内置Skill元数据及资料隔离继承验证通过。实际付费AI/图片/视频生成请求0。
+- npm run build通过；NSIS/ASAR纯净安装/IP保护、熔断开关与真实安装运行时通过，qa/packaged-smoke-2.8.55-1792506971455/report.json。视频播放/Range/下载同字节、Win AI、3个内置Skill元数据及资料隔离继承验证通过。实际付费AI/图片/视频生成请求0。
 
 ## 发布
 
 安装包已制作，待公开发布核对后补充签名清单、公开资产和官方源证据。
+
+- 发布前新增更新比较修复：newerVersion原先无法解析private后缀，修为按数值基线比较；先红后绿与更新相关5项、独立14项通过，并重新打包运行时验证。旧private.1自身仍是旧比较代码，因此首次升级须直接运行2.8.55安装包，不宣称旧private.1可在软件内完成下载。设备试用标记已提前保留。

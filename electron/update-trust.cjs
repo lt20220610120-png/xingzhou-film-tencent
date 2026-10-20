@@ -24,7 +24,9 @@ function assertDownloadUrl(value) {
   return url.toString();
 }
 function newerVersion(a,b) {
-  const left=a.split('.').map(Number),right=b.split('.').map(Number);
-  for(let i=0;i<3;i++){if(left[i]!==right[i])return left[i]>right[i];}return false;
+  const parse=value=>typeof value==='string'?value.match(/^(\d+)\.(\d+)\.(\d+)(-private\.\d+)?$/):null;
+  const left=parse(a),right=parse(b);if(!left||!right)return false;
+  for(let i=1;i<=3;i++){const x=Number(left[i]),y=Number(right[i]);if(!Number.isSafeInteger(x)||!Number.isSafeInteger(y))return false;if(x!==y)return x>y;}
+  return !left[4]&&Boolean(right[4]);
 }
 module.exports = { TRUSTED_MANIFEST_URL, RELEASE_REPO, MAX_INSTALLER_SIZE, signingBytes, validateManifest, assertDownloadUrl, newerVersion };
