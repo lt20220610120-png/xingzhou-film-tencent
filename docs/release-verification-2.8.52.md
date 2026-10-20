@@ -27,4 +27,7 @@
 
 ## 发布
 
-待最终验证后填写；不将构建中安装包视作已发布版本。
+- 功能5c3dcbc，正式签名清单e0fee8a，版本2.8.52；非草稿、非预发行。公开安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.52/Xingzhou-Film-Tencent-Setup-2.8.52.exe 。本机包：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.52/Xingzhou-Film-Tencent-Setup-2.8.52.exe 。
+- 两份公开main更新清单完全一致，版本、安装包URL、103745137字节及SHA256 ba1a1cb546cca923e811717b1cd352a9ba081e1f345decc4818b2008f9e605aa 与本地相同；GitHub资产digest和HEAD200/Content-Length均通过。证据output/release-2852-public.json。
+- 真实软件更新传输器验签通过，2.8.50/51均能发现2.8.52，2.8.52不重复更新；官方IP镜像Range206/65536字节及总长一致。证据output/storyboard2852-inapp-update-verification.json；沿用既有域名TLS回退及固定信任，没有绕过证书验证。
+- 根软件更新记忆、开发交接手册已同步。未关闭/替换用户当前窗口；用户可通过软件内更新或公开安装包安装。保留所有无关Win AI改动及原项目/结果记录。
