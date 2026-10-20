@@ -10,3 +10,20 @@
 @media(max-width:900px){.prompt-art-needs article{grid-template-columns:minmax(0,1fr)}.prompt-art-panel{padding:14px}}
 .imported-art-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:12px;margin:14px 0}.imported-art-cards article{min-width:0;padding:12px;border:1px solid #536b88;border-radius:10px}.imported-art-cards img{width:100%;height:150px;object-fit:contain;background:#0c1422}.imported-art-panel textarea{box-sizing:border-box;width:100%;background:#0e1827;color:#eef4ff;line-height:1.6;padding:12px;border:1px solid #536b88}.prompt-art-panel .imported-vision{flex-direction:row;align-items:center}.imported-vision input{min-height:0}.imported-art-panel [role=alert]{overflow-wrap:anywhere;max-height:180px;overflow:auto}
 .prompt-art-panel .imported-art-cards small{color:#c2d4e9}
+/* Studio theme sets a white input background with higher specificity. Pair the
+   foreground with it explicitly instead of leaving the former pale dark-theme text. */
+.prompt-art-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),.prompt-art-panel textarea,.prompt-art-panel select{background:#fff;color:#25344d;caret-color:#25344d;-webkit-text-fill-color:#25344d}
+.prompt-art-panel input::placeholder,.prompt-art-panel textarea::placeholder{color:#617086;-webkit-text-fill-color:#617086}
+.prompt-art-panel.imported-art-panel{background:#fff;color:#25344d;border-color:#c9bde6;padding:18px}
+.prompt-art-panel.imported-art-panel :is(p,details,label,small,h2,h2 small){color:#34465e}
+.prompt-art-panel.imported-art-panel .imported-binding-header{position:sticky;top:0;z-index:5;background:#fff;padding:12px 0;border-bottom:1px solid #dce4f0;box-shadow:0 6px 12px #fff}
+.prompt-art-panel.imported-art-panel button{background:#f5f2fc;color:#493775;border-color:#c9bde6}
+.prompt-art-panel.imported-art-panel .imported-auto-start{background:#6951aa;color:#fff;font-weight:600}
+.prompt-art-panel.imported-art-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),.prompt-art-panel.imported-art-panel textarea,.prompt-art-panel.imported-art-panel select{background:#fff;color:#25344d;border-color:#acb9cb;font-size:14px}
+.prompt-art-panel.imported-art-panel details>summary{padding:12px 0;cursor:pointer;font-weight:600}
+.prompt-art-panel.imported-art-panel .imported-art-cards article,.prompt-art-panel.imported-art-panel .prompt-art-needs article{border-color:#ced8e5;background:#f7f9fc}
+.prompt-art-panel.imported-art-panel .collab-error{background:#fff0f0;color:#8a2736}
+.imported-binding-issues{max-height:280px;overflow:auto;margin:12px 0;border:1px solid #dce4f0;border-radius:8px}
+.imported-binding-issues button{display:grid;grid-template-columns:90px minmax(0,1fr) 70px;gap:10px;width:100%;text-align:left;align-items:center;border-radius:0}
+.imported-binding-issues button span{overflow-wrap:anywhere}
+.imported-binding-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0;color:#34465e}

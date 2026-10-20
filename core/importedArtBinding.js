@@ -8,7 +8,8 @@ export function beginImportedBinding(book,accountId){
  if(!accountId)throw Error('请先登录账号');
  if(book.importedBinding&&book.importedBinding.accountId!==accountId)throw Error('该关联属于其他账号');
  if(book.linkedProjectId)throw Error('联动美术项目请回清单核实修改');
- return {...book,importedBinding:book.importedBinding?{...book.importedBinding,stage:'review'}:{accountId,stage:'review',metadata:{},decisions:{},prompts:Object.fromEntries(book.entries.map(entry=>[entry.id,entryValue(book,entry).prompt]))}};
+ const prompts=Object.fromEntries(book.entries.map(entry=>[entry.id,entryValue(book,entry).prompt]));
+ return {...book,importedBinding:book.importedBinding?{...book.importedBinding,stage:'review',...(book.importedBinding.stage==='manual'?{prompts}:{} )}:{accountId,stage:'review',metadata:{},decisions:{},prompts}};
 }
 export function importedSnapshot(book){
  const work=book.importedBinding||{},cards=new Map(),labels=new Set(),entries=[];

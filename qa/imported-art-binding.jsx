@@ -5,6 +5,9 @@ import '../src/styles.css';
 import '../src/generation.css';
 import '../src/collab.css';
 import '../src/ocean-theme.css';
+import '../src/studio-theme.css';
+import '../src/brand-theme.css';
+import '../src/workspace-readability.css';
 
 const image=(title,color)=>'data:image/svg+xml,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180"><rect width="300" height="180" fill="${color}"/><text x="150" y="100" fill="white" text-anchor="middle" font-size="28">${title}</text></svg>`);
 const refs=[['a','张三','character','#396791'],['b','李四','character','#43766a'],['room','客厅','scene','#726254'],['cup','张三-杯子','prop','#665783'],['phone','手机','prop','#5f768b']].map(([id,name,category,color])=>({id,name:name+'.png',category,kind:'image',url:image(name,color)}));
@@ -19,9 +22,10 @@ const api={
  promptArtImageInputs:async({references})=>{window.qaImported.vision++;return references.map(ref=>({id:ref.id,dataUrl:ref.url}));},
  aiChat:async({messages})=>{
   window.qaImported.ai++;const data=JSON.parse(messages[1].content);
-  if(!data.entry)return JSON.stringify({cards:data.cards.map(card=>({...card,name:refs.find(ref=>ref.id===card.uid).name.replace('.png',''),description:'根据素材名称，未看图'}))});
+  if(window.qaImported.hold){await new Promise(resolve=>window.qaImported.release=resolve);}
+  if(!data.entry)return JSON.stringify({cards:data.cards.map(card=>({...card,sourceName:card.name,certainty:'clear',name:refs.find(ref=>ref.id===card.uid).name.replace('.png',''),description:'根据素材名称，未看图'}))});
   if(window.qaImported.ai===2)return '{"needs":[]}';
-  return JSON.stringify({needs:data.previousNeeds.map(need=>({...need,reason:'基础信息与本条镜头一致'}))});
+  return JSON.stringify({certainty:'clear',needs:data.previousNeeds.map(need=>({...need,reason:'基础信息与本条镜头一致'}))});
  },
  generationList:async()=>[],saveState:async()=>{},generationSubmit:async input=>window.qaImported.submits.push(input)
 };

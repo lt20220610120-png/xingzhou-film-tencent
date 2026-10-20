@@ -10,6 +10,12 @@ test('project upload media respects exact scene while legacy episode media remai
 const image=(id,name)=>({id,name,kind:'image',filePath:`C:/media/${id}.png`});
 const audio=(id,name)=>({id,name,kind:'audio',filePath:`C:/media/${id}.wav`});
 const options={allowedKinds:['image','audio','video']};
+test('无类别旧图片不能截掉杯子后缀冒充人物，日常妆造仍可匹配',()=>{
+ const refs=[image('person','刘娜-日常.png'),image('cup','刘娜-杯子.png'),image('papers','刘娜-文件夹.png')];
+ const next=matchBasicReferences({prompt:'【基础设定】\n人物：刘娜。\n道具：无',references:[]},refs,options);
+ assert.deepEqual(next.references.map(ref=>ref.id),['person']);
+ assert.match(next.prompt,/刘娜（参考@image1）/);
+});
 const prompt='1-5-1\n【基础设定】\n人物：苏洲（参考@），穿居家便装；林清雪（参考@），穿校服；Q版林清雪，内心形象。\n场景：清晨，出租屋厨房内（参考@）；有晨光。\n道具：三明治两个（盛在盘中）；林清雪的书包（在房门边）。\n音色：苏洲，成年男声；林清雪，少女声线。\n【整体视觉】\n其他人物张三在场外，提到卧室。';
 
 test('basic subjects bind named local media, variants, locations, props and voices at their own fields',()=>{

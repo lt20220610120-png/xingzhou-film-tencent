@@ -43,11 +43,16 @@ function basicSubjects(prompt) {
  return subjects;
 }
 
-function mediaNames(ref) {
+const APPEARANCE=/^(?:(?:日常|居家|校园|夏季|冬季|春季|秋季|成年|少年|青年|中年|老年|古装|现代|战斗|受伤|重伤|轻伤|黑化|幼年|童年|正面|侧面|背面|三视图|全身|半身|特写|造型)|(?:(?:白色|黑色|蓝色|红色|绿色|灰色|深色|浅色)?(?:校服|制服|常服|便服|礼服|婚纱|便装|睡衣|西装|长袍|剑道服|战甲|铠甲|道袍|运动服|古装)))+$/;
+function mediaNames(ref,expected) {
  return [...new Set([ref.name,ref.filename].filter(Boolean).flatMap(name=>{
   const clean=String(name).split(/[\\/]/).pop().replace(/\.[a-z0-9]{2,5}$/i,'').replace(/^\s*\d+[\s._-]+/,'');
   const bracket=clean.match(/[【\[]([^】\]]+)[】\]]/)?.[1]||clean;
-  return [bracket,bracket.split(/[-_]/)[0]].map(normalizeName).filter(Boolean);
+  const parts=bracket.split(/[-_]/);
+  // Legacy folder exports lack a category: an arbitrary suffix may be a prop.
+  // Only an explicit character category or a known appearance permits dropping it.
+  const allowBase=ref.category||expected!=='character'||APPEARANCE.test(normalizeName(parts.slice(1).join('')));
+  return [bracket,...(allowBase?[parts[0]]:[])].map(normalizeName).filter(Boolean);
  }))];
 }
 
@@ -56,11 +61,11 @@ function matchScore(subject,ref) {
  if(ref.kind!==(expected==='audio'?'audio':'image'))return 0;
  if(ref.category&&ref.category!==expected)return 0;
  const subjectName=normalizeName(subject.name);
- return Math.max(0,...mediaNames(ref).map(name=>{
+ return Math.max(0,...mediaNames(ref,expected).map(name=>{
   if(name===subjectName)return 1000+subjectName.length;
   if(subjectName.length>=2&&name.startsWith(subjectName)) {
    const suffix=name.slice(subjectName.length);
-   const appearance=/^(?:(?:日常|居家|校园|夏季|冬季|春季|秋季|成年|少年|青年|中年|老年|古装|现代|战斗|受伤|重伤|轻伤|黑化|幼年|童年|正面|侧面|背面|三视图|全身|半身|特写|造型)|(?:(?:白色|黑色|蓝色|红色|绿色|灰色|深色|浅色)?(?:校服|制服|常服|便服|礼服|婚纱|便装|睡衣|西装|长袍|剑道服|战甲|铠甲|道袍|运动服|古装)))+$/;
+   const appearance=APPEARANCE;
    const location=/^(?:内|外|内景|外景|室内|室外|日|夜|白天|夜晚|清晨|黄昏|全景|远景|近景|特写)+$/;
    const count=/^(?:\d+|[一二两三四五六七八九十]+)(?:个|盒|把|只|件|张|瓶|辆)$/;
    if(expected==='character'?appearance.test(suffix):expected==='scene'?location.test(suffix):expected==='prop'?count.test(suffix):/^(?:音色|声音|配音|语音|声线|参考|男声|女声|低声|轻声|对白)+$/.test(suffix))return 500+subjectName.length;
