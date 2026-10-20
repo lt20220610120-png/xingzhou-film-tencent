@@ -218,6 +218,10 @@ ipcMain.handle('art-review-save-local',(_,p)=>artReviewStore().save(p));
 const promptArtEnabled=()=>isDev||require('./local-trial-features.cjs').retainPrivateTrial(app.getPath('userData'),require('../package.json'));
 const promptArtStore=()=>require('./prompt-art-store.cjs').createPromptArtStore(getDataDir(),()=>readCloudSession()?.account?.id);
 ipcMain.handle('prompt-art-status',()=>({enabled:promptArtEnabled()}));
+ipcMain.handle('prompt-art-image-inputs',async(_,payload)=>{
+ if(!promptArtEnabled()||String(readCloudSession()?.account?.id||'')!==payload.accountId)throw Error('账号已变化或未启用本机试用');
+ return require('./imported-binding-media.cjs').bindingImageInputs(payload.references,mediaDir(),require('electron').nativeImage);
+});
 for(const method of ['load','save','list'])ipcMain.handle(`prompt-art-${method}`,(_,payload)=>{
  if(!promptArtEnabled())throw Error('提示词联动美术仅在本机试用版启用');
  if(directoryMigration)throw Error('资料目录正在迁移，请完成后再操作');
@@ -390,7 +394,12 @@ ipcMain.handle('generation-submit',async(event,p)=>{
   const {validateCompiledBinding,validateLinkedSubmission}=await import('../core/promptArtBinding.js');
   validateCompiledBinding(p,['image','audio','video']);
   const accountId=String(readCloudSession()?.account?.id||'');
-  const compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
+  let compiled;
+  if(p.bindingOrigin==='imported'){
+   const {validateImportedSubmission}=await import('../core/importedArtBinding.js');
+   compiled=validateImportedSubmission(promptArtStore().load({accountId,projectId:p.bindingProjectId}),p,accountId);
+   await require('./imported-binding-media.cjs').verifiedImportedImages(compiled.references,mediaDir());
+  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');

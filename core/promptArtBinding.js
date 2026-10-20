@@ -119,6 +119,7 @@ export function applyBindingAi(snapshot,entry,decision,raw){
   return {id:`ai:${index}:${row.start}`,category:row.category,text:row.text,start:row.start,end:row.end,visibility:row.visibility,reason:row.reason,cardUid:card?.uid||null,imageId:old?.cardUid===card?.uid?old?.imageId:card?.images.length===1?card.images[0].id:null};
  });
  for(const old of decision.needs)if(!needs.some(row=>row.category===old.category&&row.start<=old.start&&row.end>=old.end))throw Error('AI 漏掉原有需求，原选择已保留');
+ for(const old of decision.needs.filter(row=>row.locked))if(!needs.some(row=>row===old))throw Error('AI 改变了人工锁定的原文范围，原选择已保留');
  return {...decision,needs,confirmed:false,origin:'ai',issue:''};
 }
 export function bindingAiMessages(snapshot,entry,decision){
@@ -131,8 +132,9 @@ export function compileEntryBinding(snapshot,entry,decision){
  const references=[],spans=new Map();
  for(const need of decision.needs.filter(row=>row.visibility==='visible')){
   const card=snapshot.cards.find(card=>card.uid===need.cardUid),image=card.images.find(image=>image.id===need.imageId),id=`${card.assetId}:${image.id}`;
-  if(!references.some(ref=>ref.id===id))references.push({id,imageId:image.id,assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image',url:image.url});
-  const key=`${need.start}:${need.end}`,group=spans.get(key)||{start:need.start,end:need.end,ids:[]};group.ids.push(id);spans.set(key,group);
+  const ref=card.reference?{...card.reference,category:card.category,name:card.name}:{id,imageId:image.id,assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image',url:image.url};
+  if(!references.some(item=>item.id===ref.id))references.push(ref);
+  const key=`${need.start}:${need.end}`,group=spans.get(key)||{start:need.start,end:need.end,ids:[]};group.ids.push(ref.id);spans.set(key,group);
  }
  const aliases=new Map(numberedReferences(references).map(ref=>[ref.id,ref.alias]));let prompt=entry.prompt;
  const ordered=[...spans.values()].sort((left,right)=>right.start-left.start);

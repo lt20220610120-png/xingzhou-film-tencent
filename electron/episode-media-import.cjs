@@ -38,12 +38,13 @@ async function collectFolder(root,destination,files,warnings,depth=0,scope={}){
   if(entry.isDirectory()){
    if(entry.name.includes('未关联')){warnings.add(`未关联素材未自动挂载：${entry.name}`);continue;}
    const sceneId=sceneNumber(entry.name,scope.episode);if(sceneId===false){warnings.add(`场景目录与集号不符，已跳过：${entry.name}`);continue;}
-   await collectFolder(filePath,destination,files,warnings,depth+1,{...scope,sceneId:sceneId||scope.sceneId});
+   const category=({'人物':'character','角色':'character','场景':'scene','道具':'prop'})[entry.name];
+   await collectFolder(filePath,destination,files,warnings,depth+1,{...scope,sceneId:sceneId||scope.sceneId,category:category||scope.category});
   }
   else if(entry.isFile()){
    const ext=path.extname(entry.name).toLowerCase();
    const kind=Object.keys(EXTENSIONS).find(k=>EXTENSIONS[k].includes(ext));
-   if(kind){files.push({filePath,name:entry.name,ext,kind,...(scope.sceneId?{sceneId:scope.sceneId}:{})});if(files.length>10000)throw new Error('单次导入最多 10000 个素材，请按集分批导入。');}
+   if(kind){files.push({filePath,name:entry.name,ext,kind,...(scope.sceneId?{sceneId:scope.sceneId}:{}),...(scope.category?{category:scope.category}:{})});if(files.length>10000)throw new Error('单次导入最多 10000 个素材，请按集分批导入。');}
   }
  }
 }
@@ -83,7 +84,7 @@ async function saveGroups(planned,destination,warnings=new Set()){
    const target=path.join(destination,`${hash}${file.ext}`);
    // Content-addressed files are shared across prompts and repeated imports.
    try{await fs.promises.copyFile(file.filePath,target,fs.constants.COPYFILE_EXCL);}catch(error){if(error.code!=='EEXIST')throw error;}
-   const ref={id,filePath:target,name:file.name,kind:file.kind};if(file.sceneId)(scenes[file.sceneId]||=[]).push(ref);else refs.push(ref);count++;
+   const ref={id,filePath:target,name:file.name,kind:file.kind,...(file.kind==='image'&&file.category?{category:file.category}:{})};if(file.sceneId)(scenes[file.sceneId]||=[]).push(ref);else refs.push(ref);count++;
   }
   episodes[number]=refs;
  }

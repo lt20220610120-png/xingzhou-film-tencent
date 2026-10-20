@@ -3,9 +3,11 @@ import {Upload,FolderOpen,Trash2} from 'lucide-react';
 import {parsePromptBook,bookOutline,entryValue,saveEntryValue,mergeEpisodeMedia,clearPromptBook,bookSharedReferences} from '../../core/promptBook.js';
 import {GenerationComposer} from './GenerationComposer.jsx';
 import {linkedPromptBook,loadFreshBinding,validateLinkedSubmission} from '../../core/promptArtBinding.js';
+import {beginImportedBinding,importedEntryValue,validateImportedSubmission} from '../../core/importedArtBinding.js';
+import ImportedArtBindingPanel from './ImportedArtBindingPanel.jsx';
 
 export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
- const workflow=state.generationWorkflow||{},books=(workflow.books||[]).filter(book=>!book.linkedProjectId||book.accountId===accountId);
+ const workflow=state.generationWorkflow||{},books=(workflow.books||[]).filter(book=>(!book.linkedProjectId||book.accountId===accountId)&&(!book.importedBinding||book.importedBinding.accountId===accountId));
  const book=books.find(b=>b.id===workflow.selectedBookId)||books[0];
  const entry=book?.entries.find(e=>e.id===book.selectedEntryId)||book?.entries[0];
  const outline=book?bookOutline(book):[];
@@ -19,7 +21,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
  const updateBook=(id,transform)=>changeWorkflow(workflow=>({...workflow,books:(workflow.books||[]).map(b=>b.id===id?transform(b):b)}));
  const select=id=>updateBook(book.id,b=>({...b,selectedEntryId:id}));
  const pickLinked=async()=>{
-  setError('');try{const rows=await api.promptArtList({accountId});if(scope.current!==accountId)return;setLinkedProjects(rows);setLinkedProjectId(rows[0]?.projectId||'');}catch(problem){setError(problem.message);}
+  setError('');try{const rows=(await api.promptArtList({accountId})).filter(row=>!row.projectId.startsWith('imported:'));if(scope.current!==accountId)return;setLinkedProjects(rows);setLinkedProjectId(rows[0]?.projectId||'');}catch(problem){setError(problem.message);}
  };
  const importLinked=async()=>{
   if(importing.current||!linkedProjectId)return;importing.current=true;setBusy(true);setError('');
@@ -33,12 +35,13 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
    setNotice(`已载入 ${next.entries.length} 条，其中 ${ready} 条关联和图片就绪；其余条目保留待核对。`);
   }catch(problem){setError(problem.message);}finally{importing.current=false;setBusy(false);}
  };
- const importDocument=async()=>{
+ const importDocument=async standalone=>{
   if(importing.current)return;importing.current=true;setBusy(true);setError('');setNotice('');
   try{
    if(!api.importFullScript)throw new Error('请在桌面软件内导入文档。');
    const document=await api.importFullScript();if(!document)return;
-   const next=parsePromptBook(document.content,document.fileName);
+   const parsed=parsePromptBook(document.content,document.fileName);
+   const next=standalone===true?beginImportedBinding(parsed,accountId):parsed;
    changeWorkflow(workflow=>({...workflow,selectedBookId:next.id,books:[...(workflow.books||[]),next]}));
    setNotice(`已读取 ${next.entries.length} 条提示词。每条修改自动保存；重复编号已按文档出现顺序区分。`);
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
@@ -85,12 +88,24 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
  };
  const references=entry?bookSharedReferences(book,entry):[];
- const currentValue=entry?entryValue(book,entry):null;
+ const currentValue=entry?(book.importedBinding?importedEntryValue(book,entry):entryValue(book,entry)):null;
+ const reviewing=book?.importedBinding?.stage==='review';
+ const startAssociation=()=>{try{updateBook(book.id,current=>beginImportedBinding(current,accountId));setError('');}catch(problem){setError(problem.message);}};
+ const saveGenerationValue=value=>{
+  if(book.importedBinding){
+   if(value.prompt!==currentValue.prompt||JSON.stringify(value.references)!==JSON.stringify(currentValue.references)){setError('请点击“返回独立关联”修改提示词或选图，然后重新确认');return;}
+   const preferences=Object.fromEntries(Object.entries(value).filter(([key])=>!['prompt','references','extraReferences','excludedIds','overrides','referenceBindingMode'].includes(key)&&!key.startsWith('binding')));
+   updateBook(book.id,current=>({...current,settings:{...current.settings,...preferences},drafts:{...current.drafts,[entry.id]:preferences}}));return;
+  }
+  updateBook(book.id,b=>saveEntryValue(b,entry.id,value,currentValue));
+ };
  const submit=async input=>{
   if(book.linkedProjectId)await validateLinkedSubmission({api,book,entry,value:input,accountId,localSources:state.directorProjects});
+  if(book.importedBinding)validateImportedSubmission(await api.promptArtLoad({accountId,projectId:input.bindingProjectId}),input,accountId);
   return onSubmit({...input,promptBookId:book.id,promptEntryId:entry.id,promptLabel:entry.label});
  };
  return <section className="prompt-book-workspace" aria-label="整本提示词与素材">
+  {linkedAvailable&&<div className="prompt-art-actions"><button disabled={busy} onClick={()=>importDocument(true)}>上传提示词并先关联图片</button>{book&&!book.linkedProjectId&&<button disabled={busy} onClick={startAssociation}>{book.importedBinding?'返回独立关联':'先关联现有提示词与图片'}</button>}{reviewing&&<button disabled={busy} onClick={()=>importFiles('image')}>上传本集图片</button>}</div>}
   {linkedAvailable&&<div className="prompt-art-panel"><button disabled={busy} onClick={pickLinked}>从联动美术项目载入</button>{linkedProjects&&<><label>联动项目<select aria-label="联动项目" disabled={busy} value={linkedProjectId} onChange={event=>setLinkedProjectId(event.target.value)}>{linkedProjects.map(project=><option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></label>{!linkedProjects.length&&<p>请先到项目协作的清单核实开启“提示词联动美术”。</p>}<button disabled={busy||!linkedProjectId} onClick={importLinked}>载入已确认关联</button></>}</div>}
   <div className="prompt-book-toolbar"><div><h2>整本提示词与素材</h2><p>上传含【1-1-1】编号的 TXT 或 Word（.docx），按集、场景逐条生成。提示词与素材会保存在本机，直到清除当前项目。</p></div><div className="prompt-book-actions"><button className="secondary" disabled={busy} onClick={importDocument}><Upload size={16}/>{busy?'正在导入…':'上传整本提示词'}</button><button className="danger" disabled={busy||!book} onClick={clearCurrent}><Trash2 size={16}/>清除当前项目</button></div></div>
   {books.length>0&&<label className="prompt-book-select">提示词文档<select aria-label="提示词文档" disabled={busy} value={book.id} onChange={e=>{const id=e.target.value;changeWorkflow(workflow=>({...workflow,selectedBookId:id}));setNotice('');setError('');}}>{books.map(b=><option key={b.id} value={b.id}>{b.name}（{b.entries.length} 条）</option>)}</select></label>}
@@ -103,7 +118,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
    </nav>
    <div className="prompt-book-media"><div><strong>场景 {entry.episode}-{entry.scene} 素材</strong><small>{references.length?`图片 ${references.filter(r=>r.kind==='image').length} · 视频 ${references.filter(r=>r.kind==='video').length} · 音频 ${references.filter(r=>r.kind==='audio').length}；按场挂载，集级素材共享，移除只影响当前条目`:'尚未导入素材，可直接编辑提示词并生成'}</small></div><button disabled={busy} onClick={()=>importFolder('episode')}><FolderOpen size={15}/>导入本集文件夹</button><button disabled={busy} onClick={()=>importFolder('series')}><FolderOpen size={15}/>导入整部素材文件夹</button>{references.length>0&&<details className="prompt-book-media-details"><summary>查看当前场景已挂载素材（{references.length}）</summary><div>{references.map(ref=><span key={ref.id}>{ref.kind==='image'?'图片':ref.kind==='audio'?'音频':'视频'} · {ref.name}</span>)}</div></details>}</div>
    <div className="prompt-book-current"><strong>正在编辑 {entry.label}</strong>{entry.recommendedDurationSeconds&&<span className="prompt-duration">建议生成时长 {entry.recommendedDurationSeconds} 秒{entry.durationStatus==='needs-review'?' · 时长待复核':''}</span>}<span>文字修改自动保存</span>{!!book.drafts?.[entry.id]?.excludedIds?.length&&<button disabled={busy} onClick={()=>updateBook(book.id,b=>({...b,drafts:{...b.drafts,[entry.id]:{...b.drafts[entry.id],excludedIds:[],autoReferenceExclusions:[],autoReferenceSignature:null}}}))}>恢复本条移除的素材</button>}</div>
-   <GenerationComposer key={`${book.id}/${entry.id}`} state={state} api={api} kind="video" value={currentValue} referenceCandidates={references} onChange={value=>updateBook(book.id,b=>saveEntryValue(b,entry.id,value,currentValue))} onSubmit={submit} onPick={importFiles} disabled={busy} episodeReferences/>
+   {reviewing?<ImportedArtBindingPanel key={`${book.id}/${accountId}`} book={book} entry={entry} state={state} api={api} accountId={accountId} onUpdate={transform=>updateBook(book.id,transform)} onBusy={setBusy}/>:<GenerationComposer key={`${book.id}/${entry.id}`} state={state} api={api} kind="video" value={currentValue} referenceCandidates={book.importedBinding?[]:references} onChange={saveGenerationValue} onSubmit={submit} onPick={importFiles} disabled={busy} episodeReferences/>}
   </>}
  </section>;
 }
