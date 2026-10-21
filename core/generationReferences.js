@@ -1,4 +1,5 @@
 export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|aac|ogg|flac)$/i,'').replace(/^[【\[]|[】\]]$/g, '');
+const referenceNames = item => [...new Set([item.name,item.displayName,...(item.nameAliases||[])].map(referenceName).filter(Boolean))];
 export const isProjectGenerationReference=(ref,projectId)=>
  ['image','audio','video'].includes(ref.kind)&&
  (!ref.projectId||ref.projectId===projectId)&&(!ref.project_id||ref.project_id===projectId);
@@ -9,9 +10,9 @@ export function numberedReferences(references) {
 export function bindReferencePrompt(prompt, references) {
   let result = String(prompt || '');
   const numbered = numberedReferences(references);
-  const names = [...new Set(numbered.map(r => referenceName(r.name)).filter(Boolean))].sort((a,b) => b.length-a.length);
+  const names = [...new Set(numbered.flatMap(referenceNames))].sort((a,b) => b.length-a.length);
   for (const name of names) {
-    const matches=numbered.filter(r=>referenceName(r.name)===name);
+    const matches=numbered.filter(r=>referenceNames(r).includes(name));
     const aliases=matches.map(r=>r.alias).join(' ');
     result=result.split(`@【${name}】`).join(aliases).split(`@[${name}]`).join(aliases);
     const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -21,11 +22,10 @@ export function bindReferencePrompt(prompt, references) {
 }
 export function autoReferences(prompt, assets) {
   return assets.filter(a => {
-    const name=referenceName(a.name);
-    return name && (prompt.includes(`@${name}`)||prompt.includes(`@【${name}】`));
+    return referenceNames(a).some(name=>prompt.includes(`@${name}`)||prompt.includes(`@【${name}】`));
   }).flatMap(a => {
     const image=(a.images || []).find(i=>i.url) || (/^https?:/.test(a.image_url || '') ? {url:a.image_url} : null);
-    return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,kind:'image',url:image.url}] : [];
+    return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,kind:'image',url:image.url}] : [];
   });
 }
 export const mediaSource = item => item.filePath ? `xzmedia://local/${encodeURIComponent(item.filePath)}` : (item.url || '').replace(/^xzmedia:\/\/\//, 'xzmedia://local/');
@@ -48,6 +48,6 @@ export function refreshAssetReferences(references, assets, projectId) {
     const asset = assets.find(a=>a.id===ref.assetId);
     const imageId = ref.imageId || (ref.id===ref.assetId?'legacy':ref.id) || 'legacy';
     const image = asset?.images?.find(i=>i.id===imageId);
-    return {...ref, projectId, imageId, url:image?.url || (imageId==='legacy' ? asset?.image_url : '') || ref.url};
+    return {...ref, projectId, imageId, ...(asset?.displayName?{displayName:asset.displayName,nameAliases:asset.nameAliases}:{}), url:image?.url || (imageId==='legacy' ? asset?.image_url : '') || ref.url};
   });
 }

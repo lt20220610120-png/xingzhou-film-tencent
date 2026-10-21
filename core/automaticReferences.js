@@ -44,10 +44,11 @@ function basicSubjects(prompt) {
 }
 
 function mediaNames(ref) {
- return [...new Set([ref.name,ref.filename].filter(Boolean).flatMap(name=>{
+ return [...new Set([ref.name,ref.filename,ref.displayName,...(ref.nameAliases||[])].filter(Boolean).flatMap(name=>{
   const clean=String(name).split(/[\\/]/).pop().replace(/\.[a-z0-9]{2,5}$/i,'').replace(/^\s*\d+[\s._-]+/,'');
   const bracket=clean.match(/[【\[]([^】\]]+)[】\]]/)?.[1]||clean;
-  return [bracket,bracket.split(/[-_]/)[0]].map(normalizeName).filter(Boolean);
+  const base=ref.category==='prop'&&ref.displayName?ref.displayName.split(/[-_]/)[0]:bracket.split(/[-_]/)[0];
+  return [bracket,base].map(normalizeName).filter(Boolean);
  }))];
 }
 
@@ -150,7 +151,7 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
 export function projectReferenceCandidates(assets,media,projectId,episode,scene) {
  const belongs=asset=>scene&&asset.reviewedSceneIds?.includes(scene)?asset.sceneIds?.includes(scene):scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
  return [
-  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,filename:i.filename,category:a.category}))),
+  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,filename:i.filename,category:a.category}))),
   ...(media||[]).filter(m=>isProjectGenerationReference(m,projectId)&&Number(m.episode)===Number(episode)&&(!scene||!m.scene||String(m.scene)===String(scene)||String(m.scene)===String(scene).split('-').at(-1))).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
  ];
 }

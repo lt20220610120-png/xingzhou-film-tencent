@@ -365,7 +365,6 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = uniqueAssetImages([...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages]).map(image => ({...image, projectId:project.id, assetId:asset.id}));
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
-  const shownName = displayAssetName(asset, assets);
 
   const pendingImage = readAssetImageRecovery(project.id, asset.id);
   const generate = async () => {
@@ -414,7 +413,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     finally { setBusy(false); }
   };
   const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
-  const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: asset.name, images: [{ ...selectedImage, assetName: asset.name }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
+  const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: displayAssetName(asset,assets), images: [{ ...selectedImage, assetName: displayAssetName(asset,assets) }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
   const previewRequest = useRef(0);
   useEffect(() => { previewRequest.current++; }, [asset.id, selectedImage?.id]);
   const openOriginal = async () => {
@@ -429,7 +428,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
 
   return (
     <div className="collab-image-box">
-      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 · {shownName} <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
+      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
       <div className="collab-image-preview">
         {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={openOriginal} title="点击放大查看原图"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={image} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
@@ -438,7 +437,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
       <div className="collab-image-controls">
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{formats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
-        <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?`等待${asset.category==='scene'?'场景':'人物'}基准参考图`:"默认（不引用参考）"}</option><option value="">不引用参考</option>{localReference&&<option value="__local__">本机参考 {localReference.name}</option>}{mates.map((m) => <option key={m.id} value={m.id}>参考 {m.name}</option>)}</select></label>
+        <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?`等待${asset.category==='scene'?'场景':'人物'}基准参考图`:"默认（不引用参考）"}</option><option value="">不引用参考</option>{localReference&&<option value="__local__">本机参考 {localReference.name}</option>}{mates.map((m) => <option key={m.id} value={m.id}>参考 {displayAssetName(m,assets)}</option>)}</select></label>
         {(api.mediaImportFile||api.mediaImportFiles)&&<button type="button" className="secondary asset-local-reference-button" aria-label="选择本机参考图" onClick={importReference} disabled={busy||generating||!canEdit}><Upload size={13}/> 本机参考图</button>}
         {!mates.length&&<small className="collab-ref-hint">项目暂无可选参考图。可先上传或生成资产图片，再在此选择。</small>}
         {pendingImage ? <section className="image-recovery-panel" aria-label="图片结果恢复">
@@ -621,12 +620,12 @@ function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', i
 
 function AssetIdentity({ asset, assets = [], index, checked, onToggle, generating, children }) {
   const imageCount = asset.images?.length || (asset.image_url ? 1 : 0);
-  const parsed = parseAssetName(asset.name);
+  const parsed = parseAssetName(asset.category === 'prop' ? displayAssetName(asset, assets) : asset.name);
   return <aside className="art-row-identity">
     <div className="art-row-index"><span>{String(index + 1).padStart(2, '0')}</span>{onToggle && <input type="checkbox" aria-label={`选择 ${asset.name} 批量生成`} checked={checked} onChange={onToggle} />}</div>
-    <strong>{asset.category === 'prop' ? displayAssetName(asset, assets) : parsed.base || asset.name}</strong>
-    {parsed.variant && asset.category !== 'prop' && <span className="art-row-variant">{parsed.variant}</span>}
-    {!!asset.sceneIds?.length && <AssetSceneLinks key={asset.id} sceneIds={asset.sceneIds} name={asset.category === 'prop' ? displayAssetName(asset, assets) : parsed.base || asset.name}/>}
+    <strong>{parsed.base || asset.name}</strong>
+    {parsed.variant && <span className="art-row-variant">{parsed.variant}</span>}
+    {!!asset.sceneIds?.length && <AssetSceneLinks key={asset.id} sceneIds={asset.sceneIds} name={parsed.base || asset.name}/>}
     {Array.isArray(asset.sceneIds)&&!asset.sceneIds.length&&!asset.episodes?.length&&<small>已移出场景 · 历史图片保留</small>}
     <small>{asset.reused ? `复用自第 ${asset.first_episode} 集` : asset.first_episode ? `首现 · 第 ${asset.first_episode} 集` : ASSET_CATEGORIES[asset.category]}</small>
     <span className={`art-row-state ${generating ? 'generating' : imageCount ? 'ready' : ''}`}>{generating ? <Loader2 size={11} className="spin" /> : <span />}{generating ? '生成中' : imageCount ? `${imageCount} 张图片` : '待生成'}</span>
@@ -727,7 +726,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const sequentialEpisodes=scriptEpisodes.every((item,index)=>item.episodeNumber===index+1)?Array.from({ length: scriptEpisodeCount }, (_, index) => index + 1):[];
   const episodes=[...new Set([...scriptEpisodes.map(item=>item.episodeNumber),...sequentialEpisodes,...episodeNumbersFromAssets(assets)])].sort((a,b)=>a-b);
   const episodeDetails=new Map(scriptEpisodes.map(item=>[item.episodeNumber,item]));
-  const imagesForAssets = (rows) => rows.flatMap((item) => uniqueAssetImages(item.images?.length ? item.images : item.image_url ? [{id:'legacy',url:item.image_url}] : []).map((image) => ({ ...image, projectId:project.id, assetId:item.id, assetName: item.name, episodes:item.episodes||[], first_episode:item.first_episode,sceneIds:item.sceneIds||[] })));
+  const imagesForAssets = (rows) => rows.flatMap((item) => uniqueAssetImages(item.images?.length ? item.images : item.image_url ? [{id:'legacy',url:item.image_url}] : []).map((image) => ({ ...image, projectId:project.id, assetId:item.id, assetName: displayAssetName(item,assets), episodes:item.episodes||[], first_episode:item.first_episode,sceneIds:item.sceneIds||[] })));
   const projectImages = imagesForAssets(assets);
   const exportImages = async (images, folderName, layout='flat') => { setExportChoiceOpen(false);setExportError('');setExporting(true); try { await api.collabExportImages({ archive: true, folderName, images,layout }); } catch (e) { setExportError(`导出失败：${e.message}`); }finally{setExporting(false);} };
   const analyzeEpisode=async(force=false)=>{
@@ -859,7 +858,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   }
 
   const categoryAssets = assetsForEpisode(assets, episode, category);
-  const filtered = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const filtered = categoryAssets.filter((asset) => [asset.name,displayAssetName(asset,assets)].some(name=>name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
   const list = category === 'character' ? groupCharacterAssets(filtered).flatMap((group) => group.variants) : filtered;
   const locations = assetLocations(list, category, assets);
   const episodeImages = imagesForAssets(assets.filter((asset) => (asset.episodes || []).includes(episode)));
@@ -939,7 +938,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const categoryAssets = assets.filter((a) => a.category === category&&(showArchived?archivedAssets.includes(a):!archivedAssets.includes(a)));
   const pendingAssets=ungeneratedAssets(categoryAssets);
   const displayAssets=visibleArtAssets(categoryAssets,onlyMissing);
-  const list = displayAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const list = displayAssets.filter((asset) => [asset.name,displayAssetName(asset,assets)].some(name=>name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
   const recoveryPlan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
   const recoveryScope=`当前${ASSET_CATEGORIES[category]}分类 · ${search.trim()?`搜索“${search.trim()}” · `:''}${list.length} 项未生成资产（包含全部匹配妆造）`;
   const characterGroups = category === 'character' ? groupCharacterAssets(displayAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
