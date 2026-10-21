@@ -174,6 +174,24 @@ export const parseAssetName = (name) => {
   return { base: clean.slice(0, dash).trim(), variant: clean.slice(dash + 1).trim() };
 };
 
+// 道具采用“道具名-所属人物”。历史清单曾使用“人物-道具名”，这里只调整展示，
+// 保留原始 name 作为云端 ID 和 @引用键，避免已有图片、场景关联失效。
+export const displayPropAssetName = (name, assets = []) => {
+  const clean = String(name || '').replace(/^【|】$/g, '').trim();
+  if (!clean || !assets?.length) return clean;
+  const people = new Set(assets.filter(item => item?.category === 'character')
+    .map(item => parseAssetName(item.name).base).filter(Boolean));
+  const dash = clean.indexOf('-');
+  if (dash < 0) return clean;
+  const first = clean.slice(0, dash).trim();
+  const rest = clean.slice(dash + 1).trim();
+  if (people.has(first) && !people.has(rest)) return `${rest}-${first}`;
+  return clean;
+};
+
+export const displayAssetName = (asset, assets = []) =>
+  asset?.category === 'prop' ? displayPropAssetName(asset.name, assets) : String(asset?.name || '');
+
 // 同一角色的其他形态（用于换装参考 / @引用）
 export const findBaseMates = (assets, name) => {
   const { base } = parseAssetName(name);

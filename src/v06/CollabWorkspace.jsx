@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
-  sectionsForRole, parseAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
+  sectionsForRole, parseAssetName, displayAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetGenerationJobs,
   ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant, characterBaselineAsset, wardrobeDescription,
@@ -365,6 +365,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = uniqueAssetImages([...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages]).map(image => ({...image, projectId:project.id, assetId:asset.id}));
   const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
+  const shownName = displayAssetName(asset, assets);
 
   const pendingImage = readAssetImageRecovery(project.id, asset.id);
   const generate = async () => {
@@ -428,7 +429,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
 
   return (
     <div className="collab-image-box">
-      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
+      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 · {shownName} <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
       <div className="collab-image-preview">
         {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={openOriginal} title="点击放大查看原图"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={image} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
@@ -546,7 +547,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
     <div className="collab-asset-detail">
       <section className="collab-asset-desc">
         <div className="collab-panel-title">
-          <PencilLine size={15} /><strong>{asset.name} 提示词</strong>
+          <PencilLine size={15} /><strong>{displayAssetName(asset, assets)} 提示词</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
         {completedDescription&&<div className="collab-notice" role="status">清单已有补齐外貌的信息卡；原提示词保留，可直接采用完整版本后生图。<button className="secondary" disabled={!canEdit||modifying||saving} onClick={async()=>{editContent(completedDescription);await save().catch(()=>{});}}>采用已补齐信息卡</button></div>}
@@ -618,14 +619,14 @@ function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', i
   );
 }
 
-function AssetIdentity({ asset, index, checked, onToggle, generating, children }) {
+function AssetIdentity({ asset, assets = [], index, checked, onToggle, generating, children }) {
   const imageCount = asset.images?.length || (asset.image_url ? 1 : 0);
   const parsed = parseAssetName(asset.name);
   return <aside className="art-row-identity">
     <div className="art-row-index"><span>{String(index + 1).padStart(2, '0')}</span>{onToggle && <input type="checkbox" aria-label={`选择 ${asset.name} 批量生成`} checked={checked} onChange={onToggle} />}</div>
-    <strong>{parsed.base || asset.name}</strong>
-    {parsed.variant && <span className="art-row-variant">{parsed.variant}</span>}
-    {!!asset.sceneIds?.length && <AssetSceneLinks key={asset.id} sceneIds={asset.sceneIds} name={parsed.base || asset.name}/>}
+    <strong>{asset.category === 'prop' ? displayAssetName(asset, assets) : parsed.base || asset.name}</strong>
+    {parsed.variant && asset.category !== 'prop' && <span className="art-row-variant">{parsed.variant}</span>}
+    {!!asset.sceneIds?.length && <AssetSceneLinks key={asset.id} sceneIds={asset.sceneIds} name={asset.category === 'prop' ? displayAssetName(asset, assets) : parsed.base || asset.name}/>}
     {Array.isArray(asset.sceneIds)&&!asset.sceneIds.length&&!asset.episodes?.length&&<small>已移出场景 · 历史图片保留</small>}
     <small>{asset.reused ? `复用自第 ${asset.first_episode} 集` : asset.first_episode ? `首现 · 第 ${asset.first_episode} 集` : ASSET_CATEGORIES[asset.category]}</small>
     <span className={`art-row-state ${generating ? 'generating' : imageCount ? 'ready' : ''}`}>{generating ? <Loader2 size={11} className="spin" /> : <span />}{generating ? '生成中' : imageCount ? `${imageCount} 张图片` : '待生成'}</span>
@@ -666,12 +667,12 @@ function useAssetLocator(scope) {
   return { root, active, register, locate };
 }
 
-function assetLocations(rows, category) {
+function assetLocations(rows, category, allAssets = rows) {
   if (category === 'character') return groupCharacterAssets(rows).map((group) => ({
     id: group.variants[0].id, name: group.base, count: `${group.variants.length} 套妆造`,
     images: group.variants.reduce((total, item) => total + (item.images?.length || (item.image_url ? 1 : 0)), 0),
   }));
-  return rows.map((asset) => ({ id: asset.id, name: asset.name.replace(/^【|】$/g, ''), count: ASSET_CATEGORIES[category], images: asset.images?.length || (asset.image_url ? 1 : 0) }));
+  return rows.map((asset) => ({ id: asset.id, name: asset.category === 'prop' ? displayAssetName(asset, allAssets) : asset.name.replace(/^【|】$/g, ''), count: ASSET_CATEGORIES[category], images: asset.images?.length || (asset.image_url ? 1 : 0) }));
 }
 
 function AssetQuickNav({ entries, locator, rail = false }) {
@@ -860,7 +861,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const categoryAssets = assetsForEpisode(assets, episode, category);
   const filtered = categoryAssets.filter((asset) => asset.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const list = category === 'character' ? groupCharacterAssets(filtered).flatMap((group) => group.variants) : filtered;
-  const locations = assetLocations(list, category);
+  const locations = assetLocations(list, category, assets);
   const episodeImages = imagesForAssets(assets.filter((asset) => (asset.episodes || []).includes(episode)));
   const episodeJobs = buildAssetGenerationJobs(assets, episode);
   const pendingEpisodeJobs = ungeneratedAssets(episodeJobs);
@@ -894,7 +895,7 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
       <div className="art-workbench-subhead"><span>{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项</span><AssetQuickNav entries={locations} locator={locator} /><input type="search" aria-label="搜索本集资产" placeholder="搜索资产名称" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
       <div className="collab-art-body art-workbench-rows">
         {list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${batchSelectedIds.includes(selected.id) ? 'is-selected' : ''}`} aria-label={selected.name}>
-          <AssetIdentity asset={selected} index={index} checked={batchSelectedIds.includes(selected.id)} onToggle={() => setBatchSelectedIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])} generating={generatingAssetIds.has(selected.id)} />
+                    <AssetIdentity asset={selected} assets={assets} index={index} checked={batchSelectedIds.includes(selected.id)} onToggle={() => setBatchSelectedIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])} generating={generatingAssetIds.has(selected.id)} />
           <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
         {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : `本集没有${ASSET_CATEGORIES[category]}资产`}</div>}
@@ -942,7 +943,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const recoveryPlan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
   const recoveryScope=`当前${ASSET_CATEGORIES[category]}分类 · ${search.trim()?`搜索“${search.trim()}” · `:''}${list.length} 项未生成资产（包含全部匹配妆造）`;
   const characterGroups = category === 'character' ? groupCharacterAssets(displayAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
-  const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category);
+  const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category, assets);
   useEffect(()=>{
     const scope=`${project.id}:${category}:${showArchived}`;
     const previous=previousBatchAssets.current;
@@ -1082,14 +1083,14 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
           return <section ref={locator.register(group.variants[0].id)} tabIndex={-1} className="character-asset-workspace art-character-group" key={group.base} aria-label={`${group.base} 角色主档案`}>
             <header className="art-character-header"><div><label className="asset-character-select"><input type="checkbox" aria-label={`选择 ${group.base} 全部妆造`} checked={group.variants.every(asset=>selectedIds.includes(asset.id))} ref={node=>{if(node)node.indeterminate=group.variants.some(asset=>selectedIds.includes(asset.id))&&!group.variants.every(asset=>selectedIds.includes(asset.id));}} disabled={!canEdit||batchBusy||showArchived} onChange={()=>toggleGroup(group)}/>已选 {group.variants.filter(asset=>selectedIds.includes(asset.id)).length}/{group.variants.length}</label><span className="art-group-label">角色主档案</span><h3>{group.base}</h3><span>{group.variants.length} 套妆造 · {group.variants.reduce((count, item) => count + (item.images?.length || (item.image_url ? 1 : 0)), 0)} 张图片</span></div><button className="ghost" onClick={() => { setManualName(`${group.base}-`);setManualBaseline(characterBaselineAsset(group.main,assets)||group.main); setManualOpen(true); }} disabled={!canEdit}><Plus size={13} /> 添加妆造</button></header>
             <article className={`art-workbench-row ${selectedIds.includes(selected.id)?'is-selected':''}`} aria-label={selected.name}>
-              <AssetIdentity asset={selected} index={groupIndex} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)}>
+              <AssetIdentity asset={selected} assets={assets} index={groupIndex} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)}>
                 <nav className="character-outfit-picker" aria-label={`${group.base} 服装选择`}>{group.variants.map((variant, index) => <button type="button" key={variant.id} aria-pressed={selected.id === variant.id} onClick={() => setOutfits((current) => ({ ...current, [group.base]: variant.id }))}><span>{String(index + 1).padStart(2, '0')}</span><b>{variant.variant || '基础形象'}{selectedIds.includes(variant.id)?' · 已选':''}</b>{generatingAssetIds.has(variant.id) && <Loader2 size={12} className="spin" />}</button>)}</nav>
               </AssetIdentity>
               <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
             </article>
           </section>;
         }) : list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${selectedIds.includes(selected.id)?'is-selected':''}`} aria-label={selected.name}>
-          <AssetIdentity asset={selected} index={index} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)} />
+          <AssetIdentity asset={selected} assets={assets} index={index} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)} />
           <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
         {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : onlyMissing?'当前分类已全部生成图片':`暂无${ASSET_CATEGORIES[category]}资产`}</div>}
