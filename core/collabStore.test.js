@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COLLAB_ROLES, sectionsForRole, canSee, parseAssetName, findBaseMates,
+  COLLAB_ROLES, sectionsForRole, canSee, parseAssetName, findBaseMates, displayPropAssetName, displayAssetName,
   parseArtAnalysis, buildAssetRows, assetsForEpisode, episodeNumbersFromAssets, groupCharacterAssets,
   buildImagePrompt, summarizeActivity,
 } from './collabStore.js';
@@ -26,6 +26,13 @@ test('资产名解析：角色-服饰拆分', () => {
   assert.deepEqual(parseAssetName('【姜蓝-剑道服】'), { base: '姜蓝', variant: '剑道服' });
   assert.deepEqual(parseAssetName('【蜡烛】'), { base: '蜡烛', variant: '' });
   assert.deepEqual(parseAssetName('【梨园戏楼-日-内】'), { base: '梨园戏楼', variant: '日-内' });
+});
+
+test('道具展示名优先显示物件，再显示所属人物，并兼容历史人物-道具名', () => {
+  const people = [{ category: 'character', name: '【Elena Suh】' }, { category: 'character', name: '【Claudia Oh】' }];
+  assert.equal(displayPropAssetName('【Elena Suh-旧木吉他】', people), '旧木吉他-Elena Suh');
+  assert.equal(displayPropAssetName('【旧木吉他-Elena Suh】', people), '旧木吉他-Elena Suh');
+  assert.equal(displayAssetName({ category: 'prop', name: '【Claudia Oh-手提包】' }, people), '手提包-Claudia Oh');
 });
 
 test('角色资产按人物聚合，并把便服、晚宴服和练功服作为妆造分支', () => {
