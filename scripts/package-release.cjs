@@ -5,6 +5,7 @@ const { createRequire } = require('node:module');
 const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
 if(pkg.version.includes('-private')&&process.env.XINGZHOU_PRIVATE_TRIAL!=='1')throw new Error('Private trial packaging requires XINGZHOU_PRIVATE_TRIAL=1');
+if(!pkg.version.includes('-private')&&process.env.XINGZHOU_PRIVATE_TRIAL==='1')throw new Error('Public releases must not enable XINGZHOU_PRIVATE_TRIAL');
 const staging = path.join(root, 'release', `staging-${pkg.version}-${Date.now()}`);
 const output = path.join(root, 'release', pkg.version);
 const installed = new Map();

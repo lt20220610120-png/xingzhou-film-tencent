@@ -190,7 +190,7 @@ export const displayPropAssetName = (name, assets = []) => {
 };
 
 export const displayAssetName = (asset, assets = []) =>
-  asset?.category === 'prop' ? displayPropAssetName(asset.name, assets) : String(asset?.name || '');
+  asset?.category === 'prop' ? assets.length ? displayPropAssetName(asset.name, assets) : asset.displayName || displayPropAssetName(asset.name) : String(asset?.name || '');
 
 // 同一角色的其他形态（用于换装参考 / @引用）
 export const findBaseMates = (assets, name) => {
@@ -455,6 +455,12 @@ export const normalizeArtAssets = (assets) => {
       return generationDescription && generationDescription !== asset.description
         ? { ...asset, generationDescription, generationDescriptionSource: asset.description }
         : asset;
+    }
+    if (asset.category === 'prop') {
+      const displayName = displayPropAssetName(asset.name, normalized);
+      if(displayName === String(asset.name||'').replace(/^【|】$/g,'').trim())return asset;
+      // Presentation metadata only: storage identity and provenance stay untouched.
+      return {...asset, displayName, nameAliases:[...new Set([asset.name, displayName])]};
     }
     if (asset.category !== 'character') return asset;
     const baselineAsset=characterBaselineAsset(asset,normalized);

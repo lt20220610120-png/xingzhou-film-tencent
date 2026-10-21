@@ -46,7 +46,7 @@ function basicSubjects(prompt) {
 const APPEARANCE=/^(?:(?:日常|居家|校园|夏季|冬季|春季|秋季|成年|少年|青年|中年|老年|古装|现代|战斗|受伤|重伤|轻伤|黑化|幼年|童年|正面|侧面|背面|三视图|全身|半身|特写|造型)|(?:(?:白色|黑色|蓝色|红色|绿色|灰色|深色|浅色)?(?:校服|制服|常服|便服|礼服|婚纱|便装|睡衣|西装|长袍|剑道服|战甲|铠甲|道袍|运动服|古装)))+$/;
 const OWNED_PROP=/(?:杯子?|水杯|酒杯|茶杯|文件夹|文件袋|文件|证件|书包|背包|手提包|手机|电脑|平板|笔记本|钥匙|戒指|项链|手表|钱包|照片|手枪|刀|剑|雨伞|眼镜|玩偶|任命书|录音笔|摄像机|话筒|麦克风)(?:[-_].*)?$/;
 function mediaNames(ref,expected) {
- return [...new Set([ref.name,ref.filename].filter(Boolean).flatMap(name=>{
+ return [...new Set([ref.name,ref.filename,ref.displayName,...(ref.nameAliases||[])].filter(Boolean).flatMap(name=>{
   const clean=String(name).split(/[\\/]/).pop().replace(/\.[a-z0-9]{2,5}$/i,'').replace(/^\s*\d+[\s._-]+/,'');
   const bracket=clean.match(/[【\[]([^】\]]+)[】\]]/)?.[1]||clean;
   const parts=bracket.split(/[-_]/);
@@ -54,7 +54,7 @@ function mediaNames(ref,expected) {
   // Preserve that matching; explicit categories and recognizable owned props
   // prevent the common person-cup collision without a wardrobe whitelist.
   const allowBase=ref.category||expected!=='character'||!OWNED_PROP.test(normalizeName(parts.slice(1).join('-')));
-  return [bracket,...(allowBase?[parts[0]]:[])].map(normalizeName).filter(Boolean);
+  return [bracket,...(allowBase?[ref.category==='prop'&&ref.displayName?ref.displayName.split(/[-_]/)[0]:parts[0]]:[])].map(normalizeName).filter(Boolean);
  }))];
 }
 
@@ -160,7 +160,7 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
 export function projectReferenceCandidates(assets,media,projectId,episode,scene) {
  const belongs=asset=>scene&&asset.reviewedSceneIds?.includes(scene)?asset.sceneIds?.includes(scene):scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
  return [
-  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,filename:i.filename,category:a.category}))),
+  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,filename:i.filename,category:a.category}))),
   ...(media||[]).filter(m=>isProjectGenerationReference(m,projectId)&&Number(m.episode)===Number(episode)&&(!scene||!m.scene||String(m.scene)===String(scene)||String(m.scene)===String(scene).split('-').at(-1))).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
  ];
 }
