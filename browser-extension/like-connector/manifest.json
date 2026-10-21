@@ -1,7 +1,7 @@
 {
  "manifest_version":3,
  "name":"行舟影视 · Like画布连接",
- "version":"1.0.0",
+ "version":"1.0.1",
  "description":"连接本机行舟影视与已登录的Like画布，记住项目、刷新后自动重连。",
  "minimum_chrome_version":"120",
  "permissions":["storage","alarms"],
