@@ -47,3 +47,20 @@ test('停止不应用晚回包，已经完成的身份保存；人工身份不�
  await assert.rejects(auto.runImportedAuto({book,call:async messages=>{const result=await call(messages);if(++count===2)stopped=true;return result;},isStopped:()=>stopped,save:async next=>{book=next;}}),/停止/);
  assert.equal(book.importedBinding.metadata.person.confirmed,true);assert.equal(Object.keys(book.importedBinding.decisions).length,0);
 });
+
+test('只关联当前第二条：不从第一条跑、不请求其他场景，保留其他决定',async()=>{
+ let book=fixture(),calls=[];
+ const target=book.entries[1].id,first=book.entries[0].id;
+ book.importedBinding.decisions[first]={confirmed:false,autoIssue:'既有待处理结果'};
+ const old=structuredClone(book.importedBinding.decisions[first]);
+ const result=await auto.runImportedAuto({book,targetEntryId:target,call:async messages=>{const data=JSON.parse(messages[1].content);calls.push(data);return call(messages);},save:async next=>{book=next;}});
+ assert.equal(calls.length,2);assert.equal(calls[1].entry.id,target);
+ assert(calls[0].prompts.length===1&&calls[0].prompts[0].label===book.entries[1].label);
+ assert.deepEqual(book.importedBinding.decisions[first],old);
+ assert.deepEqual(Object.keys(book.importedBinding.decisions).sort(),[first,target].sort());
+ assert.equal(result.ready,1);assert.equal(importedEntryValue(book,book.entries[1]).referenceBindingMode,'confirmed');
+});
+
+test('无效单条目标立即拒绝，不能回退成整本运行',async()=>{
+ await assert.rejects(auto.runImportedAuto({book:fixture(),targetEntryId:'missing',call:async()=>assert.fail('不能请求AI'),save:async()=>assert.fail('不能改数据')}),/当前提示词不存在/);
+});

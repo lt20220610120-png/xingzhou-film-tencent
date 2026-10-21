@@ -14,19 +14,21 @@ export function importedAutoSummary(book){
  });
  return {rows,ready:rows.filter(row=>row.ready).length,pending:rows.filter(row=>!row.ready).length};
 }
-export async function runImportedAuto({book,call,save,readImages=async()=>[],isStopped=()=>false,onProgress=()=>{},checkedWithImages=false}){
+export async function runImportedAuto({book,targetEntryId=null,call,save,readImages=async()=>[],isStopped=()=>false,onProgress=()=>{},checkedWithImages=false}){
  let current=structuredClone(book);
  const check=()=>{if(isStopped())throw Error('任务已停止，已完成的关联已保留');};
  const persist=async work=>{check();current={...current,importedBinding:work};await save(current);check();};
  let snapshot=importedSnapshot(current);
- const scenes=[...new Set(snapshot.entries.map(entry=>entry.sceneId))],attempted=new Set();
+ const targets=entries=>targetEntryId===null?entries:entries.filter(entry=>entry.id===targetEntryId);
+ if(!targets(snapshot.entries).length)throw Error('当前提示词不存在，请重新选择');
+ const scenes=[...new Set(targets(snapshot.entries).map(entry=>entry.sceneId))],attempted=new Set();
  // Identity is resolved once per unique image. Final entry signatures are computed
  // only after identity processing, so shared images cannot stale earlier scenes.
  for(const sceneId of scenes){
   check();snapshot=importedSnapshot(current);
   const unknown=snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&!card.identityConfirmed&&!attempted.has(card.uid));
   for(let offset=0;offset<unknown.length;offset+=24){
-   const batch=unknown.slice(offset,offset+24),partial={...snapshot,cards:batch};
+   const batch=unknown.slice(offset,offset+24),partial={...snapshot,entries:targets(snapshot.entries),cards:batch};
    batch.forEach(card=>attempted.add(card.uid));
    try{
     const images=await readImages(batch);check();
@@ -48,7 +50,7 @@ export async function runImportedAuto({book,call,save,readImages=async()=>[],isS
  }
  snapshot=importedSnapshot(current);
  const imageCache=new Map();
- for(const entry of snapshot.entries){
+ for(const entry of targets(snapshot.entries)){
   check();
   const old=current.importedBinding.decisions?.[entry.id];
   try{compileEntryBinding(snapshot,entry,old);continue;}catch{}

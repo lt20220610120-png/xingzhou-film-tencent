@@ -58,18 +58,20 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
    await api.promptArtSave({accountId,projectId:nextSnapshot.projectId,baseRevision:saved.revision,data:{...saved,enabled:false}});
    return;
   }
-  const firstReady=importedAutoSummary(nextBook).rows.find(row=>row.ready);
-  onUpdate(current=>({...current,selectedEntryId:firstReady?.id||current.selectedEntryId,importedBinding:{...nextWork,stage:'generation',storeRevision:saved.revision}}));
+  onUpdate(current=>({...current,importedBinding:{...nextWork,stage:'generation',storeRevision:saved.revision}}));
   requestAnimationFrame(()=>document.querySelector('.generation-composer')?.scrollIntoView({block:'start'}));
  };
- const automatic=()=>execute(async()=>{
-  const result=await runImportedAuto({book,call,readImages,isStopped:()=>stopped.current||!mounted.current||live.current.accountId!==accountId||live.current.sourceSignature!==sourceSignature,checkedWithImages:vision,onProgress:setNotice,
+ const automatic=(currentOnly=false)=>execute(async()=>{
+  const targetEntryId=currentOnly?entry.id:null;
+  const result=await runImportedAuto({book,targetEntryId,call,readImages,isStopped:()=>stopped.current||!mounted.current||live.current.accountId!==accountId||live.current.sourceSignature!==sourceSignature,checkedWithImages:vision,onProgress:setNotice,
    save:async next=>{
     if(stopped.current||!mounted.current||live.current.sourceSignature!==sourceSignature)throw Error('任务已停止或来源已变化');
     onUpdate(current=>({...current,importedBinding:next.importedBinding}));
    }});
-  setNotice(`AI 已完成：${result.ready} 条就绪，${result.pending} 条待处理。`);
-  if(result.ready)await storeForGeneration(result.book);
+  const target=result.rows.find(row=>row.id===targetEntryId);
+  setNotice(currentOnly?`当前 ${entry.label} 已处理：${target?.ready?'关联就绪':target?.issue||'待处理'}。其他提示词未运行。`:`AI 已完成：${result.ready} 条就绪，${result.pending} 条待处理。`);
+  if(currentOnly?target?.ready:result.ready)await storeForGeneration(result.book);
+  else if(currentOnly)setDetails(true);
   else setShowIssues(true);
  });
  const identify=()=>execute(async()=>{
@@ -116,11 +118,11 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
  const unused=cards.filter(card=>!decision.needs.some(need=>need.visibility==='visible'&&need.cardUid===card.uid));
  return <section className="prompt-art-panel imported-art-panel" aria-label="提示词与图片独立关联">
   <header className="imported-binding-header"><div><h2>AI 整理提示词与图片 <small>本机试用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
-  <p>点一次，AI 先按场景整理素材身份，再连续处理每条提示词。不需要逐条打开确认；明确的关联处理完自动回到生成页，有疑问的项目单独保留。</p>
+  <p>默认只处理当前这一条：AI 整理本场素材身份，再关联当前提示词，完成后留在当前条目。需要批量处理时，再选“AI 自动整理整本”。</p>
   <ModelSelect label="关联模型" profiles={state.apiProfiles||[]} value={modelId} onChange={setModelId} disabled={busy}/>
   <label className="imported-vision"><input type="checkbox" checked={vision} disabled={busy} onChange={event=>setVision(event.target.checked)}/>发送本场图片给支持看图的 API（最多 24 张）</label>
   <p>{vision?'所选 API 须支持图片输入；图片将用于身份和关联核对。':'当前根据提示词和素材名称整理。看图需选择支持图片输入的 API；无法确定的关联会列入待处理。'}</p>
-  <div className="prompt-art-actions"><button className="imported-auto-start" disabled={busy||!profile||!snapshot.cards.length} onClick={automatic}>AI 自动整理整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)Promise.resolve(api.cancelAiTask?.({taskId:task.current})).catch(()=>{});}}>停止整理并保留进度</button>}<button disabled={busy} onClick={()=>setShowIssues(value=>!value)}>只看待处理（{summary.pending}）</button><button disabled={busy||!ready} onClick={publish}>使用已就绪关联（{ready}）</button></div>
+  <div className="prompt-art-actions"><button className="imported-auto-start" disabled={busy||!profile||!cards.length} onClick={()=>automatic(true)}>AI 只关联当前条目（{entry.label}）</button><button disabled={busy||!profile||!snapshot.cards.length} onClick={()=>automatic(false)}>AI 自动整理整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)Promise.resolve(api.cancelAiTask?.({taskId:task.current})).catch(()=>{});}}>停止整理并保留进度</button>}<button disabled={busy} onClick={()=>setShowIssues(value=>!value)}>只看待处理（{summary.pending}）</button><button disabled={busy||!ready} onClick={publish}>使用已就绪关联（{ready}）</button></div>
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {showIssues&&<div className="imported-binding-issues" aria-label="待处理关联">{summary.rows.filter(row=>!row.ready).map(row=><button disabled={busy} key={row.id} onClick={()=>{onSelect(row.id);setDetails(true);}}><strong>{row.label}</strong><span>{row.issue}</span><small>展开处理</small></button>)}</div>}
   <details open={details} onToggle={event=>setDetails(event.currentTarget.open)}><summary>查看本条详情 / 手动调整（{entry.label}）</summary>
