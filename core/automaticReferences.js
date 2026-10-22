@@ -43,12 +43,18 @@ function basicSubjects(prompt) {
  return subjects;
 }
 
-function mediaNames(ref) {
+const APPEARANCE=/^(?:(?:日常|居家|校园|夏季|冬季|春季|秋季|成年|少年|青年|中年|老年|古装|现代|战斗|受伤|重伤|轻伤|黑化|幼年|童年|正面|侧面|背面|三视图|全身|半身|特写|造型)|(?:(?:白色|黑色|蓝色|红色|绿色|灰色|深色|浅色)?(?:校服|制服|常服|便服|礼服|婚纱|便装|睡衣|西装|长袍|剑道服|战甲|铠甲|道袍|运动服|古装)))+$/;
+const OWNED_PROP=/(?:杯子?|水杯|酒杯|茶杯|文件夹|文件袋|文件|证件|书包|背包|手提包|手机|电脑|平板|笔记本|钥匙|戒指|项链|手表|钱包|照片|手枪|刀|剑|雨伞|眼镜|玩偶|任命书|录音笔|摄像机|话筒|麦克风)(?:[-_].*)?$/;
+function mediaNames(ref,expected) {
  return [...new Set([ref.name,ref.filename,ref.displayName,...(ref.nameAliases||[])].filter(Boolean).flatMap(name=>{
   const clean=String(name).split(/[\\/]/).pop().replace(/\.[a-z0-9]{2,5}$/i,'').replace(/^\s*\d+[\s._-]+/,'');
   const bracket=clean.match(/[【\[]([^】\]]+)[】\]]/)?.[1]||clean;
-  const base=ref.category==='prop'&&ref.displayName?ref.displayName.split(/[-_]/)[0]:bracket.split(/[-_]/)[0];
-  return [bracket,base].map(normalizeName).filter(Boolean);
+  const parts=bracket.split(/[-_]/);
+  // Legacy exports use name-description, including free-form wardrobe/role labels.
+  // Preserve that matching; explicit categories and recognizable owned props
+  // prevent the common person-cup collision without a wardrobe whitelist.
+  const allowBase=ref.category||expected!=='character'||!OWNED_PROP.test(normalizeName(parts.slice(1).join('-')));
+  return [bracket,...(allowBase?[ref.category==='prop'&&ref.displayName?ref.displayName.split(/[-_]/)[0]:parts[0]]:[])].map(normalizeName).filter(Boolean);
  }))];
 }
 
@@ -57,11 +63,11 @@ function matchScore(subject,ref) {
  if(ref.kind!==(expected==='audio'?'audio':'image'))return 0;
  if(ref.category&&ref.category!==expected)return 0;
  const subjectName=normalizeName(subject.name);
- return Math.max(0,...mediaNames(ref).map(name=>{
+ return Math.max(0,...mediaNames(ref,expected).map(name=>{
   if(name===subjectName)return 1000+subjectName.length;
   if(subjectName.length>=2&&name.startsWith(subjectName)) {
    const suffix=name.slice(subjectName.length);
-   const appearance=/^(?:(?:日常|居家|校园|夏季|冬季|春季|秋季|成年|少年|青年|中年|老年|古装|现代|战斗|受伤|重伤|轻伤|黑化|幼年|童年|正面|侧面|背面|三视图|全身|半身|特写|造型)|(?:(?:白色|黑色|蓝色|红色|绿色|灰色|深色|浅色)?(?:校服|制服|常服|便服|礼服|婚纱|便装|睡衣|西装|长袍|剑道服|战甲|铠甲|道袍|运动服|古装)))+$/;
+   const appearance=APPEARANCE;
    const location=/^(?:内|外|内景|外景|室内|室外|日|夜|白天|夜晚|清晨|黄昏|全景|远景|近景|特写)+$/;
    const count=/^(?:\d+|[一二两三四五六七八九十]+)(?:个|盒|把|只|件|张|瓶|辆)$/;
    if(expected==='character'?appearance.test(suffix):expected==='scene'?location.test(suffix):expected==='prop'?count.test(suffix):/^(?:音色|声音|配音|语音|声线|参考|男声|女声|低声|轻声|对白)+$/.test(suffix))return 500+subjectName.length;
@@ -73,10 +79,10 @@ function matchScore(subject,ref) {
  }));
 }
 
-function fingerprint(data) {
+function fingerprint(data,version='basic-v2') {
  const text=JSON.stringify(data);let a=2166136261,b=5381;
  for(let i=0;i<text.length;i++){a=Math.imul(a^text.charCodeAt(i),16777619);b=Math.imul(b,33)^text.charCodeAt(i);}
- return `basic-v1:${text.length}:${a>>>0}:${b>>>0}`;
+ return `${version}:${text.length}:${a>>>0}:${b>>>0}`;
 }
 const visibleOrder=(references,allowedKinds)=>numberedReferences(references.filter(r=>allowedKinds.includes(r.kind))).map(r=>({key:generationReferenceKey(r),alias:r.alias}));
 
@@ -119,8 +125,11 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
  const pool=[...new Map([...references,...candidates].map(r=>[generationReferenceKey(r),r])).values()];
  const excluded=new Set(value.autoReferenceExclusions||[]);
  const subjectNames=subjects.map(s=>[s.field,normalizeName(s.name)]);
- const signature=refs=>fingerprint([subjectNames,pool.map(r=>[generationReferenceKey(r),r.name,r.filename,r.category]),refs.map(generationReferenceKey),[...excluded].sort(),allowedKinds]);
+ const signature=(refs,version)=>fingerprint([subjectNames,pool.map(r=>[generationReferenceKey(r),r.name,r.filename,r.category]),refs.map(generationReferenceKey),[...excluded].sort(),allowedKinds],version);
  if(value.autoReferenceSignature===signature(references))return value;
+ // Repair cached empty placeholders once on upgrade, without recreating tags
+ // the user deliberately erased or changing their existing manual references.
+ if(value.autoReferenceSignature===signature(references,'basic-v1')&&!subjects.some(subject=>/^[ \t]*[（(]参考[ \t]*@[ \t]*[）)]/.test(originalPrompt.slice(subject.end))))return {...value,autoReferenceSignature:signature(references)};
  const matched=new Map(subjects.map(s=>[s,[]]));
  for(const ref of pool) {
   if(excluded.has(generationReferenceKey(ref))||!allowedKinds.includes(ref.kind))continue;

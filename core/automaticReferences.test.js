@@ -10,6 +10,12 @@ test('project upload media respects exact scene while legacy episode media remai
 const image=(id,name)=>({id,name,kind:'image',filePath:`C:/media/${id}.png`});
 const audio=(id,name)=>({id,name,kind:'audio',filePath:`C:/media/${id}.wav`});
 const options={allowedKinds:['image','audio','video']};
+test('无类别旧图片不能截掉杯子后缀冒充人物，日常妆造仍可匹配',()=>{
+ const refs=[image('person','刘娜-日常.png'),image('cup','刘娜-杯子.png'),image('papers','刘娜-文件夹.png')];
+ const next=matchBasicReferences({prompt:'【基础设定】\n人物：刘娜。\n道具：无',references:[]},refs,options);
+ assert.deepEqual(next.references.map(ref=>ref.id),['person']);
+ assert.match(next.prompt,/刘娜（参考@image1）/);
+});
 const prompt='1-5-1\n【基础设定】\n人物：苏洲（参考@），穿居家便装；林清雪（参考@），穿校服；Q版林清雪，内心形象。\n场景：清晨，出租屋厨房内（参考@）；有晨光。\n道具：三明治两个（盛在盘中）；林清雪的书包（在房门边）。\n音色：苏洲，成年男声；林清雪，少女声线。\n【整体视觉】\n其他人物张三在场外，提到卧室。';
 
 test('basic subjects bind named local media, variants, locations, props and voices at their own fields',()=>{
@@ -133,4 +139,24 @@ test('auto edits map a caret near the changed subject instead of moving it to th
  let tail=atEnd;
  matchBasicReferences({prompt:text,references:[]},[image('a','苏洲.png')],{...options,onPromptEdit:edit=>{tail=selectionAfterPromptEdit(tail,edit);}});
  assert.equal(tail.start,text.length+'（参考@image1）'.length-'（参考@）'.length);
+});
+
+test('旧场景导出支持完整妆造和角色说明，修复截图六个人物的空引用',()=>{
+ const names=['道格拉斯-定制西装','莱莉-考务监督职业装','沃伦-主席台讲话','女保安-工作制服','蔡斯-正式西装','媒体记者-采访群体'];
+ const refs=names.map((name,i)=>image(String(i),`${i+1}-【${name}】.png`));
+ const original='30-2-1\n【基础设定】\n人物：'+['道格拉斯','莱莉','沃伦','女保安','蔡斯','媒体记者'].map(n=>`${n}（参考@），站在主席台`).join('；')+'。';
+ const next=matchBasicReferences({prompt:original,references:refs},refs,options);
+ names.forEach((name,i)=>assert(next.prompt.includes(`${name.split('-')[0]}（参考@image${i+1}）`),next.prompt));
+});
+
+test('升级自动修复旧签名缓存下的空引用，保留人工删掉的标记及排除素材',()=>{
+ const refs=[image('a','刘娜-职业装.png'),image('b','刘娜-杯子.png')];
+ const value={prompt:'【基础设定】\n人物：刘娜（参考@）。',references:refs,autoReferenceExclusions:['image:b']};
+ const initial=matchBasicReferences(value,refs,options);
+ const legacy={...initial,prompt:value.prompt,autoReferenceSignature:initial.autoReferenceSignature.replace('basic-v2:','basic-v1:')};
+ const next=matchBasicReferences(legacy,refs,options);
+ assert.match(next.prompt,/刘娜（参考@image1）/);assert.doesNotMatch(next.prompt,/@image2/);
+ const removed={...legacy,prompt:'【基础设定】\n人物：刘娜。'};
+ assert.equal(matchBasicReferences(removed,refs,options).prompt,removed.prompt);
+ assert.strictEqual(matchBasicReferences(next,refs,options),next);
 });
