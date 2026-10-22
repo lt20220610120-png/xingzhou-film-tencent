@@ -20,7 +20,7 @@ const readAdminTab = (accountId) => {
   catch { return 'users'; }
 };
 
-export function AdminPanel({ account, active = true, state={}, onNavigate }) {
+export function AdminPanel({ account, active = true, state={}, setState, onNavigate }) {
   const api = window.xingzhou;
   const [tab, setTab] = useState(() => readAdminTab(account?.id));
   const [workBuddyVisited, setWorkBuddyVisited] = useState(() => readAdminTab(account?.id) === 'workbuddy');
@@ -113,7 +113,7 @@ export function AdminPanel({ account, active = true, state={}, onNavigate }) {
         <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请码</button>
         <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
       </div>
-      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><AdminWorkflow account={account} state={state} api={api} active={active} onNavigate={onNavigate}/></div>}
+      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><AdminWorkflow account={account} state={state} setState={setState} api={api} active={active} onNavigate={onNavigate}/></div>}
       {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}
       <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab" hidden={tab !== 'users'}>
       <p className="admin-data-note">用户与邀请码保存在云端。删除或停用账号后，对方将失去软件使用权限。</p>

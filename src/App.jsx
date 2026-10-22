@@ -1527,7 +1527,7 @@ function App() {
         {!!role&&nav==='winai'&&<WinAIWorkspace key={account?.id} account={account}/>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
         {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
-        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
+        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} setState={setState} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} account={account} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou

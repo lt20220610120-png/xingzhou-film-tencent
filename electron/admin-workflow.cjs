@@ -16,10 +16,11 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
    if(!items.every(i=>i.status==='downloaded'))continue;
    const ep=run.episodes.find(e=>e.number===episode);if(ep?.ready)continue;
    const directory=path.join(run.outputDir,'原始素材',`第${episode}集`);
-   const manifest={schema:1,runId:run.id,episode,stage:'awaiting-upscale',target:{width:run.settings.ratio==='9:16'?1080:1920,height:run.settings.ratio==='9:16'?1920:1080},settings:run.settings.post,clips:items.map((i,index)=>({order:index+1,entryId:i.id,label:i.label,file:i.outputFile,sha256:i.sha256})),upscaledDirectory:path.join(run.outputDir,'超分素材',`第${episode}集`),finalDirectory:path.join(run.outputDir,'成片')};
+   const stage=run.settings.topazPath?'upscale-queued':'awaiting-upscale';
+   const manifest={schema:1,runId:run.id,episode,stage,target:{width:run.settings.ratio==='9:16'?1080:1920,height:run.settings.ratio==='9:16'?1920:1080},settings:run.settings.post,adapters:{topazPath:run.settings.topazPath||'',openFilmPath:run.settings.openFilmPath||''},clips:items.map((i,index)=>({order:index+1,entryId:i.id,label:i.label,file:i.outputFile,sha256:i.sha256})),upscaledDirectory:path.join(run.outputDir,'超分素材',`第${episode}集`),finalDirectory:path.join(run.outputDir,'成片')};
    fs.mkdirSync(directory,{recursive:true});fs.mkdirSync(manifest.upscaledDirectory,{recursive:true});fs.mkdirSync(manifest.finalDirectory,{recursive:true});
    const manifestFile=path.join(directory,'本集处理清单.json');fs.writeFileSync(manifestFile+'.tmp',JSON.stringify(manifest,null,2));fs.renameSync(manifestFile+'.tmp',manifestFile);
-   run.episodes.push({number:episode,ready:true,stage:'awaiting-upscale',manifestFile});save(run);
+   run.episodes.push({number:episode,ready:true,stage,manifestFile});save(run);
   }
  }
  function download(run,item,job){
