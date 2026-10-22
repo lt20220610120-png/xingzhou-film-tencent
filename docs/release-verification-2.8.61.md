@@ -24,3 +24,13 @@
 已复核前端管理员挂载/后端session权限、登录变化停止、提交前持久化、等待结果不重发、输出路径/摘要、共享关联CAS与输入模型上限。普通用户拒绝同时有引擎行为验证及真实安装包IPC证据。
 
 创建时固定源快照，原项目后来编辑不自动合并；生成前重查可重跑AI，不等于重新导入项目。下游当前交付清单而非执行器。AI文字判断不能保证图像语义完全正确；看图核对保留现有管理员关联入口。
+
+
+## 发布验证
+
+- 普通正式版 2.8.61，源码 b1e932a，公开更新清单 ebae1ef；未再制作 private 安装包。
+- 安装包 103807855 字节，SHA256 fd2cb8e04ee03032f34572017f3e5f24b809fa21eeaceba86a023082b4dd12c6。
+- 公开：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.61/Xingzhou-Film-Tencent-Setup-2.8.61.exe
+- 本机：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.61/Xingzhou-Film-Tencent-Setup-2.8.61.exe
+- 双仓库 main/latest.json 与官方 IP 镜像签名、版本、大小、散列通过；GitHub资产digest一致、下载HEAD200，官方IP视频安装包Range206/MZ/总长一致。output/admin-workflow-release-verification.json。
+- 发布日志 output/admin-workflow-publish.log；镜像安装器校验后原子发布，未部署业务服务或更改用户权限。
