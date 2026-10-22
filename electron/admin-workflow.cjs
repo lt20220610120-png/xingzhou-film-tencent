@@ -16,10 +16,11 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
    if(!items.every(i=>i.status==='downloaded'))continue;
    const ep=run.episodes.find(e=>e.number===episode);if(ep?.ready)continue;
    const directory=path.join(run.outputDir,'原始素材',`第${episode}集`);
-   const manifest={schema:1,runId:run.id,episode,stage:'awaiting-upscale',target:{width:run.settings.ratio==='9:16'?1080:1920,height:run.settings.ratio==='9:16'?1920:1080},settings:run.settings.post,clips:items.map((i,index)=>({order:index+1,entryId:i.id,label:i.label,file:i.outputFile,sha256:i.sha256})),upscaledDirectory:path.join(run.outputDir,'超分素材',`第${episode}集`),finalDirectory:path.join(run.outputDir,'成片')};
+   const stage=run.settings.topazPath?'upscale-queued':'awaiting-upscale';
+   const manifest={schema:1,runId:run.id,episode,stage,target:{width:run.settings.ratio==='9:16'?1080:1920,height:run.settings.ratio==='9:16'?1920:1080},settings:run.settings.post,adapters:{topazPath:run.settings.topazPath||'',openFilmPath:run.settings.openFilmPath||''},clips:items.map((i,index)=>({order:index+1,entryId:i.id,label:i.label,file:i.outputFile,sha256:i.sha256})),upscaledDirectory:path.join(run.outputDir,'超分素材',`第${episode}集`),finalDirectory:path.join(run.outputDir,'成片')};
    fs.mkdirSync(directory,{recursive:true});fs.mkdirSync(manifest.upscaledDirectory,{recursive:true});fs.mkdirSync(manifest.finalDirectory,{recursive:true});
    const manifestFile=path.join(directory,'本集处理清单.json');fs.writeFileSync(manifestFile+'.tmp',JSON.stringify(manifest,null,2));fs.renameSync(manifestFile+'.tmp',manifestFile);
-   run.episodes.push({number:episode,ready:true,stage:'awaiting-upscale',manifestFile});save(run);
+   run.episodes.push({number:episode,ready:true,stage,manifestFile});save(run);
   }
  }
  function download(run,item,job){
@@ -79,7 +80,7 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
    const run={id,accountId,book:structuredClone(book),name:book.name,bookId:book.id,settings,outputDir,status:'paused',message:'设置已保存，点击开始后将调用所选 AI 与视频接口',createdAt:new Date(clock()).toISOString(),items:book.entries.map(e=>({id:e.id,label:e.label,episode:e.episode,scene:e.scene,status:'queued'})),episodes:[]};
    runs.set(id,run);save(run);return publicRun(run);
   },
-  async action({id,action,itemId}){const run=await get(id);if(action==='start'){run.status='running';run.message='工作流已启动';}else if(action==='pause'){run.status='paused';run.message='已暂停，已提交的上游任务仍保留';}else if(action==='retry'){const item=run.items.find(i=>i.id===itemId);if(!item||item.status!=='blocked')throw Error('仅生成前被拦截的条目可重新检查；已提交项不能自动重发');item.status='queued';item.error='';}else throw Error('未知操作');save(run);return publicRun(run);},
+  async action({id,action,itemId}){const run=await get(id);if(action==='start'){const {workflowPreflightIssues}=await import('../core/workflowPreflight.js');const issues=workflowPreflightIssues(run.settings);if(issues.length)throw Error(issues.join('；'));run.status='running';run.message='工作流已启动';}else if(action==='pause'){run.status='paused';run.message='已暂停，已提交的上游任务仍保留';}else if(action==='retry'){const item=run.items.find(i=>i.id===itemId);if(!item||item.status!=='blocked')throw Error('仅生成前被拦截的条目可重新检查；已提交项不能自动重发');item.status='queued';item.error='';}else throw Error('未知操作');save(run);return publicRun(run);},
   pauseAll(){for(const run of runs.values())if(run.status==='running'){run.status='paused';run.message='身份或环境变化，已暂停';save(run);}},
   async pump(){for(const run of runs.values())if(run.status==='running')await tick(run.id);},tick,
   async output(id){return (await get(id)).outputDir;}

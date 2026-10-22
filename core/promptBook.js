@@ -50,6 +50,20 @@ export function saveEntryValue(book,entryId,value,previousValue){
  return {...book,entries,settings:{...book.settings,...preferences},drafts:{...book.drafts,[entryId]:draft}};
 }
 
+// Only undo the chosen shared reference's removal. Keep the previous alias order
+// so GenerationComposer remaps text against the restored list before submission.
+export function restoreEntryReference(book,entryId,referenceId){
+ const entry=book.entries.find(e=>e.id===entryId),draft=book.drafts?.[entryId];
+ if(!entry||!draft||book.linkedProjectId||book.importedBinding&&book.importedBinding.stage!=='manual'||draft.referenceBindingMode)return book;
+ const ref=bookSharedReferences(book,entry).find(r=>r.id===referenceId);
+ if(!ref||!draft.excludedIds?.includes(referenceId))return book;
+ return {...book,drafts:{...book.drafts,[entryId]:{...draft,
+  excludedIds:draft.excludedIds.filter(id=>id!==referenceId),
+  autoReferenceExclusions:(draft.autoReferenceExclusions||[]).filter(key=>key!==generationReferenceKey(ref)),
+  autoReferenceSignature:null
+ }}};
+}
+
 export function mergeEpisodeMedia(book,incoming,scenes={}){
  const episodeMedia={...book.episodeMedia};
  for(const [episode,refs] of Object.entries(incoming)){

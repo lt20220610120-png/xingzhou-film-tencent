@@ -1,5 +1,18 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createWorkflowEngine}=require('./admin-workflow.cjs');
+test('恢复旧工作流也校验启动配置，未完成的后期不能进入付费执行',async t=>{
+ const f=fixture(t);
+ for(const patch of [{model:''},{preflightVersion:1,endStage:'edit',duration:32,visualStyle:'真人电影级'}]){
+  const run=await f.engine.create({book:f.book,settings:f.settings,outputRoot:f.root});
+  const file=path.join(f.options.root,run.id+'.json'),data=JSON.parse(fs.readFileSync(file));
+  data.settings={...data.settings,...patch};fs.writeFileSync(file,JSON.stringify(data));
+  const resumed=createWorkflowEngine(f.options);
+  await assert.rejects(resumed.action({id:run.id,action:'start'}),/模型|超分/);
+  await resumed.tick(run.id);
+  assert.equal((await resumed.list()).find(r=>r.id===run.id).status,'paused');
+ }
+ assert.equal(f.calls(),0);
+});
 function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'workflow-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const media=path.join(root,'media');fs.mkdirSync(media);const video=path.join(media,'video.mp4');fs.writeFileSync(video,'mock video bytes');let account={id:'admin',isAdmin:true},calls=0;const jobs=[];
  const options={root:path.join(root,'runs'),mediaRoot:()=>media,authorize:async()=>account,prepare:async()=>({}),submit:async input=>{calls++;const job={...input,id:'job'+calls,status:'success',filePath:video};jobs.push(job);return job;},refresh:async j=>j,listJobs:()=>jobs};
  const settings={mode:'semi',profileId:'video',model:'m',aiProfileId:'ai',humanConfirmed:true,ratio:'9:16',post:{}};

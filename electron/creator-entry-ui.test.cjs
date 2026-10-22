@@ -5,7 +5,7 @@ test('IP and fruit hubs each render one selectable entry while director upload r
   const { createServer } = await import('vite');
   const React = require('react');
   const { renderToStaticMarkup } = require('react-dom/server');
-  const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, watch: null }, appType: 'custom' });
   try {
     const { ProjectCardHub } = await server.ssrLoadModule('/src/v06/ProjectCardHub.jsx');
     const render = props => renderToStaticMarkup(React.createElement(ProjectCardHub, { title: '项目', projects: [], onCreate() {}, ...props }));
@@ -29,7 +29,7 @@ test('IP scene editor renders clean headings while preserving literal dialogue h
   const { createServer } = await import('vite');
   const React = require('react');
   const { renderToStaticMarkup } = require('react-dom/server');
-  const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, watch: null }, appType: 'custom' });
   try {
     const { IPSceneEditor } = await server.ssrLoadModule('/src/creator/IPSceneEditor.jsx');
     const markup = renderToStaticMarkup(React.createElement(IPSceneEditor, { content: '### 场景1-1 外景 街道 日\r\n女主：#话题 C#。', readOnly: true }));

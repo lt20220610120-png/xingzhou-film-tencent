@@ -455,10 +455,11 @@ ipcMain.handle('admin-workflow-create',async(_,p)=>{
  const account=await workflowAdmin(),state=readJson(dataFile(),{}),book=state.generationWorkflow?.books?.find(b=>b.id===p.bookId);
  if(!book||book.accountId&&book.accountId!==String(account.id))throw Error('请选择当前账号已准备的提示词项目');
  if(!workflowFolders.has(p.outputRoot))throw Error('请通过选择目录按钮确认输出位置');
- const s=p.settings||{},settings={mode:s.mode,profileId:s.profileId,model:s.model,aiProfileId:s.aiProfileId,duration:Number(s.duration),ratio:String(s.ratio||''),resolution:String(s.resolution||''),humanConfirmed:s.humanConfirmed===true,post:{target:'1080p',music:String(s.post?.music||'').slice(0,2000),subtitles:String(s.post?.subtitles||'').slice(0,1000),ending:String(s.post?.ending||'').slice(0,1000),versions:String(s.post?.versions||'成片').slice(0,1000)}};
+ const s=p.settings||{},settings={preflightVersion:1,endStage:String(s.endStage||'archive'),agentKind:String(s.agentKind||'other').slice(0,40),visualStyle:String(s.visualStyle||'').slice(0,100),imagePrimary:String(s.imagePrimary||'').slice(0,200),imageFallback:String(s.imageFallback||'').slice(0,200),upscaleTarget:String(s.upscaleTarget||'1080p').slice(0,50),editorTemplate:String(s.editorTemplate||'').slice(0,500),mode:s.mode,profileId:s.profileId,model:s.model,aiProfileId:s.aiProfileId,duration:Number(s.duration),ratio:String(s.ratio||''),resolution:String(s.resolution||''),humanConfirmed:s.humanConfirmed===true,topazPath:String(s.topazPath||'').slice(0,500),openFilmPath:String(s.openFilmPath||'').slice(0,500),post:{target:'1080p',music:String(s.post?.music||'').slice(0,2000),subtitles:String(s.post?.subtitles||'').slice(0,1000),ending:String(s.post?.ending||'').slice(0,1000),versions:String(s.post?.versions||'成片').slice(0,1000)}};
  const {generationMediaProfiles}=await import('../core/canvasStore.js'),{profileModels}=await import('../core/videoCatalog.js');
  const profile=generationMediaProfiles(state,'video').find(p=>p.id===settings.profileId);
  if(!profile||!profileModels(profile,'video').some(m=>m.id===settings.model)||!state.apiProfiles?.some(p=>p.id===settings.aiProfileId))throw Error('所选视频模型或 AI 模型不存在');
+ const {workflowPreflightIssues}=await import('../core/workflowPreflight.js');const issues=workflowPreflightIssues(settings);if(issues.length)throw Error(issues.join('；'));
  return currentWorkflow().create({book,settings,outputRoot:p.outputRoot});
 });
 ipcMain.handle('admin-workflow-action',async(_,p)=>{await workflowAdmin();return currentWorkflow().action(p);});
