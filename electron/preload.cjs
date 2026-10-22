@@ -1,6 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
  likeStatus:()=>ipcRenderer.invoke('like-status'),likePairing:()=>ipcRenderer.invoke('like-pairing'),likeBind:p=>ipcRenderer.invoke('like-bind',p),likeOpenProject:p=>ipcRenderer.invoke('like-open-project',p),likeExtensionFolder:()=>ipcRenderer.invoke('like-extension-folder'),
+ adminWorkflowList:()=>ipcRenderer.invoke('admin-workflow-list'),adminWorkflowFolder:()=>ipcRenderer.invoke('admin-workflow-folder'),adminWorkflowCreate:p=>ipcRenderer.invoke('admin-workflow-create',p),adminWorkflowAction:p=>ipcRenderer.invoke('admin-workflow-action',p),adminWorkflowOpen:p=>ipcRenderer.invoke('admin-workflow-open',p),
  promptArtStatus:()=>ipcRenderer.invoke('prompt-art-status'),promptArtLoad:p=>ipcRenderer.invoke('prompt-art-load',p),promptArtSave:p=>ipcRenderer.invoke('prompt-art-save',p),promptArtList:p=>ipcRenderer.invoke('prompt-art-list',p),promptArtImageInputs:p=>ipcRenderer.invoke('prompt-art-image-inputs',p),
  winAiOpen:p=>ipcRenderer.invoke('win-ai-open',p),winAiBounds:p=>ipcRenderer.invoke('win-ai-bounds',p),winAiClose:()=>ipcRenderer.invoke('win-ai-close'),
  onWinAiState:callback=>{const handler=(_event,value)=>callback(value);ipcRenderer.on('win-ai-state',handler);return()=>ipcRenderer.removeListener('win-ai-state',handler);},

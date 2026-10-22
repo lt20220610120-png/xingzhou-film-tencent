@@ -57,7 +57,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  if(!available)return null;
  const disabled=busy||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
-  <header><div><h2>提示词联动美术 <small>本机试用</small></h2><p>生图前确认每条使用的卡片，生图后选择图片，再到图视生成载入。</p></div><label>素材整理模式<select aria-label="素材整理模式" disabled={disabled} value={saved?.enabled?'linked':'scene'} onChange={event=>act(()=>persist({enabled:event.target.value==='linked',snapshot,decisions:saved?.decisions||{}}))}><option value="scene">原模式：按场景整理</option><option value="linked">新模式：提示词联动美术</option></select></label></header>
+  <header><div><h2>提示词联动美术 <small>管理员专用</small></h2><p>生图前确认每条使用的卡片，生图后选择图片，再到图视生成载入。</p></div><label>素材整理模式<select aria-label="素材整理模式" disabled={disabled} value={saved?.enabled?'linked':'scene'} onChange={event=>act(()=>persist({enabled:event.target.value==='linked',snapshot,decisions:saved?.decisions||{}}))}><option value="scene">原模式：按场景整理</option><option value="linked">新模式：提示词联动美术</option></select></label></header>
   {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {saved?.enabled&&<>
    <div className="prompt-art-actions"><button disabled={disabled} onClick={()=>act(async()=>{await refresh({manual:true});setNotice('已检查导演提示词与美术资产更新');})}>检查提示词与图片更新</button><span>当前场景 {sceneId||'未选择'} · {entries.length} 条提示词</span></div>

@@ -35,7 +35,7 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
  const readImages=async sceneCards=>{
   if(!vision)return [];
   if(!visionAllowed)throw Error('看图请选支持图片输入的 Chat Completions API；本机 Codex 当前用于文字核对');
-  if(!api.promptArtImageInputs)throw Error('请安装支持图片核对的本机试用版');
+  if(!api.promptArtImageInputs)throw Error('请更新到支持图片核对的版本');
   return api.promptArtImageInputs({accountId,references:sceneCards.map(card=>card.reference)});
  };
  const call=async messages=>{
@@ -117,7 +117,7 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
  const ready=snapshot.entries.filter(row=>!bindingProblems(snapshot,row,work.decisions[row.id],{requireImages:true}).length).length;
  const unused=cards.filter(card=>!decision.needs.some(need=>need.visibility==='visible'&&need.cardUid===card.uid));
  return <section className="prompt-art-panel imported-art-panel" aria-label="提示词与图片独立关联">
-  <header className="imported-binding-header"><div><h2>AI 整理提示词与图片 <small>本机试用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
+  <header className="imported-binding-header"><div><h2>AI 整理提示词与图片 <small>管理员专用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
   <p>默认只处理当前这一条：AI 整理本场素材身份，再关联当前提示词，完成后留在当前条目。需要批量处理时，再选“AI 自动整理整本”。</p>
   <ModelSelect label="关联模型" profiles={state.apiProfiles||[]} value={modelId} onChange={setModelId} disabled={busy}/>
   <label className="imported-vision"><input type="checkbox" checked={vision} disabled={busy} onChange={event=>setVision(event.target.checked)}/>发送本场图片给支持看图的 API（最多 24 张）</label>

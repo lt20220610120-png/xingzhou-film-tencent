@@ -26,8 +26,8 @@ module.exports = function configurePackagedSmoke(app) {
     win.webContents.once('did-finish-load', async () => {
       try {
         report.likeConnectorBridge=await win.webContents.executeJavaScript("['likeStatus','likePairing','likeBind','likeOpenProject','likeExtensionFolder'].every(k=>typeof window.xingzhou[k]==='function')");if(!report.likeConnectorBridge)throw Error('Like connector preload bridge missing');
-        report.promptArtTrial=(await win.webContents.executeJavaScript('window.xingzhou.promptArtStatus()')).enabled===Boolean(require('../package.json').xingzhouPrivateTrial);
-        if(!report.promptArtTrial)throw Error('Private trial feature gate mismatch');
+        report.adminWorkflowGate=await win.webContents.executeJavaScript(`(async()=>{const api=window.xingzhou;const bridge=['adminWorkflowList','adminWorkflowCreate','adminWorkflowAction','adminWorkflowFolder','adminWorkflowOpen'].every(k=>typeof api[k]==='function');let denied=0;for(const action of [()=>api.adminWorkflowList(),()=>api.adminWorkflowCreate({}),()=>api.adminWorkflowAction({id:'fake',action:'start'}),()=>api.promptArtSave({})]){try{await action();}catch{denied++;}}return {bridge,denied,associationDisabled:!(await api.promptArtStatus()).enabled};})()`);
+        if(!report.adminWorkflowGate.bridge||report.adminWorkflowGate.denied!==4||!report.adminWorkflowGate.associationDisabled)throw Error('Administrator workflow gate failed');
         report.importedBindingBridge=await win.webContents.executeJavaScript("typeof window.xingzhou.promptArtImageInputs==='function'");
         if(!report.importedBindingBridge)throw Error('Imported image binding bridge missing');
         const {validateGeneratedImage}=require('./generated-image.cjs');

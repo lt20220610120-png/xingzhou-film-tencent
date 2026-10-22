@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Ban, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Undo2, Clapperboard, PanelsTopLeft } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
+import {AdminWorkflow} from './AdminWorkflow.jsx';
 import { WorkBuddyPanel } from './WorkBuddyPanel.jsx';
 
 const KIND_LABELS = { role: '单身份邀请码', full: '全权限邀请码', unlock: '身份解锁码', admin: '管理员注册码' };
@@ -15,11 +16,11 @@ function fmtTime(value) {
 
 const adminTabKey = (accountId) => `xz-admin-tab:${encodeURIComponent(String(accountId || ''))}`;
 const readAdminTab = (accountId) => {
-  try { return localStorage.getItem(adminTabKey(accountId)) === 'workbuddy' ? 'workbuddy' : 'users'; }
+  try { const saved=localStorage.getItem(adminTabKey(accountId));return ['workbuddy','workflow'].includes(saved)?saved:'users'; }
   catch { return 'users'; }
 };
 
-export function AdminPanel({ account, active = true }) {
+export function AdminPanel({ account, active = true, state={}, onNavigate }) {
   const api = window.xingzhou;
   const [tab, setTab] = useState(() => readAdminTab(account?.id));
   const [workBuddyVisited, setWorkBuddyVisited] = useState(() => readAdminTab(account?.id) === 'workbuddy');
@@ -103,14 +104,16 @@ export function AdminPanel({ account, active = true }) {
         <div>
           <span className="auth-kicker"><ShieldCheck size={15} /> 管理后台 · 仅管理员可见</span>
           <h1>管理后台</h1>
-          <p>管理行舟账号、邀请码与本机 WorkBuddy 号池。</p>
+          <p>管理制作工作流、账号、邀请码与本机 WorkBuddy 号池。</p>
         </div>
         {tab === 'users' && <button className="admin-refresh" onClick={refresh} disabled={loading}><RefreshCw size={16} /> {loading ? '刷新中…' : '刷新'}</button>}
       </header>
       <div className="admin-workspace-tabs" role="tablist" aria-label="管理功能">
+        <button role="tab" id="admin-workflow-tab" aria-selected={tab==='workflow'} aria-controls="admin-workflow-panel" className={tab==='workflow'?'active':''} onClick={()=>setTab('workflow')}><Clapperboard size={17}/>制作工作流总控</button>
         <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请码</button>
         <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
       </div>
+      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><AdminWorkflow account={account} state={state} api={api} active={active} onNavigate={onNavigate}/></div>}
       {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}
       <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab" hidden={tab !== 'users'}>
       <p className="admin-data-note">用户与邀请码保存在云端。删除或停用账号后，对方将失去软件使用权限。</p>
