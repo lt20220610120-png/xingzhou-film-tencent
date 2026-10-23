@@ -211,7 +211,7 @@ function Modal({ title, placeholder, onClose, onSubmit }) {
     <div className="veil">
       <form className="modal" onSubmit={(e) => { e.preventDefault(); value.trim() && onSubmit(value.trim()); }}>
         <h2>{title}</h2>
-        <p>起一个容易识别的名字，之后还可以继续编辑。</p>
+
         <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} />
         <div className="modal-actions">
           <button type="button" className="ghost" onClick={onClose}>取消</button>
@@ -1094,7 +1094,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
       <header>
         <span className="eyebrow">行舟影视设置</span>
         <h1>设置</h1>
-        <p>管理资料保存位置。</p>
+
       </header>
 
       <section className="settings-card">
@@ -1103,7 +1103,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
             <HardDrive size={20} />
             <span>
               <h2>本地资料位置</h2>
-              <p>项目、分集、Skill 配置与剧本库统一保存在这个目录。</p>
+
             </span>
           </div>
           <b>{storageInfo?.engine || '本地资料库'}</b>

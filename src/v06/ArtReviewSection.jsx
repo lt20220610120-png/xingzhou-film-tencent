@@ -48,7 +48,7 @@ function SceneAssignment({assignment,scenes,busy,error,onClose,onSave}){
  const close=()=>{assignment.anchor?.focus({preventScroll:true});onClose();};
  return createPortal(<div ref={ref} popover="auto" role="dialog" aria-label={`关联场景：${reviewName(assignment.item.name)}`} className="art-review-assignment" onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();close();}}}>
   <header><h2>{reviewName(assignment.item.name)}</h2><button aria-label="关闭场景关联" onClick={close}><X size={16}/></button></header>
-  <p>选择出现场景，可多选</p>
+
   {error&&<p className="art-review-warning" role="alert">{error}</p>}
   <fieldset className="art-review-scene-checks"><legend className="art-review-sr-only">出现场景</legend>{scenes.map(scene=><label key={scene.id}><input type="checkbox" checked={ids.includes(scene.id)} onChange={e=>setIds(e.target.checked?[...ids,scene.id]:ids.filter(id=>id!==scene.id))}/>{scene.id}</label>)}</fieldset>
   <div className="art-review-dialog-actions"><button onClick={close}>取消</button><button className="art-review-primary" disabled={busy} onClick={()=>onSave(ids)}>保存场景关联</button></div>
@@ -61,7 +61,7 @@ function SceneRosterPicker({picker,items,busy,error,onClose,onSave}){
  const selected=ids.filter(id=>items.some(item=>item.id===id));
  const label=ART_REVIEW_CATEGORIES[picker.category],visible=items.filter(item=>reviewName(item.name).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
  return <ReviewDialog title={`添加本集${label}`} onClose={onClose}>
-  <p>选择已有条目加入本场，可多选。完整信息沿用原卡片。</p>
+
   {error&&<p className="art-review-warning" role="alert">{error}</p>}
   {items.length>6&&<label className="art-review-picker-search">筛选{label}<input aria-label={`筛选${label}`} value={query} onChange={e=>setQuery(e.target.value)} placeholder="输入名称或状态"/></label>}
   <div className="art-review-pick-list">{visible.map(item=><label key={item.id}><input type="checkbox" checked={ids.includes(item.id)} onChange={e=>setIds(e.target.checked?[...ids,item.id]:ids.filter(id=>id!==item.id))}/><span>{reviewName(item.name)}</span>{needsArtReviewDetails(item)&&<small>待补齐</small>}</label>)}</div>

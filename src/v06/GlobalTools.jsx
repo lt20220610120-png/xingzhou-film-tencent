@@ -238,13 +238,13 @@ export function SkillLibrary({ state, setState }) {
       <header>
         <span className="eyebrow">工具配置 · Skill 库</span>
         <h1>Skill 库</h1>
-        <p>管理和编辑 AI 提示词模板，在创作和导演流程中使用。</p>
+
       </header>
 
       <section className="skill-create-panel" aria-label="创建 Skill">
         <div className="skill-create-heading">
           <div><span className="eyebrow">三种方式</span><h2>添加 Skill</h2></div>
-          <p>可直接导入带 SKILL.md 与 references 等目录的完整 Skill，也可从文档生成，或在软件内手动编写。</p>
+
         </div>
         <div className="skill-create-grid">
           <button className="skill-create-option" disabled={importing} onClick={importSkillDirectory}>
@@ -423,7 +423,7 @@ export function ApiLibrary({ state, setState }) {
     setDeleteTarget(null);
   };
   return <div className="resource-page api-library">
-    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1><p>为文本、图片和视频分别选择默认接口，所有创作工作区共用。</p></div><div className="modal-actions"><button className="secondary" onClick={()=>setLikeOpen(true)}>连接 Like画布</button><button className="secondary" onClick={()=>setLibTVOpen(true)}>连接 LibTV</button><button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
+    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1></div><div className="modal-actions"><button className="secondary" onClick={()=>setLikeOpen(true)}>连接 Like画布</button><button className="secondary" onClick={()=>setLibTVOpen(true)}>连接 LibTV</button><button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
     <p className="api-parallel-note">可用接口独立调用；豆包工作后台暂不可用。默认仅用于新窗口。各会话、分镜和资产的选择互不影响。</p><nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
     <div className="api-list-toolbar"><span>{all.length} 个配置 · {all.find(p => p.id === activeId)?.name ? `默认：${all.find(p => p.id === activeId).name}` : '尚未设置默认接口'}</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>

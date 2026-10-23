@@ -1,13 +1,14 @@
 const crypto=require('node:crypto');const {normalizeBounds}=require('./workbuddy-panel.cjs');const {createWinAITransport,ORIGIN}=require('./win-ai-transport.cjs');
 function createWinAIPanel({getWindow,accessService,entry,WebContentsView,session,shell,onState=()=>{},transport=createWinAITransport,setInterval:interval=setInterval,clearInterval:clear=clearInterval}){
- let epoch=0,view=null,partition=null,timer=null,controller=null,ownerToken='',ready=false,visible=true,bounds=null;
+ let epoch=0,presentation=0,view=null,partition=null,timer=null,controller=null,ownerToken='',ready=false,visible=true,bounds=null;
  const paymentWindows=new Set();
  async function destroy(){clear(timer);timer=null;controller?.abort();controller=null;for(const popup of paymentWindows){try{popup.destroy();}catch{}}paymentWindows.clear();const oldView=view,oldSession=partition;view=null;partition=null;ready=false;ownerToken='';try{oldView?.setVisible(false);getWindow()?.contentView.removeChildView(oldView);oldView?.webContents.close({waitForBeforeUnload:false});}catch{}await Promise.allSettled([oldSession?.clearStorageData(),oldSession?.closeAllConnections()]);return true;}
  async function close(){epoch++;return destroy();}
  async function authorize(expected=epoch){const token=accessService.token();const account=await accessService.session();if(expected!==epoch)throw new Error('Win AI 打开已取消');if(!token||token!==accessService.token()||!account?.id||account.banned||(ownerToken&&ownerToken!==token)){await close();throw new Error('请登录有效的行舟影视账号后使用 Win AI');}return token;}
  function setBounds(value){if(!view)return false;bounds=normalizeBounds(value,getWindow().getContentBounds());view.setBounds(bounds);view.setVisible(visible&&ready&&bounds.width>0&&bounds.height>0);return true;}
- async function resume({bounds:value}={}){if(!view)return false;view.setVisible(false);const expected=epoch;await authorize(expected);if(expected!==epoch)return false;visible=true;return setBounds(value);}
- async function open({bounds:value}={}){
+ async function resume({bounds:value}={}){if(!view)return false;view.setVisible(false);const expected=epoch,ticket=++presentation;await authorize(expected);if(expected!==epoch||ticket!==presentation)return false;visible=true;return setBounds(value);}
+ async function open({bounds:value,reconnect=false}={}){
+  if(view&&ready&&!reconnect){await resume({bounds:value});return{connected:true};}
   const expected=++epoch;await destroy();if(expected!==epoch)throw new Error('Win AI 打开已取消');ownerToken=await authorize(expected);bounds=normalizeBounds(value,getWindow().getContentBounds());
   const verifier=crypto.randomBytes(32).toString('base64url'),challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
   const grant=await entry(challenge);if(expected!==epoch||ownerToken!==accessService.token())throw new Error('Win AI 登录已变更，请重新打开');
@@ -25,14 +26,15 @@ function createWinAIPanel({getWindow,accessService,entry,WebContentsView,session
   ownView.webContents.on('did-create-window',popup=>{paymentWindows.add(popup);popup.on('closed',()=>{paymentWindows.delete(popup);if(expected===epoch&&!ownView.webContents.isDestroyed?.())void ownView.webContents.reload();});popup.webContents.setWindowOpenHandler(()=>({action:'deny'}));for(const event of ['will-navigate','will-redirect'])popup.webContents.on(event,(e,url)=>{try{if(same(url)){e.preventDefault();popup.close();return;}if(new URL(url).protocol!=='https:')e.preventDefault();}catch{e.preventDefault();}});});
   for(const event of ['will-navigate','will-redirect'])ownView.webContents.on(event,(e,url)=>{if(!same(url))e.preventDefault();});
   getWindow().contentView.addChildView(ownView);
+  ownView.webContents.on('dom-ready',()=>{if(expected!==epoch||view!==ownView||ownerToken!==accessService.token())return;ready=true;setBounds(bounds);onState({ready:true});});
   try{const bootstrap=await handler(new Request(ORIGIN+'/api/win-ai/bootstrap',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ticket:grant.ticket,verifier}).toString()}));
    const location=bootstrap.headers.get('location');void bootstrap.body?.cancel().catch(()=>{});
    if(bootstrap.status!==303||!location||new URL(location,ORIGIN).href!==ORIGIN+'/api/win-ai/start')throw new Error('Win AI 登录交接失败，请重新连接');
    if(expected!==epoch||ownerToken!==accessService.token())throw new Error('Win AI 打开已取消');
-   await ownView.webContents.loadURL(ORIGIN+'/api/win-ai/start');if(expected!==epoch)throw new Error('Win AI 打开已取消');ready=true;setBounds(bounds);
-   timer=interval(()=>{authorize(expected).catch(async()=>{if(expected!==epoch)return;await close();onState({closed:true,error:'行舟账号已退出或暂时无法验证，请重新连接 Win AI'});});},15000);timer?.unref?.();return{connected:true};
+   timer=interval(()=>{authorize(expected).catch(async()=>{if(expected!==epoch)return;await close();onState({closed:true,error:'行舟账号已退出或暂时无法验证，请重新连接 Win AI'});});},15000);timer?.unref?.();
+   await ownView.webContents.loadURL(ORIGIN+'/api/win-ai/start');if(expected!==epoch)throw new Error('Win AI 打开已取消');ready=true;setBounds(bounds);return{connected:true};
   }catch(error){if(expected===epoch)await close();throw error;}
  }
- return{open,resume,setBounds,close,async revoke(){await close();onState({closed:true,error:'行舟登录状态已更新，请重新连接 Win AI'});return true;},hide(){visible=false;view?.setVisible(false);return true;}};
+ return{open,resume,setBounds,close,async revoke(){await close();onState({closed:true,error:'行舟登录状态已更新，请重新连接 Win AI'});return true;},hide(){presentation++;if(!ready)return close();visible=false;view?.setVisible(false);return true;}};
 }
 module.exports={createWinAIPanel};

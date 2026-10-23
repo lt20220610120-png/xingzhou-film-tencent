@@ -18,7 +18,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const candidates = tasks.filter(clearable);
-  const activeCount = tasks.length - candidates.length;
+
   const closePreview = useCallback(() => setPreview(null), []);
   const askClear = selected => { setPreview(null); setError(''); setNotice(''); setCleanup(selected); };
   const confirmClear = async () => {
@@ -47,14 +47,12 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     catch (cause) { setError(cause.message); }
   };
   return <section className="generation-results generation-results-refined">
-    <header><div><h3>生成结果 <small>{tasks.length}</small></h3><p>预览、下载与管理已生成的作品</p></div>
+    <header><div><h3>生成结果 <small>{tasks.length}</small></h3></div>
       <div className="generation-result-actions">
         <button className="secondary" disabled={busy} onClick={async () => { setError(''); try { await onRefresh(); } catch (cause) { setError(cause.message); } }}><RefreshCw size={15}/>刷新结果</button>
         {onClear && <button className="danger" disabled={busy || !candidates.length} onClick={() => askClear(candidates)}><Trash2 size={15}/>清除全部结果</button>}
       </div>
     </header>
-    {onClear && <p className="generation-storage-note">清理可释放本机空间；另存的下载文件和云端协作素材保留。待核对记录可从列表清除，原任务记录保留；运行中的任务完成后再清理。</p>}
-    {onClear && activeCount > 0 && <p className="generation-storage-note">当前有 {activeCount} 条正在处理的任务，完成后可清除。</p>}
     {error && !cleanup && <p className="collab-error" role="alert">{error}</p>}
     {notice && <p className="generation-cleanup-notice" role="status">{notice}</p>}
     <div className="generation-result-grid">{tasks.map(task => <article key={task.id}>
@@ -74,7 +72,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
         {(onClear && clearable(task) || onDelete && task.status === 'success') && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => onClear ? askClear([task]) : onDelete(task)}><Trash2 size={15}/></button>}
       </div>{task.costYuan != null && <small>¥{Number(task.costYuan).toFixed(2)}</small>}</footer>
     </article>)}</div>
-    {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p><small>生成作品后，可在这里预览、下载或复用</small></div>}
+    {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p></div>}
     {preview && <MediaPreview key={preview.id} item={preview} onClose={closePreview} onDownload={exportTask}/>}
     <DeleteConfirm open={!!cleanup} title={cleanup?.length === 1 ? '清除这条生成结果？' : '清除全部生成结果？'}
       detail={`将清除当前列表中选定的 ${cleanup?.length || 0} 条结果。已完成或失败的结果及其本地副本会清除；待核对项仅从列表移除，原任务记录保留。清除后无法在这里恢复。另存到其他文件夹的下载、云端协作素材和仍被使用的文件会保留。运行中的任务会保留。`}

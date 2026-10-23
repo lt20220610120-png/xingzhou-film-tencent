@@ -33,4 +33,5 @@ qa/
 output/playwright/
 output/layout-preview/
 !src/assets/company-logo.png
+!src/assets/wink-ai-icon.png
 !build/icon-master.png

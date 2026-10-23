@@ -814,9 +814,9 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   if (episode === null) {
     return (
       <div className="collab-art-overview">
-        <div className="art-whole-generation">{wholeControls}</div>{wholeModal}
+        {wholeModal}
         {exportError&&<div className="collab-error" role="alert">{exportError}</div>}
-        <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
+        <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}>{wholeControls}</ProjectCompositionControl>
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
         {exportChoiceOpen&&createPortal(
           <div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}>

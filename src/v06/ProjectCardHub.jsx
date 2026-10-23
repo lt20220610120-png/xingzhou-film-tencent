@@ -157,7 +157,7 @@ export function ProjectCardHub({
       {groupDialog && createPortal(<div className="veil group-dialog-veil" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null); }}>
           <form className="modal group-dialog" onSubmit={submitGroup}>
             <h2>{groupDialog.mode === 'rename' ? '重命名分组' : '新建分组'}</h2>
-            <p>输入一个容易识别的分组名称，之后可以继续修改。</p>
+
             <input autoFocus value={groupName} onChange={event => setGroupName(event.target.value)} aria-label="分组名称" />
             <div className="modal-actions">
               <button type="button" className="ghost" onClick={() => setGroupDialog(null)}>取消</button>

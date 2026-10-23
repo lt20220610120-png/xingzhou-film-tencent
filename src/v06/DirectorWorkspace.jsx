@@ -576,7 +576,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                   aria-label="导演构想"
                   placeholder={'阅读左侧剧本，在这里记录脑海中的画面。\n\n光影：\n运镜：\n人物动作：\n拍摄角度：\n构图：\n色彩与氛围：\n节奏与转场：'}
                 />
-                <small>左侧是拍什么，右侧是怎么拍。生成时结合整场剧本、导演构想与所选 Skill；构想按场景自动保存。</small>
+
               </article>
             </div>
             <div className="creative-generation-controls">
@@ -689,7 +689,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
               </div>
             ) : (
               <div className="quick-scene-no-prompts">
-                <small>选中场景并点击"生成"，提示词会显示在这里</small>
+
               </div>
             )}
             {scenePrompts.length === 0 && savedPrompts.length === 0 && (
@@ -849,7 +849,7 @@ function SettingEditor({ project, episode, setState }) {
     masterScript: replaceMasterSetting(project.masterScript || '', draft),
     episodes: (project.episodes || []).map((item) => item.id === episode.id ? { ...item, content: draft, kind: 'setting', status: draft.trim() ? '已保存设定' : '设定为空' } : item),
   }));
-  return <main className="director-stage setting-editor"><header><div><span>导演项目 · 剧本前置资料</span><h1>设定和小传</h1></div><button className="primary" onClick={save}><Save size={16}/> 保存设定</button></header><p>这里仅展示并编辑“第一集”标题之前的内容，不进行场景划分。</p><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="剧本第一集之前没有内容时，这里保持为空。" /></main>;
+  return <main className="director-stage setting-editor"><header><div><span>导演项目 · 剧本前置资料</span><h1>设定和小传</h1></div><button className="primary" onClick={save}><Save size={16}/> 保存设定</button></header><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="剧本第一集之前没有内容时，这里保持为空。" /></main>;
 }
 
 /* ================================================================
@@ -1229,7 +1229,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       ) : null}
 
       {/* 添加集数弹窗：任何页面（总剧本/分集）点击“添加集数”都能立即弹出 */}
-      {addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {directorEpisodeCount(selectedProject) + 1} 集</h2><p>填写本集内容，确认后会同步到总剧本并重新划分场景。</p><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions">{addEpisodeError&&<p role="alert">{addEpisodeError}</p>}<button className="ghost" disabled={addingEpisode} onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={addingEpisode||!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>{addingEpisode?'正在添加…':'确定并识别'}</button></div></div></div>, document.body)}
+      {addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {directorEpisodeCount(selectedProject) + 1} 集</h2><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions">{addEpisodeError&&<p role="alert">{addEpisodeError}</p>}<button className="ghost" disabled={addingEpisode} onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={addingEpisode||!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>{addingEpisode?'正在添加…':'确定并识别'}</button></div></div></div>, document.body)}
 
       {/* 删除确认 */}
       <DeleteConfirm

@@ -118,10 +118,10 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
  const unused=cards.filter(card=>!decision.needs.some(need=>need.visibility==='visible'&&need.cardUid===card.uid));
  return <section className="prompt-art-panel imported-art-panel" aria-label="提示词与图片独立关联">
   <header className="imported-binding-header"><div><h2>AI 整理提示词与图片 <small>管理员专用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
-  <p>默认只处理当前这一条：AI 整理本场素材身份，再关联当前提示词，完成后留在当前条目。需要批量处理时，再选“AI 自动整理整本”。</p>
+
   <ModelSelect label="关联模型" profiles={state.apiProfiles||[]} value={modelId} onChange={setModelId} disabled={busy}/>
   <label className="imported-vision"><input type="checkbox" checked={vision} disabled={busy} onChange={event=>setVision(event.target.checked)}/>发送本场图片给支持看图的 API（最多 24 张）</label>
-  <p>{vision?'所选 API 须支持图片输入；图片将用于身份和关联核对。':'当前根据提示词和素材名称整理。看图需选择支持图片输入的 API；无法确定的关联会列入待处理。'}</p>
+
   <div className="prompt-art-actions"><button className="imported-auto-start" disabled={busy||!profile||!cards.length} onClick={()=>automatic(true)}>AI 只关联当前条目（{entry.label}）</button><button disabled={busy||!profile||!snapshot.cards.length} onClick={()=>automatic(false)}>AI 自动整理整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)Promise.resolve(api.cancelAiTask?.({taskId:task.current})).catch(()=>{});}}>停止整理并保留进度</button>}<button disabled={busy} onClick={()=>setShowIssues(value=>!value)}>只看待处理（{summary.pending}）</button><button disabled={busy||!ready} onClick={publish}>使用已就绪关联（{ready}）</button></div>
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {showIssues&&<div className="imported-binding-issues" aria-label="待处理关联">{summary.rows.filter(row=>!row.ready).map(row=><button disabled={busy} key={row.id} onClick={()=>{onSelect(row.id);setDetails(true);}}><strong>{row.label}</strong><span>{row.issue}</span><small>展开处理</small></button>)}</div>}
@@ -147,11 +147,11 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
    <div><b>{importedCategories[need.category]} · {need.text}</b><label>用途<select aria-label={`${need.text}用途`} value={need.visibility} disabled={busy} onChange={event=>changeNeed(need.id,{visibility:event.target.value})}>{Object.entries({visible:'画面使用',voice:'仅声音',mentioned:'仅提及',excluded:'本条不用'}).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
    <label>使用图片<select aria-label={`${need.text}关联图片`} value={need.cardUid||''} disabled={busy||need.visibility!=='visible'} onChange={event=>changeNeed(need.id,{cardUid:event.target.value||null,imageId:event.target.value||null})}><option value="">待确定</option>{cards.filter(card=>card.category===need.category).map(card=><option key={card.uid} value={card.uid}>{card.name} · {card.uid.slice(-10)}</option>)}</select></label>
    <label>关联依据<input aria-label={`${need.text}依据`} value={need.reason} disabled={busy} onChange={event=>changeNeed(need.id,{reason:event.target.value})}/></label></div>
-   <div className="prompt-art-image">{need.visibility==='visible'&&cards.find(card=>card.uid===need.cardUid)&&<img src={mediaSource(cards.find(card=>card.uid===need.cardUid).reference)} alt={`${need.text}已选图片`}/>}<small>{need.locked?'人工选择已锁定':'请核对主体、妆造和用途'}</small></div>
+   <div className="prompt-art-image">{need.visibility==='visible'&&cards.find(card=>card.uid===need.cardUid)&&<img src={mediaSource(cards.find(card=>card.uid===need.cardUid).reference)} alt={`${need.text}已选图片`}/>}{need.locked&&<small>人工选择已锁定</small>}</div>
   </article>)}</div>
-  <p>本条未选图片：{unused.map(card=>card.name).join('、')||'无'}。仍可供同场其他提示词使用。</p>
+  <p>本条未选图片：{unused.map(card=>card.name).join('、')||'无'}</p>
   <div className="prompt-art-actions"><button disabled={busy} onClick={confirm}>{decision.confirmed?'本条关联已确认':'确认本条关联'}</button><button disabled={busy||!ready} onClick={publish}>进入图视生成（{ready}/{snapshot.entries.length} 条就绪）</button></div>
   </details>
-  <p>整理只调用所选 AI，不会自动生成视频。答案校验最多修正两次；停止或退出会保留进度。</p>
+
  </section>;
 }

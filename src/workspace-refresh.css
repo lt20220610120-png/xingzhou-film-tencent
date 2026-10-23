@@ -1,0 +1,77 @@
+/* 2.8.69: quieter surfaces, denser actions and the pale sea-water palette. */
+.prompt-book-command-bar { padding:16px 18px; margin:0 0 12px; border:1px solid #e0e5f0; border-radius:14px; background:#fff; }
+.prompt-book-command-bar .prompt-book-toolbar { border:0; padding:0; margin:0; box-shadow:none; background:none; align-items:center; }
+.prompt-book-command-bar .prompt-book-toolbar h2 { margin:0; }
+.prompt-book-source-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding-top:12px; margin-top:12px; border-top:1px solid #edf0f6; }
+.prompt-book-source-actions .prompt-art-actions { margin:0; gap:8px; }
+.prompt-book-source-actions button { padding:7px 10px; min-height:34px; font-size:12px; background:#f8f9fd; }
+.prompt-book-command-bar .prompt-book-select { margin:12px 0 0; }
+.prompt-book-command-bar .prompt-book-select select { max-width:none; flex:1; }
+.prompt-book-command-bar .prompt-book-linked-picker { margin-top:12px; padding:10px; border-radius:8px; background:#f7f9fc; }
+.prompt-book-navigation { align-items:center; padding:12px 16px; }
+.prompt-book-navigation>label { flex-direction:row; align-items:center; gap:8px; }
+.prompt-book-navigation .prompt-book-entries { padding-top:0; max-height:130px; }
+.project-composition-control { gap:12px; }
+.project-composition-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.project-composition-actions>span { font-size:12px; color:#496378; }
+.prompt-book-linked-picker { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
+.prompt-book-linked-picker label { display:flex; align-items:center; gap:7px; font-size:12px; color:#567485; }
+.prompt-book-linked-picker select { min-height:36px; max-width:280px; padding:7px 10px; }
+.prompt-book-linked-picker button { min-height:36px; padding:0 12px; }
+.prompt-book-linked-empty { align-self:center; color:#78919e; font-size:12px; }
+.prompt-book-workspace .prompt-book-toolbar { margin-top:0; }
+
+/* Episode cards and the group member rail use a near-white aqua tint. */
+.collab-episode-card,
+.collab-episode-card:hover {
+  background:#f2fbfd !important;
+  border-color:#cfe8ed !important;
+  color:#171a20 !important;
+}
+.collab-episode-card b,
+.collab-episode-card small,
+.collab-episode-card>span { color:#171a20 !important; }
+.collab-group-members {
+  background:#f3fbfc !important;
+  border-color:#cfe8ed !important;
+}
+.collab-member-chip {
+  background:#fbfeff !important;
+  border-color:#d5ebef !important;
+  color:#172a35;
+}
+.collab-member-chip small { color:#496b78 !important; }
+
+/* The director picker keeps its cloud action aligned with the page heading. */
+.project-hub-refined>header:has(.director-cloud-manager-button) { position:relative; padding-right:180px; }
+.project-hub-refined>header .director-cloud-manager-button {
+  position:absolute;
+  right:0;
+  bottom:3px;
+  min-height:36px;
+  white-space:nowrap;
+}
+
+/* Give the global shell a little more room without changing compact breakpoints. */
+@media(min-width:1051px) {
+  .app { grid-template-columns:162px minmax(0,1fr); }
+  .sidebar { padding-left:8px; padding-right:8px; }
+  .sidebar>button { padding-left:10px; padding-right:10px; gap:8px; font-size:12.5px; }
+  .sidebar .brand-logo.compact { padding-left:1px; padding-right:1px; gap:7px; }
+  .sidebar .brand-logo.compact strong { font-size:16px; }
+}
+@media(max-width:760px) {
+  .project-hub-refined>header:has(.director-cloud-manager-button) { padding-right:0; }
+  .project-hub-refined>header .director-cloud-manager-button { position:static; align-self:flex-start; margin-top:8px; }
+  .prompt-book-linked-picker { width:100%; }
+  .prompt-book-linked-picker label { flex:1; min-width:180px; }
+  .prompt-book-linked-picker select { flex:1; max-width:none; }
+}
+
+.generation-auto-reference-note { justify-content:flex-end; margin:0; }
+.generation-binding-state:empty { display:none; }
+.art-workflow-control { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px; }
+.art-workflow-control>label { margin:0; }
+.generation-reference-manager { display:flex; justify-content:flex-end; }
+.prompt-binding-state { font-size:12px; color:#4c6d63; }
+

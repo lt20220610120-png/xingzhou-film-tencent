@@ -57,7 +57,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  if(!available)return null;
  const disabled=busy||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
-  <header><div><h2>提示词联动美术 <small>管理员专用</small></h2><p>生图前确认每条使用的卡片，生图后选择图片，再到图视生成载入。</p></div><label>素材整理模式<select aria-label="素材整理模式" disabled={disabled} value={saved?.enabled?'linked':'scene'} onChange={event=>act(()=>persist({enabled:event.target.value==='linked',snapshot,decisions:saved?.decisions||{}}))}><option value="scene">原模式：按场景整理</option><option value="linked">新模式：提示词联动美术</option></select></label></header>
+  <header><div><h2>提示词联动美术 <small>管理员专用</small></h2></div><label>素材整理模式<select aria-label="素材整理模式" disabled={disabled} value={saved?.enabled?'linked':'scene'} onChange={event=>act(()=>persist({enabled:event.target.value==='linked',snapshot,decisions:saved?.decisions||{}}))}><option value="scene">原模式：按场景整理</option><option value="linked">新模式：提示词联动美术</option></select></label></header>
   {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {saved?.enabled&&<>
    <div className="prompt-art-actions"><button disabled={disabled} onClick={()=>act(async()=>{await refresh({manual:true});setNotice('已检查导演提示词与美术资产更新');})}>检查提示词与图片更新</button><span>当前场景 {sceneId||'未选择'} · {entries.length} 条提示词</span></div>
@@ -78,7 +78,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
      {need.visibility==='visible'&&<div className="prompt-art-image"><label>使用图片<select aria-label={`${need.text}使用图片`} disabled={disabled||stale||!images.length} value={image?.id||''} onChange={event=>act(()=>edit(need.id,{imageId:event.target.value||null}))}><option value="">{images.length?'请选择图片':'卡片已关联，待出图'}</option>{images.map((row,index)=><option key={row.id} value={row.id}>图片 {index+1}</option>)}</select></label>{image&&<CloudAssetImage api={api} projectId={project.id} assetId={card.assetId} image={image} alt={card.name}/>}<small>{card?.publishedSceneIds.includes(entry.sceneId)?'本场卡片已核实发布':'请先核实发布本场卡片'}</small></div>}
      </article>;
     })}</div>
-    <p>{decision.confirmed&&!stale?(bindingProblems(snapshot,entry,decision,{requireImages:true}).length?'用途已确认，图片或发布仍待完成':'本条已就绪，可在图视生成的整本模式载入联动项目'):'核对并确认本条后保存用途，图片可稍后补齐。'}</p>
+    {decision.confirmed&&!stale&&<span className="prompt-binding-state">{bindingProblems(snapshot,entry,decision,{requireImages:true}).length?'用途已确认 · 图片待完成':'本条已就绪'}</span>}
    </>}
   </>}
  </section>;

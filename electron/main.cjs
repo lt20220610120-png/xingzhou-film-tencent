@@ -76,7 +76,7 @@ function assertWorkBuddySender(event) {
   assertTrustedFrame(event, mainWindow);
   if (!workBuddyPanel) throw new Error('WorkBuddy 集成尚未初始化');
 }
-for(const [channel,action]of Object.entries({'win-ai-open':p=>winAiPanel.open(p),'win-ai-bounds':p=>winAiPanel.setBounds(p),'win-ai-close':()=>winAiPanel.close()}))ipcMain.handle(channel,(event,p)=>{assertTrustedFrame(event,mainWindow);if(!winAiPanel)throw Error('Win AI 尚未初始化');return action(p);});
+for(const [channel,action]of Object.entries({'win-ai-open':p=>winAiPanel.open(p),'win-ai-bounds':p=>winAiPanel.setBounds(p),'win-ai-close':()=>winAiPanel.close(),'win-ai-hide':()=>winAiPanel.hide()}))ipcMain.handle(channel,(event,p)=>{assertTrustedFrame(event,mainWindow);if(!winAiPanel)throw Error('Win AI 尚未初始化');return action(p);});
 for (const [channel, action] of Object.entries({
   'workbuddy-status': () => workBuddyPanel.status(),
   'workbuddy-open': (payload) => workBuddyPanel.open(payload),
