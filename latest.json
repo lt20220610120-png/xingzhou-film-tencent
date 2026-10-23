@@ -1,12 +1,12 @@
 {
   "version": "2.8.67",
   "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.67/Xingzhou-Film-Tencent-Setup-2.8.67.exe",
-  "notes": "# 行舟影视 2.8.67\n\n- 三个已确认的老账号继续按原流程使用，完全隐藏卡密门禁、授权提示和设备校验；管理员权限仍只由账号身份决定。\n- 新账号每次启动联网校验月卡；卡密到期、撤销或校验失败时停在授权页，不能进入工作区。有效月卡可提前续卡，剩余期限顺延。\n- 修复切换账号时可能把新卡兑换到旧账号的问题，并保留换机解绑后的受限账号恢复入口。\n- 启动页继续提供官方更新，更新不延长授权。\n",
+  "notes": "# 行舟影视 2.8.67\n\n- 三个已确认的老账号继续按原流程使用，完全隐藏卡密门禁、授权提示和设备校验；管理员权限仍只由账号身份决定。\n- 新账号每次启动联网校验月卡；卡密到期、撤销或校验失败时停在授权页，不能进入工作区。有效月卡可提前续卡，剩余期限顺延。\n- 修复切换账号时可能把新卡兑换到旧账号的问题，并保留换机解绑后的受限账号恢复入口。\n- 启动页继续提供官方更新，更新不延长授权。",
   "sha256": "1a95f6024e935b56d2d5a974897b055bad8cbb519b01eb207c9e06fa4d33d18c",
   "size": 103818242,
-  "publishedAt": "2026-10-23T17:20:52.2977880Z",
+  "publishedAt": "2026-10-23T17:25:12.591538+00:00",
   "signature": {
     "algorithm": "Ed25519",
-    "value": "hOMme5D4CjgIeF/y1SbuRIW3EvTXr53xTD3UbUETuDRBR+WVtuaNQXdKp7Dbsn29qK1PU9qyMPEG6IeoEejtAw=="
+    "value": "VfTiC/wYBztiandDzjniQp+/CrrwcAY6HI1mu/4BHGAf9Bnd48GuMw0CV8JbFJGrrghMx96Dqyw1Gk13eu62Cg=="
   }
 }
