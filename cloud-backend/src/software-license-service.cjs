@@ -36,6 +36,16 @@ function createLicenseService(repo){
  }
  async function afterLogin(user,key,activation){const state=await repo.licenseState(user.id,key);if(!state.exempt&&activation)await repo.licenseRedeem(activation,key,user.id);return decision(user,key);}
  async function publicAction(action,payload,token,user){
+  if(action==='license-route'){
+   if(user){if((await repo.licenseState(user.id,'')).exempt)return decision(user,'');return {status:'monthly',allowed:false,authenticated:true};}
+   const username=String(payload.username||'').trim().toLowerCase();
+   if(!username)return {status:'unknown',allowed:false,authenticated:false};
+   if(!/^[a-z0-9_]{3,32}$/.test(username))fail('请输入正确的账号',400);
+   const candidate=await repo.findUser(username);
+   const legacy=candidate&&!candidate.banned&&(await repo.licenseState(candidate.id,'')).exempt;
+   // This public hint only selects a login screen. It never grants a session or exemption.
+   return {status:legacy?'login':'monthly',allowed:false,authenticated:false};
+  }
   if(action==='license-challenge'){
    let key;try{if(String(payload.publicKey||'').length>256)throw Error();key=normalizePublicKey(payload.publicKey);}catch{fail('设备公钥无效',400);}
    return {nonce:await repo.licenseChallenge(key),protocol:1};

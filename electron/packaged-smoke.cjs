@@ -9,6 +9,8 @@ module.exports = function configurePackagedSmoke(app) {
   for (const key of ['appData', 'userData', 'documents', 'temp']) {
     const dir = path.join(root, key); fs.mkdirSync(dir, { recursive: true }); app.setPath(key, dir);
   }
+  // Previously activated monthly installation: offline startup must stay locked.
+  fs.writeFileSync(path.join(app.getPath('userData'),'software-license-route.json'),JSON.stringify({monthly:true}));
   const report = { version: app.getVersion(), errors: [] };
   const finish = (success) => { clearTimeout(deadline); report.success = success; fs.writeFileSync(path.join(root,'report.json'), JSON.stringify(report,null,2)); app.exit(success ? 0 : 1); };
   const deadline = setTimeout(() => { report.errors.push('Startup timed out'); finish(false); }, 25000);
@@ -134,7 +136,7 @@ module.exports = function configurePackagedSmoke(app) {
           report.page = await win.webContents.executeJavaScript('({ title: document.title, text: document.body.innerText.slice(0,1500), bridge: typeof window.xingzhou?.appVersion === "function", roles: document.querySelectorAll(".studio-role").length })');
           if(report.page.text.includes('软件使用授权')&&report.page.text.includes('暂时无法完成联网校验')) break;
         }
-        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.license-start'),rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:document.body.innerText.includes('官方更新')})");
+        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseRoute','licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.license-start'),rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:document.body.innerText.includes('软件更新')})");
         const mediaDir=path.join(root,'documents','行舟影视资料','画布素材','整本提示词素材');
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{

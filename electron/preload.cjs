@@ -1,6 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
- licenseCheck:()=>ipcRenderer.invoke('license-check'),
+  licenseCheck:()=>ipcRenderer.invoke('license-check'),
+  licenseRoute:payload=>ipcRenderer.invoke('license-route',payload),
  licensePrepare:p=>ipcRenderer.invoke('license-prepare',p),
  licenseRedeem:()=>ipcRenderer.invoke('license-redeem'),
  licenseAdmin:p=>ipcRenderer.invoke('license-admin',p),

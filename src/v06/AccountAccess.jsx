@@ -50,9 +50,9 @@ export function SendCodeButton({ email, onError }) {
   );
 }
 
-export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLogin, allowRegistration=true, initialMode='register' }) {
+export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLogin, allowRegistration=true, initialMode='register', initialUsername='' }) {
   const [mode, setMode] = useState(allowRegistration?initialMode:'login');
-  const [form, setForm] = useState({ username: '', displayName: '', password: '', confirmPassword: '', email: '', emailCode: '', inviteCode: '' });
+  const [form, setForm] = useState({ username: initialUsername, displayName: '', password: '', confirmPassword: '', email: '', emailCode: '', inviteCode: '' });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);

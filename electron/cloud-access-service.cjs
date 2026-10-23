@@ -19,7 +19,7 @@ const isNetworkFailure = (error) => {
 // Retry reads and idempotent storyboard writes only; ambiguous general writes
 // must be checked by the caller rather than silently repeated.
 const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url'].includes(action);
-const retryableAction = (action, payload) => readAction(action) || ['license-check','license-challenge'].includes(action) || action==='director-live-sync' || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
+const retryableAction = (action, payload) => readAction(action) || ['license-route','license-check','license-challenge'].includes(action) || action==='director-live-sync' || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
 
@@ -134,7 +134,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       // Preserve fallback for this case, but do not replay an ambiguous write.
       const preConnection=!response&&!error.timeout&&/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS/.test(String(error.cause?.code||error.code||''));
       if(index+1<attempts.length&&(retryable||preConnection))continue;
-      throw new Error(['license-check','license-challenge'].includes(action)?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
+      throw new Error(['license-route','license-check','license-challenge'].includes(action)?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
     } finally {clearTimeout(timer);}
   }
   throw new Error(NETWORK_ERROR);

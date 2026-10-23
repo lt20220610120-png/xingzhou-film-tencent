@@ -2,7 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const {validateManifest}=require('../electron/update-trust.cjs');
 const fetchUpdate=require('../electron/update-transport.cjs').createUpdateFetch();
 (async()=>{
- const version='2.8.66',root=path.resolve(__dirname,'..'),local=validateManifest(JSON.parse(fs.readFileSync(path.join(root,'release',version,'latest.json'),'utf8')));
+ const version=require('../package.json').version,root=path.resolve(__dirname,'..'),local=validateManifest(JSON.parse(fs.readFileSync(path.join(root,'release',version,'latest.json'),'utf8')));
  assert.equal(local.version,version);
  const installer=path.join(root,'release',version,`Xingzhou-Film-Tencent-Setup-${version}.exe`),bytes=fs.readFileSync(installer);
  assert.equal(bytes.length,local.size);assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),local.sha256);
