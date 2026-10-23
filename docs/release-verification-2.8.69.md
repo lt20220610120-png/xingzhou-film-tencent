@@ -27,4 +27,13 @@
 - 实际 React + Edge 模拟接口，760/1120/1440/2232px：工具栏高度分别约262/230/187/187px；文档/分集切换和文本编辑保留；联动选择器开合；右侧云端按钮、构图生成按钮；分集字色/背景、群成员背景；Win AI 原生区域与刷新控件不相交；刷新传参和隐藏动作通过。没有页面运行异常。output/ui-2869-verification.json，截图 output/playwright/*-2869-*.png。
 - 界面验证全部使用测试数据与模拟生成接口；没有付费请求，没有修改用户项目或清理真实生成结果。
 
-NSIS 已打包并经实际安装解包/运行时验证通过：qa/packaged-smoke-2.8.69-1792783471839/report.json，版本2.8.69、errors=[]。含私有标记清理、授权门禁、媒体预览、文档/桥接、Win AI bootstrap/GET及Cookie销毁检查。安装包103,883,801字节。公开发布验收在发布完成后补记。
+NSIS 已打包并经实际安装解包/运行时验证通过：qa/packaged-smoke-2.8.69-1792783471839/report.json，版本2.8.69、errors=[]。含私有标记清理、授权门禁、媒体预览、文档/桥接、Win AI bootstrap/GET及Cookie销毁检查。安装包103,883,801字节。
+
+## 正式发布
+
+- 源码5819ae2已推送main，公开Release v2.8.69已发布，两个main的latest.json签名及完整内容一致。
+- 公开包 https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.69/Xingzhou-Film-Tencent-Setup-2.8.69.exe ，本机release/2.8.69/同名文件。
+- 本机大小103883801字节，SHA256 a0c47bb9cb17f8c2b5a75c4089e7fe67a7806b04bab06a9d22870eb900959f74；GitHub资产digest、公开清单大小/散列一致。
+- 官方镜像已同步；沿客户端固定证书IP传输验签，Range bytes=0-1023 返回206、MZ及Content-Range bytes 0-1023/103883801。output/public-2869-verification.json。
+- 真实公开网站Edge检查：新brand.svg可显示，首页截图output/playwright/winai-site-2869.png；未登录或修改任何用户账号。
+- 更新记忆和开发交接手册同步；没有强制关闭或安装替换用户正在使用的客户端。
