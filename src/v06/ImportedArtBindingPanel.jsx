@@ -132,7 +132,7 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
      if(cards.some(card=>!importedCategories[card.category]||!card.name.trim()))throw Error('请为每张图片确定人物、场景或道具分类和名称');
      mutate(current=>({...current,metadata:{...current.metadata,...Object.fromEntries(cards.map(card=>[card.uid,{...current.metadata[card.uid],category:card.category,name:card.name,description:card.description,confirmed:true}]))}}));setNotice('本场素材身份已确认，可继续逐条关联。');
     })}>确认本场素材身份</button></div>
-   <div className="imported-art-cards">{cards.map(card=><article key={card.uid}>
+   <div className="imported-art-cards" role="region" aria-label="本场图片身份列表" tabIndex={0}>{cards.map(card=><article key={card.uid}>
     <img src={mediaSource(card.reference)} alt={card.name} loading="lazy"/>
     <label>分类<select aria-label={`${card.uid}分类`} disabled={busy} value={card.category} onChange={event=>changeMeta(card.uid,{category:event.target.value})}><option value="unknown">待核对</option>{Object.entries(importedCategories).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
     <label>主体名称<input aria-label={`${card.uid}名称`} disabled={busy} value={card.name} onChange={event=>changeMeta(card.uid,{name:event.target.value})}/></label>
@@ -143,7 +143,7 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
   <details><summary>查看或修正 {entry.label} 原提示词</summary><textarea aria-label="关联原提示词" rows={8} value={entry.prompt} disabled={busy} onChange={event=>{const prompt=event.target.value;mutate(current=>({...current,prompts:{...current.prompts,[entry.id]:prompt}}));}}/></details>
   <div className="prompt-art-actions"><b>第二步：逐条关联</b><button disabled={busy||!profile} onClick={()=>associate(false)}>AI 关联本条</button><button disabled={busy||!profile} onClick={()=>associate(true)}>AI 逐条关联整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)api.cancelAiTask?.({taskId:task.current});}}>停止关联</button>}</div>
   {decision.issue&&<p className="collab-error">{decision.issue}</p>}
-  <div className="prompt-art-needs">{decision.needs.map(need=><article key={need.id}>
+  <div className="prompt-art-needs" role="region" aria-label="本条素材关联列表" tabIndex={0}>{decision.needs.map(need=><article key={need.id}>
    <div><b>{importedCategories[need.category]} · {need.text}</b><label>用途<select aria-label={`${need.text}用途`} value={need.visibility} disabled={busy} onChange={event=>changeNeed(need.id,{visibility:event.target.value})}>{Object.entries({visible:'画面使用',voice:'仅声音',mentioned:'仅提及',excluded:'本条不用'}).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
    <label>使用图片<select aria-label={`${need.text}关联图片`} value={need.cardUid||''} disabled={busy||need.visibility!=='visible'} onChange={event=>changeNeed(need.id,{cardUid:event.target.value||null,imageId:event.target.value||null})}><option value="">待确定</option>{cards.filter(card=>card.category===need.category).map(card=><option key={card.uid} value={card.uid}>{card.name} · {card.uid.slice(-10)}</option>)}</select></label>
    <label>关联依据<input aria-label={`${need.text}依据`} value={need.reason} disabled={busy} onChange={event=>changeNeed(need.id,{reason:event.target.value})}/></label></div>
