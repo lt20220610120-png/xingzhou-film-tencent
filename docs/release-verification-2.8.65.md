@@ -12,3 +12,5 @@
 - NSIS 2.8.65 打包与 packagedRuntime PASS；公开包管理员权限、关联桥、媒体、文档、沙盒及启动自检通过，未关闭用户正在使用的窗口。
 
 复验界面：npx vite build --config qa/binding-2865-build.mjs；python -m http.server 5836 --bind 127.0.0.1 --directory output/binding-ui-2865；node qa/binding-layout-2865.cjs。结果在 output/binding-layout-2865.json。
+
+发布完成：源码9ebb633；GitHub v2.8.65与官方IP镜像、两个main签名清单均已核验。安装包103812885字节，SHA256 4141a425a929e0255120617baf5a8045e8480fa7c635725dd944326e3b992b26，GitHub资产digest与HEAD总长相符，客户端原生固定证书备用源206 Range通过；域名直连TLS在本网络失败，原客户端IP备用源正常。公开地址 https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.65/Xingzhou-Film-Tencent-Setup-2.8.65.exe 。本机release/2.8.65/同名包。
