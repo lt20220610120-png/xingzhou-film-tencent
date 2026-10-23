@@ -26,4 +26,6 @@
 
 `release/2.8.66/Xingzhou-Film-Tencent-Setup-2.8.66.exe`，103829078 字节，SHA256 `f9622e42a1622f469335494d76c8d68f7c07099d9cab91c85d65d9f6fb89eae8`。
 
-此记录写入时，候选已验证，公开发布和双清单/镜像核验待下条发布记录补齐。未强制关闭、安装或替换用户正在使用的软件。
+已正式发布 GitHub v2.8.66；源码 7a71ef5。GitHub 安装包、官方镜像及两个 main 分支的签名清单均已核验：版本 2.8.66、103829078 字节、上述 SHA256 相符，GitHub 资产 digest 与下载 HEAD 200 相符；官方 IP 固定证书 TLS、签名清单与 206 Range 总长及前 65536 字节匹配。复验 `node qa/verify-license-release.cjs`；报告 `output/license-release-verified.json`（2026-10-23T12:52:44Z）。最终独立复核未发现阻断项，另跑 14 项针对性测试通过。未强制关闭、安装或替换用户正在使用的软件。
+
+公开安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.66/Xingzhou-Film-Tencent-Setup-2.8.66.exe
