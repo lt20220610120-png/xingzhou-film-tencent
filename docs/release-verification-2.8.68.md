@@ -19,3 +19,9 @@
 - 没有删除用户真实结果或项目，没有调用真实收费生成；没有更改云端授权策略或数据库。
 
 - 最终 npm test：2366/2366 通过；npm run build 成功（2091 modules）。
+
+- NSIS与packagedRuntime PASS：softwareLicense门禁、无有效校验时角色隐藏/无进入按钮、更新入口、管理员权限、媒体与本地数据自检通过。
+- 已正式发布GitHub v2.8.68和官方备用源；两个main签名清单/资产digest/本地SHA256及大小一致，官方IP固定证书Range206核验通过。
+- 安装包103821101字节，SHA256 51b683ce6d097189ffd9853469e030e052693762a029fc585e8019177b0c04cf，源码f7a7a16。
+- 公开下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.68/Xingzhou-Film-Tencent-Setup-2.8.68.exe
+- 本机：release/2.8.68/同名包。上级软件更新记忆与开发交接同步。
