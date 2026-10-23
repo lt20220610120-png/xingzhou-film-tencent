@@ -50,8 +50,8 @@ export function SendCodeButton({ email, onError }) {
   );
 }
 
-export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLogin }) {
-  const [mode, setMode] = useState('register');
+export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLogin, allowRegistration=true, initialMode='register' }) {
+  const [mode, setMode] = useState(allowRegistration?initialMode:'login');
   const [form, setForm] = useState({ username: '', displayName: '', password: '', confirmPassword: '', email: '', emailCode: '', inviteCode: '' });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -100,7 +100,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
         </section>
         <form className="auth-card" onSubmit={submit}>
           <div className="auth-tabs">
-            <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>创建账号</button>
+            {allowRegistration&&<button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>创建账号</button>}
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>已有账号登录</button>
             <button type="button" className={mode === 'recover' ? 'active' : ''} onClick={() => switchMode('recover')}>找回账号</button>
           </div>

@@ -1,0 +1,4 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {gateway}=require('./cloud-access-service.cjs');
+test('断网授权校验提示联网失败，不误称资料保存未确认',async()=>{const original=global.fetch;global.fetch=async()=>{throw Object.assign(Error('offline'),{code:'ECONNREFUSED'});};try{await assert.rejects(gateway('license-check'),e=>/无法连接云端/.test(e.message)&&!/保存/.test(e.message));}finally{global.fetch=original;}});
+test('并发设备挑战不能合并复用同一个随机数',async()=>{const original=global.fetch;let calls=0;global.fetch=async()=>{const nonce='nonce-'+(++calls);return {ok:true,status:200,text:async()=>JSON.stringify({nonce})};};try{const values=await Promise.all([gateway('license-challenge',{publicKey:'same'}),gateway('license-challenge',{publicKey:'same'})]);assert.notEqual(values[0].nonce,values[1].nonce);}finally{global.fetch=original;}});

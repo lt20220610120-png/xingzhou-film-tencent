@@ -9,6 +9,7 @@ function createRepository(databaseUrl, deps = {}) {
   async function transaction(work){const client=await pool.connect();try{await client.query('begin');const value=await work(client);await client.query('commit');return value;}catch(error){await client.query('rollback');throw error;}finally{client.release();}}
   const select = 'id, username, display_name, email, roles, active_role, is_admin, is_producer, banned, created_at, avatar_data, bio, profile_tags, password_hash';
   return {
+    ...require('./software-license-repository.cjs').extendLicenseRepository(pool),
     ...require('./win-ai-repository.cjs').extendWinAIRepository(pool),
     async updateProfile(id,p){const r=await pool.query('update app_users set display_name=$2,bio=$3,profile_tags=$4,avatar_data=$5,updated_at=now() where id=$1 returning '+select,[id,p.displayName,p.bio,p.tags,p.avatar]);return r.rows[0]||null;},
     async findUser(username) { const r = await pool.query(`select ${select} from app_users where username=$1 limit 1`, [username]); return r.rows[0] || null; },

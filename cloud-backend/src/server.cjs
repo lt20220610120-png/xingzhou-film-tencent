@@ -14,6 +14,8 @@ const PUBLIC_ACTIONS = new Set(['login', 'register', 'send-email-code', 'recover
 function createServer(env = process.env, deps = {}) {
   const config = readConfig(env);
   const repository = deps.repository || createRepository(config.databaseUrl);
+  const licensing=repository.licenseState?require('./software-license-service.cjs').createLicenseService(repository):null;
+  const licenseTraffic=new Map();
   const mailer = deps.mailer !== undefined ? deps.mailer : createMailer(env);
   const cosSigner = deps.cosSigner !== undefined ? deps.cosSigner : createCosSigner(env);
   const referenceStore=deps.referenceStore || (cosSigner?require('./generation-references.cjs').createGenerationReferenceStore({directory:env.GENERATION_REFERENCE_DIR||require('node:path').join(process.cwd(),'var','generation-references'),signer:cosSigner}):null);
@@ -39,7 +41,7 @@ function createServer(env = process.env, deps = {}) {
       // TCP chunks can end inside a Chinese character. StringDecoder, enabled
       // by setEncoding, preserves partial UTF-8 sequences until the next chunk.
       request.setEncoding('utf8');
-      request.on('data', (chunk) => { raw += chunk; });
+      request.on('data', (chunk) => { raw += chunk; if(raw.length>16*1024*1024)request.destroy(); });
       request.on('end', async () => {
         const send = (result) => {
           let data = Buffer.from(JSON.stringify(result.body));
@@ -81,15 +83,43 @@ function createServer(env = process.env, deps = {}) {
         const action = request.url === '/api/gateway' ? String(payload.action || 'session') : 'login';
         const bearer = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
         try {
-          if (action === 'login') return send(await login(payload, repository));
-          if (action === 'register') return send(await register(payload, repository));
+          // Nginx appends the socket peer; earlier entries may be attacker supplied.
+          const forwarded = String(request.headers['x-forwarded-for']||'').split(',').at(-1).trim();
+          const remote = request.socket.remoteAddress||'unknown';
+          const clientAddress = env.TRUST_PROXY==='1' && /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(remote) && forwarded ? forwarded : remote;
+          const preAuthLicenseUser=licensing&&action.startsWith('license-')&&bearer?await repository.findBySession(tokenHash(bearer)):null;
+          if(licensing&&(['login','register','send-email-code','recover'].includes(action)||action.startsWith('license-'))){
+            const now=Date.now(),isChallenge=action==='license-challenge',isAuthenticated=Boolean(preAuthLicenseUser),group=isChallenge?'challenge':isAuthenticated?'user':'auth',key=(group==='user'?'user:'+preAuthLicenseUser.id:clientAddress)+':'+group;
+            if(licenseTraffic.size>5000)for(const [k,v]of licenseTraffic)if(v.until<now)licenseTraffic.delete(k);
+            let count=licenseTraffic.get(key);if(!count||count.until<now){count={n:0,until:now+60000};licenseTraffic.set(key,count);}
+            if(++count.n>(group==='challenge'?600:group==='user'?600:120))return send({status:429,body:{error:'请求过于频繁，请一分钟后重试'}});
+          }
+          if(licensing&&action.startsWith('license-')){
+            const u=preAuthLicenseUser;
+            if(u?.banned)return send({status:403,body:{error:'账号已停用'}});
+            return send({status:200,body:await licensing.publicAction(action,payload,bearer,u)});
+          }
+          if (action === 'login'||action==='register') {
+            const key=licensing&&payload._licenseProof?await licensing.device(action,payload,''):null;
+            if(licensing&&action==='register'&&(!key||!await repository.licensePending(payload._licenseActivation,key)))return send({status:403,body:{error:'请先验证有效卡密，再注册账号'}});
+            if(action==='register'){
+              if(!licensing)return send(await register(payload,repository));
+              const created=await repository.registerAndRedeem(payload,key,payload._licenseActivation);
+              return send({status:200,body:{token:created.token,account:require('./auth.cjs').publicAccount(created.user),license:await licensing.decision(created.user,key)}});
+            }
+            const result=await login(payload,repository,licensing?u=>licensing.beforeLogin(u,key,payload._licenseActivation):undefined);
+            if(licensing&&result.status===200){try{result.body.license=await licensing.afterLogin(result.body.account,key,payload._licenseActivation);}catch(error){await repository.deleteSession(tokenHash(result.body.token));throw error;}}
+            return send(result);
+          }
           if (action === 'send-email-code') return send(await sendEmailCode(payload, repository, mailer));
           if (action === 'recover') return send(await recover(payload, repository));
-          if (action === 'session') return send(await session(bearer, repository));
+          if (action === 'session') {const result=await session(bearer,repository);if(licensing&&result.status===200)await licensing.authorize(action,payload,bearer,result.body.account);return send(result);}
 
           const user = await repository.findBySession(tokenHash(bearer));
           if (!user) return send({ status: 401, body: { error: '请先登录账号' } });
           if (user.banned) return send({ status: 403, body: { error: '账号已被停用' } });
+          if(licensing)await licensing.authorize(action,payload,bearer,user);
+          if(licensing&&action.startsWith('admin-license-'))return send({status:200,body:await licensing.admin(action,payload,user)});
           if(Array.isArray(user.roles)&&user.roles.length===0&&!user.is_admin&&!user.is_producer&&!['logout','win-ai-entry','profile-update','unlock'].includes(action))return send({status:403,body:{error:'当前账号可使用 Win AI；影视工作权限需由管理员开通'}});
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
           if (action === 'win-ai-entry') return send({status:200,body:{ticket:await identity.issue(tokenHash(bearer),payload.challenge),expiresIn:60}});
@@ -105,6 +135,7 @@ function createServer(env = process.env, deps = {}) {
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
           return send(await handleAction(action, payload, user, repository, cosSigner, imagePreview));
         } catch (error) {
+          if(licensing&&[400,403,404,409,429].includes(error?.status))return send({status:error.status,body:{error:error.message}});
           // Log only operation and database code, never prompts, tokens or SQL values.
           (deps.logger || console).error('gateway_failed', { action, code: error?.code || 'unknown' });
           const message = action === 'asset-update' ? '提示词保存失败，编辑内容仍保留，请稍后重试保存' : '云端服务暂时不可用，请稍后重试';

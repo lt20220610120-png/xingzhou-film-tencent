@@ -2,6 +2,7 @@ import './preferenceProtection.js';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App, { RenderErrorBoundary } from './App.jsx';
+import {SoftwareLicenseBoundary} from './v06/SoftwareLicense.jsx';
 import './styles.css';
 import './v06.css';
 import './v07.css';
@@ -21,7 +22,7 @@ const root = document.getElementById('root');
 if (root) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <RenderErrorBoundary><App /></RenderErrorBoundary>
+      <RenderErrorBoundary><SoftwareLicenseBoundary><App /></SoftwareLicenseBoundary></RenderErrorBoundary>
     </React.StrictMode>
   );
 }

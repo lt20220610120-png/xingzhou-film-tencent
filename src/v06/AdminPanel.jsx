@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Ban, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Undo2, Clapperboard, PanelsTopLeft } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import {AdminWorkflow} from './AdminWorkflow.jsx';
+import {SoftwareLicenseAdmin} from './SoftwareLicense.jsx';
 import { WorkBuddyPanel } from './WorkBuddyPanel.jsx';
 
 const KIND_LABELS = { role: '单身份邀请码', full: '全权限邀请码', unlock: '身份解锁码', admin: '管理员注册码' };
@@ -16,7 +17,7 @@ function fmtTime(value) {
 
 const adminTabKey = (accountId) => `xz-admin-tab:${encodeURIComponent(String(accountId || ''))}`;
 const readAdminTab = (accountId) => {
-  try { const saved=localStorage.getItem(adminTabKey(accountId));return ['workbuddy','workflow'].includes(saved)?saved:'users'; }
+  try { const saved=localStorage.getItem(adminTabKey(accountId));return ['workbuddy','workflow','license'].includes(saved)?saved:'users'; }
   catch { return 'users'; }
 };
 
@@ -110,9 +111,11 @@ export function AdminPanel({ account, active = true, state={}, setState, onNavig
       </header>
       <div className="admin-workspace-tabs" role="tablist" aria-label="管理功能">
         <button role="tab" id="admin-workflow-tab" aria-selected={tab==='workflow'} aria-controls="admin-workflow-panel" className={tab==='workflow'?'active':''} onClick={()=>setTab('workflow')}><Clapperboard size={17}/>制作工作流总控</button>
+        <button role="tab" aria-selected={tab==='license'} className={tab==='license'?'active':''} onClick={()=>setTab('license')}><KeyRound size={17}/>软件授权 / 卡密</button>
         <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请码</button>
         <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
       </div>
+      {tab==='license'&&<SoftwareLicenseAdmin api={api}/>}
       {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><AdminWorkflow account={account} state={state} setState={setState} api={api} active={active} onNavigate={onNavigate}/></div>}
       {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}
       <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab" hidden={tab !== 'users'}>

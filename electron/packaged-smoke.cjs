@@ -132,8 +132,9 @@ module.exports = function configurePackagedSmoke(app) {
         for (let attempt=0;attempt<30;attempt++) {
           await new Promise(resolve => setTimeout(resolve,250));
           report.page = await win.webContents.executeJavaScript('({ title: document.title, text: document.body.innerText.slice(0,1500), bridge: typeof window.xingzhou?.appVersion === "function", roles: document.querySelectorAll(".studio-role").length })');
-          if(report.page.roles===2) break;
+          if(report.page.text.includes('软件使用授权')&&report.page.text.includes('暂时无法完成联网校验')) break;
         }
+        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.license-start'),rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:document.body.innerText.includes('官方更新')})");
         const mediaDir=path.join(root,'documents','行舟影视资料','画布素材','整本提示词素材');
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{
@@ -168,7 +169,7 @@ module.exports = function configurePackagedSmoke(app) {
         report.security={
           systemEncryption:safeStorage.isEncryptionAvailable(),
           migrated:restored?.token==='synthetic-smoke-token' && !fs.readFileSync(sessionFile,'utf8').includes('synthetic-smoke-token'),
-          ipcGenerationDenied:await win.webContents.executeJavaScript("window.xingzhou.aiChat({prompt:'synthetic no-login test'}).then(()=>false,error=>/登录/.test(error.message))"),
+          ipcGenerationDenied:await win.webContents.executeJavaScript("window.xingzhou.aiChat({prompt:'synthetic no-login test'}).then(()=>false,error=>/登录|授权|无法连接云端/.test(error.message))"),
           csp:await win.webContents.executeJavaScript("!!document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]')?.content.includes(\"script-src 'self'\")"),
           sandbox:win.webContents.getLastWebPreferences().sandbox===true,
           devToolsDisabled:!win.webContents.isDevToolsOpened(),
@@ -189,7 +190,7 @@ module.exports = function configurePackagedSmoke(app) {
         report.security.canvasEmbedded=report.security.canvasEmbedded===true;
         if(!embedded)report.canvasDiagnostics={frames:win.webContents.mainFrame.frames.map(frame=>frame.url)};
         await win.webContents.executeJavaScript("document.querySelector('#security-canvas-check')?.remove()");
-        finish(Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && Object.values(report.projectRecycle).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && report.page.roles === 2 && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && Object.values(report.projectRecycle).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && Object.values(report.softwareLicense).every(Boolean) && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

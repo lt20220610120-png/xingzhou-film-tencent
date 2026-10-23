@@ -19,7 +19,7 @@ const isNetworkFailure = (error) => {
 // Retry reads and idempotent storyboard writes only; ambiguous general writes
 // must be checked by the caller rather than silently repeated.
 const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url'].includes(action);
-const retryableAction = (action, payload) => readAction(action) || action==='director-live-sync' || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
+const retryableAction = (action, payload) => readAction(action) || ['license-check','license-challenge'].includes(action) || action==='director-live-sync' || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
 
@@ -96,6 +96,8 @@ async function requestGateway(url, init) {
   }
 }
 const pendingReads = new Map();
+let licenseDecorator=null;
+function setLicenseDecorator(decorator){licenseDecorator=decorator;}
 const snapshots = require('./cloud-snapshots.cjs').createSnapshotCache();
 function gateway(action, payload = {}, token = '', options = {}) {
   if (!readAction(action)) return performGateway(action,payload,token,options);
@@ -114,7 +116,8 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     let response,timer;
     try {
       const pending=(async()=>{
-        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({action,...payload}),signal:controller.signal});
+        const decorated=licenseDecorator&&action!=='license-challenge'?await licenseDecorator(action,payload,token):payload;
+        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({...decorated,action}),signal:controller.signal});
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if (![502,503,504].includes(response.status)) activeUrl=url;
@@ -131,7 +134,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       // Preserve fallback for this case, but do not replay an ambiguous write.
       const preConnection=!response&&!error.timeout&&/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS/.test(String(error.cause?.code||error.code||''));
       if(index+1<attempts.length&&(retryable||preConnection))continue;
-      throw new Error(retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
+      throw new Error(['license-check','license-challenge'].includes(action)?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
     } finally {clearTimeout(timer);}
   }
   throw new Error(NETWORK_ERROR);
@@ -185,4 +188,4 @@ function createCloudAccessService(userDataDir, options = {}) {
     token, readSession, readAccount: () => readSession()?.account || null,
   };
 }
-module.exports = { createCloudAccessService, gateway };
+module.exports = { createCloudAccessService, gateway, setLicenseDecorator };

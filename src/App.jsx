@@ -1068,42 +1068,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
   const [selectingDirectory, setSelectingDirectory] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
   const [appVersion, setAppVersion] = useState('0.9.7');
-  const [checking, setChecking] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState(null);
-  const [updateStatus, setUpdateStatus] = useState('正在自动检查更新…');
-  const [updatePhase, setUpdatePhase] = useState('idle');
-  const [progress, setProgress] = useState({ percent: 0, transferred: 0, total: 0 });
-
-  const manifestUrl = UPDATE_MANIFEST_URL;
-
-  const formatSize = (bytes) => bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '未知大小';
-
-  const checkUpdate = async () => {
-    setChecking(true);
-    setUpdateStatus('正在检查更新…');
-    try {
-      const result = await api.checkUpdate(manifestUrl);
-      const info = interpretUpdateResult(result);
-      setUpdateInfo(info);
-      setUpdateStatus(info.status);
-      setUpdatePhase(info.available ? 'available' : 'idle');
-    } catch (e) {
-      setUpdateStatus(`检查失败：${e.message}`);
-      setUpdatePhase('error');
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  useEffect(() => {
-    api.storageInfo().then(setStorageInfo);
-    api.appVersion().then(setAppVersion);
-    const cleanup = api.onUpdateProgress?.((p) => {
-      setProgress(p);
-    });
-    checkUpdate();
-    return () => cleanup?.();
-  }, []);
+  useEffect(() => { api.storageInfo().then(setStorageInfo); api.appVersion().then(setAppVersion); }, []);
 
   const handleSelectDir = async () => {
     if(selectingDirectory)return;
@@ -1123,38 +1088,13 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
     finally{if(holding)afterSelectDataDir?.();setSelectingDirectory(false);}
   };
 
-  const handleDownload = async () => {
-    setUpdatePhase('downloading');
-    setProgress({ percent: 0, transferred: 0, total: 0 });
-    setUpdateStatus(`正在下载 ${updateInfo.version}…`);
-    try {
-      await api.downloadUpdate({ url: updateInfo.installerUrl, version: updateInfo.version });
-      setUpdatePhase('ready');
-      setUpdateStatus('下载完成，可以立即安装。');
-    } catch (e) {
-      setUpdatePhase('error');
-      setUpdateStatus(`下载失败：${e.message}`);
-    }
-  };
-
-  const handleInstall = async () => {
-    setUpdatePhase('installing');
-    setUpdateStatus('正在启动安装程序，软件即将关闭…');
-    try {
-      await api.installUpdate();
-    } catch (e) {
-      setUpdatePhase('error');
-      setUpdateStatus(`安装失败：${e.message}`);
-    }
-  };
-
   return (
     <div className="settings-page">
       {selectingDirectory&&createPortal(<div role="dialog" aria-modal="true" aria-label="正在迁移资料" style={{position:'fixed',inset:0,zIndex:100000,background:'#f4f6fbe8',display:'grid',placeItems:'center'}}><p>正在核验并迁移资料，请等待完成后继续编辑。</p></div>,document.body)}
       <header>
         <span className="eyebrow">行舟影视设置</span>
         <h1>设置</h1>
-        <p>管理资料保存位置，以及软件后续版本更新。</p>
+        <p>管理资料保存位置。</p>
       </header>
 
       <section className="settings-card">
@@ -1179,55 +1119,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
 
       <section className="settings-card"><h2>云端临时素材</h2><p>查看视频参考副本占用，清理到期或已结束任务的副本。</p><TemporaryReferenceManager api={api}/></section>
 
-      <section className="settings-card update-card">
-        <div className="settings-title">
-          <div>
-            <RefreshCw size={20} />
-            <span>
-              <h2>软件更新</h2>
-              <p>应用内下载、显示进度，然后直接安装，不再打开浏览器。</p>
-            </span>
-          </div>
-          <b>v{appVersion}</b>
-        </div>
-
-        <div className="update-status">
-          <strong>{updateStatus}</strong>
-          {updateInfo?.notes && <p>{updateInfo.notes}</p>}
-        </div>
-
-        {updatePhase === 'downloading' && (
-          <div className="download-progress">
-            <div className="progress-meta">
-              <span>正在下载安装包</span>
-              <b>{progress.percent}%</b>
-            </div>
-            <div className="progress-track">
-              <i style={{ transform: `scaleX(${progress.percent / 100})` }} />
-            </div>
-            <small>{formatSize(progress.transferred)} / {formatSize(progress.total)}</small>
-          </div>
-        )}
-
-        <div className="update-row">
-          <button className="secondary" onClick={checkUpdate} disabled={checking || updatePhase === 'downloading' || updatePhase === 'installing'}>
-            {checking ? '检查中…' : '重新检查'}
-          </button>
-          {updatePhase === 'available' && (
-            <button className="primary" onClick={handleDownload}><Download size={16} /> 在软件内下载更新</button>
-          )}
-          {updatePhase === 'ready' && (
-            <button className="primary" onClick={handleInstall}><RefreshCw size={16} /> 立即安装并重启</button>
-          )}
-          {updatePhase === 'error' && updateInfo?.available && (
-            <button className="primary" onClick={handleDownload}>重新下载</button>
-          )}
-        </div>
-
-        <p className="settings-note">
-          资料保存在独立目录。更新安装只替换软件程序，不会删除果子库、剧本库、Skill、API 配置或导演提示词。
-        </p>
-      </section>
+      <section className="settings-card"><h2>当前版本</h2><b>v{appVersion}</b></section>
     </div>
   );
 }

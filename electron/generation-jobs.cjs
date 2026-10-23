@@ -99,6 +99,7 @@ function createGenerationJobs(dir,options={}) {
       return result;
     },
     async submit(input) {
+      await options.beforeSubmit?.();
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
       for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
