@@ -1,0 +1,20 @@
+import React,{useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {SettingsUtilityCards} from '../src/components/SettingsUtilityCards.jsx';
+import {SoftwareLicenseAdmin} from '../src/v06/SoftwareLicense.jsx';
+import {GenerationResults} from '../src/v06/GenerationResults.jsx';
+import {GenerationWorkspace} from '../src/v06/GenerationWorkspace.jsx';
+const initial=[{id:'uncertain1',status:'uncertain'},{id:'uncertain2',status:'uncertain'},{id:'failed',status:'failed'},{id:'done',status:'success'},{id:'running',status:'submitted'}].map(x=>({...x,kind:'video',prompt:'24-1-3 人物走进大厅',model:'doubao_seedance_2_5',duration:15}));
+const read=()=>JSON.parse(localStorage.getItem('qa2868-jobs')||'null')||initial;
+const empty={grants:[],cards:[],orders:[],audit:[],exemptions:[{username:'legacy-demo'}]};
+window.qa2868={calls:[],full:false,clears:[],exports:0};
+const overview=()=>qa2868.full?{...empty,grants:[{user_id:'user1',username:'测试授权账号',expires_at:'2026-11-25T12:00:00Z',device_key:'bound'}],orders:[{id:'order1',note:'测试年度订单',issued:1}],cards:[{id:'card1',hint:'ABCD',note:'待发放测试卡',disabled:false},{id:'card2',hint:'EFGH',note:'已兑换测试卡',redeemed_by:'user1'}],audit:[{id:'a1',created_at:'2026-10-24T08:00:00Z',action:'issue',reason:'测试备注'}]}:empty;
+const api={licenseAdmin:async p=>{qa2868.calls.push(p);return p.operation==='overview'?overview():p.operation==='issue'?{code:'QA-ONLY-NOT-A-REAL-CARD',hint:'TEST'}:{};},saveTxt:async()=>{qa2868.exports++;return 'mock-export.txt';},generationReferenceList:async()=>({items:[],count:0,bytes:0,limits:{count:500,bytes:1073741824}})};
+let raceJobs=initial.filter(t=>t.status!=='submitted');
+window.qaRace={hold:false,release:null};
+const raceApi={generationList:async()=>{const rows=structuredClone(raceJobs);if(qaRace.hold){qaRace.hold=false;await new Promise(resolve=>qaRace.release=resolve);}return rows;},promptArtStatus:async()=>({enabled:false}),generationClear:async({ids})=>{raceJobs=raceJobs.filter(t=>!ids.includes(t.id));return {removed:ids.length,bytesFreed:0};}};
+function Fixture(){const [tab,setTab]=useState('results'),[tasks,setTasks]=useState(read);
+ const clear=async ids=>{qa2868.clears.push(ids);const all=read(),selected=all.filter(t=>ids.includes(t.id));if(selected.some(t=>!['success','failed','uncertain'].includes(t.status)))throw Error('活动任务受保护');const next=all.filter(t=>!ids.includes(t.id)||t.status==='uncertain').map(t=>ids.includes(t.id)?{...t,archived:true}:t);localStorage.setItem('qa2868-jobs',JSON.stringify(next));setTasks(next);return {removed:selected.length,archived:selected.filter(t=>t.status==='uncertain').length,bytesFreed:0};};
+ return <div><nav style={{display:'flex',gap:12,padding:20}}>{[['results','生成结果'],['settings','设置区域'],['license','授权管理'],['race','异步列表验收']].map(([id,title])=><button key={id} onClick={()=>setTab(id)}>{title}</button>)}</nav><main style={{maxWidth:1500,margin:'0 auto',padding:'20px 30px'}}>{tab==='race'?<GenerationWorkspace state={{apiProfiles:[],mediaProfiles:[]}} setState={()=>{}} api={raceApi} account={{id:'qa'}}/>:tab==='results'?<GenerationResults tasks={tasks.filter(t=>!t.archived)} api={api} onClear={clear} onRefresh={async()=>setTasks(read())}/>:tab==='settings'?<div className="settings-page" style={{padding:0}}><header><span className="eyebrow">行舟影视设置</span><h1>设置</h1><p>管理资料保存位置。</p></header><SettingsUtilityCards api={api} version="2.8.68"/></div>:<SoftwareLicenseAdmin api={api}/>}</main></div>;
+}
+createRoot(document.getElementById('root')).render(<Fixture/>);

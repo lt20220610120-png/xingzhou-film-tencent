@@ -6,7 +6,7 @@ import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { MediaPreview } from './MediaPreview.jsx';
 
 const names = { submitting: '提交中', submitted: '排队 / 生成中', downloading: '下载中', success: '已完成', failed: '失败', uncertain: '待核对' };
-const clearable = task => ['success', 'failed'].includes(task.status);
+const clearable = task => ['success', 'failed', 'uncertain'].includes(task.status);
 function storageSize(bytes = 0) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -18,6 +18,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const candidates = tasks.filter(clearable);
+  const activeCount = tasks.length - candidates.length;
   const closePreview = useCallback(() => setPreview(null), []);
   const askClear = selected => { setPreview(null); setError(''); setNotice(''); setCleanup(selected); };
   const confirmClear = async () => {
@@ -26,7 +27,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     try {
       const result = await onClear(cleanup.map(task => task.id));
       setCleanup(null);
-      setNotice(`已清除 ${result.removed} 条结果，释放本机空间 ${storageSize(result.bytesFreed)}。${result.warning || (result.filesRetained ? '仍在使用或不属于软件缓存的文件已保留。' : '')}`);
+      setNotice(`已清除 ${result.removed} 条结果，释放本机空间 ${storageSize(result.bytesFreed)}。${result.archived ? `其中 ${result.archived} 条待核对记录已从列表移除，原任务信息保留。` : ''}${result.warning || (result.filesRetained ? '仍在使用或不属于软件缓存的文件已保留。' : '')}`);
     } catch (cause) { setError(cause.message || '清理失败，请重试'); }
     finally { setBusy(false); }
   };
@@ -52,7 +53,8 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
         {onClear && <button className="danger" disabled={busy || !candidates.length} onClick={() => askClear(candidates)}><Trash2 size={15}/>清除全部结果</button>}
       </div>
     </header>
-    {onClear && <p className="generation-storage-note">清理可释放本机空间；另存的下载文件和云端协作素材保留。运行中及待核对的任务不参与清理。</p>}
+    {onClear && <p className="generation-storage-note">清理可释放本机空间；另存的下载文件和云端协作素材保留。待核对记录可从列表清除，原任务记录保留；运行中的任务完成后再清理。</p>}
+    {onClear && activeCount > 0 && <p className="generation-storage-note">当前有 {activeCount} 条正在处理的任务，完成后可清除。</p>}
     {error && !cleanup && <p className="collab-error" role="alert">{error}</p>}
     {notice && <p className="generation-cleanup-notice" role="status">{notice}</p>}
     <div className="generation-result-grid">{tasks.map(task => <article key={task.id}>
@@ -75,7 +77,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p><small>生成作品后，可在这里预览、下载或复用</small></div>}
     {preview && <MediaPreview key={preview.id} item={preview} onClose={closePreview} onDownload={exportTask}/>}
     <DeleteConfirm open={!!cleanup} title={cleanup?.length === 1 ? '清除这条生成结果？' : '清除全部生成结果？'}
-      detail={`将清除当前列表中选定的 ${cleanup?.length || 0} 条已完成或失败的结果及其本地副本，清除后无法在这里恢复。另存到其他文件夹的下载、云端协作素材和仍被使用的文件会保留。运行中和待核对的任务会保留。`}
+      detail={`将清除当前列表中选定的 ${cleanup?.length || 0} 条结果。已完成或失败的结果及其本地副本会清除；待核对项仅从列表移除，原任务记录保留。清除后无法在这里恢复。另存到其他文件夹的下载、云端协作素材和仍被使用的文件会保留。运行中的任务会保留。`}
       confirmLabel="确认清除" busy={busy} error={error} onCancel={() => { if (!busy) { setCleanup(null); setError(''); } }} onConfirm={confirmClear}/>
   </section>;
 }

@@ -5,7 +5,7 @@ import {HardDrive,RefreshCw,Trash2,X} from 'lucide-react';
 const bytes=value=>value<1024*1024?`${Math.round(value/1024)} KB`:`${(value/1024/1024).toFixed(1)} MB`;
 const when=value=>new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 const states={active:'任务使用中',legacy:'旧版副本 · 到期清理',unused:'可清理',expired:'已到期'};
-export function TemporaryReferenceManager({api}){
+export function TemporaryReferenceManager({api,className=''}){
  const [open,setOpen]=useState(false),[data,setData]=useState(null),[selected,setSelected]=useState(new Set()),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[error,setError]=useState('');
  const panel=useRef(null),trigger=useRef(null),inFlight=useRef(false);
  const load=async()=>{if(typeof api?.generationReferenceList!=='function')throw Error('请升级客户端后使用临时素材管理');const result=await api.generationReferenceList();setData(result);setSelected(new Set());return result;};
@@ -19,7 +19,7 @@ export function TemporaryReferenceManager({api}){
   try{const result=await api.generationReferenceCleanup({ids:rows.map(r=>r.id)});await load();setNotice(`已清理 ${result.removed} 项，释放 ${bytes(result.bytesFreed)}${result.skipped?`；${result.skipped} 项已被任务使用，已保留`:''}。${result.failed?.length?'未完成：'+result.failed.map(r=>r.name+'（'+r.message+'）').join('、'):''}`);}catch(e){setError(e.message);}finally{inFlight.current=false;setBusy(false);}
  };
  const items=data?.items||[],available=items.filter(r=>r.canDelete),expired=available.filter(r=>r.state==='expired');
- return <><button ref={trigger} className="temporary-reference-trigger" type="button" onClick={()=>{setNotice('');setError('');setOpen(true);}}><HardDrive size={14}/>管理临时素材</button>{open&&createPortal(<div className="temporary-reference-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)setOpen(false);}}><section className="temporary-reference-dialog" role="dialog" aria-modal="true" aria-labelledby="temporary-reference-title" tabIndex={-1} ref={panel}>
+ return <><button ref={trigger} className={`temporary-reference-trigger ${className}`} type="button" onClick={()=>{setNotice('');setError('');setOpen(true);}}><HardDrive size={16}/>管理临时素材</button>{open&&createPortal(<div className="temporary-reference-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)setOpen(false);}}><section className="temporary-reference-dialog" role="dialog" aria-modal="true" aria-labelledby="temporary-reference-title" tabIndex={-1} ref={panel}>
   <header><div><h2 id="temporary-reference-title">云端临时素材</h2><p>视频生成时上传的参考副本；与本机资料、项目资产和生成结果分开管理。</p></div><button aria-label="关闭临时素材管理" onClick={()=>setOpen(false)}><X size={20}/></button></header>
   {data&&<div className="temporary-reference-usage"><strong>{data.count} / {data.limits.count} 个</strong><span>{bytes(data.bytes)} / {bytes(data.limits.bytes)}</span><span>可清理 {available.length} 项</span></div>}
   <p className="temporary-reference-note">相同文件会复用有效副本。使用中的素材自动保护，任务结束后可提前清理。旧版副本无法确认任务状态，将保留至 48 小时到期；下一次生成会重新上传已清理的副本。</p>

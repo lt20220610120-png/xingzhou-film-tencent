@@ -7,7 +7,9 @@ test('设置页只显示当前版本，所有更新操作集中到启动授权�
  const source=fs.readFileSync(path.join(__dirname,'../src/App.jsx'),'utf8');
  const start=source.indexOf('function SettingsPage');
  const end=source.indexOf('/* ================================================================\n * App - 主应用组件',start);
- const settings=source.slice(start,end);
+ const page=source.slice(start,end);
+ assert.ok(page.includes('<SettingsUtilityCards'));
+ const settings=page+fs.readFileSync(path.join(__dirname,'../src/components/SettingsUtilityCards.jsx'),'utf8');
  assert.ok(settings.includes('当前版本'));
  assert.ok(!settings.includes('checkUpdate'));
  assert.ok(!settings.includes('downloadUpdate'));

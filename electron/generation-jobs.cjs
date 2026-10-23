@@ -29,7 +29,7 @@ function createGenerationJobs(dir,options={}) {
     if(changed){fs.writeFileSync(file+'.tmp',JSON.stringify(repaired));fs.renameSync(file+'.tmp',file);}
   }
   const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
-  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else rows[index] = job; fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
+  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
   const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
@@ -42,14 +42,17 @@ function createGenerationJobs(dir,options={}) {
     archive({id}) {const job=read().find(j=>j.id===id);if(!job)return; if(['submitting','submitted','downloading'].includes(job.status))throw new Error('运行中的任务请等待完成后移除');save({...job,archived:true});},
     clear({ ids = [], retainedPaths = [] } = {}) {
       if (!Array.isArray(ids) || !Array.isArray(retainedPaths)) throw new Error('清理参数无效');
-      const selected = new Set(ids), rows = read(), targets = rows.filter(job => selected.has(job.id));
-      if (targets.some(job => !['success', 'failed'].includes(job.status) || inFlight.has(job.id))) {
-        throw new Error('仅可清理已完成或失败的结果；运行中及待核对的任务会保留，请稍后重试。');
+      const selected = new Set(ids), rows = read(), targets = rows.filter(job => selected.has(job.id) && !job.archived);
+      if (targets.some(job => !['success', 'failed', 'uncertain'].includes(job.status) || (job.status !== 'uncertain' && inFlight.has(job.id)))) {
+        throw new Error('运行中的任务暂不可清理，请等待提交、生成或下载完成后重试。');
       }
-      const result = { removed: targets.length, filesDeleted: 0, bytesFreed: 0, filesRetained: 0 };
+      const pending = targets.filter(job => job.status === 'uncertain'), pendingIds = new Set(pending.map(job => job.id));
+      const result = { removed: targets.length, archived: pending.length, filesDeleted: 0, bytesFreed: 0, filesRetained: 0 };
       if (!targets.length) return result;
       const key = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
-      const remaining = rows.filter(job => !selected.has(job.id));
+      // Unknown submissions leave the result view while retaining the original identity for reconciliation.
+      const removing = new Set(targets.map(job => job.id));
+      const remaining = rows.filter(job => !removing.has(job.id) || pendingIds.has(job.id)).map(job => pendingIds.has(job.id) ? {...job, archived:true, archivedAt:new Date().toISOString()} : job);
       const retained = new Set([...retainedPaths, ...generationRetainedPaths(remaining)].filter(value => typeof value === 'string').map(key));
       // A collaborator upload may still be using a finished local file.
       for (const job of targets.filter(job => job.projectId && !job.mediaId)) {
@@ -57,7 +60,7 @@ function createGenerationJobs(dir,options={}) {
       }
       const root = fs.realpathSync(dir), seen = new Set(), backups = [];
       try {
-       for (const value of targets.flatMap(job => [job.filePath, ...(job.files || [])]).filter(value => typeof value === 'string')) {
+       for (const value of targets.filter(job => !pendingIds.has(job.id)).flatMap(job => [job.filePath, ...(job.files || [])]).filter(value => typeof value === 'string')) {
         const target = path.resolve(value), relative = path.relative(root, target);
         if (seen.has(key(target))) continue;
         seen.add(key(target));

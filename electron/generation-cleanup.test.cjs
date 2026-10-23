@@ -34,8 +34,8 @@ test('clear permanently removes local records and every generated file, preservi
   assert.equal(createGenerationJobs(f.dir).list().length, 0, 'must remain cleared after restart');
 });
 
-test('clear rejects active and unconfirmed tasks before deleting any result', t => {
-  for (const status of ['submitting', 'submitted', 'downloading', 'uncertain']) {
+test('clear rejects active tasks before deleting any result', t => {
+  for (const status of ['submitting', 'submitted', 'downloading']) {
     const f = fixture(t, ({ file }) => [{ id: 'done', status: 'success', filePath: file('done.mp4') }, { id: 'busy', status }]);
     assert.throws(() => f.jobs.clear({ ids: ['done', 'busy'] }), /完成|核对|清理/);
     assert.equal(fs.existsSync(f.rows[0].filePath), true);
@@ -138,4 +138,27 @@ test('rename fallback restores originals if committing records fails', t => {
   assert.equal(commitAttempted, true);
   assert.equal(f.jobs.list().length, 1);
   assert.equal(fs.readFileSync(f.rows[0].filePath, 'utf8'), 'downloaded media');
+});
+
+
+test('clear removes pending-review results from view but keeps their original remote identity and files after restart', t => {
+ const f=fixture(t,({file})=>[{id:'unknown',provider:'likeai',status:'uncertain',jobId:'remote-original',nodeId:'node-original',filePath:file('unknown.mp4')},{id:'failed',status:'failed'},{id:'live',status:'submitted'}]);
+ const result=f.jobs.clear({ids:['unknown','failed']});
+ assert.equal(result.removed,2);assert.equal(result.archived,1);
+ assert.deepEqual(f.jobs.list().map(j=>j.id),['live']);
+ const kept=JSON.parse(fs.readFileSync(path.join(f.dir,'generation-jobs.json'))).find(j=>j.id==='unknown');
+ assert.equal(kept.archived,true);assert.equal(kept.status,'uncertain');assert.equal(kept.jobId,'remote-original');assert.equal(kept.nodeId,'node-original');
+ assert.equal(fs.existsSync(kept.filePath),true);assert.deepEqual(createGenerationJobs(f.dir).list().map(j=>j.id),['live']);
+ assert.equal(f.jobs.clear({ids:['unknown']}).removed,0);
+});
+
+test('a pending review query finishing after clear never resurrects a hidden card', async t=>{
+ const f=fixture(t,()=>[{id:'pending',provider:'likeai',status:'uncertain',jobId:'remote-original'}]);
+ let release,started;const ready=new Promise(resolve=>started=resolve);let queries=0;
+ const jobs=createGenerationJobs(f.dir,{likeService:{query:async()=>{queries++;started();return await new Promise(resolve=>release=resolve);}}});
+ const query=jobs.refresh({id:'pending'});await ready;
+ assert.equal(jobs.clear({ids:['pending']}).removed,1);
+ release({status:'submitted',taskId:'remote-original'});await query;
+ assert.deepEqual(jobs.list(),[]);assert.equal(queries,1);
+ const row=JSON.parse(fs.readFileSync(path.join(f.dir,'generation-jobs.json')))[0];assert.equal(row.archived,true);assert.equal(row.jobId,'remote-original');
 });

@@ -25,8 +25,8 @@ test('invalid Wan duration is checked before any local reference upload or paid 
  await assert.rejects(jobs.submit({kind:'video',endpoint:'https://9yapi.shop/v1',apiKey:'key',model:'官转wan3.0-标准版',prompt:'test',duration:30,resolution:'720p',ratio:'16:9',references:[{kind:'video',filePath:'v.mp4',duration:10}]}),/参考加生成时长/);
  assert.equal(uploads,0);assert.equal(posts,0);assert.equal(jobs.list()[0].status,'failed');
 });
-test('only proven legacy local-reference failures become clearable, real uncertain tasks stay protected',t=>{
+test('only proven legacy failures change status; real uncertain tasks may be hidden without losing billing identity',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-niney-legacy-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const base={kind:'video',endpoint:'https://9yapi.shop/v1',status:'uncertain',error:'提交未确认。9Y 视频只接受公网 HTTPS 素材地址',references:[{kind:'image',filePath:'local.png'}]};
  fs.writeFileSync(path.join(root,'generation-jobs.json'),JSON.stringify([{...base,id:'local'},{...base,id:'real',jobId:'paid'},{...base,id:'network',error:'提交未确认：network lost'}]));
- const jobs=require('./generation-jobs.cjs').createGenerationJobs(root);assert.equal(jobs.list().find(j=>j.id==='local').status,'failed');assert.equal(jobs.list().find(j=>j.id==='real').status,'uncertain');assert.equal(jobs.list().find(j=>j.id==='network').status,'uncertain');assert.equal(jobs.clear({ids:['local']}).removed,1);assert.throws(()=>jobs.clear({ids:['real']}),/待核对/);
+ const jobs=require('./generation-jobs.cjs').createGenerationJobs(root);assert.equal(jobs.list().find(j=>j.id==='local').status,'failed');assert.equal(jobs.list().find(j=>j.id==='real').status,'uncertain');assert.equal(jobs.list().find(j=>j.id==='network').status,'uncertain');assert.equal(jobs.clear({ids:['local']}).removed,1);assert.equal(jobs.clear({ids:['real']}).archived,1);const kept=JSON.parse(fs.readFileSync(path.join(root,'generation-jobs.json'),'utf8')).find(j=>j.id==='real');assert.equal(kept.jobId,'paid');assert.equal(kept.status,'uncertain');assert.equal(kept.archived,true);assert.equal(jobs.list().some(j=>j.id==='real'),false);
 });

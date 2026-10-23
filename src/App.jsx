@@ -1,4 +1,4 @@
-import {TemporaryReferenceManager} from './components/TemporaryReferenceManager.jsx';
+import {SettingsUtilityCards} from './components/SettingsUtilityCards.jsx';
 import './temporary-references.css';
 import {initializeClientDistribution} from '../core/clientDistribution.js';
 import {migrateDirectorReplies,retireDirectorReplies} from '../core/directorLegacyReplies.js';
@@ -1117,9 +1117,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
         </div>
       </section>
 
-      <section className="settings-card"><h2>云端临时素材</h2><p>查看视频参考副本占用，清理到期或已结束任务的副本。</p><TemporaryReferenceManager api={api}/></section>
-
-      <section className="settings-card"><h2>当前版本</h2><b>v{appVersion}</b></section>
+      <SettingsUtilityCards api={api} version={appVersion}/>
     </div>
   );
 }
