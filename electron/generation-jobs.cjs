@@ -29,7 +29,7 @@ function createGenerationJobs(dir,options={}) {
     if(changed){fs.writeFileSync(file+'.tmp',JSON.stringify(repaired));fs.renameSync(file+'.tmp',file);}
   }
   const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
-  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
+  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
   const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
@@ -37,22 +37,22 @@ function createGenerationJobs(dir,options={}) {
   const libtvResult=(raw,job)=>require('./libtv-service.cjs').libtvResultURLs(raw).some(u=>!(job.libtvInitialUrls||[]).includes(u));
   const libtvFailed=raw=>libtvNodes(raw).some(n=>{const status=n?.data?.taskInfo?.status??n?.data?.status??n?.taskInfo?.status??n?.status;return status===3||['failed','error','canceled','cancelled'].includes(String(status).toLowerCase());});
   return {
-    list: () => read().filter(j=>!j.archived),
+    list: ({includeArchived=false}={}) => read().filter(j=>includeArchived===true||!j.archived),
     async waitForCompletion(id){if(libtvRunning.has(id))await libtvRunning.get(id);const job=read().find(r=>r.id===id);if(job?.status!=='success')throw Error(job?.warning||job?.error||'LibTV 原任务已保留，请在图视生成结果中刷新或打开原画布');return job;},
     archive({id}) {const job=read().find(j=>j.id===id);if(!job)return; if(['submitting','submitted','downloading'].includes(job.status))throw new Error('运行中的任务请等待完成后移除');save({...job,archived:true});},
-    clear({ ids = [], retainedPaths = [] } = {}) {
-      if (!Array.isArray(ids) || !Array.isArray(retainedPaths)) throw new Error('清理参数无效');
+    clear({ ids = [], retainedPaths = [], includeActive = false } = {}) {
+      if (!Array.isArray(ids) || !Array.isArray(retainedPaths) || typeof includeActive !== 'boolean') throw new Error('清理参数无效');
       const selected = new Set(ids), rows = read(), targets = rows.filter(job => selected.has(job.id) && !job.archived);
-      if (targets.some(job => !['success', 'failed', 'uncertain'].includes(job.status) || (job.status !== 'uncertain' && inFlight.has(job.id)))) {
+      if (!includeActive && targets.some(job => !['success', 'failed', 'uncertain'].includes(job.status) || (job.status !== 'uncertain' && inFlight.has(job.id)))) {
         throw new Error('运行中的任务暂不可清理，请等待提交、生成或下载完成后重试。');
       }
-      const pending = targets.filter(job => job.status === 'uncertain'), pendingIds = new Set(pending.map(job => job.id));
+      const pending = targets.filter(job => !['success','failed'].includes(job.status)||inFlight.has(job.id)), pendingIds = new Set(pending.map(job => job.id));
       const result = { removed: targets.length, archived: pending.length, filesDeleted: 0, bytesFreed: 0, filesRetained: 0 };
       if (!targets.length) return result;
       const key = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
-      // Unknown submissions leave the result view while retaining the original identity for reconciliation.
+      // Hiding live/unknown work never cancels it or removes files used by an in-flight writer.
       const removing = new Set(targets.map(job => job.id));
-      const remaining = rows.filter(job => !removing.has(job.id) || pendingIds.has(job.id)).map(job => pendingIds.has(job.id) ? {...job, archived:true, archivedAt:new Date().toISOString()} : job);
+      const remaining = rows.filter(job => !removing.has(job.id) || pendingIds.has(job.id)).map(job => pendingIds.has(job.id) ? {...job, archived:true, archivedAt:new Date().toISOString(),clearedWhileActive:true} : job);
       const retained = new Set([...retainedPaths, ...generationRetainedPaths(remaining)].filter(value => typeof value === 'string').map(key));
       // A collaborator upload may still be using a finished local file.
       for (const job of targets.filter(job => job.projectId && !job.mediaId)) {
@@ -105,7 +105,7 @@ function createGenerationJobs(dir,options={}) {
       await options.beforeSubmit?.();
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
-      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
+      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
       const job = { ...snapshot, ...((input.kind==='video'||fnko.isFnkoEndpoint(endpoint))?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
       if(input.provider==='likeai'){

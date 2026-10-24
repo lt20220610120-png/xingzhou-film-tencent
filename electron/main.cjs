@@ -390,7 +390,7 @@ const jobs=()=>generationManagers(mediaDir());
 async function manageGenerationReferences(action,payload={}){
  const session=readCloudSession();if(!session?.token||!session.account?.id)throw Error('请先登录行舟账号');
  // Reconcile terminal jobs after a restart or an earlier transient release failure.
- const leaseIds=jobs().list().filter(j=>j.referenceAccountId===session.account.id&&['success','failed'].includes(j.status)).map(j=>j.id);
+ const leaseIds=jobs().list({includeArchived:true}).filter(j=>j.referenceAccountId===session.account.id&&['success','failed'].includes(j.status)).map(j=>j.id);
  for(let offset=0;offset<leaseIds.length;offset+=2000)await require('./cloud-access-service.cjs').gateway('generation-reference-release',{leaseIds:leaseIds.slice(offset,offset+2000)},session.token);
  if(readCloudSession()?.token!==session.token)throw Error('账号已切换，请重新操作');
  const result=await require('./cloud-access-service.cjs').gateway(action,payload,session.token);
@@ -402,7 +402,7 @@ ipcMain.handle('generation-reference-list',()=>manageGenerationReferences('gener
 ipcMain.handle('generation-reference-cleanup',(_,p)=>manageGenerationReferences('generation-reference-cleanup',p));
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
-ipcMain.handle('generation-list',()=>jobs().list());
+ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
 async function submitGeneration(event,p){
  if(p.referenceBindingMode){
   await workflowAdmin();
@@ -424,13 +424,13 @@ async function submitGeneration(event,p){
  return jobs().submit({...input,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal});
 }
 ipcMain.handle('generation-submit',submitGeneration);
-ipcMain.handle('generation-refresh',async(_,p)=>jobs().refresh({...p,accountId:jobs().list().find(j=>j.id===p.id)?.provider==='libtv'?await libtvAccountId():undefined}));
+ipcMain.handle('generation-refresh',async(_,p)=>jobs().refresh({...p,accountId:jobs().list({includeArchived:true}).find(j=>j.id===p.id)?.provider==='libtv'?await libtvAccountId():undefined}));
 const workflowFolders=new Set();
 function currentWorkflow(){
  const root=path.join(getDataDir(),'admin-workflows');
  if(workflowEngine&&workflowRoot===root)return workflowEngine;
  workflowEngine?.pauseAll();workflowRoot=root;
- workflowEngine=require('./admin-workflow.cjs').createWorkflowEngine({root,authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list(),
+ workflowEngine=require('./admin-workflow.cjs').createWorkflowEngine({root,authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),
   prepare:async(run,item,guard,save)=>{
    await guard();const state=readJson(dataFile(),{}),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(state,'video').find(p=>p.id===run.settings.profileId),ai=state.apiProfiles?.find(p=>p.id===run.settings.aiProfileId);
    if(!ai)throw Error('AI 接口已不存在，请恢复原配置');
@@ -485,7 +485,7 @@ ipcMain.handle('media-import-file',async(_,kind)=>(await importMediaFiles({dialo
 ipcMain.handle('media-import-files',async(_,kind)=>importMediaFiles({dialog,destDir:mediaDir(),kind,multiple:true}));
 ipcMain.handle('generation-import-episode-media',async(_,payload={})=>importEpisodeMedia({dialog,destDir:mediaDir(),mode:payload.mode,episode:payload.episode}));
 ipcMain.handle('generation-import-episode-files',async(_,payload={})=>importEpisodeFiles({dialog,destDir:mediaDir(),kind:payload.kind,episode:payload.episode}));
-ipcMain.handle('generation-delete-book-media',async(_,payload={})=>deleteEpisodeMedia({destDir:mediaDir(),paths:payload.paths,retainedPaths:payload.retainedPaths}));
+ipcMain.handle('generation-delete-book-media',async(_,payload={})=>deleteEpisodeMedia({destDir:mediaDir(),paths:payload.paths,retainedPaths:[...generationRetainedPaths(payload.retainedPaths),...generationRetainedPaths(jobs().list({includeArchived:true}))]}));
 ipcMain.handle('media-export-file',async(_ ,input)=>exportMediaFile(input,{showSaveDialog:options=>dialog.showSaveDialog(options),downloadToFile:require('./media-service.cjs').downloadToFile,mediaDir}));
 let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});protectWindow(canvasWindow,{allowUrl:canvasPage,openExternal:url=>shell.openExternal(url)});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});

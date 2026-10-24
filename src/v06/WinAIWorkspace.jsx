@@ -1,6 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {RefreshCw} from 'lucide-react';
-import winkIcon from '../assets/wink-ai-icon.png';
 import './WinAIWorkspace.css';
 export function WinAIWorkspace({account}){
  const host=useRef(null),generation=useRef(0),[busy,setBusy]=useState(true),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);
@@ -15,5 +14,5 @@ export function WinAIWorkspace({account}){
   Promise.resolve().then(()=>{if(disposed)return;if(typeof api?.winAiOpen!=='function')throw Error('请在最新版行舟影视桌面应用中使用 Win AI');return api.winAiOpen({bounds:bounds(),reconnect:attempt>0});}).then(()=>{if(!disposed&&current===generation.current){setBusy(false);update();}}).catch(e=>{if(!disposed&&current===generation.current){setBusy(false);setError(String(e?.message||e).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,''));}});
   return()=>{disposed=true;generation.current++;observer.disconnect();window.removeEventListener('resize',update);cancelAnimationFrame(frame);off?.();const hide=api?.winAiHide||api?.winAiClose;void hide?.().catch(()=>{});};
  },[account?.id,attempt]);
- return <div className="win-ai-workspace"><aside className="win-ai-dock" aria-label="Win AI 控制"><img src={winkIcon} alt="Wink AI"/><button className="win-ai-refresh-button" disabled={busy} aria-label="刷新 Win AI" title="刷新 Win AI" onClick={()=>setAttempt(n=>n+1)}><RefreshCw size={17} className={busy?'spin':''}/></button></aside><div ref={host} className="win-ai-host" aria-label="Win AI 控制台" aria-busy={busy}>{busy&&<p className="win-ai-message">正在打开 Win AI…</p>}{error&&<div className="win-ai-message" role="alert"><strong>暂时无法打开 Win AI</strong><p>{error}</p></div>}</div></div>;
+ return <div className="win-ai-workspace"><div ref={host} className="win-ai-host" aria-label="Win AI 控制台" aria-busy={busy}>{busy&&<p className="win-ai-message">正在打开 Win AI…</p>}{error&&<div className="win-ai-message" role="alert"><strong>暂时无法打开 Win AI</strong><p>{error}</p><button className="win-ai-reconnect-button" disabled={busy} onClick={()=>setAttempt(n=>n+1)}><RefreshCw size={16}/>重新连接</button></div>}</div></div>;
 }

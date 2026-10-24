@@ -162,3 +162,43 @@ test('a pending review query finishing after clear never resurrects a hidden car
  assert.deepEqual(jobs.list(),[]);assert.equal(queries,1);
  const row=JSON.parse(fs.readFileSync(path.join(f.dir,'generation-jobs.json')))[0];assert.equal(row.archived,true);assert.equal(row.jobId,'remote-original');
 });
+
+test('explicit screen clear hides every active state but retains task identity and working files',t=>{
+ const f=fixture(t,({file})=>['submitting','submitted','downloading','uncertain','success','failed'].map((status,i)=>({id:status,status,jobId:'remote-'+i,filePath:file(status+'.mp4')})));
+ const result=f.jobs.clear({ids:f.rows.map(j=>j.id),includeActive:true});
+ assert.equal(result.removed,6);assert.equal(result.archived,4);assert.equal(result.filesDeleted,2);
+ assert.deepEqual(f.jobs.list(),[]);const all=f.jobs.list({includeArchived:true});assert.equal(all.length,4);
+ for(const job of all){assert.equal(job.archived,true);assert.equal(job.jobId,f.rows.find(j=>j.id===job.id).jobId);assert.equal(fs.existsSync(job.filePath),true);}
+ assert.deepEqual(createGenerationJobs(f.dir).list(),[]);assert.equal(f.jobs.clear({ids:f.rows.map(j=>j.id),includeActive:true}).removed,0);
+});
+
+test('hidden active task completes through the original query without reappearing or being resubmitted',async t=>{
+ const f=fixture(t,()=>[{id:'pending',provider:'likeai',status:'submitted',jobId:'remote-original'}]);
+ let release,started;const ready=new Promise(resolve=>started=resolve);let queries=0,submits=0;
+ const jobs=createGenerationJobs(f.dir,{likeService:{submit:async()=>{submits++;throw Error('must not resubmit');},query:async()=>{queries++;started();return new Promise(resolve=>release=resolve);},download:async()=>({filePath:path.join(f.dir,'completed.mp4')})}});
+ const query=jobs.refresh({id:'pending'});await ready;jobs.clear({ids:['pending'],includeActive:true});
+ release({status:'success',taskId:'remote-original'});await query;
+ assert.equal(submits,0);assert.equal(queries,1);assert.deepEqual(jobs.list(),[]);assert.equal(jobs.list({includeArchived:true})[0].status,'success');
+ assert.equal(jobs.list({includeArchived:true})[0].archived,true);assert.equal(jobs.list({includeArchived:true})[0].jobId,'remote-original');
+});
+
+test('screen clear preserves a shared file still used by a hidden download',t=>{
+ const f=fixture(t,({file})=>{const shared=file('working.mp4');return[{id:'done',status:'success',filePath:shared},{id:'download',status:'downloading',filePath:shared}];});
+ const result=f.jobs.clear({ids:['done','download'],includeActive:true});assert.equal(result.filesDeleted,0);assert.equal(fs.existsSync(f.rows[0].filePath),true);assert.deepEqual(f.jobs.list(),[]);
+});
+
+test('a paid submission finishing after screen clear retains its hidden state without duplicate submission',async t=>{
+ const f=fixture(t,()=>[]);let start,release,submits=0;const ready=new Promise(resolve=>start=resolve);
+ const jobs=createGenerationJobs(f.dir,{likeService:{submit:async()=>{submits++;start();return new Promise(resolve=>release=resolve);}}});
+ const pending=jobs.submit({kind:'video',provider:'likeai',endpoint:'https://like.example',prompt:'test'});await ready;const id=jobs.list()[0].id;jobs.clear({ids:[id],includeActive:true});
+ release({status:'submitted',taskId:'original-paid-id'});await pending;
+ assert.equal(submits,1);assert.deepEqual(jobs.list(),[]);assert.equal(jobs.list({includeArchived:true})[0].jobId,'original-paid-id');assert.equal(jobs.list({includeArchived:true})[0].clearedWhileActive,true);
+});
+
+test('clearing a prompt book after hiding active jobs keeps their imported references',async t=>{
+ const {generationRetainedPaths}=require('./generation-jobs.cjs'),{deleteEpisodeMedia}=require('./episode-media-import.cjs');
+ const f=fixture(t,({dir})=>{const imported=path.join(dir,'整本提示词素材');fs.mkdirSync(imported);const image=path.join(imported,'original.png');fs.writeFileSync(image,'original');return[{id:'active',status:'submitting',references:[{filePath:image}]}];});
+ f.jobs.clear({ids:['active'],includeActive:true});assert.deepEqual(f.jobs.list(),[]);
+ const removed=await deleteEpisodeMedia({destDir:f.dir,paths:[f.rows[0].references[0].filePath],retainedPaths:generationRetainedPaths(f.jobs.list({includeArchived:true}))});
+ assert.equal(removed,0);assert.equal(fs.existsSync(f.rows[0].references[0].filePath),true);
+});

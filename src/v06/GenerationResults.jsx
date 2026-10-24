@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { RefreshCw, Download, Copy, Film, Trash2 } from 'lucide-react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { RefreshCw, Download, Copy, Film, Trash2, ChevronDown } from 'lucide-react';
 import models from '../../core/feituo-models.json';
 import { mediaSource } from '../../core/generationReferences.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
@@ -17,17 +17,24 @@ function storageSize(bytes = 0) {
 export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onClear }) {
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
-  const candidates = tasks.filter(clearable);
+  const [menuOpen,setMenuOpen]=useState(false),menu=useRef(null),trigger=useRef(null);
+  const cleanupChoices=[
+    {label:'清除失败',rows:tasks.filter(t=>t.status==='failed')},
+    {label:'清除已完成',rows:tasks.filter(t=>t.status==='success')},
+    {label:'清除待核对',rows:tasks.filter(t=>t.status==='uncertain')},
+    {label:'清空当前界面',rows:tasks,includeActive:true},
+  ];
+  useEffect(()=>{if(!menuOpen)return;const outside=e=>{if(!menu.current?.contains(e.target))setMenuOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[menuOpen]);
 
   const closePreview = useCallback(() => setPreview(null), []);
-  const askClear = selected => { setPreview(null); setError(''); setNotice(''); setCleanup(selected); };
+  const askClear = (rows,label='清除这条生成结果',includeActive=false) => { setMenuOpen(false);setPreview(null); setError(''); setNotice(''); setCleanup({rows,label,includeActive}); };
   const confirmClear = async () => {
-    if (busy || !cleanup?.length) return;
+    if (busy || !cleanup?.rows.length) return;
     setBusy(true); setError('');
     try {
-      const result = await onClear(cleanup.map(task => task.id));
+      const result = await onClear(cleanup.rows.map(task => task.id),{includeActive:cleanup.includeActive});
       setCleanup(null);
-      setNotice(`已清除 ${result.removed} 条结果，释放本机空间 ${storageSize(result.bytesFreed)}。${result.archived ? `其中 ${result.archived} 条待核对记录已从列表移除，原任务信息保留。` : ''}${result.warning || (result.filesRetained ? '仍在使用或不属于软件缓存的文件已保留。' : '')}`);
+      setNotice(`已清理 ${result.removed} 条，释放 ${storageSize(result.bytesFreed)}。${result.warning||''}`);
     } catch (cause) { setError(cause.message || '清理失败，请重试'); }
     finally { setBusy(false); }
   };
@@ -50,7 +57,10 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     <header><div><h3>生成结果 <small>{tasks.length}</small></h3></div>
       <div className="generation-result-actions">
         <button className="secondary" disabled={busy} onClick={async () => { setError(''); try { await onRefresh(); } catch (cause) { setError(cause.message); } }}><RefreshCw size={15}/>刷新结果</button>
-        {onClear && <button className="danger" disabled={busy || !candidates.length} onClick={() => askClear(candidates)}><Trash2 size={15}/>清除全部结果</button>}
+        {onClear && <div className="generation-cleanup" ref={menu} onKeyDown={e=>{if(e.key==='Escape'){setMenuOpen(false);trigger.current?.focus();}if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const buttons=[...menu.current.querySelectorAll('[role="menuitem"]:not(:disabled)')],index=buttons.indexOf(document.activeElement),next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;buttons[next]?.focus();}}}>
+          <button ref={trigger} className="danger" disabled={busy||!tasks.length} aria-haspopup="menu" aria-expanded={menuOpen} onClick={()=>setMenuOpen(open=>!open)}><Trash2 size={15}/>清理结果<ChevronDown size={14}/></button>
+          {menuOpen&&<div className="generation-cleanup-menu" role="menu" aria-label="清理生成结果">{cleanupChoices.map(choice=><button type="button" role="menuitem" key={choice.label} disabled={!choice.rows.length} className={choice.includeActive?'cleanup-all':''} onClick={()=>askClear(choice.rows,choice.label,choice.includeActive)}><span>{choice.label}</span><b>{choice.rows.length}</b></button>)}</div>}
+        </div>}
       </div>
     </header>
     {error && !cleanup && <p className="collab-error" role="alert">{error}</p>}
@@ -74,8 +84,8 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     </article>)}</div>
     {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p></div>}
     {preview && <MediaPreview key={preview.id} item={preview} onClose={closePreview} onDownload={exportTask}/>}
-    <DeleteConfirm open={!!cleanup} title={cleanup?.length === 1 ? '清除这条生成结果？' : '清除全部生成结果？'}
-      detail={`将清除当前列表中选定的 ${cleanup?.length || 0} 条结果。已完成或失败的结果及其本地副本会清除；待核对项仅从列表移除，原任务记录保留。清除后无法在这里恢复。另存到其他文件夹的下载、云端协作素材和仍被使用的文件会保留。运行中的任务会保留。`}
+    <DeleteConfirm open={!!cleanup} title={`${cleanup?.label||'清理结果'}（${cleanup?.rows.length||0} 条）？`}
+      detail={cleanup?.includeActive?'清空当前界面所有卡片。运行中和待核对任务仅从界面隐藏，后台继续处理；已完成和失败结果清理本地缓存。另存文件与共享素材保留。':`仅清理选中的 ${cleanup?.rows.length||0} 条。待核对项保留原任务记录；已完成或失败结果清理本地缓存，另存文件与共享素材保留。`}
       confirmLabel="确认清除" busy={busy} error={error} onCancel={() => { if (!busy) { setCleanup(null); setError(''); } }} onConfirm={confirmClear}/>
   </section>;
 }

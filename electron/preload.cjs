@@ -43,7 +43,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  generationDeleteBookMedia:p=>ipcRenderer.invoke('generation-delete-book-media',p),
  generationClear:p=>ipcRenderer.invoke('generation-clear',p),
  generationReferenceList:()=>ipcRenderer.invoke('generation-reference-list'),generationReferenceCleanup:p=>ipcRenderer.invoke('generation-reference-cleanup',p),
- generationList:()=>ipcRenderer.invoke('generation-list'),generationSubmit:p=>ipcRenderer.invoke('generation-submit',p),generationRefresh:p=>ipcRenderer.invoke('generation-refresh',p),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
+ generationList:p=>ipcRenderer.invoke('generation-list',p),generationSubmit:p=>ipcRenderer.invoke('generation-submit',p),generationRefresh:p=>ipcRenderer.invoke('generation-refresh',p),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
  mediaGenerateImage:payload=>ipcRenderer.invoke('media-generate-image',payload),mediaGenerateVideo:payload=>ipcRenderer.invoke('media-generate-video',payload),
  mediaImportFile:kind=>ipcRenderer.invoke('media-import-file',kind),mediaImportFiles:kind=>ipcRenderer.invoke('media-import-files',kind),mediaExportFile:payload=>ipcRenderer.invoke('media-export-file',payload),
  onMediaTaskStatus:callback=>{const handler=(_event,data)=>callback(data);ipcRenderer.on('media-task-status',handler);return()=>ipcRenderer.removeListener('media-task-status',handler)},
