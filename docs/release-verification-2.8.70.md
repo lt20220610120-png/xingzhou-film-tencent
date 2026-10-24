@@ -23,4 +23,15 @@
 
 - 最终全量 npm test：2379/2379通过，0失败；npm run build通过。output/tests-2870.log、output/build-2870.log。
 
-打包及正式发布核验见后续追加记录。
+## 安装包
+
+- 源码 fedd6e0 已推送 main。
+- NSIS及实际安装解包/运行时验证通过：qa/packaged-smoke-2.8.70-1792830501965/report.json，版本2.8.70，errors=[]；覆盖授权门禁、本地图片/视频播放及下载、文档/桥接、Win AI交接和Cookie销毁。
+- 本机包 release/2.8.70/Xingzhou-Film-Tencent-Setup-2.8.70.exe，103820528字节，SHA256 ec8b00cb72cc5b575f93f813732166c490e4f16fa88f5966710346acf8756e71。
+
+## 正式发布
+
+- GitHub Release v2.8.70和官方镜像已发布；更新清单提交c8682da。
+- 公开安装包 https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.70/Xingzhou-Film-Tencent-Setup-2.8.70.exe ，镜像 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.70.exe 。
+- 两个main的latest.json内容与本地签名清单完全一致，验签通过；GitHub资产digest/大小与本机包一致。官方IP固定证书传输验签、Range206、MZ、Content-Range总长103820528一致。output/public-2870-verification.json。
+- 根目录软件更新记忆及开发交接手册已同步；未强制关闭或替换用户当前客户端。
