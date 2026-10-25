@@ -55,9 +55,9 @@ function inventoryItems(inventory,number,available=[]){
  if(!episode)return [];
  const items=[];
  for(const category of Object.keys(ART_REVIEW_CATEGORIES))for(const entry of episode[category]||[]){
-  const previous=available.find(i=>i.category===category&&i.name===entry.name),reuse=entry.reuseOf;
+  const previous=available.find(i=>i.category===category&&i.name===entry.name&&i.detailStatus!=='nonvisual'&&!needsArtReviewDetails(i)),reuse=entry.reuseOf;
   const description=reuse&&previous?readAssetPrompt(previous).content:String(entry.description||'');
-  items.push({id:`${category}:${entry.name}`,category,name:canonicalReviewName(entry.name),description,ready:entry.generatable!==false&&Boolean(description.trim())&&(!reuse||Boolean(previous)),firstEpisode:previous?.firstEpisode||previous?.first_episode||reuse||number,referenceName:description.match(/参考【([^】]+)】/)?.[1]||'',warning:entry.generatable===false?'该条可能仅声音或仅提及，请确认是否需要可见资产':reuse&&!previous?'未找到可复用的前集资产，请补齐描述':'',manual:false});
+  items.push({id:`${category}:${entry.name}`,category,name:canonicalReviewName(entry.name),description,ready:entry.generatable!==false&&Boolean(description.trim())&&(!reuse||Boolean(previous)),firstEpisode:previous?.firstEpisode||previous?.first_episode||number,referenceName:description.match(/参考【([^】]+)】/)?.[1]||'',warning:entry.generatable===false?'该条可能仅声音或仅提及，请确认是否需要可见资产':reuse&&!previous?'未找到可复用的前集资产，请补齐描述':'',manual:false});
  }
  return [...new Map(items.map(i=>[reviewAssetKey(i),i])).values()];
 }

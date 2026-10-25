@@ -12,6 +12,8 @@ import '../art-review.css';
 import {artWorkflowState} from '../../core/artWorkflow.js';
 import ArtWorkflowControl from './ArtWorkflowControl.jsx';
 import PromptArtBindingPanel from './PromptArtBindingPanel.jsx';
+import ArtDeferredPanel from './ArtDeferredPanel.jsx';
+import {deferredArtDetails} from '../../core/artDeferredDetails.js';
 
 const CATEGORY_ICONS={character:Users,scene:MapPin,prop:Package};
 function sceneReviewStatus(scene,record){
@@ -184,6 +186,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
    return <button key={scene.id} className={active?'active':''} aria-current={active?'step':undefined} aria-label={`第 ${index+1} 场，场景 ${scene.id}，${status}`} onClick={()=>chooseScene(scene.id)}><span className="art-review-nav-id">{scene.id}</span><small>{status}</small></button>;
   })}</div></nav>}
   </section>
+  <ArtDeferredPanel entries={deferredArtDetails(ledger,episodes,{includeResolved:true})} onOpenEpisode={chooseEpisode}/>
   <p className="art-review-sr-only" role="status" aria-live="polite" aria-atomic="true">{feedback.map(item=>item.text.split('\n')[0]).join('；')}</p>
   {!!feedback.length&&<details className={`art-review-feedback ${feedbackHasWarning?'has-warning':''}`}><summary><span>操作反馈（{feedback.reduce((sum,item)=>sum+item.text.split('\n').filter(Boolean).length,0)}）{feedbackHasWarning?' · 有待处理':''}</span>{(busy>0||running)&&<span className="art-review-feedback-progress"><Loader2 className="spin" size={14}/>处理中</span>}<ChevronDown size={16}/></summary><div className="art-review-feedback-body">{feedback.map((item,index)=><div key={index} className={item.warning?'art-review-warning':'art-review-message'}>{item.text}{item.cloud&&<button onClick={()=>setConfirmation({title:'采用云端清单',kind:'cloud',episodeNumber:number})}>采用云端版本</button>}</div>)}</div></details>}
   <div className="art-review-scene-list">{selectedScene&&<ReviewScene key={`${number}:${selectedScene.id}`} scene={selectedScene} record={record} canChange={canChange} onAct={act} onUpdate={update} onEdit={openEditor} onAdd={(sceneId,category)=>{setError('');setPicker({episodeNumber:number,sceneId,category});}} onPublish={askPublish}/>}</div>

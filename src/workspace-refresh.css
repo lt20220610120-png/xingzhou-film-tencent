@@ -85,3 +85,14 @@
 .generation-cleanup-menu b { min-width:23px; padding:2px 5px; text-align:center; border-radius:5px; background:#f2f4f9; font-size:11px; font-weight:500; }
 .generation-result-actions .generation-cleanup-menu>.cleanup-all { color:#b24d4d; border-top:1px solid #eceef5; margin-top:4px; padding-top:3px; border-radius:0 0 7px 7px; }
 
+.art-review-deferred { border:1px solid #dfe9ee; background:#f5fbfd; border-radius:12px; margin:12px 0; color:#202936; }
+.art-review-deferred>summary { display:flex; align-items:center; gap:12px; padding:12px 16px; cursor:pointer; }
+.art-review-deferred>summary>span { font-size:12px; color:#536276; flex:1; }
+.art-review-deferred-list { max-height:260px; overflow:auto; overscroll-behavior:contain; padding:0 16px 12px; }
+.art-review-deferred-list article { padding:12px 0; border-top:1px solid #dfe9ee; }
+.art-review-deferred-list header { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.art-review-deferred-list header>span { margin-left:auto; color:#536276; font-size:12px; }
+.art-review-deferred-list button { border:1px solid #dce4ed; background:#fff; color:#63519a; border-radius:7px; padding:5px 9px; }
+.art-review-deferred-list p,.art-review-deferred-list ul { font-size:13px; margin:8px 0 0; overflow-wrap:anywhere; }
+.art-review-deferred-list ul { padding-left:18px; }
+

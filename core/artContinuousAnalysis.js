@@ -3,6 +3,7 @@ import {getArtReviewStore,summarizeArtReview} from './artReviewPersistence.js';
 import {runArtReviewAnalysis} from './artReviewRunner.js';
 import {artWorkflowState} from './artWorkflow.js';
 import {ensureArtScriptContext} from './artScriptContext.js';
+import {reconcileArtDeferredDetails} from './artDeferredReconciliation.js';
 
 const retryDelay=attempt=>Math.min(60000,2000*2**Math.min(attempt-1,5));
 function waitForRetry(ms,job){
@@ -11,7 +12,7 @@ function waitForRetry(ms,job){
 }
 
 // The existing runner remains a single, checkpointed pass for guided and manual
-// maintenance. Automatic mode keeps repairing that same episode until ready.
+// maintenance. Automatic mode defers evidence-poor cards after three attempts.
 export const runContinuousArtAnalysis=args=>withStorageWork(async()=>{
  const {project,api,job={},onProgress}=args;
  // getArtReviewStore is project-ID scoped, never script-name scoped.
@@ -42,21 +43,25 @@ export const runContinuousArtAnalysis=args=>withStorageWork(async()=>{
   const result=await runArtReviewAnalysis({...args,genre});await checkpoint(job.cancelled?'stopped':result.errors.length?'paused':'idle');return {...result,scriptContext:context};
  }
  let attempt=0,episodeNumber=null,feedback=[];
+ if(!job.cancelled)await reconcileArtDeferredDetails({...args,store:scoped,genre});
  while(!job.cancelled){
   const state=artWorkflowState(scoped.snapshot(),project);
   if(state.phase!=='generate')break;
   if(episodeNumber!==state.episodeNumber){episodeNumber=state.episodeNumber;attempt=0;feedback=[];}
   job.retryAttempt=attempt;job.repairFeedback=feedback;
-  const result=await runArtReviewAnalysis({...args,genre,targetEpisodeNumbers:[episodeNumber],repairFeedback:feedback,detailBatchSize:attempt>=2?1:6});
+  const result=await runArtReviewAnalysis({...args,genre,targetEpisodeNumbers:[episodeNumber],repairFeedback:feedback,detailBatchSize:attempt>=2?1:6,deferMissing:true});
   if(job.cancelled)break;
   const after=artWorkflowState(scoped.snapshot(),project);
-  if(!result.errors?.length&&(after.phase!=='generate'||after.episodeNumber!==episodeNumber)){
-   if(attempt)notes.add(`第 ${episodeNumber} 集已自动修复并完成，无需再次点击分析。`);
+  if(after.phase!=='generate'||after.episodeNumber!==episodeNumber){
+   await scoped.update(episodeNumber,r=>{delete r.failure;return r;});
+   if(attempt)notes.add(`第 ${episodeNumber} 集已完成本轮分析，未决信息已标记等待后文。`);
+   await reconcileArtDeferredDetails({...args,store:scoped,genre});
    await checkpoint('running');continue;
   }
   feedback=result.errors?.length?result.errors:['本集仍有未完成的清单、场景关联或描述，请仅补齐这些缺漏。'];
   await retry(feedback.join('；'),++attempt,`第 ${episodeNumber} 集`);
  }
+ if(!job.cancelled&&artWorkflowState(scoped.snapshot(),project).phase==='complete')await reconcileArtDeferredDetails({...args,store:scoped,genre,final:true});
  const state=artWorkflowState(scoped.snapshot(),project);
  await checkpoint(job.cancelled?'stopped':state.phase==='complete'?'complete':'paused');
  return {...summarizeArtReview(scoped.snapshot(),project),scriptContext:context,errors:state.phase==='identity-conflict'?[state.message]:[]};
