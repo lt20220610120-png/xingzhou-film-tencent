@@ -415,6 +415,11 @@ const misplacedVisualProp = (description) => {
   if (positiveAnthropomorphicCharacter(description) || humanVisualEvidence(description)) return false;
   return new Set(String(description || '').match(OBJECT_VISUAL_DESCRIPTION) || []).size >= 2;
 };
+const CHARACTER_ATTRIBUTE_FRAGMENT = /^(?:肤色|肤质|肤色偏|发型|发色|短[黑棕褐]?发|长[黑棕褐]?发|头发|身材|体态|服装|穿着|妆造|牛仔裤|旧胶鞋|胶鞋|鞋履|鞋子|裤子|裙子|外套|短袖|长袖|配饰|状态|伤痕|伤口)(?:偏深|偏浅|略显凌乱|和|与|及|[、，,])?/i;
+const isCharacterAttributeFragment = name => {
+  const value=String(name||'').replace(/^【|】$/g,'').trim();
+  return value.length<=36&&CHARACTER_ATTRIBUTE_FRAGMENT.test(value);
+};
 
 // Read-only adapter for persisted assets. It never mutates/deletes cloud rows or
 // touches descriptions/images; callers may render and generate from this view.
@@ -505,6 +510,13 @@ export const parseArtAnalysis = (text) => {
     if(/^[-*•]?\s*无[（(]/.test(line)){lastEntry=null;continue;}
     const fieldLine=/^(?:[-*•]\s*)?【(?:内层|中层|外层|下装|足饰|推断|待确认)】/.test(line);
     const entryMatch = fieldLine ? null : line.match(ENTRY);
+    if (entryMatch && currentCat==='character' && isCharacterAttributeFragment(entryMatch[1])) {
+      if (lastEntry) {
+        const fragment=String(entryMatch[2]||'').replace(/^（[^）]*）\s*/,'').trim();
+        lastEntry.description=`${lastEntry.description}${lastEntry.description?'\n':''}${entryMatch[1]}${fragment?`：${fragment}`:''}`;
+      }
+      continue;
+    }
     if (entryMatch) {
       const name = `【${entryMatch[1].trim()}】`;
       const rest = entryMatch[2] || '';

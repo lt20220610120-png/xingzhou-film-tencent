@@ -8,12 +8,12 @@ import {runImportedAuto,importedAutoSummary} from '../../core/importedArtAuto.js
 
 export default function ImportedArtBindingPanel({book,entry:original,state,api,accountId,onUpdate,onBusy,onExit,onSelect}){
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[vision,setVision]=useState(false);
- const [details,setDetails]=useState(false),[showIssues,setShowIssues]=useState(false);
+ const [details,setDetails]=useState(false),[showIssues,setShowIssues]=useState(false),[cardCategory,setCardCategory]=useState('all');
  const summary=useMemo(()=>importedAutoSummary(book),[book]);
  const [modelId,setModelId,profile]=useWindowModel('imported-art-binding',state.apiProfiles||[],state.activeApiId);
  const snapshot=useMemo(()=>importedSnapshot(book),[book]),entry=snapshot.entries.find(row=>row.id===original.id);
  const work=book.importedBinding,decision=importedDecision(snapshot,entry,work.decisions);
- const cards=snapshot.cards.filter(card=>cardInEntry(card,entry));
+ const cards=snapshot.cards.filter(card=>cardInEntry(card,entry)),visibleCards=cardCategory==='all'?cards:cards.filter(card=>card.category===cardCategory);
  const live=useRef(),stopped=useRef(false),mounted=useRef(true),running=useRef(false),task=useRef('');
  const sourceSignature=bindingHash([book.entries,book.episodeMedia,book.sceneMedia,book.promptMedia,work.prompts]);
  live.current={snapshot,work,accountId,sourceSignature};
@@ -132,7 +132,8 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
      if(cards.some(card=>!importedCategories[card.category]||!card.name.trim()))throw Error('请为每张图片确定人物、场景或道具分类和名称');
      mutate(current=>({...current,metadata:{...current.metadata,...Object.fromEntries(cards.map(card=>[card.uid,{...current.metadata[card.uid],category:card.category,name:card.name,description:card.description,confirmed:true}]))}}));setNotice('本场素材身份已确认，可继续逐条关联。');
     })}>确认本场素材身份</button></div>
-   <div className="imported-art-cards" role="region" aria-label="本场图片身份列表" tabIndex={0}>{cards.map(card=><article key={card.uid}>
+   <div className="imported-art-category-tabs" role="group" aria-label="素材分类"><button type="button" className={cardCategory==='all'?'selected':''} onClick={()=>setCardCategory('all')}>全部 {cards.length}</button>{Object.entries(importedCategories).map(([key,name])=><button type="button" key={key} className={cardCategory===key?'selected':''} onClick={()=>setCardCategory(key)}>{name} {cards.filter(card=>card.category===key).length}</button>)}</div>
+   <div className="imported-art-cards" role="region" aria-label="本场图片身份列表" tabIndex={0}>{visibleCards.map(card=><article key={card.uid}>
     <img src={mediaSource(card.reference)} alt={card.name} loading="lazy"/>
     <label>分类<select aria-label={`${card.uid}分类`} disabled={busy} value={card.category} onChange={event=>changeMeta(card.uid,{category:event.target.value})}><option value="unknown">待核对</option>{Object.entries(importedCategories).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
     <label>主体名称<input aria-label={`${card.uid}名称`} disabled={busy} value={card.name} onChange={event=>changeMeta(card.uid,{name:event.target.value})}/></label>

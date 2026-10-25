@@ -131,6 +131,8 @@
 .prompt-art-cards-column .prompt-art-image{border-left:0;border-top:1px solid #e1e4ef;padding:8px 0 0}
 .prompt-art-cards-column .prompt-art-image img{height:86px}
 .prompt-art-cards-column .prompt-art-needs article>div:first-child>b{font-size:14px}
+.prompt-art-scene-summary>div>button{padding:4px 8px;border-radius:999px;background:#e8f5f7;border-color:transparent;color:#356d7d;font-size:12px}
+.prompt-art-scene-summary>div>button.selected{background:#287b8a;color:#fff;border-color:#287b8a}
 .prompt-art-cards-column .prompt-art-needs article label{font-size:12px}
 .prompt-art-cards-column .prompt-art-needs article label input,.prompt-art-cards-column .prompt-art-needs article label select{font-size:13px}
 

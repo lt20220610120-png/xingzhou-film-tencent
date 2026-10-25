@@ -22,6 +22,26 @@ test('三种协作身份的功能区权限', () => {
   assert.equal(COLLAB_ROLES.producer, '制片');
 });
 
+test('人物段落中的外貌和服装碎片不会生成独立人物卡', () => {
+  const parsed = parseArtAnalysis(`### 第1集
+人物：
+- 【李大川】（实际出镜）32岁，男性。
+- 【肤色偏深】（人物外观）
+- 【短黑发略显凌乱】（人物外观）
+- 【牛仔裤和旧胶鞋】（服装）
+场景：
+- 【出租小院-日-外】（白天）
+道具：
+- 【手机】（手持）`);
+  const rows = buildAssetRows(parsed);
+  assert.deepEqual(rows.map(row => [row.category, row.name]), [
+    ['character', '【李大川】'],
+    ['scene', '【出租小院-日-外】'],
+    ['prop', '【手机】'],
+  ]);
+  assert.match(parsed.episodes[0].character[0].description, /肤色偏深|短黑发/);
+});
+
 test('资产名解析：角色-服饰拆分', () => {
   assert.deepEqual(parseAssetName('【姜蓝-剑道服】'), { base: '姜蓝', variant: '剑道服' });
   assert.deepEqual(parseAssetName('【蜡烛】'), { base: '蜡烛', variant: '' });
