@@ -17,4 +17,9 @@
 - React + Edge面板验证通过：展开待补与回填面板，显示“1待确认 · 1已回填”、三次尝试、来源集按钮，点击来源跳转标题；页面无异常。output/playwright/art-deferred-2871.png。
 - 所有验证均使用模拟项目和模拟AI接口，没有向用户项目发起付费请求或修改真实核实清单。
 
-安装包及公开发布核验见正式发布记录。
+## 安装包与发布
+
+- 源码652652b已推送main。NSIS及实际安装解包/运行时验证通过：qa/packaged-smoke-2.8.71-1792942579437/report.json，版本2.8.71，errors=[]。
+- 本机包 release/2.8.71/Xingzhou-Film-Tencent-Setup-2.8.71.exe，103837760字节，SHA256 b433e8c4ec298263ddd5938e501daa991269af0fca7ef10be449a3263186b59f。
+- GitHub公开包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.71/Xingzhou-Film-Tencent-Setup-2.8.71.exe；官方镜像：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.71.exe。
+- 两个main的latest.json签名、版本、大小、SHA256与GitHub资产digest一致；官方IP固定证书、Range206、MZ与Content-Range总长核验通过。output/public-2871-verification.json。
