@@ -415,7 +415,7 @@ async function submitGeneration(event,p){
    const {validateImportedSubmission}=await import('../core/importedArtBinding.js');
    compiled=validateImportedSubmission(promptArtStore().load({accountId,projectId:p.bindingProjectId}),p,accountId);
    await require('./imported-binding-media.cjs').verifiedImportedImages(compiled.references,mediaDir());
-  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
+  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
@@ -483,7 +483,7 @@ ipcMain.handle('media-open-image-result',async(_,payload)=>{const source=require
 ipcMain.handle('media-generate-video',async(event,payload)=>payload.provider==='libtv'?libtvDirect({...payload,kind:'video'},event.securitySignal):require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?({filePath:await completedFnkoFile({...payload,kind:'video'},event.securitySignal)}):({filePath:await generateVideo({...payload,destDir:mediaDir(),signal:event.securitySignal,onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}})}));
 ipcMain.handle('media-import-file',async(_,kind)=>(await importMediaFiles({dialog,destDir:mediaDir(),kind}))[0] || null);
 ipcMain.handle('media-import-files',async(_,kind)=>importMediaFiles({dialog,destDir:mediaDir(),kind,multiple:true}));
-ipcMain.handle('generation-import-episode-media',async(_,payload={})=>importEpisodeMedia({dialog,destDir:mediaDir(),mode:payload.mode,episode:payload.episode}));
+ipcMain.handle('generation-import-episode-media',async(_,payload={})=>importEpisodeMedia({dialog,destDir:mediaDir(),mode:payload.mode,episode:payload.episode,promptLabel:payload.promptLabel}));
 ipcMain.handle('generation-import-episode-files',async(_,payload={})=>importEpisodeFiles({dialog,destDir:mediaDir(),kind:payload.kind,episode:payload.episode}));
 ipcMain.handle('generation-delete-book-media',async(_,payload={})=>deleteEpisodeMedia({destDir:mediaDir(),paths:payload.paths,retainedPaths:[...generationRetainedPaths(payload.retainedPaths),...generationRetainedPaths(jobs().list({includeArchived:true}))]}));
 ipcMain.handle('media-export-file',async(_ ,input)=>exportMediaFile(input,{showSaveDialog:options=>dialog.showSaveDialog(options),downloadToFile:require('./media-service.cjs').downloadToFile,mediaDir}));

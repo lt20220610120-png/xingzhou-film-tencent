@@ -25,7 +25,11 @@ export function bookOutline(book){
  return [...episodes].sort((a,b)=>a[0]-b[0]).map(([number,scenes])=>({number,scenes:[...scenes].sort((a,b)=>a[0]-b[0]).map(([number,entries])=>({number,entries}))}));
 }
 
-export function bookSharedReferences(book,entry){return [...new Map([...(book.episodeMedia?.[entry.episode]||[]),...(book.sceneMedia?.[`${entry.episode}-${entry.scene}`]||[])].map(r=>[r.id,r])).values()];}
+export function bookSharedReferences(book,entry){
+ const broad=[...(book.episodeMedia?.[entry.episode]||[]),...(book.sceneMedia?.[`${entry.episode}-${entry.scene}`]||[])];
+ const specific=book.promptMedia?.[entry.label];
+ return [...new Map([...(specific?broad.filter(ref=>ref.kind!=='image'):broad),...(specific||[])].map(ref=>[ref.id,ref])).values()];
+}
 export function entryValue(book,entry){
  const draft=book.drafts?.[entry.id]||{};
  const {excludedIds=[],overrides={},extraReferences=[],...settings}=draft;
@@ -64,14 +68,15 @@ export function restoreEntryReference(book,entryId,referenceId){
  }}};
 }
 
-export function mergeEpisodeMedia(book,incoming,scenes={}){
+export function mergeEpisodeMedia(book,incoming,scenes={},prompts={}){
  const episodeMedia={...book.episodeMedia};
  for(const [episode,refs] of Object.entries(incoming)){
   const old=episodeMedia[episode]||[],ids=new Set(old.map(r=>r.id));
   episodeMedia[episode]=[...old,...refs.filter(r=>{if(ids.has(r.id))return false;ids.add(r.id);return true;})];
  }
  const sceneMedia={...book.sceneMedia};for(const [id,refs]of Object.entries(scenes)){const old=sceneMedia[id]||[],keys=new Set(old.map(r=>r.id));sceneMedia[id]=[...old,...refs.filter(r=>{if(keys.has(r.id))return false;keys.add(r.id);return true;})];}
- return {...book,episodeMedia,sceneMedia};
+ const promptMedia={...book.promptMedia};for(const [id,refs]of Object.entries(prompts))promptMedia[id]=[...new Map([...(promptMedia[id]||[]),...refs].map(ref=>[ref.id,ref])).values()];
+ return {...book,episodeMedia,sceneMedia,promptMedia};
 }
 
 export function clearPromptBook(workflow,bookId){

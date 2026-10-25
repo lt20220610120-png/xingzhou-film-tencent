@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {mediaSource} from '../../core/generationReferences.js';
-import {bindingProblems,compileEntryBinding,entryBindingSignature,bindingHash} from '../../core/promptArtBinding.js';
+import {cardInEntry,bindingProblems,compileEntryBinding,entryBindingSignature,bindingHash} from '../../core/promptArtBinding.js';
 import {importedSnapshot,importedDecision,importedCategories,inventoryMessages,applyInventoryAi,runBindingRepair,runImportedEntry,withBindingImages} from '../../core/importedArtBinding.js';
 import '../prompt-art-binding.css';
 import {runImportedAuto,importedAutoSummary} from '../../core/importedArtAuto.js';
@@ -13,9 +13,9 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
  const [modelId,setModelId,profile]=useWindowModel('imported-art-binding',state.apiProfiles||[],state.activeApiId);
  const snapshot=useMemo(()=>importedSnapshot(book),[book]),entry=snapshot.entries.find(row=>row.id===original.id);
  const work=book.importedBinding,decision=importedDecision(snapshot,entry,work.decisions);
- const cards=snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId));
+ const cards=snapshot.cards.filter(card=>cardInEntry(card,entry));
  const live=useRef(),stopped=useRef(false),mounted=useRef(true),running=useRef(false),task=useRef('');
- const sourceSignature=bindingHash([book.entries,book.episodeMedia,book.sceneMedia,work.prompts]);
+ const sourceSignature=bindingHash([book.entries,book.episodeMedia,book.sceneMedia,book.promptMedia,work.prompts]);
  live.current={snapshot,work,accountId,sourceSignature};
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;stopped.current=true;if(task.current)api.cancelAiTask?.({taskId:task.current});};},[api]);
  const mutate=transform=>onUpdate(current=>({...current,importedBinding:transform(current.importedBinding)}));
@@ -88,7 +88,7 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
    checkCurrent(captured);
    const current=importedDecision(captured,target,live.current.work.decisions);
    if(all&&current.confirmed&&current.signature===entryBindingSignature(captured,target))continue;
-   const sceneCards=captured.cards.filter(card=>card.sceneIds.includes(target.sceneId));
+   const sceneCards=captured.cards.filter(card=>cardInEntry(card,target));
    if(!sceneCards.length||sceneCards.some(card=>!card.identityConfirmed||!importedCategories[card.category])){failures.push(`${target.label}：先确认本场素材身份`);continue;}
    try{
     if(!imageCache.has(target.sceneId))imageCache.set(target.sceneId,await readImages(sceneCards));
@@ -117,12 +117,12 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
  const ready=snapshot.entries.filter(row=>!bindingProblems(snapshot,row,work.decisions[row.id],{requireImages:true}).length).length;
  const unused=cards.filter(card=>!decision.needs.some(need=>need.visibility==='visible'&&need.cardUid===card.uid));
  return <section className="prompt-art-panel imported-art-panel" aria-label="提示词与图片独立关联">
-  <header className="imported-binding-header"><div><h2>AI 整理提示词与图片 <small>管理员专用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
+  <header className="imported-binding-header"><div><h2>AI 分发提示词与图片 <small>管理员专用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
 
   <ModelSelect label="关联模型" profiles={state.apiProfiles||[]} value={modelId} onChange={setModelId} disabled={busy}/>
   <label className="imported-vision"><input type="checkbox" checked={vision} disabled={busy} onChange={event=>setVision(event.target.checked)}/>发送本场图片给支持看图的 API（最多 24 张）</label>
 
-  <div className="prompt-art-actions"><button className="imported-auto-start" disabled={busy||!profile||!cards.length} onClick={()=>automatic(true)}>AI 只关联当前条目（{entry.label}）</button><button disabled={busy||!profile||!snapshot.cards.length} onClick={()=>automatic(false)}>AI 自动整理整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)Promise.resolve(api.cancelAiTask?.({taskId:task.current})).catch(()=>{});}}>停止整理并保留进度</button>}<button disabled={busy} onClick={()=>setShowIssues(value=>!value)}>只看待处理（{summary.pending}）</button><button disabled={busy||!ready} onClick={publish}>使用已就绪关联（{ready}）</button></div>
+  <div className="prompt-art-actions"><button className="imported-auto-start" disabled={busy||!profile||!cards.length} onClick={()=>automatic(true)}>AI 分发当前条目（{entry.label}）</button><button disabled={busy||!profile||!snapshot.cards.length} onClick={()=>automatic(false)}>AI 分发整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)Promise.resolve(api.cancelAiTask?.({taskId:task.current})).catch(()=>{});}}>停止整理并保留进度</button>}<button disabled={busy} onClick={()=>setShowIssues(value=>!value)}>只看待处理（{summary.pending}）</button><button disabled={busy||!ready} onClick={publish}>使用已就绪关联（{ready}）</button></div>
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {showIssues&&<div className="imported-binding-issues" aria-label="待处理关联">{summary.rows.filter(row=>!row.ready).map(row=><button disabled={busy} key={row.id} onClick={()=>{onSelect(row.id);setDetails(true);}}><strong>{row.label}</strong><span>{row.issue}</span><small>展开处理</small></button>)}</div>}
   <details open={details} onToggle={event=>setDetails(event.currentTarget.open)}><summary>查看本条详情 / 手动调整（{entry.label}）</summary>

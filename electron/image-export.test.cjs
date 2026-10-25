@@ -1,6 +1,14 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 const {exportImagesToFolder}=require('./image-export.cjs');
 const {importEpisodeMedia}=require('./episode-media-import.cjs');
+test('prompt export round trips shared images into each prompt without leaking into its siblings',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-prompt-roundtrip-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const dir=path.join(root,'export');
+ await exportImagesToFolder({dir,layout:'prompt',images:[{id:'a',assetName:'人物甲',promptIds:['1-1-1','1-1-2']},{id:'b',assetName:'道具',promptIds:['1-1-2']}],fetchImage:async image=>Buffer.from(image.id)});
+ const result=await importEpisodeMedia({dialog:{showOpenDialog:async()=>({filePaths:[dir]})},destDir:path.join(root,'import'),mode:'series'});
+ assert.equal(result.prompts['1-1-1'].length,1);assert.equal(result.prompts['1-1-2'].length,2);assert.deepEqual(result.scenes,{});assert.deepEqual(result.episodes[1],[]);
+ assert.equal(result.prompts['1-1-1'][0].id,result.prompts['1-1-2'][0].id);
+});
 test('scene export roundtrips reusable images without leaking another scene or unbound cards',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-scene-export-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'export');let downloads=0;
  const images=[{id:'shared',assetName:'主角睡衣',sceneIds:['1-1','1-2','2-3'],episodes:[1,2],filename:'sleep.png'},{id:'school',assetName:'校服',sceneIds:['1-2'],episodes:[1],filename:'school.png'},{id:'unbound',assetName:'后加资产',episodes:[1],filename:'extra.png'}];

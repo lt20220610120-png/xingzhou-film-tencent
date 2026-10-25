@@ -1,5 +1,12 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 const {episodeNumber,importEpisodeMedia,importEpisodeFiles,deleteEpisodeMedia}=require('./episode-media-import.cjs');
+test('current prompt import supports ordinary folders and rejects mismatched prompt labels',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-prompt-import-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const source=path.join(root,'素材');await fs.mkdir(source);await fs.writeFile(path.join(source,'a.png'),'a');
+ const args={dialog:{showOpenDialog:async()=>({filePaths:[source]})},destDir:path.join(root,'dest'),mode:'prompt',episode:2,promptLabel:'2-3-1'};
+ const result=await importEpisodeMedia(args);assert.equal(result.prompts['2-3-1'].length,1);assert.deepEqual(result.episodes[2],[]);
+ await assert.rejects(importEpisodeMedia({...args,promptLabel:'1-3-1'}),/提示词/);
+});
 test('Arabic and Chinese episode folders resolve without inventing unknown episodes',()=>{
  for(const [name,n] of [['第一集',1],['第1集',1],['1',1],['第十一集 素材',11],['第一百零二集',102],['第两百集',200],['００３',3],['其他',null],['0',null]])assert.equal(episodeNumber(name),n,name);
 });

@@ -27,6 +27,12 @@ function sceneNumber(name,episode){
  if(pair){if(Number(pair[1])!==Number(episode))return false;return Number(pair[2])>0?`${Number(episode)}-${Number(pair[2])}`:false;}
  return single&&Number(single[1])>0?`${Number(episode)}-${Number(single[1])}`:null;
 }
+function promptNumber(name,episode,scene){
+ const normalized=name.normalize('NFKC').trim(),match=normalized.match(/^(?:提示词\s*)?(\d+)\s*[-－]\s*(\d+)\s*[-－]\s*(\d+)(?:\s|$)/);
+ if(!match)return null;
+ if(Number(match[1])!==Number(episode)||(scene&&Number(match[2])!==Number(scene))||!match.slice(1).every(n=>Number.isSafeInteger(Number(n))&&Number(n)>0))return false;
+ return match.slice(1).map(Number).join('-');
+}
 async function collectFolder(root,destination,files,warnings,depth=0,scope={}){
  if(depth>32)throw new Error('素材目录层级超过 32 层，请整理后重新导入。');
  const entries=await fs.promises.readdir(root,{withFileTypes:true});
@@ -37,28 +43,31 @@ async function collectFolder(root,destination,files,warnings,depth=0,scope={}){
   if(entry.isSymbolicLink()){warnings.add('已跳过符号链接');continue;}
   if(entry.isDirectory()){
    if(entry.name.includes('未关联')){warnings.add(`未关联素材未自动挂载：${entry.name}`);continue;}
-   const sceneId=sceneNumber(entry.name,scope.episode);if(sceneId===false){warnings.add(`场景目录与集号不符，已跳过：${entry.name}`);continue;}
+   const sceneId=sceneNumber(entry.name,scope.episode);if(sceneId===false||(scope.promptId&&sceneId&&sceneId!==scope.sceneId)){warnings.add(`场景目录与集号不符，已跳过：${entry.name}`);continue;}
+   const promptId=promptNumber(entry.name,scope.episode,scope.sceneId?Number(scope.sceneId.split('-').at(-1)):null);if(promptId===false||(scope.promptId&&promptId&&scope.promptId!==promptId)){warnings.add(`提示词目录编号不符，已跳过：${entry.name}`);continue;}
    const category=({'人物':'character','角色':'character','场景':'scene','道具':'prop'})[entry.name];
-   await collectFolder(filePath,destination,files,warnings,depth+1,{...scope,sceneId:sceneId||scope.sceneId,category:category||scope.category});
+   await collectFolder(filePath,destination,files,warnings,depth+1,{...scope,sceneId:promptId?promptId.split('-').slice(0,2).join('-'):sceneId||scope.sceneId,promptId:promptId||scope.promptId,category:category||scope.category});
   }
   else if(entry.isFile()){
    const ext=path.extname(entry.name).toLowerCase();
    const kind=Object.keys(EXTENSIONS).find(k=>EXTENSIONS[k].includes(ext));
-   if(kind){files.push({filePath,name:entry.name,ext,kind,...(scope.sceneId?{sceneId:scope.sceneId}:{}),...(scope.category?{category:scope.category}:{})});if(files.length>10000)throw new Error('单次导入最多 10000 个素材，请按集分批导入。');}
+   if(kind){files.push({filePath,name:entry.name,ext,kind,...(scope.sceneId?{sceneId:scope.sceneId}:{}),...(scope.promptId?{promptId:scope.promptId}:{}),...(scope.category?{category:scope.category}:{})});if(files.length>10000)throw new Error('单次导入最多 10000 个素材，请按集分批导入。');}
   }
  }
 }
 
-async function importEpisodeMedia({dialog,destDir,mode='episode',episode}){
- if(!['episode','series'].includes(mode))throw new Error('无效的素材导入方式');
- if(mode==='episode'&&(!Number.isSafeInteger(episode)||episode<1))throw new Error('请先选择要导入素材的集数');
- const result=await dialog.showOpenDialog({title:mode==='series'?'选择整部素材文件夹（内含各集子文件夹）':`选择第 ${episode} 集素材文件夹`,properties:['openDirectory']});
+async function importEpisodeMedia({dialog,destDir,mode='episode',episode,promptLabel}){
+ if(!['episode','series','prompt'].includes(mode))throw new Error('无效的素材导入方式');
+ if((mode==='episode'||mode==='prompt')&&(!Number.isSafeInteger(episode)||episode<1))throw new Error('请先选择要导入素材的集数');
+ const selectedPrompt=mode==='prompt'?promptNumber(String(promptLabel||''),episode):null;
+ if(mode==='prompt'&&!selectedPrompt)throw new Error('请先选择有效的提示词编号');
+ const result=await dialog.showOpenDialog({title:mode==='series'?'选择整部素材文件夹（内含各集子文件夹）':mode==='prompt'?'选择当前提示词素材文件夹':`选择第 ${episode} 集素材文件夹`,properties:['openDirectory']});
  if(result.canceled||!result.filePaths?.[0])return null;
  const root=path.resolve(result.filePaths[0]),destination=mediaDir(destDir);
  const relative=path.relative(destination,root);
  if(!relative||(!relative.startsWith('..')&&!path.isAbsolute(relative)))throw new Error('请选择原始素材文件夹，不要选择软件的素材保存目录。');
  const warnings=new Set(),groups=new Map();
- if(mode==='episode')groups.set(episode,[root]);
+ if(mode==='episode'||mode==='prompt')groups.set(episode,[root]);
  else {
   for(const dir of await fs.promises.readdir(root,{withFileTypes:true})){
    if(!dir.isDirectory())continue;
@@ -69,26 +78,35 @@ async function importEpisodeMedia({dialog,destDir,mode='episode',episode}){
  }
  // Discover everything before copying so malformed/deep folders never partially attach.
  const planned=new Map();
- for(const [number,folders] of groups){const files=[];for(const folder of folders){const sceneId=sceneNumber(path.basename(folder),number);if(sceneId===false){warnings.add(`场景目录与集号不符，已跳过：${path.basename(folder)}`);continue;}await collectFolder(folder,destination,files,warnings,0,{episode:number,sceneId});}planned.set(number,files);}
+ for(const [number,folders] of groups){
+  const files=[];
+  for(const folder of folders){
+   const rootPrompt=promptNumber(path.basename(folder),number),rootScene=sceneNumber(path.basename(folder),number);
+   if(rootPrompt===false||rootScene===false||(selectedPrompt&&rootScene&&rootScene!==selectedPrompt.split('-').slice(0,2).join('-'))||(selectedPrompt&&rootPrompt&&selectedPrompt!==rootPrompt)){warnings.add(`目录编号不符，已跳过：${path.basename(folder)}`);continue;}
+   const promptId=selectedPrompt||rootPrompt,sceneId=promptId?promptId.split('-').slice(0,2).join('-'):rootScene;
+   await collectFolder(folder,destination,files,warnings,0,{episode:number,sceneId,promptId});
+  }
+  planned.set(number,files);
+ }
  return saveGroups(planned,destination,warnings);
 }
 
 async function saveGroups(planned,destination,warnings=new Set()){
  await fs.promises.mkdir(destination,{recursive:true});
- const episodes={},scenes={};let count=0;
+ const episodes={},scenes={},prompts={};let count=0;
  for(const [number,files] of planned){
   const refs=[],seen=new Set();
   for(const file of files){
    const hash=await hashFile(file.filePath),id=`folder-${hash}-${file.ext.slice(1)}`;
-   const membership=`${file.sceneId||number}:${id}`;if(seen.has(membership))continue;seen.add(membership);
+   const membership=`${file.promptId||file.sceneId||number}:${id}`;if(seen.has(membership))continue;seen.add(membership);
    const target=path.join(destination,`${hash}${file.ext}`);
    // Content-addressed files are shared across prompts and repeated imports.
    try{await fs.promises.copyFile(file.filePath,target,fs.constants.COPYFILE_EXCL);}catch(error){if(error.code!=='EEXIST')throw error;}
-   const ref={id,filePath:target,name:file.name,kind:file.kind,...(file.kind==='image'&&file.category?{category:file.category}:{})};if(file.sceneId)(scenes[file.sceneId]||=[]).push(ref);else refs.push(ref);count++;
+   const ref={id,filePath:target,name:file.name,kind:file.kind,...(file.kind==='image'&&file.category?{category:file.category}:{})};if(file.promptId)(prompts[file.promptId]||=[]).push(ref);else if(file.sceneId)(scenes[file.sceneId]||=[]).push(ref);else refs.push(ref);count++;
   }
   episodes[number]=refs;
  }
- return {episodes,scenes,count,warnings:[...warnings]};
+ return {episodes,scenes,prompts,count,warnings:[...warnings]};
 }
 
 async function importEpisodeFiles({dialog,destDir,episode,kind}){

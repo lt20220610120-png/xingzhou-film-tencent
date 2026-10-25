@@ -1,6 +1,6 @@
 import {bookSharedReferences,entryValue} from './promptBook.js';
 import {referenceName} from './generationReferences.js';
-import {bindingHash,entryBindingSignature,proposeEntryBinding,compileEntryBinding,bindingAiMessages,applyBindingAi} from './promptArtBinding.js';
+import {cardInEntry,bindingHash,entryBindingSignature,proposeEntryBinding,compileEntryBinding,bindingAiMessages,applyBindingAi} from './promptArtBinding.js';
 
 export const importedCategories={character:'人物',scene:'场景',prop:'道具'};
 export const importedBindingId=book=>`imported:${book.id}`;
@@ -19,8 +19,8 @@ export function importedSnapshot(book){
   entries.push({...original,label,sceneId,prompt,sceneReady:true,duplicateLabel:labels.has(label)});labels.add(label);
   for(const ref of bookSharedReferences(book,original).filter(ref=>ref.kind==='image')){
    const meta=work.metadata?.[ref.id]||{};
-   if(!cards.has(ref.id))cards.set(ref.id,{uid:ref.id,key:ref.id,assetId:ref.id,category:meta.category||ref.category||'unknown',name:meta.name??referenceName(ref.name),description:meta.description||'',identityConfirmed:!!meta.confirmed,sceneIds:[],publishedSceneIds:[],images:[{id:ref.id,url:ref.url||`xzmedia://local/${encodeURIComponent(ref.filePath||'')}`}],reference:{...ref},detailStatus:''});
-   const card=cards.get(ref.id);
+   if(!cards.has(ref.id))cards.set(ref.id,{uid:ref.id,key:ref.id,assetId:ref.id,category:meta.category||ref.category||'unknown',name:meta.name??referenceName(ref.name),description:meta.description||'',identityConfirmed:!!meta.confirmed,entryIds:[],sceneIds:[],publishedSceneIds:[],images:[{id:ref.id,url:ref.url||`xzmedia://local/${encodeURIComponent(ref.filePath||'')}`}],reference:{...ref},detailStatus:''});
+   const card=cards.get(ref.id);card.entryIds.push(original.id);
    if(!card.sceneIds.includes(sceneId))card.sceneIds.push(sceneId);
    if(card.identityConfirmed&&!card.publishedSceneIds.includes(sceneId))card.publishedSceneIds.push(sceneId);
   }
@@ -38,7 +38,7 @@ export function importedDecision(snapshot,entry,decisions={}){
  // Preserve manual choices only when the exact evidence and selected identity survive.
  if(saved)next.needs=next.needs.map(need=>{
   const old=saved.needs.find(row=>row.locked&&row.start===need.start&&row.end===need.end&&row.text===need.text&&row.category===need.category);
-  const card=snapshot.cards.find(card=>card.uid===old?.cardUid&&card.category===need.category&&card.sceneIds.includes(entry.sceneId));
+  const card=snapshot.cards.find(card=>card.uid===old?.cardUid&&card.category===need.category&&cardInEntry(card,entry));
   return old?{...old,cardUid:card?.uid||null,imageId:card?.images.some(image=>image.id===old.imageId)?old.imageId:null}:need;
  });
  return next;

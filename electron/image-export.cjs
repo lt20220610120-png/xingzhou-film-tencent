@@ -12,7 +12,8 @@ async function uniqueFile(target){
  while(true){try{await fs.access(candidate);candidate=`${base} (${index++})${ext}`;}catch(error){if(error.code==='ENOENT')return candidate;throw error;}}
 }
 async function exportImagesToFolder({images,dir,layout='flat',fetchImage}){
- if(!['flat','episode','scene'].includes(layout))throw new Error('不支持的图片导出方式');
+ if(!['flat','episode','scene','prompt'].includes(layout))throw new Error('不支持的图片导出方式');
+ if(layout==='prompt'&&images.some(image=>!image.promptIds?.length||image.promptIds.some(id=>!/^\d+-\d+-\d+$/.test(id)||!id.split('-').every(n=>Number.isSafeInteger(Number(n))&&Number(n)>0))))throw new Error('提示词关联尚未完成，不能按提示词导出');
  await fs.mkdir(dir,{recursive:true});const failures=[];let cursor=0,unbound=0;
  const workers=Array.from({length:Math.min(4,images.length)},async()=>{
   while(cursor<images.length){
@@ -22,7 +23,7 @@ async function exportImagesToFolder({images,dir,layout='flat',fetchImage}){
     const ids=[...new Set((image.sceneIds||[]).filter(id=>/^\d+-\d+$/.test(id)&&id.split('-').every(n=>Number.isSafeInteger(Number(n))&&Number(n)>0)))];
     const boundEpisodes=new Set(ids.map(id=>`第${Number(id.split('-')[0])}集`)),unboundFolders=episodeFolders(image).filter(folder=>!boundEpisodes.has(folder));
     if(layout==='scene'&&(unboundFolders.length||!ids.length))unbound++;
-    const folders=layout==='scene'?[...ids.map(id=>path.join(`第${Number(id.split('-')[0])}集`,`场景${id}`)),...unboundFolders.map(folder=>path.join(folder,'未关联素材'))]:layout==='episode'?episodeFolders(image):[''];
+    const folders=layout==='prompt'?[...new Set(image.promptIds)].map(id=>path.join(`第${Number(id.split('-')[0])}集`,`场景${id.split('-').slice(0,2).join('-')}`,`提示词${id}`)):layout==='scene'?[...ids.map(id=>path.join(`第${Number(id.split('-')[0])}集`,`场景${id}`)),...unboundFolders.map(folder=>path.join(folder,'未关联素材'))]:layout==='episode'?episodeFolders(image):[''];
     for(const folder of folders.length?folders:['未分集']){
      const targetDir=folder?path.join(dir,folder):dir;
      await fs.mkdir(targetDir,{recursive:true});

@@ -1,3 +1,5 @@
+import {loadFreshBinding} from '../../core/promptArtBinding.js';
+import {bindingVersionOptions,selectBindingVersion,promptExportImages} from '../../core/promptBindingVersions.js';
 import {retainAssetOrder} from '../../core/stableAssetOrder.js';
 import {assetRevisionJobs} from '../../core/assetRevisionJobs.js';
 import ProjectCompositionControl from './ProjectCompositionControl.jsx';
@@ -713,6 +715,25 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const [exportError, setExportError] = useState('');
   const [exportChoiceOpen, setExportChoiceOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportBinding,setExportBinding]=useState(null),[exportVersion,setExportVersion]=useState(''),[exportBindingError,setExportBindingError]=useState('');
+  useEffect(()=>{
+    let alive=true;if(!exportChoiceOpen)return;
+    setExportBinding(null);setExportBindingError('');
+    Promise.resolve(api.promptArtStatus?.()).then(async status=>{
+      if(!status?.enabled||!alive)return;
+      const data=await loadFreshBinding({api,projectId:project.id,accountId,localSources:state.directorProjects,allowUnbound:true});
+      if(alive){setExportBinding(data);setExportVersion(bindingVersionOptions(data.currentSnapshot,data.saved)[0].id);}
+    }).catch(error=>alive&&setExportBindingError(error.message));
+    return()=>{alive=false;};
+  },[exportChoiceOpen,project.id,accountId]);
+  const exportPromptVersion=async()=>{
+    try{
+      const fresh=await loadFreshBinding({api,projectId:project.id,accountId,localSources:state.directorProjects,versionId:exportVersion,allowUnbound:true});
+      const images=promptExportImages(fresh.snapshot,fresh.decisions);
+      await exportImages(images,`${project.name}-${bindingVersionOptions(fresh.currentSnapshot,fresh.saved).find(row=>row.id===exportVersion)?.label||'提示词'}-按提示词美术图片`,'prompt');
+    }catch(error){setExportBindingError(error.message);}
+  };
+
   const [analysisError, setAnalysisError] = useState('');
   const [appendOpen, setAppendOpen] = useState(false);
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
@@ -822,11 +843,13 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
           <div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}>
             <div className="modal collab-art-export-modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式">
               <header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header>
-              <p>按场景导出：第N集 / 场景N-M。共享图片复制到各关联场景，未关联图片单独保留。</p>
+              {exportBindingError&&<p className="collab-error" role="alert">{exportBindingError}</p>}
+              {exportBinding&&<label>提示词版本<select aria-label="导出提示词版本" value={exportVersion} onChange={event=>setExportVersion(event.target.value)}>{bindingVersionOptions(exportBinding.currentSnapshot,exportBinding.saved).map(row=><option key={row.id} value={row.id}>{row.label}{row.current?' · 最新':''}</option>)}</select></label>}
               <div className="modal-actions collab-art-export-options">
                 <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button>
                 <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button>
                 <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按场景美术图片`,'scene')}>按场景整理导出</button>
+                {exportBinding&&<button className="secondary collab-art-export-option" disabled={exporting} onClick={exportPromptVersion}>按具体提示词导出</button>}
               </div>
             </div>
           </div>,document.body)}
@@ -1587,7 +1610,7 @@ export function CollabWorkspace({ state, api, account }) {
     if (!dp) return;
     setCreating(true); setCreateError('');
     try {
-      const episodes = (dp.episodes || []).map((ep) => ({ title: ep.title, content: ep.content || '', prompts: (ep.prompts || []).map((p) => ({ id: p.id, label: p.label, content: p.content })) }));
+      const episodes = (dp.episodes || []).map((ep) => ({ title: ep.title, content: ep.content || '', prompts: (ep.prompts || []).map((p) => ({ ...p })) }));
       const created = await api.collabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes });
       setDialogOpen(false);
       await loadProjects();
