@@ -24,16 +24,16 @@
 - 标记允许自动顺序前进，但不能使待补信息冒充已完整或声音变成可见资产。
 
 ## Task 1: 有界补全与持久化
-- [ ] 新增core/artDeferredDetails.test.js回归，复现三次后仍重试及下一集未开始。
-- [ ] 新增core/artDeferredDetails.js，保存逐条计数/状态/指纹；修改artReviewRunner.js与artWorkflow.js区分自动可前进与细节完整。
-- [ ] 验证三次上限、停止恢复、人工变动及现有guided流程。
+- [x] 新增core/artDeferredDetails.test.js回归，复现三次后仍重试及下一集未开始。
+- [x] 新增core/artDeferredDetails.js，保存逐条计数/状态/指纹；修改artReviewRunner.js与artWorkflow.js区分自动可前进与细节完整。
+- [x] 验证三次上限、停止恢复、人工变动及现有guided流程。
 
 ## Task 2: 后文证据回填
-- [ ] 测试下一集出现同一人物、回填发生于再下一集前；全文无证据保留待确认且重复继续不发请求。
-- [ ] 新增core/artDeferredReconciliation.js；artContinuousAnalysis.js在每集后与结束时执行有限回填，保留来源原文及声音描述。
-- [ ] 测试证据伪造/重用、用户改动、来源正文变化与磁盘失败。
+- [x] 测试下一集出现同一人物、回填发生于再下一集前；全文无证据保留待确认且重复继续不发请求。
+- [x] 新增core/artDeferredReconciliation.js；artContinuousAnalysis.js在每集后与结束时执行有限回填，保留来源原文及声音描述。
+- [x] 测试证据伪造/重用、用户改动、来源正文变化与磁盘失败。
 
 ## Task 3: 界面与交付
-- [ ] ArtReviewSection.jsx紧凑展示待补/已回填记录、次数、来源，可定位集数；不添加大段固定说明。
-- [ ] 真实React/Edge模拟流程验证，独立复核；npm test、npm run build、安装包运行验证。
-- [ ] 更新版本2.8.71、发布记录/交接/软件更新记忆；核验公开包、双清单和官方镜像，交付下载链接。
+- [x] ArtReviewSection.jsx紧凑展示待补/已回填记录、次数、来源，可定位集数；不添加大段固定说明。
+- [x] 真实React/Edge模拟流程验证，独立复核；npm test、npm run build、安装包运行验证。
+- [x] 更新版本2.8.71、发布记录/交接/软件更新记忆；核验公开包、双清单和官方镜像，交付下载链接。
