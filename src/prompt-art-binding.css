@@ -112,3 +112,37 @@
 }
 
 .prompt-art-needs:focus-visible,.imported-art-cards:focus-visible{outline:2px solid #9a8bd3;outline-offset:2px}
+
+/* Prompt review uses a split desk: the source stays readable on the left while
+   the compact distribution cards remain visible on the right. */
+.prompt-art-workspace{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(520px,1.35fr);gap:16px;align-items:start;margin-top:12px}
+.prompt-art-prompt-column,.prompt-art-cards-column{min-width:0}
+.prompt-art-prompt-column{padding:12px 14px;border:1px solid var(--binding-line);border-radius:10px;background:#fbfbfe}
+.prompt-art-prompt-heading{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px;color:var(--binding-muted);font-size:13px}
+.prompt-art-prompt-heading strong{color:var(--binding-ink);font-size:17px}
+.prompt-art-prompt-column details{margin:9px 0 0;background:#fff}
+.prompt-art-prompt-column pre{max-height:430px;margin:0 0 10px;font-size:14px;line-height:1.75}
+.prompt-art-prompt-column .prompt-art-actions{margin:12px 0 2px}
+.prompt-art-cards-column{padding:0 2px}
+.prompt-art-cards-column .prompt-art-scene-summary{margin:0 0 10px}
+.prompt-art-cards-column .prompt-art-needs{grid-template-columns:repeat(2,minmax(0,1fr));max-height:570px;gap:9px;margin-top:0}
+.prompt-art-cards-column .prompt-art-needs article{grid-template-columns:minmax(0,1fr);gap:8px;padding:10px 11px}
+.prompt-art-cards-column .prompt-art-needs article>div:first-child{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}
+.prompt-art-cards-column .prompt-art-image{border-left:0;border-top:1px solid #e1e4ef;padding:8px 0 0}
+.prompt-art-cards-column .prompt-art-image img{height:86px}
+.prompt-art-cards-column .prompt-art-needs article>div:first-child>b{font-size:14px}
+.prompt-art-cards-column .prompt-art-needs article label{font-size:12px}
+.prompt-art-cards-column .prompt-art-needs article label input,.prompt-art-cards-column .prompt-art-needs article label select{font-size:13px}
+
+@container(max-width:980px){
+ .prompt-art-workspace{grid-template-columns:minmax(280px,.8fr) minmax(420px,1.2fr)}
+ .prompt-art-cards-column .prompt-art-needs{grid-template-columns:1fr}
+}
+@container(max-width:720px){
+ .prompt-art-workspace{grid-template-columns:1fr}
+ .prompt-art-prompt-column pre{max-height:300px}
+ .prompt-art-cards-column .prompt-art-needs{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@container(max-width:500px){
+ .prompt-art-cards-column .prompt-art-needs{grid-template-columns:1fr}
+}

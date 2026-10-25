@@ -100,18 +100,21 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
   <header><div><h2>场景 {sceneId} · 按提示词核实</h2></div><button disabled={disabled} onClick={()=>act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));await refresh({manual:true});setVersion('');setNotice('已检查提示词与美术更新');})}>检查更新</button></header>
   {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {<>
-   <div className="prompt-art-scene-summary" aria-label="整场清单与提示词版本"><div><b>整场清单</b><span>人物 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='character').length}</span><span>场景 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='scene').length}</span><span>道具 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='prop').length}</span></div><label>提示词版本<select aria-label="提示词版本" disabled={disabled} value={selectedVersion} onChange={event=>{const id=event.target.value;act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));setVersion(id);setSelected('');});}}>{versions.map(row=><option key={row.id} value={row.id}>{row.label}{row.current?' · 最新':''}</option>)}</select></label></div>
-   {!!snapshot.issues.length&&<p className="collab-error">{snapshot.issues.join('；')}</p>}
-   {!entry?<p>本场尚无已保存提示词，可先核实美术清单；提示词生成后再检查更新。</p>:<>
-    <label>本场提示词<select aria-label="联动提示词" disabled={disabled} value={entry.id} onChange={event=>{setSelected(event.target.value);setError('');setNotice('');}}>{entries.map(row=><option key={row.id} value={row.id}>{row.label}{row.duplicateLabel?` · ${row.runId?.slice(-6)||row.id.slice(-6)}（编号重复）`:''}</option>)}</select></label>
-    <details><summary>查看 {entry.label} 原提示词</summary><pre>{entry.prompt}</pre></details>
-    {stale&&<p className="collab-error">来源、卡片或图片已更新。原选择已保留，请先“重新核对本条”。</p>}
-    {decision.issue&&<p className="collab-error">{decision.issue}</p>}
-    <div className="prompt-art-actions"><button disabled={disabled} onClick={()=>act(recheck)}>重新核对本条</button><button disabled={disabled||stale||!profile} onClick={aiCheck}>AI 分发本条</button><button disabled={disabled||!profile} onClick={distributeScene}>AI 分发本场</button>{onReconcile&&decision.needs.some(need=>need.visibility==='visible'&&!need.cardUid)&&<button disabled={disabled||stale||!profile} onClick={reconcile}>核查清单缺项</button>}<button disabled={disabled||stale} onClick={()=>act(async()=>{
+   {!entry?<p>本场尚无已保存提示词，可先核实美术清单；提示词生成后再检查更新。</p>:<div className="prompt-art-workspace">
+    <section className="prompt-art-prompt-column" aria-label="当前提示词">
+     <div className="prompt-art-prompt-heading"><span>当前提示词</span><strong>{entry.label}</strong></div>
+     <label>切换提示词<select aria-label="联动提示词" disabled={disabled} value={entry.id} onChange={event=>{setSelected(event.target.value);setError('');setNotice('');}}>{entries.map(row=><option key={row.id} value={row.id}>{row.label}{row.duplicateLabel?` · ${row.runId?.slice(-6)||row.id.slice(-6)}（编号重复）`:''}</option>)}</select></label>
+     <details open><summary>查看 {entry.label} 原提示词</summary><pre>{entry.prompt}</pre></details>
+     {stale&&<p className="collab-error">来源、卡片或图片已更新。原选择已保留，请先“重新核对本条”。</p>}
+     {decision.issue&&<p className="collab-error">{decision.issue}</p>}
+     <div className="prompt-art-actions"><button disabled={disabled} onClick={()=>act(recheck)}>重新核对本条</button><button disabled={disabled||stale||!profile} onClick={aiCheck}>AI 分发本条</button><button disabled={disabled||!profile} onClick={distributeScene}>AI 分发本场</button>{onReconcile&&decision.needs.some(need=>need.visibility==='visible'&&!need.cardUid)&&<button disabled={disabled||stale||!profile} onClick={reconcile}>核查清单缺项</button>}<button disabled={disabled||stale} onClick={()=>act(async()=>{
      const problems=bindingProblems(snapshot,entry,decision,{requireConfirmed:false});if(problems.length)throw Error(problems.join('；'));
      await saveDecision({...decision,confirmed:true});
     })}>{decision.confirmed&&!stale?'本条关联已确认':'确认本条关联'}</button></div>
-    {!decision.needs.length&&!decision.issue&&<p>基础信息未列出可见素材；确认前请核对原文。</p>}
+    </section>
+    <section className="prompt-art-cards-column" aria-label="本条人物场景道具卡片">
+     <div className="prompt-art-scene-summary" aria-label="整场清单与提示词版本"><div><b>整场清单</b><span>人物 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='character').length}</span><span>场景 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='scene').length}</span><span>道具 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='prop').length}</span></div><label>提示词版本<select aria-label="提示词版本" disabled={disabled} value={selectedVersion} onChange={event=>{const id=event.target.value;act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));setVersion(id);setSelected('');});}}>{versions.map(row=><option key={row.id} value={row.id}>{row.label}{row.current?' · 最新':''}</option>)}</select></label></div>
+     {!decision.needs.length&&!decision.issue&&<p>基础信息未列出可见素材；确认前请核对原文。</p>}
     <div className="prompt-art-needs" role="region" aria-label="本条素材关联列表" tabIndex={0}>{decision.needs.map(need=>{
      const cards=snapshot.cards.filter(card=>card.category===need.category&&card.sceneIds.includes(entry.sceneId)&&card.detailStatus!=='nonvisual'),card=cards.find(row=>row.uid===need.cardUid),images=bindingImages(card),image=images.find(row=>row.id===need.imageId);
      return <article key={need.id}><div><b>{labels[need.category]} · {need.text}</b>{need.locked&&<small>人工选择</small>}{need.formatNotice&&<small>{need.formatNotice}</small>}<label>用途<select aria-label={`${need.text}用途`} disabled={disabled||stale} value={need.visibility} onChange={event=>act(()=>edit(need.id,{visibility:event.target.value}))}><option value="visible">画面使用</option><option value="voice">仅声音</option><option value="mentioned">仅提及</option><option value="excluded">本条不用</option></select></label><label>关联卡片<select aria-label={`${need.text}关联卡片`} disabled={disabled||stale||need.visibility!=='visible'} value={card?.uid||''} onChange={event=>act(()=>{const chosen=cards.find(row=>row.uid===event.target.value);return edit(need.id,{cardUid:chosen?.uid||null,imageId:chosen?.images.length===1?chosen.images[0].id:null});})}><option value="">待选择明确卡片</option>{cards.map(row=><option key={row.uid} value={row.uid}>{row.name}</option>)}</select></label><label>关联依据<input aria-label={`${need.text}关联依据`} disabled={disabled||stale} defaultValue={need.reason} key={`${need.id}:${saved?.revision}`} onBlur={event=>{if(event.target.value!==need.reason)act(()=>edit(need.id,{reason:event.target.value}));}}/></label></div>
@@ -119,7 +122,8 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
      </article>;
     })}</div>
     {decision.confirmed&&!stale&&<span className="prompt-binding-state">{bindingProblems(snapshot,entry,decision,{requireImages:true}).length?'用途已确认 · 图片待完成':'本条已就绪'}</span>}
-   </>}
+    </section>
+   </div>}
   </>}
  </section>;
 }

@@ -125,6 +125,11 @@
 .art-review-item small { flex-basis:100%; color:#6f6378; font-size:14px; line-height:1.7; }
 .art-review-item button { padding:6px; flex:none; border:none; background:transparent; color:#80708f; }
 .art-review-item button:hover:not(:disabled) { color:#7561bb; background:#f3effb; }
+.art-review-category-items { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.art-review-category-items .art-review-item { margin-bottom:0; min-height:50px; padding:9px 10px; box-shadow:none; border-radius:8px; }
+.art-review-category-items .art-review-item b { font-size:15px; line-height:1.35; }
+.art-review-category-items .art-review-item small { font-size:12px; line-height:1.45; }
+.art-review-category-items .art-review-outfit { font-size:12px; padding:3px 6px; }
 .art-review-empty { color:#747581; font-size:14px; margin:7px 0; }
 .art-review-page .art-review-undo { font-size:14px; border:none; padding:6px 0; background:transparent; color:#7561bb; }
 .art-review-history { color:#626774; font-size:14px; padding:18px 3px; line-height:1.9; }
@@ -178,6 +183,7 @@
   .art-review-controls { grid-template-columns:minmax(0,1fr); }
   .art-review-controls-actions { flex-wrap:wrap; }
   .art-review-scene-stepper { margin-left:0; }
+  .art-review-category-items { grid-template-columns:1fr; }
 }
 @media(max-width:1200px) {
   .art-review-scene>header { flex-wrap:wrap; }

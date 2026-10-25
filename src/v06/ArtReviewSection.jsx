@@ -80,13 +80,22 @@ function ReviewScene({scene,record,canChange,onAct,onUpdate,onEdit,onAdd,onPubli
  const approved=isSceneVerified(scene),incomplete=(!scene.mappingReady&&!scene.items.length);
  return <section className={`art-review-scene ${approved?'verified':''}`} aria-label={`场景 ${scene.id} 核实`}>
   <header><div><span className="art-review-scene-id">场景 {scene.id}</span><span className={`art-review-status ${approved?'approved':''}`}>{sceneReviewStatus(scene,record)}</span></div><div><button className="art-review-secondary" disabled={!canChange||incomplete} onClick={()=>onAct(()=>onUpdate({type:approved?'unapprove':'approve',sceneId:scene.id}),approved?'本机已保存：已取消本场核实。':'本机已保存：本场名单已核实，待补细节可继续后台补齐。')}><Check size={16}/>{approved?'取消核实':'核实本场'}</button><button className="art-review-accent" disabled={!canChange||incomplete} onClick={()=>onPublish([scene.id])}><CloudUpload size={16}/>核实并发布本场</button></div></header>
-  <div className="art-review-scene-columns"><article className="art-review-source"><h3>剧本原文</h3><pre ref={sourceRef} tabIndex={0} aria-label={`场景${scene.id}剧本原文`}>{scene.source}</pre></article><article className="art-review-inventory"><h3>本场清单 <small>名称 / 状态</small></h3>{Object.entries(ART_REVIEW_CATEGORIES).map(([category,label])=>{
-   const Icon=CATEGORY_ICONS[category],items=scene.items.filter(i=>i.category===category);
-   return <div className="art-review-category" key={category}><div className="art-review-category-heading"><h4><Icon size={17} aria-hidden="true"/>{label}<span>{items.length}</span></h4><div className="art-review-category-actions"><button disabled={!canChange} onClick={()=>onAdd(scene.id,category)} aria-label={`场景${scene.id}添加${label}`}><Plus size={15}/>添加</button><button disabled={!canChange} onClick={()=>onEdit(scene.id,null,category)} aria-label={`场景${scene.id}补充${label}`}><Plus size={15}/>补充</button></div></div>{items.map(item=>{
-    const {base,variant}=parseAssetName(item.name);
-    return <article className="art-review-item" data-category={category} key={item.id}><div><b>{item.category === 'prop' ? displayAssetName(item, allAssets) : base}</b>{variant&&item.category !== 'prop'&&<span className="art-review-outfit">{variant}</span>}{needsArtReviewDetails(item)&&<span className="art-review-needs-detail">待补齐细节</span>}{item.detailStatus==='nonvisual'&&<span className="art-review-needs-detail">仅声音 / 提及</span>}{item.note&&<small>{item.note}</small>}{item.warning&&<small>{item.warning}</small>}</div><button aria-label={`修改${reviewName(item.name)}场景${scene.id}`} disabled={!canChange} onClick={()=>onEdit(scene.id,item)}><PencilLine size={18}/></button><button aria-label={`移除${reviewName(item.name)}场景${scene.id}`} disabled={!canChange} onClick={()=>onAct(()=>onUpdate({type:'remove',sceneId:scene.id,itemId:item.id}),'本机已保存：已从本场移除，可撤销。')}><X size={18}/></button></article>;
-   })}{!items.length&&<p className="art-review-empty">未列出{label}</p>}</div>;
-  })}{!!scene.removed.length&&<button className="art-review-undo" disabled={!canChange} onClick={()=>onAct(()=>onUpdate({type:'undo',sceneId:scene.id}),'本机已保存：已撤销最近移除。')}><Undo2 size={15}/>撤销最近移除</button>}</article></div>
+  <div className="art-review-scene-columns">
+   <article className="art-review-source"><h3>剧本原文</h3><pre ref={sourceRef} tabIndex={0} aria-label={`场景${scene.id}剧本原文`}>{scene.source}</pre></article>
+   <article className="art-review-inventory"><h3>本场清单 <small>名称 / 状态</small></h3>
+    {Object.entries(ART_REVIEW_CATEGORIES).map(([category,label])=>{
+     const Icon=CATEGORY_ICONS[category],items=scene.items.filter(i=>i.category===category);
+     return <div className="art-review-category" key={category}>
+      <div className="art-review-category-heading"><h4><Icon size={17} aria-hidden="true"/>{label}<span>{items.length}</span></h4><div className="art-review-category-actions"><button disabled={!canChange} onClick={()=>onAdd(scene.id,category)} aria-label={`场景${scene.id}添加${label}`}><Plus size={15}/>添加</button><button disabled={!canChange} onClick={()=>onEdit(scene.id,null,category)} aria-label={`场景${scene.id}补充${label}`}><Plus size={15}/>补充</button></div></div>
+      <div className="art-review-category-items">{items.map(item=>{
+       const {base,variant}=parseAssetName(item.name);
+       return <article className="art-review-item" data-category={category} key={item.id}><div><b>{item.category === 'prop' ? displayAssetName(item, allAssets) : base}</b>{variant&&item.category !== 'prop'&&<span className="art-review-outfit">{variant}</span>}{needsArtReviewDetails(item)&&<span className="art-review-needs-detail">待补齐细节</span>}{item.detailStatus==='nonvisual'&&<span className="art-review-needs-detail">仅声音 / 提及</span>}{item.note&&<small>{item.note}</small>}{item.warning&&<small>{item.warning}</small>}</div><button aria-label={`修改${reviewName(item.name)}场景${scene.id}`} disabled={!canChange} onClick={()=>onEdit(scene.id,item)}><PencilLine size={18}/></button><button aria-label={`移除${reviewName(item.name)}场景${scene.id}`} disabled={!canChange} onClick={()=>onAct(()=>onUpdate({type:'remove',sceneId:scene.id,itemId:item.id}),'本机已保存：已从本场移除，可撤销。')}><X size={18}/></button></article>;
+      })}{!items.length&&<p className="art-review-empty">未列出{label}</p>}</div>
+     </div>;
+    })}
+    {!!scene.removed.length&&<button className="art-review-undo" disabled={!canChange} onClick={()=>onAct(()=>onUpdate({type:'undo',sceneId:scene.id}),'本机已保存：已撤销最近移除。')}><Undo2 size={15}/>撤销最近移除</button>}
+   </article>
+  </div>
  </section>;
 }
 
