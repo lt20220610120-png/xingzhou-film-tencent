@@ -14,7 +14,7 @@ export function bindingHash(value){
 export const bindingImages=asset=>asset?.images?.length?asset.images.filter(image=>image.id&&image.url):asset?.image_url?[{id:'legacy',url:asset.image_url}]:[];
 const imageIdentity=image=>image?.objectKey||String(image?.url||'').split('?')[0];
 const CHARACTER_ATTRIBUTE_FRAGMENT=/^(?:人物)?(?:肤色|发色|发型|短发|长发|胡须|妆容|穿着|衣着|服装|上衣|裤子|裙子|鞋子|鞋|牛仔裤|旧胶鞋|皮肤|身材|年龄|气质|外貌|外观|体型|发型略显|短黑发|长黑发|黑发|白发|偏深|略显凌乱).*$/u;
-const isCharacterAttributeFragment=text=>CHARACTER_ATTRIBUTE_FRAGMENT.test(String(text||'').trim());
+export const isCharacterAttributeFragment=text=>CHARACTER_ATTRIBUTE_FRAGMENT.test(String(text||'').trim());
 export function bindingSnapshot(project,ledger,assets,previous={}){
  const inspection=inspectCollabEpisodes(project.episodes),cards=[],entries=[],issues=[],promptIds=new Set();
  if(inspection.error)issues.push(inspection.error);
@@ -112,6 +112,16 @@ export function currentEntryBinding(snapshot,entry,saved){
   const card=snapshot.cards.find(card=>card.uid===old?.cardUid&&card.category===need.category&&cardInEntry(card,entry));
   return old?{...old,cardUid:card?.uid||null,imageId:card?.images.some(image=>image.id===old.imageId)?old.imageId:null}:need;
  });
+ // Roster-based manual selections need not have a same-name token in the prompt.
+ // Keep them while the card still belongs to this scene; re-anchor changed text
+ // as an explicit manual reference instead of writing at an obsolete offset.
+ for(const old of saved?.needs?.filter(n=>n.locked&&n.cardUid)||[]){
+  const card=snapshot.cards.find(c=>c.uid===old.cardUid&&c.category===old.category&&cardInEntry(c,entry));
+  if(!card||next.needs.some(n=>n.locked&&n.cardUid===old.cardUid))continue;
+  const valid=entry.prompt.slice(old.start,old.end)===old.text&&old.end>old.start;
+  next.needs=next.needs.filter(n=>n.cardUid!==card.uid);
+  next.needs.push({...old,...(valid?{}:{manualReference:true,start:0,end:0,text:card.name}),imageId:card.images.some(i=>i.id===old.imageId)?old.imageId:null});
+ }
  return next;
 }
 export function saveDistribution(snapshot,entry,decision){
@@ -159,19 +169,27 @@ export function compileEntryBinding(snapshot,entry,decision){
  const problems=bindingProblems(snapshot,entry,decision,{requireImages:true});
  if(problems.length)throw Error(`${entry.label}：${problems.join('；')}`);
  if(/@(image|audio|video)\d+|@【|@\[/.test(entry.prompt))throw Error(`${entry.label} 已有手动引用，请先核对原引用后再载入联动模式`);
- const references=[],spans=new Map();
+ const references=[],spans=new Map(),manual=[];
  for(const need of decision.needs.filter(row=>row.visibility==='visible')){
   const card=snapshot.cards.find(card=>card.uid===need.cardUid),image=card.images.find(image=>image.id===need.imageId),id=`${card.assetId}:${image.id}`;
   const ref=card.reference?{...card.reference,category:card.category,name:card.name}:{id,imageId:image.id,assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image',url:image.url};
   if(!references.some(item=>item.id===ref.id))references.push(ref);
+  if(need.manualReference){manual.push({name:card.name,id:ref.id});continue;}
   const key=`${need.start}:${need.end}`,group=spans.get(key)||{start:need.start,end:need.end,ids:[]};group.ids.push(ref.id);spans.set(key,group);
  }
  const aliases=new Map(numberedReferences(references).map(ref=>[ref.id,ref.alias]));let prompt=entry.prompt;
- const ordered=[...spans.values()].sort((left,right)=>right.start-left.start);
- for(let index=0;index<ordered.length;index++){
-  const span=ordered[index];if(index&&span.end>ordered[index-1].start)throw Error('关联原文位置重叠，请重新核对');
+ // AI quotes may overlap (e.g. two people in the same sentence). Merge their
+ // anchors before inserting aliases so the original prompt stays intact.
+ const merged=[];
+ for(const span of [...spans.values()].sort((a,b)=>a.start-b.start)){
+  const previous=merged.at(-1);
+  if(previous&&span.start<previous.end){previous.end=Math.max(previous.end,span.end);previous.ids.push(...span.ids);}
+  else merged.push({...span,ids:[...span.ids]});
+ }
+ for(const span of merged.reverse()){
   prompt=prompt.slice(0,span.end)+`（参考${[...new Set(span.ids)].map(id=>aliases.get(id)).join(' ')}）`+prompt.slice(span.end);
  }
+ if(manual.length)prompt+='\n【人工指定参考】\n'+manual.map(row=>`${row.name}（参考${aliases.get(row.id)}）`).join('\n');
  return {prompt,references};
 }
 export function linkedPromptBook(snapshot,decisions,accountId){

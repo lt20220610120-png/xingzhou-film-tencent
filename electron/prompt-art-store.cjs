@@ -23,7 +23,9 @@ function createPromptArtStore(root,accountId){
    if(!data||data.snapshot?.projectId!==payload.projectId||!Array.isArray(data.snapshot?.cards)||!Array.isArray(data.snapshot?.entries))throw Error('关联记录格式无效');
    const versions={...previous?.versions,...data.versions};
    for(const [id,row] of Object.entries(versions))if(row?.id!==id||row.snapshot?.projectId!==payload.projectId||!Array.isArray(row.snapshot?.entries)||!Array.isArray(row.snapshot?.cards))throw Error('提示词版本记录无效');
-   const next={schema:2,accountId:account,enabled:Boolean(data.enabled),snapshot:data.snapshot,decisions:data.decisions||{},versions,selectedVersionId:data.selectedVersionId||'',revision:(previous?.revision||0)+1,updatedAt:new Date().toISOString()};
+   const sceneDistributionAttempts=data.sceneDistributionAttempts||previous?.sceneDistributionAttempts||{};
+   if(typeof sceneDistributionAttempts!=='object'||Array.isArray(sceneDistributionAttempts)||Object.values(sceneDistributionAttempts).some(row=>!row||typeof row.stamp!=='string'||!['running','failed','done'].includes(row.status)))throw Error('自动分发记录格式无效');
+   const next={schema:2,accountId:account,enabled:Boolean(data.enabled),snapshot:data.snapshot,decisions:data.decisions||{},versions,sceneDistributionAttempts,selectedVersionId:data.selectedVersionId||'',revision:(previous?.revision||0)+1,updatedAt:new Date().toISOString()};
    const content=JSON.stringify(next);if(content.length>32*1024*1024)throw Error('关联记录过大，请分集核对');
    fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(file+'.tmp',content,'utf8');fs.renameSync(file+'.tmp',file);return next;
   },

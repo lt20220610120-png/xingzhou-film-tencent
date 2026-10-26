@@ -10,3 +10,15 @@ test('本机关联持久化、账号隔离和并发版本检查',()=>{
   account='b';assert.throws(()=>store.load(payload),/账号/);assert.equal(store.load({accountId:'b',projectId:'p'}),null);assert.equal(store.list({accountId:'b'}).length,0);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('自动分发运行/失败检查点跨重启保留，旧客户端保存不擦除防重记录',()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-binding-')),payload={accountId:'a',projectId:'p'};
+ try{
+  let store=createPromptArtStore(root,()=> 'a');
+  const data={enabled:true,snapshot:{projectId:'p',cards:[],entries:[]},sceneDistributionAttempts:{'v:p1':{stamp:'source-v1',status:'failed'}}};
+  store.save({...payload,baseRevision:0,data});store=createPromptArtStore(root,()=> 'a');
+  assert.deepEqual(store.load(payload).sceneDistributionAttempts,data.sceneDistributionAttempts);
+  store.save({...payload,baseRevision:1,data:{enabled:true,snapshot:data.snapshot}});
+  assert.deepEqual(store.load(payload).sceneDistributionAttempts,data.sceneDistributionAttempts);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
