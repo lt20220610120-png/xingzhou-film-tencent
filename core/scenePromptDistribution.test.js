@@ -16,13 +16,20 @@ test('场景别名以已有关联卡身份分发，肤色与衣着不生成卡�
  assert.equal(d.needs.find(n=>n.category==='scene').cardUid,'room');
  assert.deepEqual(compileEntryBinding(f.snapshot,f.entry,saveDistribution(f.snapshot,f.entry,d)).references.map(r=>r.assetId),['person','room','phone']);
  const input=JSON.parse(sceneDistributionMessages(f.snapshot,f.entry,f.decision)[1].content);
- assert.equal(input.prompt,f.entry.prompt);assert.equal(input.cards.length,4);
+ assert.equal('prompt' in input,false);assert.equal(input.cards.length,4);assert.equal(JSON.stringify(input).includes('整体视听'),false);assert.equal(JSON.stringify(input).includes('画面内容'),false);
  assert.deepEqual(input.foundation.character[0].names,['李大川']);
  assert.match(sceneDistributionMessages(f.snapshot,f.entry,f.decision)[0].content,/内置分发 Skill/);
 });
+test('分发只接受基础设定证据，省略的卡片安全标记为未使用',()=>{
+ const f=fixture(),raw={assignments:[{cardUid:'person',visibility:'visible',evidence:'李大川',reason:'基础设定人物'}],missing:[]};
+ const d=applySceneDistribution(f.snapshot,f.entry,f.decision,raw);
+ assert.equal(d.needs.find(n=>n.cardUid==='person').visibility,'visible');
+ assert.equal(d.needs.filter(n=>n.visibility==='excluded').length,3);
+ assert.throws(()=>applySceneDistribution(f.snapshot,f.entry,f.decision,{assignments:[{cardUid:'person',visibility:'visible',evidence:'他接起电话',reason:'画面人物'}],missing:[]}),/基础设定范围/);
+});
 test('完整逐卡判断拒绝遗漏、重复、跨场卡片和无原文证据',()=>{
  const f=fixture(),run=raw=>applySceneDistribution(f.snapshot,f.entry,f.decision,raw);
- assert.throws(()=>run({...f.raw,assignments:f.raw.assignments.slice(1)}),/遗漏/);
+ const partial=run({...f.raw,assignments:f.raw.assignments.slice(0,2)});assert.equal(partial.needs.filter(n=>n.visibility==='excluded').length,2);
  assert.throws(()=>run({...f.raw,assignments:[...f.raw.assignments,f.raw.assignments[0]]}),/重复/);
  assert.throws(()=>run({...f.raw,assignments:f.raw.assignments.map(r=>r.cardUid==='room'?{...r,cardUid:'other'}:r)}),/本场/);
  assert.throws(()=>run({...f.raw,assignments:f.raw.assignments.map(r=>r.cardUid==='room'?{...r,evidence:'不存在的地方'}:r)}),/原文/);
@@ -46,7 +53,7 @@ test('人工取消会锁定不用，其他场景卡片不能人工添加',()=>{
 test('缺项必须是有原文依据的实体，描述碎片被拒绝且缺项不自动建卡',()=>{
  const f=fixture();
  assert.throws(()=>applySceneDistribution(f.snapshot,f.entry,f.decision,{...f.raw,missing:[{category:'character',text:'肤色偏深',reason:'缺人物'}]}),/属性/);
- f.entry.prompt+='\n道具：手电筒';
+ f.entry.prompt=f.entry.prompt.replace('道具：手机','道具：手机；手电筒');
  const d=applySceneDistribution(f.snapshot,f.entry,f.decision,{...f.raw,missing:[{category:'prop',text:'手电筒',reason:'清单没有'}]});
  assert.equal(d.needs.at(-1).cardUid,null);assert.equal(f.snapshot.cards.length,4);assert.equal(saveDistribution(f.snapshot,f.entry,d).confirmed,false);
 });

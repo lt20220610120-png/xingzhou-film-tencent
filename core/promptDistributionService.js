@@ -1,6 +1,6 @@
 import {bindingSnapshot,bindingHash,currentEntryBinding,saveDistribution} from './promptArtBinding.js';
 import {selectBindingVersion,saveBindingVersion,promptSetId} from './promptBindingVersions.js';
-import {applySceneDistribution,sceneDistributionMessages,sceneDistributionStamp} from './scenePromptDistribution.js';
+import {applySceneDistribution,sceneDistributionMessages,sceneDistributionStamp,sceneCards} from './scenePromptDistribution.js';
 import {isReviewCurrent,needsArtReviewDetails} from './artReview.js';
 import {isArtDetailDeferred} from './artDeferredDetails.js';
 import {runBindingRepair} from './importedArtBinding.js';
@@ -72,7 +72,8 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      notice=`${manual?'重新':'自动'}分发 ${entry.label}`;emit();
      const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed),call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
-      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:8192},{manual,job,isStopped:stopped});
+      const cardCount=state.snapshot.entries.find(e=>e.id===entryId)?sceneCards(state.snapshot,state.snapshot.entries.find(e=>e.id===entryId)).length:0;
+      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,isStopped:stopped});
      },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw)});
      if(stopped())throw Error('任务已停止');
      await mutate(selectedId,latest=>{

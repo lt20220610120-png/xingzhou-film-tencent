@@ -9,8 +9,8 @@ const empty=()=>({character:[],scene:[],prop:[]});
 const name=text=>text.replace(/[（(][^）)]*[）)]/g,'').replace(/[【】\[\]]/g,'').replace(/[。\s]+$/g,'').trim();
 const attribute=/^(?:肤色|发色|发型|短黑发|长黑发|短发|身材|年龄|穿|牛仔裤|旧胶鞋|驾驶台|副驾驶|车座|脚垫|前挡风|本段|同一时段|无其他|没有其他)/;
 export function readPromptFoundation(prompt=''){
- const marker=/[【\[]基础(?:设定|信息)[】\]]/.exec(prompt),out=empty();if(!marker)return out;
- const tail=prompt.slice(marker.index+marker[0].length),block=tail.slice(0,/\n\s*[【\[][^\n]+?[】\]]/.exec(tail)?.index??tail.length);
+ const source=readPromptFoundationBlock(prompt),out=empty();if(!source)return out;
+ const block=source.text;
  const fields=[...block.matchAll(/(?:^|\n)\s*(人物|场景|道具|音色|声音|限制)\s*[：:]/g)],types={人物:'character',场景:'scene',道具:'prop'};
  for(let i=0;i<fields.length;i++){
   const field=fields[i],category=types[field[1]];if(!category)continue;
@@ -26,4 +26,12 @@ export function readPromptFoundation(prompt=''){
   }
  }
  return out;
+}
+
+// Returns the exact UTF-16 range used for identity/evidence matching. Keeping
+// this separate preserves the long-standing readPromptFoundation() shape.
+export function readPromptFoundationBlock(prompt=''){
+ const marker=/[【\[]基础(?:设定|信息)[】\]]/.exec(String(prompt));if(!marker)return null;
+ const start=marker.index+marker[0].length,tail=String(prompt).slice(start),endOffset=/\n\s*[【\[][^\n]+?[】\]]/.exec(tail)?.index??tail.length;
+ return {text:tail.slice(0,endOffset),start,end:start+endOffset};
 }

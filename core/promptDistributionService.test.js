@@ -18,6 +18,12 @@ test('different prompts run concurrently, duplicate prompt requests reuse one ta
  await entered.promise;assert.equal(service.isBusy('p1'),true);assert.equal(service.isBusy('p3'),false);assert.equal(max,2);gate.resolve();
  await Promise.all([first,duplicate,second]);assert.equal(count,2);assert.equal(Object.keys(f.saved.decisions).length,2);assert.equal(f.saved.decisions.p1.origin,'scene-inventory-ai');assert.equal(f.saved.decisions.p2.confirmed,true);
 });
+test('scene distribution uses analysis mode and a compact output budget',async()=>{
+ const f=fixture();let payload;f.api.aiChat=async p=>{payload=p;return f.output(p.messages)};
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await service.run('p1',{profile:{id:'m'}});
+ assert.equal(payload.analysisMode,true);assert(payload.maxOutputTokens>=2048&&payload.maxOutputTokens<=8192);
+ const input=JSON.parse(payload.messages[1].content);assert.equal('prompt' in input,false);assert.equal(input.foundation.character.length,1);
+});
 test('late reply does not overwrite a human edit of the same prompt, independent edits remain mergeable',async()=>{
  const f=fixture(),gate=deferred(),entered=deferred();f.api.aiChat=async p=>{entered.resolve();await gate.promise;return f.output(p.messages)};
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});

@@ -54,7 +54,7 @@ export function getArtDistributionController(options){
      {role:'user',content:JSON.stringify({sceneId,scene:initial.scenes.find(s=>s.id===sceneId)?.source,roster:requestRoster,currentEpisode:episode.content})}];
     notice=`分发场景 ${sceneId}`;emit();
     const mapping=await runBindingRepair({messages,isStopped:()=>job.cancelled,call:messages=>{
-     const taskId=crypto.randomUUID();job.taskIds.push(taskId);return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,taskId,messages,maxOutputTokens:8192},{job});
+     const taskId=crypto.randomUUID();job.taskIds.push(taskId);return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,taskId,messages,maxOutputTokens:4096,analysisMode:true},{job});
     },validate:raw=>{
      const data=decodeReviewJson(raw);if(!Array.isArray(data.scenes)||data.scenes.length!==1||data.scenes[0].sceneId!==sceneId||!Array.isArray(data.scenes[0].assets))throw Error('模型没有返回本场完整对应表');
      if(data.scenes[0].assets.some(ref=>!requestRoster.some(i=>i.name===ref.name&&i.category===ref.category)))throw Error('场景回包选择了本集清单之外的资产');return data.scenes;

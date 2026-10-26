@@ -81,6 +81,7 @@ test('Agent仅修正已收到的错误答案最多两次，网络失败不重发
  assert.equal(await runBindingRepair(options),'3');assert.equal(count,3);
  count=0;await assert.rejects(runBindingRepair({...options,validate:()=>{throw Error('仍不确定');}}),/三次/);assert.equal(count,3);
  count=0;await assert.rejects(runBindingRepair({...options,call:async()=>{count++;throw Error('网络断开');}}),/网络/);assert.equal(count,1);
+ count=0;await assert.rejects(runBindingRepair({...options,call:async()=>{count++;return {ok:false,code:'OUTPUT_TRUNCATED',error:'模型输出被截断',partialText:'半份JSON'};}}),error=>error.code==='OUTPUT_TRUNCATED'&&error.partialText==='半份JSON');assert.equal(count,1);
  let stopped=false;await assert.rejects(runBindingRepair({...options,call:async()=>{stopped=true;return '3';},isStopped:()=>stopped}),/停止/);
 });
 test('AI逐条关联不发送本机路径，人工锁定不允许被更大的范围吞掉',async()=>{
