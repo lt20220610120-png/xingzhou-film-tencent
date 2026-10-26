@@ -4,11 +4,14 @@ import {mediaSource} from '../../core/generationReferences.js';
 import {cardInEntry,bindingProblems,compileEntryBinding,entryBindingSignature,bindingHash} from '../../core/promptArtBinding.js';
 import {importedSnapshot,importedDecision,importedCategories,inventoryMessages,applyInventoryAi,runBindingRepair,runImportedEntry,withBindingImages} from '../../core/importedArtBinding.js';
 import '../prompt-art-binding.css';
+import BindingAuditList from './BindingAuditList.jsx';
+import SceneInventoryDisclosure from './SceneInventoryDisclosure.jsx';
+import {assignSceneCard} from '../../core/scenePromptDistribution.js';
 import {runImportedAuto,importedAutoSummary} from '../../core/importedArtAuto.js';
 
 export default function ImportedArtBindingPanel({book,entry:original,state,api,accountId,onUpdate,onBusy,onExit,onSelect}){
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[vision,setVision]=useState(false);
- const [details,setDetails]=useState(false),[showIssues,setShowIssues]=useState(false),[cardCategory,setCardCategory]=useState('all');
+ const [details,setDetails]=useState(true),[showIssues,setShowIssues]=useState(false),[cardCategory,setCardCategory]=useState('all');
  const summary=useMemo(()=>importedAutoSummary(book),[book]);
  const [modelId,setModelId,profile]=useWindowModel('imported-art-binding',state.apiProfiles||[],state.activeApiId);
  const snapshot=useMemo(()=>importedSnapshot(book),[book]),entry=snapshot.entries.find(row=>row.id===original.id);
@@ -115,14 +118,16 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
   await storeForGeneration(book);
  });
  const ready=snapshot.entries.filter(row=>!bindingProblems(snapshot,row,work.decisions[row.id],{requireImages:true}).length).length;
- const unused=cards.filter(card=>!decision.needs.some(need=>need.visibility==='visible'&&need.cardUid===card.uid));
+ const missing=decision.needs.filter(need=>!need.cardUid&&need.visibility!=='excluded');
  return <section className="prompt-art-panel imported-art-panel" aria-label="提示词与图片独立关联">
+  <SceneInventoryDisclosure cards={cards} needs={decision.needs} entryLabel={entry.label} disabled={busy} onToggle={(card,selected)=>saveDecision(assignSceneCard(snapshot,entry,decision,card.uid,selected))}/>
   <header className="imported-binding-header"><div><h2>AI 分发提示词与图片 <small>管理员专用</small></h2><span>{snapshot.entries.length} 条提示词 · {summary.ready} 条就绪 · {summary.pending} 条待处理</span></div><button onClick={leave}>返回原编辑模式</button></header>
 
-  <ModelSelect label="关联模型" profiles={state.apiProfiles||[]} value={modelId} onChange={setModelId} disabled={busy}/>
+  <div className="imported-binding-toolbar"><ModelSelect label="关联模型" profiles={state.apiProfiles||[]} value={modelId} onChange={setModelId} disabled={busy}/>
   <label className="imported-vision"><input type="checkbox" checked={vision} disabled={busy} onChange={event=>setVision(event.target.checked)}/>发送本场图片给支持看图的 API（最多 24 张）</label>
 
   <div className="prompt-art-actions"><button className="imported-auto-start" disabled={busy||!profile||!cards.length} onClick={()=>automatic(true)}>AI 分发当前条目（{entry.label}）</button><button disabled={busy||!profile||!snapshot.cards.length} onClick={()=>automatic(false)}>AI 分发整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)Promise.resolve(api.cancelAiTask?.({taskId:task.current})).catch(()=>{});}}>停止整理并保留进度</button>}<button disabled={busy} onClick={()=>setShowIssues(value=>!value)}>只看待处理（{summary.pending}）</button><button disabled={busy||!ready} onClick={publish}>使用已就绪关联（{ready}）</button></div>
+  </div>
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {showIssues&&<div className="imported-binding-issues" aria-label="待处理关联">{summary.rows.filter(row=>!row.ready).map(row=><button disabled={busy} key={row.id} onClick={()=>{onSelect(row.id);setDetails(true);}}><strong>{row.label}</strong><span>{row.issue}</span><small>展开处理</small></button>)}</div>}
   <details open={details} onToggle={event=>setDetails(event.currentTarget.open)}><summary>查看本条详情 / 手动调整（{entry.label}）</summary>
@@ -143,10 +148,10 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
    </details>
    <div className="prompt-art-actions"><b>本条素材分发</b><button disabled={busy||!profile} onClick={()=>associate(false)}>AI重新读取并分发本条</button><button disabled={busy||!profile} onClick={()=>associate(true)}>AI重新读取并分发整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)api.cancelAiTask?.({taskId:task.current});}}>停止分发</button>}</div>
    <div className="imported-binding-workspace">
-    <section className="imported-binding-prompt-column" aria-label="当前提示词"><div className="prompt-art-source"><h3>提示词原文 · {entry.label}</h3><textarea aria-label="关联原提示词" rows={12} value={entry.prompt} disabled={busy} onChange={event=>{const prompt=event.target.value;mutate(current=>({...current,prompts:{...current.prompts,[entry.id]:prompt}}));}}/></div></section>
-    <section className="imported-binding-cards-column" aria-label="本条人物场景道具关联"><div className="imported-art-category-tabs" role="group" aria-label="关联分类"><button type="button" className={cardCategory==='all'?'selected':''} onClick={()=>setCardCategory('all')}>全部</button>{Object.entries(importedCategories).map(([key,name])=><button type="button" key={key} className={cardCategory===key?'selected':''} onClick={()=>setCardCategory(key)}>{name}</button>)}</div>{decision.issue&&<p className="collab-error">{decision.issue}</p>}<div className="prompt-art-needs" role="region" aria-label="本条素材关联列表" tabIndex={0}>{decision.needs.filter(need=>cardCategory==='all'||need.category===cardCategory).map(need=><article key={need.id}>
-     <div><b>{importedCategories[need.category]} · {need.text}</b><label>用途<select aria-label={need.text+'用途'} value={need.visibility} disabled={busy} onChange={event=>changeNeed(need.id,{visibility:event.target.value})}>{Object.entries({visible:'画面使用',voice:'仅声音',mentioned:'仅提及',excluded:'本条不用'}).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label><label>使用图片<select aria-label={need.text+'关联图片'} value={need.cardUid||''} disabled={busy||need.visibility!=='visible'} onChange={event=>changeNeed(need.id,{cardUid:event.target.value||null,imageId:event.target.value||null})}><option value="">待确定</option>{cards.filter(card=>card.category===need.category).map(card=><option key={card.uid} value={card.uid}>{card.name} · {card.uid.slice(-10)}</option>)}</select></label><label>关联依据<input aria-label={need.text+'依据'} value={need.reason} disabled={busy} onChange={event=>changeNeed(need.id,{reason:event.target.value})}/></label></div><div className="prompt-art-image">{need.visibility==='visible'&&cards.find(card=>card.uid===need.cardUid)&&<img src={mediaSource(cards.find(card=>card.uid===need.cardUid).reference)} alt={need.text+'已选图片'}/>} {need.locked&&<small>人工选择已锁定</small>}</div>
-    </article>)}</div><p>本条未选图片：{unused.map(card=>card.name).join('、')||'无'}</p></section>
+    <section className="imported-binding-prompt-column" aria-label="当前提示词"><div className="prompt-art-prompt-heading"><span>当前提示词 <strong>{entry.label}</strong></span><div className="prompt-art-stepper" role="tablist" aria-label="提示词快速定位">{snapshot.entries.filter(row=>row.sceneId===entry.sceneId).map((row,index)=><button key={row.id} type="button" role="tab" aria-selected={row.id===entry.id} aria-label={`第 ${index+1} 条提示词 ${row.label}`} className={row.id===entry.id?'active':''} disabled={busy} onClick={()=>onSelect(row.id)}>{index+1}</button>)}</div></div><div className="prompt-art-source"><h3>提示词原文</h3><textarea aria-label="关联原提示词" rows={12} value={entry.prompt} disabled={busy} onChange={event=>{const prompt=event.target.value;mutate(current=>({...current,prompts:{...current.prompts,[entry.id]:prompt}}));}}/></div></section>
+    <section className="imported-binding-cards-column" aria-label="本条人物场景道具关联"><div className="imported-art-category-tabs" role="group" aria-label="关联分类"><b>本条已关联</b><button type="button" className={cardCategory==='all'?'selected':''} onClick={()=>setCardCategory('all')}>全部</button>{Object.entries(importedCategories).map(([key,name])=><button type="button" key={key} className={cardCategory===key?'selected':''} onClick={()=>setCardCategory(key)}>{name}</button>)}</div>{decision.issue&&<p className="collab-error">{decision.issue}</p>}{!!missing.length&&<p className="collab-error">本场素材缺少匹配：{missing.map(need=>need.text).join('、')}</p>}
+     <BindingAuditList cards={cards} needs={decision.needs} category={cardCategory} renderImage={(card,need)=>need.visibility==='visible'?<img src={mediaSource(card.reference)} alt={card.name+'已选图片'}/>:null} renderControls={(card,need)=><label>用途<select aria-label={need.text+'用途'} value={need.visibility} disabled={busy} onChange={event=>changeNeed(need.id,{visibility:event.target.value})}>{Object.entries({visible:'画面使用',voice:'仅声音',mentioned:'仅提及',excluded:'本条不用'}).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>}/>
+    </section>
    </div>
    <div className="prompt-art-actions imported-binding-footer"><button disabled={busy} onClick={confirm}>{decision.confirmed?'本条关联已确认':'保存本条分发'}</button><button disabled={busy||!ready} onClick={publish}>进入图视生成（{ready}/{snapshot.entries.length} 条就绪）</button></div>
   </details>

@@ -28,6 +28,7 @@ export default function useScenePromptDistribution({snapshot,decisions,saved,rea
    const result=await runBindingRepair({messages:sceneDistributionMessages(captured.snapshot,entry,seed),call:messages=>api.aiChat({...profile,profileId:profile.id,messages,taskId:crypto.randomUUID(),maxOutputTokens:8192}),isStopped,validate:raw=>applySceneDistribution(captured.snapshot,entry,seed,raw)});
    if(isStopped())return;
    if(latest.current.snapshot.signature!==captured.snapshot.signature)throw Error('来源已变化，旧分发未应用');
+   if(Number(latest.current.saved?.revision||0)>claimed.revision)throw Error('分发期间关联已被修改，已保留最新人工选择，请重新分发');
    const base=latest.current.saved?.revision>=claimed.revision?latest.current.saved:claimed;
    const next=saveBindingVersion(base,captured.snapshot,{...captured.decisions,[entry.id]:saveDistribution(captured.snapshot,entry,result)});
    await persist({...next,sceneDistributionAttempts:{...base.sceneDistributionAttempts,[key]:{stamp,status:'done',label:entry.label}}});

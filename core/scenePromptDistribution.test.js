@@ -17,6 +17,8 @@ test('场景别名以已有关联卡身份分发，肤色与衣着不生成卡�
  assert.deepEqual(compileEntryBinding(f.snapshot,f.entry,saveDistribution(f.snapshot,f.entry,d)).references.map(r=>r.assetId),['person','room','phone']);
  const input=JSON.parse(sceneDistributionMessages(f.snapshot,f.entry,f.decision)[1].content);
  assert.equal(input.prompt,f.entry.prompt);assert.equal(input.cards.length,4);
+ assert.deepEqual(input.foundation.character[0].names,['李大川']);
+ assert.match(sceneDistributionMessages(f.snapshot,f.entry,f.decision)[0].content,/内置分发 Skill/);
 });
 test('完整逐卡判断拒绝遗漏、重复、跨场卡片和无原文证据',()=>{
  const f=fixture(),run=raw=>applySceneDistribution(f.snapshot,f.entry,f.decision,raw);

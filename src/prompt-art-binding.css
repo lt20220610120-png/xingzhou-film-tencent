@@ -228,3 +228,44 @@
 .scene-prompt-assignment footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
 .prompt-art-panel .scene-missing-assets{flex-shrink:0;max-height:180px;overflow:auto;margin-top:10px;padding:10px;border:1px solid #eed5ca;border-radius:8px;background:#fff8f5;color:#7f3928;font-size:13px}
 .prompt-art-panel .scene-missing-assets label{display:grid;grid-template-columns:minmax(70px,.6fr) minmax(0,1fr);align-items:center}
+
+/* Compact audit rows keep people, locations and props visible together. */
+.binding-audit-list{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 5px 5px 0;scrollbar-gutter:stable}
+.binding-audit-group{margin:0 0 16px}
+.prompt-art-panel .binding-audit-group h3{display:flex;align-items:center;gap:8px;margin:3px 0 8px;color:#171d27;font-size:15px}
+.binding-audit-group h3 span{font-size:12px;font-weight:500;color:#475569}
+.binding-audit-rows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.prompt-art-panel .binding-audit-row{margin:0;padding:0;border:1px solid #dce9ee;border-left:3px solid #8db8c5;border-radius:8px;background:#f7fcfd;min-width:0;align-self:start}
+.prompt-art-panel .binding-audit-row summary{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;padding:11px 10px;min-height:45px;cursor:pointer;list-style:none;line-height:1.4}
+.binding-audit-row summary::-webkit-details-marker{display:none}
+.binding-audit-row summary b{flex:1;min-width:80px;color:#111;font-size:14px;overflow-wrap:anywhere}
+.binding-audit-usage{font-size:11px;color:#46576b;background:#edf3f8;padding:2px 5px;border-radius:4px}
+.binding-audit-check{font-size:11px;color:#286a6d;white-space:nowrap}
+.binding-audit-check::after{content:'⌄';margin-left:5px;color:#7f8d9c}
+.binding-audit-detail{border-top:1px solid #e1ebef;padding:9px 10px;font-size:12px;color:#354454;display:flex;flex-direction:column;gap:7px}
+.binding-audit-detail p{margin:0;line-height:1.65}
+.binding-audit-detail img{width:100%;height:100px;object-fit:contain;border-radius:5px}
+.binding-audit-empty{margin:0;color:#667487;font-size:12px;padding:5px 0}
+.prompt-art-panel .scene-inventory-disclosure{margin:0 0 14px;padding:0;border:1px solid #dae8ee;border-radius:10px;background:#f6fbfd}
+.prompt-art-panel .scene-inventory-disclosure>summary{padding:13px 15px;display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;cursor:pointer;color:#172331;font-size:14px}
+.scene-inventory-disclosure>summary>span{font-size:12px;color:#4c6574}
+.scene-inventory-disclosure>summary .scene-inventory-target{margin-left:auto;color:#365f71}
+.scene-inventory-disclosure>summary::after{content:'⌄';color:#587c8c}
+.scene-inventory-disclosure-body{padding:4px 15px 15px;max-height:300px;overflow:auto;overscroll-behavior:contain}
+.scene-inventory-disclosure-body>section{margin:10px 0 0}
+.scene-inventory-disclosure-body h3{font-size:13px;margin:0 0 7px;color:#111}
+.scene-inventory-disclosure-body section>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.scene-inventory-disclosure-body article{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid #dce7ec;border-radius:7px;background:#fff;min-width:0}
+.scene-inventory-disclosure-body article b{flex:1;min-width:0;font-size:13px;color:#111;overflow-wrap:anywhere}
+.scene-inventory-disclosure-body article button{font-size:12px;padding:5px 7px;white-space:nowrap}
+.scene-inventory-disclosure-body article.assigned{border-color:#a5cad4;background:#f6fcfd}
+.prompt-art-panel .imported-binding-prompt-column textarea{color:#111!important;font-family:inherit;font-size:15px;line-height:1.85}
+.prompt-art-panel .prompt-art-stepper button{color:#5c4898;background:#fff;font-weight:600}
+.prompt-art-panel .prompt-art-stepper button.active{color:#fff;background:#6957b7}
+.imported-binding-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin:10px 0}
+.imported-binding-toolbar .window-model-select{display:flex;align-items:center;gap:8px;margin:0}
+.imported-binding-toolbar .window-model-select select{width:280px;max-width:100%;margin:0}
+.prompt-art-panel .imported-binding-toolbar .imported-vision{margin:0;font-size:12px}
+.imported-binding-toolbar .prompt-art-actions{margin:0;flex-wrap:wrap;gap:7px}
+@container(max-width:1000px){.binding-audit-rows{grid-template-columns:1fr}.scene-inventory-disclosure-body section>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container(max-width:620px){.scene-inventory-disclosure-body section>div{grid-template-columns:1fr}}
