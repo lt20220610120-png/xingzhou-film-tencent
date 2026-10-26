@@ -39,3 +39,12 @@ test('a malformed prompt in a different scene blocks its episode but not an inde
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(['p1','p2'].map(id=>service.run(id,{profile:{id:'m'}})));
  assert.equal(promptReviewState(await service.read(),{sceneId:'1-1'}).ready,true);assert.equal(promptReviewState(await service.read(),{episode:1}).ready,false);
 });
+
+test('a complete episode publishes while later episodes are pending or their reading was stopped',async()=>{
+ const f=fixture();f.project.episodes.push({id:'ep2',episodeNumber:2,content:'2-1 日 内\n张三喝水。',prompts:[{id:'later',label:'2-1-1',content:f.project.episodes[0].prompts[0].content}]});
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
+ await Promise.all(['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}})));
+ await service.stop();const state=await service.read();assert.equal(promptReviewState(state,{episode:1}).ready,true);assert.equal(promptReviewState(state,{}).ready,false);
+ const published=[];await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async n=>published.push(n)},scope:{episode:1},actor:'u',action:'approve-publish'});
+ assert.deepEqual(published,[1]);
+});

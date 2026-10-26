@@ -1,3 +1,4 @@
+import {requestArtModel} from './artModelQueue.js';
 import {ART_LOCALE_RULES} from './artLocale.js';
 import {decodeReviewJson} from './artReview.js';
 
@@ -37,7 +38,7 @@ export async function ensureArtScriptContext({project,store,api,profile,job={},o
  for(let n=saved.chunks.length;n<pieces.length;n++){
   if(job.cancelled)return null;
   job.notice=`正在通读全剧背景 ${n+1}/${pieces.length} 段`;onProgress?.();job.taskId=crypto.randomUUID();
-  const response=await api.aiChat({...structuredClone(profile),profileId:profile.id,taskId:job.taskId,analysisMode:true,maxOutputTokens:4096,resultEnvelope:true,messages:[{role:'system',content:instruction+'本次是全文的一个连续分段，仅根据此段提取，未出现的信息不要补造。'},{role:'user',content:JSON.stringify({part:n+1,total:pieces.length,untrustedScript:pieces[n]})}]});
+  const response=await requestArtModel(api,{...structuredClone(profile),profileId:profile.id,taskId:job.taskId,analysisMode:true,maxOutputTokens:4096,resultEnvelope:true,messages:[{role:'system',content:instruction+'本次是全文的一个连续分段，仅根据此段提取，未出现的信息不要补造。'},{role:'user',content:JSON.stringify({part:n+1,total:pieces.length,untrustedScript:pieces[n]})}]},{job});
   job.taskId='';if(job.cancelled)return null;
   if(response?.ok===false)throw Error(response.error||'背景分析回包中断');
   const summary=parseSummary(typeof response==='string'?response:response.output||response.partialText||'');
@@ -47,7 +48,7 @@ export async function ensureArtScriptContext({project,store,api,profile,job={},o
  if(pieces.length>1){
   if(job.cancelled)return null;
   job.notice='正在汇总全剧时代、背景、族群与风格';onProgress?.();job.taskId=crypto.randomUUID();
-  const response=await api.aiChat({...structuredClone(profile),profileId:profile.id,taskId:job.taskId,analysisMode:true,maxOutputTokens:4096,resultEnvelope:true,messages:[{role:'system',content:instruction+'现在整合按原文顺序提取的所有分段观察，不遗漏后段变化。区分主时代与回忆/穿越/其他地区；存在矛盾时保留到warnings，不擅自消除。'},{role:'user',content:JSON.stringify({untrustedSegmentObservations:saved.chunks})}]});
+  const response=await requestArtModel(api,{...structuredClone(profile),profileId:profile.id,taskId:job.taskId,analysisMode:true,maxOutputTokens:4096,resultEnvelope:true,messages:[{role:'system',content:instruction+'现在整合按原文顺序提取的所有分段观察，不遗漏后段变化。区分主时代与回忆/穿越/其他地区；存在矛盾时保留到warnings，不擅自消除。'},{role:'user',content:JSON.stringify({untrustedSegmentObservations:saved.chunks})}]},{job});
   job.taskId='';if(job.cancelled)return null;
   if(response?.ok===false)throw Error(response.error||'全剧背景汇总回包中断');
   summary=parseSummary(typeof response==='string'?response:response.output||response.partialText||'');

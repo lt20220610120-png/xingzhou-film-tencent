@@ -3,6 +3,7 @@ import {bindingSnapshot} from '../../core/promptArtBinding.js';
 import {selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
 import {assignCardToPrompts,cardPromptIds} from '../../core/scenePromptAssignments.js';
 import {getPromptDistributionService} from '../../core/promptDistributionService.js';
+import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
@@ -20,7 +21,9 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
  const store=getArtReviewStore({api,projectId:project.id,accountId});
  const service=useMemo(()=>getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets}),onSaved:data=>notifyBindingSaved(project.id,accountId,data)}),[api,project.id,accountId]);
  service.configure(()=>({project,ledger:store.snapshot(),assets}));
- const [,render]=useState(0);useEffect(()=>service.subscribe(()=>render(n=>n+1)),[service]);
+ const distributionController=useMemo(()=>getArtDistributionController({api,projectId:project.id,accountId}),[api,project.id,accountId]);
+ distributionController.configure({project,store,existingAssets:assets,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data)});
+ const [,render]=useState(0);useEffect(()=>{const update=()=>render(n=>n+1),a=service.subscribe(update),b=distributionController.subscribe(update);return()=>{a();b();};},[service,distributionController]);
  const links=(sceneId,item)=>{
   const card=snapshot.cards.find(card=>card.sceneIds.includes(sceneId)&&card.category===item.category&&card.name===item.name);
   const ids=card?cardPromptIds(snapshot,decisions,sceneId,card.uid):[];
@@ -37,5 +40,5 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
    setSaved(data);notifyBindingSaved(project.id,accountId,data);
   }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
  };
- return {links,assign,busy,error,loaded,service,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
+ return {links,assign,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
 }

@@ -4,6 +4,7 @@ import {applySceneDistribution,sceneDistributionMessages,sceneDistributionStamp}
 import {isReviewCurrent,needsArtReviewDetails} from './artReview.js';
 import {isArtDetailDeferred} from './artDeferredDetails.js';
 import {runBindingRepair} from './importedArtBinding.js';
+import {getArtModelQueue,requestArtModel} from './artModelQueue.js';
 import {createTaskPool} from './asyncTaskPool.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 
@@ -13,10 +14,11 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
  return Boolean(episode&&isReviewCurrent(record,episode)&&record.status!=='empty'&&record.status!=='inventory-pending'&&scene?.mappingReady&&scene.items.length&&scene.items.every(i=>!needsArtReviewDetails(i)||isArtDetailDeferred(record,i)));
 }
 
-export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,concurrency=4}){
+export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,concurrency}){
  let context=getContext,writer=Promise.resolve(),generation=0,notice='',paused=false;
- const tasks=new Map(),listeners=new Set(),pool=createTaskPool(concurrency),manualPool=createTaskPool(2);
+ const tasks=new Map(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=concurrency?createTaskPool(concurrency):null;
  const emit=()=>listeners.forEach(fn=>fn());
+ modelQueue.subscribe(emit);
  const read=async versionId=>{
   const saved=await api.promptArtLoad({projectId,accountId}),ctx=context();
   if(ctx.project.id!==projectId)throw Error('项目已变化');
@@ -36,16 +38,16 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   configure(fn){context=fn;},read,mutate,
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
   isBusy:id=>tasks.has(id),
-  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],notice,paused}),
+  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],notice,paused,...modelQueue.status()}),
   resume(){paused=false;emit();},
-  async stop(){paused=true;generation++;const ids=[...tasks.values()].filter(t=>!t.manual).flatMap(t=>t.taskIds);await Promise.allSettled(ids.map(taskId=>api.cancelAiTask?.({taskId})));emit();},
+  async stop(){paused=true;generation++;modelQueue.notify();const ids=[...tasks.values()].filter(t=>!t.manual).flatMap(t=>t.taskIds);await Promise.allSettled(ids.map(taskId=>api.cancelAiTask?.({taskId})));emit();},
   run(entryId,{profile,manual=false,versionId,job={}}={}){
    if(tasks.has(entryId))return tasks.get(entryId).promise;
    if(paused&&!manual)return Promise.reject(Error('已暂停自动分发'));
    if(!profile)return Promise.reject(Error('请选择分发模型'));
    const token=generation,task={manual,taskIds:[]};
    const stopped=()=>job.cancelled||(!manual&&generation!==token);
-   task.promise=(manual?manualPool:pool).run(async()=>{
+   task.promise=(lane&&!manual?lane.run:fn=>Promise.resolve().then(fn))(async()=>{
     let claimKey,stamp,owner,selectedId,decisionToken,captured;
     try{
      if(stopped())throw Error('任务已停止');
@@ -67,10 +69,10 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      // Seed only persisted/manual choices. Heuristic suggestions never become a result.
      const seeded=currentEntryBinding(state.snapshot,entry,state.decisions[entryId]);
      const seed={...seeded,needs:state.decisions[entryId]?.signature===seeded.signature?state.decisions[entryId].needs:seeded.needs.filter(n=>n.locked),issue:''};
-     notice=`${manual?'重新':'自动'}分发 ${entry.label}（并发 ${tasks.size} 条）`;emit();
+     notice=`${manual?'重新':'自动'}分发 ${entry.label}`;emit();
      const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed),call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
-      return api.aiChat({...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:8192});
+      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:8192},{manual,job,isStopped:stopped});
      },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw)});
      if(stopped())throw Error('任务已停止');
      await mutate(selectedId,latest=>{

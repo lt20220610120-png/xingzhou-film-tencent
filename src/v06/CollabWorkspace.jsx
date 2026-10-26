@@ -73,7 +73,7 @@ const runAnalysis = args => runContinuousArtAnalysis(args);
 
 const stopAnalysis = async ({projectId,api,accountId}) => {
  const jobs=[...(collabAnalysisRuns.get(analysisJobKey(accountId,projectId))||[])];
- for(const job of jobs){job.cancelled=true;job.wakeRetry?.();job.status='stopping';job.notice='正在停止分析…';}
+ for(const job of jobs){job.cancelled=true;job.wakeRetry?.();job.status='stopped';job.notice='已停止信息读取，已有清单继续分发';}
  await Promise.allSettled([...new Set(jobs.flatMap(job=>[job.taskId,...(job.taskIds||[])]).filter(Boolean))].map(taskId=>api.cancelAiTask?.({taskId})));
 };
 

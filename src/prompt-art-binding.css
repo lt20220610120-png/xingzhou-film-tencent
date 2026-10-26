@@ -269,3 +269,12 @@
 .imported-binding-toolbar .prompt-art-actions{margin:0;flex-wrap:wrap;gap:7px}
 @container(max-width:1000px){.binding-audit-rows{grid-template-columns:1fr}.scene-inventory-disclosure-body section>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @container(max-width:620px){.scene-inventory-disclosure-body section>div{grid-template-columns:1fr}}
+
+/* Keep title, model and controls on a single line even in the smallest window.
+   The toolbar itself scrolls horizontally instead of creating another row. */
+.prompt-art-panel > header.prompt-art-toolbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;min-width:0;scrollbar-width:thin;}
+.prompt-art-toolbar > div:first-child,.prompt-art-toolbar h2{flex:none;white-space:nowrap;}
+.prompt-art-panel .prompt-art-toolbar .prompt-art-header-actions{flex-wrap:nowrap;flex:none;white-space:nowrap;}
+.prompt-art-toolbar button{flex:none;white-space:nowrap;}
+.prompt-art-toolbar .window-model-select select{width:clamp(150px,15vw,240px);min-width:0;}
+.prompt-art-queue-status{font-variant-numeric:tabular-nums;}
