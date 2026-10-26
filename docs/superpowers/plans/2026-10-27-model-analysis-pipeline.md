@@ -22,4 +22,4 @@
 - [x] core/promptReviewBatch.js 与测试：各范围完整性门禁、人审标记、整场核实发布及批量发布反馈。
 - [x] 替换 useScenePromptDistribution 页面自动触发；ArtReviewSection/PromptArtBindingPanel 接入独立服务及提示词范围按钮；空清单等待状态，手动重分发仅本条忙时禁用。
 - [x] CollabWorkspace 任务注册按集防重并发、信息读取显式启动流水线；ProjectCompositionControl 内联到批量模型前方。
-- [ ] 真实 React/生产 CSS 模拟并发与整场/集/剧发布检查；全量测试、构建、独立复核、2.8.80 打包/发布、公开签名/下载核验与记忆更新。
+- [x] 真实 React/生产 CSS 模拟并发与整场/集/剧发布检查；全量测试、构建、独立复核、2.8.80 打包/发布、公开签名/下载核验与记忆更新。

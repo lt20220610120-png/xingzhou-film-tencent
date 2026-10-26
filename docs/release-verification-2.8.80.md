@@ -23,4 +23,8 @@
 
 ## 发布
 
-待公开发布后核对三份签名清单与公开安装包。
+已正式发布。实现源码提交 `b4690c8`，安装包同步 GitHub Release 与官方 HTTPS 镜像；两处 GitHub main 与官网三份 latest.json 完全一致，Ed25519 签名通过。GitHub 资产大小及 digest 与本机一致，镜像发布端完整 SHA256 和大小核验通过，公开 Range 请求返回 206、正确 MZ 头及总大小。证据 `output/publish-2880.log`、`output/playwright/public-release-2880.json`。
+
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.80.exe
+- GitHub 安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.80/Xingzhou-Film-Tencent-Setup-2.8.80.exe
+- 本机安装包：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.80/Xingzhou-Film-Tencent-Setup-2.8.80.exe
