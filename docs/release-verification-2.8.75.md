@@ -14,3 +14,8 @@
 SHA256：`025c4f06142239a11cba34d124a496e45d3bed81206e64ba9abe2671541cec9c`
 
 发布前复核：旧记录签名失效与锁定选择、AI三次有限校验、整场发布门禁、缺项双向回填、模型选择、版本切换、两页面左右结构和底部位置均核查。
+
+源码提交：1f9787e。公开双GitHub与官方镜像latest.json已核对版本、下载URL、大小和SHA256一致；镜像Range返回206且总大小一致。证据：output/public-verification-2875.json。
+
+公开下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.75/Xingzhou-Film-Tencent-Setup-2.8.75.exe
+官方镜像：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.75.exe
