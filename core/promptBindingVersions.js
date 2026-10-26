@@ -15,7 +15,7 @@ export function selectBindingVersion(current,saved,id=promptSetId(current)){
  const versions=archive(saved),stored=versions[id];
  if(id!==promptSetId(current)&&!stored)throw Error('提示词版本不存在，请刷新项目');
  const source=id===promptSetId(current)?current:stored.snapshot;
- const snapshot={...current,entries:source.entries.map(entry=>({...entry,sceneReady:current.entries.find(row=>row.sceneId===entry.sceneId)?.sceneReady??current.cards.some(card=>card.sceneIds.includes(entry.sceneId))})),issues:source.issues||[],versionId:id};
+ const snapshot={...current,entries:source.entries.map(entry=>({...entry,sceneReady:current.entries.find(row=>row.sceneId===entry.sceneId)?.sceneReady??current.cards.some(card=>card.sceneIds.includes(entry.sceneId))})),issues:source.issues||[],invalidEntries:source.invalidEntries,versionId:id};
  snapshot.signature=bindingHash([current.signature,id,snapshot.entries]);
  const decisions={...stored?.decisions};
  for(const entry of snapshot.entries){
@@ -31,7 +31,7 @@ export function selectBindingVersion(current,saved,id=promptSetId(current)){
 }
 export function saveBindingVersion(saved,snapshot,decisions){
  const versions=archive(saved),id=promptSetId(snapshot);
- versions[id]={id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot,decisions,createdAt:versions[id]?.createdAt||new Date().toISOString()};
+ versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot,decisions,createdAt:versions[id]?.createdAt||new Date().toISOString()};
  return {...saved,enabled:true,snapshot,decisions,versions,selectedVersionId:id};
 }
 export function promptExportImages(snapshot,decisions){

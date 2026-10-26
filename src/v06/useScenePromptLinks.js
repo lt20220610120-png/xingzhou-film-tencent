@@ -2,6 +2,8 @@ import {useEffect,useMemo,useState} from 'react';
 import {bindingSnapshot} from '../../core/promptArtBinding.js';
 import {selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
 import {assignCardToPrompts,cardPromptIds} from '../../core/scenePromptAssignments.js';
+import {getPromptDistributionService} from '../../core/promptDistributionService.js';
+import {getArtReviewStore} from '../../core/artReviewPersistence.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
 export function notifyBindingSaved(projectId,accountId,data){window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
@@ -15,6 +17,10 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
  },[api,project.id,accountId,enabled]);
  const current=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
  const {snapshot,decisions}=useMemo(()=>selectBindingVersion(current,saved),[current,saved]);
+ const store=getArtReviewStore({api,projectId:project.id,accountId});
+ const service=useMemo(()=>getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets}),onSaved:data=>notifyBindingSaved(project.id,accountId,data)}),[api,project.id,accountId]);
+ service.configure(()=>({project,ledger:store.snapshot(),assets}));
+ const [,render]=useState(0);useEffect(()=>service.subscribe(()=>render(n=>n+1)),[service]);
  const links=(sceneId,item)=>{
   const card=snapshot.cards.find(card=>card.sceneIds.includes(sceneId)&&card.category===item.category&&card.name===item.name);
   const ids=card?cardPromptIds(snapshot,decisions,sceneId,card.uid):[];
@@ -31,5 +37,5 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
    setSaved(data);notifyBindingSaved(project.id,accountId,data);
   }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
  };
- return {links,assign,busy,error,loaded};
+ return {links,assign,busy,error,loaded,service,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
 }

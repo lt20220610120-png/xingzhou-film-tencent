@@ -1,0 +1,33 @@
+import React,{useState,useEffect} from 'react';import {createRoot} from 'react-dom/client';
+import ArtReviewSection from '../src/v06/ArtReviewSection.jsx';import {AssetIdentity} from '../src/v06/CollabWorkspace.jsx';
+import ProjectCompositionControl from '../src/v06/ProjectCompositionControl.jsx';import {ModelSelect} from '../src/v06/ModelSelect.jsx';
+import {runContinuousArtAnalysis} from '../core/artContinuousAnalysis.js';import {getArtReviewStore} from '../core/artReviewPersistence.js';
+import {reviewSceneSignature} from '../core/artReview.js';import {artScriptFingerprint} from '../core/artScriptContext.js';
+import {notifyBindingSaved} from '../src/v06/useScenePromptLinks.js';import useProjectPromptBinding from '../src/v06/useProjectPromptBinding.js';
+import '../src/styles.css';import '../src/collab.css';import '../src/generation.css';import '../src/brand-theme.css';import '../src/workspace-readability.css';
+const gate=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}},g1=gate(),g2=gate();
+const prompt='【基础设定】\n人物：旺财（参考@），黄毛，四足犬，完整尾巴。\n场景：客厅（参考@），白天，室内有沙发。\n道具：水杯（参考@），放在桌上。\n【画面内容】\n旺财在客厅叼起水杯。';
+let project={id:'model-pipeline-qa',name:'模型流水线验收',myRole:'producer',style:'AI真人',episodes:[1,2].map(n=>({id:'ep'+n,episodeNumber:n,title:`第${n}集`,content:`${n}-1 客厅 日 内\n旺财走到水杯旁。\n${n}-2 客厅 日 内\n旺财叼起水杯。`,prompts:[{id:`p${n}11`,label:`${n}-1-1`,content:prompt},{id:`p${n}12`,label:`${n}-1-2`,content:prompt},{id:`p${n}21`,label:`${n}-2-1`,content:prompt}]}))};
+let disk={episodes:{},scriptContext:{signature:artScriptFingerprint(project),complete:true,summary:{warnings:[]},genre:'现代家庭宠物'}},saved=null,assets=[],liveJob=null;
+const cloud=new Map(),requests=[],publications=[];let active=0,maxActive=0;
+const roster=[{category:'character',name:'【旺财-狗】',description:'主体类型：生物；物种：犬。黄毛，四足，尖耳，完整尾巴。'},{category:'scene',name:'【客厅-日-内】',description:'室内客厅，白墙，布艺沙发和木桌，白天自然光。'},{category:'prop',name:'【水杯-旺财】',description:'透明玻璃水杯，圆柱形，杯口完整。'}];
+const api={promptArtStatus:async()=>({enabled:true}),promptArtLoad:async()=>structuredClone(saved),promptArtSave:async p=>{if(p.baseRevision!==(saved?.revision||0))throw Error('关联记录已被另一窗口更新');saved={...structuredClone(p.data),revision:(saved?.revision||0)+1};return structuredClone(saved)},artReviewLoadLocal:async()=>disk,artReviewSaveLocal:async({data})=>{disk=structuredClone(data)},analysisLoad:async()=>null,collabGetProject:async()=>project,collabListAssets:async()=>assets,
+ collabUpdateProject:async({updates})=>{project={...project,...updates};return project},
+ collabArtReviewSave:async p=>{const record={...structuredClone(p.data),version:p.baseVersion+1,lastWriteId:p.writeId};cloud.set(p.episodeNumber,record);return record},
+ collabArtReviewPublish:async p=>{publications.push(p);const record=structuredClone(cloud.get(p.episodeNumber));record.published||={};for(const id of p.sceneIds){const scene=record.scenes.find(s=>s.id===id);record.published[id]={...scene,signature:reviewSceneSignature(scene)};for(const item of scene.items){let asset=assets.find(a=>a.name===item.name);if(!asset){asset={...item,id:'a'+assets.length,sceneIds:[],episodes:[p.episodeNumber],images:[]};assets.push(asset)}asset.sceneIds=[...new Set([...asset.sceneIds,id])];}}record.version=p.baseVersion+1;record.lastWriteId=p.writeId;cloud.set(p.episodeNumber,record);return record},
+ aiChat:async p=>{active++;maxActive=Math.max(maxActive,active);try{
+  const system=p.messages[0].content,data=JSON.parse(p.messages[1].content||'{}');
+  if(system.includes('影视场景清单分发助手')){requests.push({kind:'prompt',label:data.label,fullPrompt:data.prompt,foundation:data.foundation});if(data.label!=='1-1-1')await (data.label.startsWith('1-')?g1.promise:g2.promise);return JSON.stringify({assignments:data.cards.map(card=>({cardUid:card.uid,visibility:'visible',evidence:card.category==='character'?'旺财':card.category==='scene'?'客厅':'水杯',reason:'已逐字读取基础设定并核对本场清单'})),missing:[]})}
+  if(system.includes('并发场景关联')){requests.push({kind:'scene',scene:data.sceneId});return JSON.stringify({scenes:[{sceneId:data.sceneId,assets:roster.map(({category,name})=>({category,name}))}]})}
+  const n=Number(p.messages.map(m=>m.content).join('').match(/当前输出只包含第(\d+)集/)?.[1]);requests.push({kind:'inventory',episode:n});
+  return {ok:true,output:`### 第${n}集\n人物：\n- ${roster[0].name}${roster[0].description}\n场景：\n- ${roster[1].name}${roster[1].description}\n道具：\n- ${roster[2].name}${roster[2].description}\n【逐场资产对应表】\n{"scenes":[]}`};
+ }finally{active--;}}
+};
+const state={apiProfiles:[{id:'text',name:'模拟分析模型',model:'mock'}],activeApiId:'text'};
+async function analyze(options={}){const job={status:'running'};if(!options.episodeNumber)liveJob=job;const result=await runContinuousArtAnalysis({project,api,accountId:'qa',profile:options.profile||state.apiProfiles[0],job,pipeline:true,targetEpisodeNumbers:options.episodeNumber?[options.episodeNumber]:undefined,mapOnly:options.mapOnly,force:options.force,onBindingSaved:data=>notifyBindingSaved(project.id,'qa',data)});job.status='completed';return {...job,...result};}
+window.qaPipeline={get requests(){return requests},get maxActive(){return maxActive},get saved(){return saved},get publications(){return publications},get job(){return liveJob},release1:()=>g1.resolve(),releaseAll:()=>{g1.resolve();g2.resolve()}};
+function Fixture(){const [,render]=useState(0),[page,setPage]=useState('review'),[live,setLive]=useState(project);const binding=useProjectPromptBinding({api,project:live,assets,accountId:'qa'});
+ useEffect(()=>{const timer=setInterval(()=>render(n=>n+1),80);return()=>clearInterval(timer)},[]);
+ return <main style={{marginLeft:380,padding:16}}><nav><button onClick={()=>void analyze()}>分析 / 继续未完成</button><button onClick={()=>setPage('review')}>清单核实</button><button onClick={()=>setPage('art')}>美术</button></nav>{page==='review'?<ArtReviewSection project={live} assets={assets} api={api} state={state} accountId="qa" canEdit refresh={async()=>setLive({...project})} analysisJob={liveJob} onAnalyze={analyze} onStop={()=>{liveJob.cancelled=true}} onOpenArt={()=>setPage('art')}/>:<div className="art-workbench"><div className="collab-art-head-right"><ProjectCompositionControl inline project={live} api={api} canEdit refresh={async()=>{}} onProjectChange={setLive}/><ModelSelect profiles={state.apiProfiles} label="批量生图模型" value="text" onChange={()=>{}}/><button>一键生成</button></div><div className="art-workbench-rows">{assets.map((asset,index)=><article className="art-workbench-row" key={asset.id}><AssetIdentity asset={asset} index={index} promptBinding={binding.data}/><section>美术资产</section></article>)}</div></div>}</main>;
+}
+createRoot(document.getElementById('root')).render(<Fixture/>);

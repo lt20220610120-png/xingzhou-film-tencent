@@ -4,6 +4,7 @@ import {runArtReviewAnalysis} from './artReviewRunner.js';
 import {artWorkflowState} from './artWorkflow.js';
 import {ensureArtScriptContext} from './artScriptContext.js';
 import {reconcileArtDeferredDetails} from './artDeferredReconciliation.js';
+import {runArtAnalysisPipeline} from './artAnalysisPipeline.js';
 
 const retryDelay=attempt=>Math.min(60000,2000*2**Math.min(attempt-1,5));
 function waitForRetry(ms,job){
@@ -39,6 +40,7 @@ export const runContinuousArtAnalysis=args=>withStorageWork(async()=>{
   catch(error){if(error.artCheckpointFailure)throw error;notes.add('全剧背景已保存在本机；云端同步待核对：'+String(error.message||error));}
  }
  const genre=context?.genre||args.genre||project.genre||'';
+ if(args.pipeline&&!job.cancelled)return {...await runArtAnalysisPipeline({...args,genre,store:scoped}),scriptContext:context};
  if(!job.cancelled&&!continuous){
   const result=await runArtReviewAnalysis({...args,genre});await checkpoint(job.cancelled?'stopped':result.errors.length?'paused':'idle');return {...result,scriptContext:context};
  }

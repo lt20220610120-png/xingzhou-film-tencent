@@ -3,6 +3,7 @@ import {bindingSnapshot,bindingImages,sceneInventoryCards,currentEntryBinding,sa
 import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
 import {assignSceneCard} from '../../core/scenePromptDistribution.js';
 import {auditedBindingNeeds} from '../../core/scenePromptAssignments.js';
+import {sceneReadyForPromptDistribution} from '../../core/promptDistributionService.js';
 import useScenePromptDistribution from './useScenePromptDistribution.js';
 import BindingAuditList from './BindingAuditList.jsx';
 import SceneInventoryDisclosure from './SceneInventoryDisclosure.jsx';
@@ -11,7 +12,7 @@ import CloudAssetImage from './CloudAssetImage.jsx';
 import {ModelSelect} from './ModelSelect.jsx';
 import '../prompt-art-binding.css';
 
-export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,sceneActions}){
+export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,sceneActions,onBindingVersionChange}){
  const [available,setAvailable]=useState(false),[loaded,setLoaded]=useState(false),[saved,setSaved]=useState(null),[selected,setSelected]=useState(''),[version,setVersion]=useState(''),[category,setCategory]=useState('all'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const mounted=useRef(false),saving=useRef(false);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
@@ -23,13 +24,15 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const currentSnapshot=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
  const versions=useMemo(()=>bindingVersionOptions(currentSnapshot,saved),[currentSnapshot,saved]);
  const selectedVersion=versions.some(row=>row.id===version)?version:versions[0].id;
+ useEffect(()=>{onBindingVersionChange?.(selectedVersion);},[selectedVersion,onBindingVersionChange]);
  const {snapshot,decisions}=useMemo(()=>selectBindingVersion(currentSnapshot,saved,selectedVersion),[currentSnapshot,saved,selectedVersion]);
  const entries=snapshot.entries.filter(entry=>entry.sceneId===sceneId),entry=entries.find(row=>row.id===selected)||entries[0];
  const decision=entry&&currentEntryBinding(snapshot,entry,decisions[entry.id]);
  const inventory=entry?sceneInventoryCards(snapshot,entry):[];
  const auditNeeds=entry?auditedBindingNeeds(snapshot,entry,decisions[entry.id]):[];
 
- const missing=decision?.needs.filter(need=>need.visibility==='visible'&&!need.cardUid)||[];
+ const sceneReady=sceneReadyForPromptDistribution(project,ledger,sceneId);
+ const missing=sceneReady?(auditNeeds.filter(need=>need.visibility==='visible'&&!need.cardUid)):[];
  const stale=entry&&decisions[entry.id]&&decisions[entry.id].signature!==entryBindingSignature(snapshot,entry);
  const attempt=entry&&saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id];
  const latest=useRef();latest.current={snapshot,saved,entry,decision};
@@ -44,20 +47,21 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const saveDecision=next=>persist(saveBindingVersion(saved,snapshot,{...decisions,[entry.id]:saveDistribution(snapshot,entry,next)}));
  const edit=(id,patch)=>saveDecision({...decision,confirmed:false,needs:decision.needs.map(need=>need.id===id?{...need,...patch,locked:true}:need)});
  const ready=Object.fromEntries(Object.values(ledger.episodes||{}).flatMap(record=>(record.scenes||[]).map(scene=>[scene.id,Boolean(scene.mappingReady&&scene.items.length)])));
- const distribution=useScenePromptDistribution({snapshot,decisions,saved,ready,loaded,canEdit,profile,api,persist,setError,setNotice,busy});
+ const distribution=useScenePromptDistribution({project,ledger,assets,accountId,snapshot,loaded,canEdit,profile,api,setError,setNotice});
  const toggleCard=(card,checked)=>saveDecision(assignSceneCard(snapshot,entry,{...decision,needs:[...auditNeeds,...decision.needs.filter(n=>!n.cardUid)]},card.uid,checked));
  if(!available)return null;
- const disabled=busy||distribution.working||!loaded||!canEdit;
+ const disabled=busy||distribution.isBusy(entry?.id)||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
   {entry&&<SceneInventoryDisclosure cards={inventory} needs={auditNeeds} entryLabel={entry.label} disabled={disabled} onToggle={(card,checked)=>act(()=>toggleCard(card,checked))}/>}
-  <header><div><h2>场景 {sceneId} · 按提示词分发</h2></div><div className="prompt-art-header-actions">{modelProfiles&&<ModelSelect label="分发模型" profiles={modelProfiles} value={modelId} onChange={setModelId} disabled={disabled}/>}<button className="prompt-art-redistribute" disabled={disabled||!profile||!entry} onClick={()=>act(()=>distribution.redistribute(entry))}>AI 重新分发本条</button>{distribution.working&&<button onClick={distribution.stop}>停止自动分发</button>}{distribution.paused&&<button disabled={busy||distribution.working} onClick={distribution.resume}>继续自动分发</button>}{onBackScene&&<button onClick={onBackScene}>返回场景清单</button>}{sceneActions}</div><button disabled={disabled} onClick={()=>act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));await refresh({manual:true});setVersion('');setNotice('已检查提示词与美术更新');})}>检查更新</button></header>
-  {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
+  <header><div><h2>场景 {sceneId} · 按提示词分发</h2></div><div className="prompt-art-header-actions">{modelProfiles&&<ModelSelect label="分发模型" profiles={modelProfiles} value={modelId} onChange={setModelId} disabled={disabled}/>}<button className="prompt-art-redistribute" disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>AI 重新分发本条</button>{distribution.working&&<button onClick={distribution.stop}>停止自动分发</button>}{distribution.paused&&<button disabled={busy||distribution.working} onClick={distribution.resume}>继续自动分发</button>}{onBackScene&&<button onClick={onBackScene}>返回场景清单</button>}{sceneActions}</div><button disabled={disabled} onClick={()=>act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));await refresh({manual:true});setVersion('');setNotice('已检查提示词与美术更新');})}>检查更新</button></header>
+  {error&&<p role="alert" className="collab-error">{error}</p>}{(notice||distribution.notice)&&<p role="status">{notice||distribution.notice}</p>}
   {<>
    {!entry?<p>本场尚无已保存提示词，可先核实美术清单；提示词生成后再检查更新。</p>:<div className="prompt-art-workspace">
     <section className="prompt-art-prompt-column" aria-label="当前提示词">
      <div className="prompt-art-prompt-heading"><span>当前提示词 <strong>{entry.label}</strong></span><div className="prompt-art-stepper" role="tablist" aria-label="提示词快速定位">{entries.map((row,index)=><button type="button" key={row.id} role="tab" aria-selected={row.id===entry.id} aria-label={'第 '+(index+1)+' 条提示词 '+row.label} className={row.id===entry.id?'active':''} disabled={busy} onClick={()=>{setSelected(row.id);setError('');setNotice('');}}>{index+1}</button>)}</div></div>
      <div className="prompt-art-source"><h3>提示词原文</h3><pre>{entry.prompt}</pre></div>
-     {stale&&!distribution.working&&<p className="collab-error">本场清单已更新，请重新分发核对。</p>}
+     {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
+     {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，请重新分发核对。</p>}
      {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b>{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div>}
      {!distribution.working&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?'自动分发待处理':'上次分发未完成'}，可重新分发本条或返回场景检查。</p>}
      {decision.issue&&<p className="collab-error">{decision.issue}</p>}

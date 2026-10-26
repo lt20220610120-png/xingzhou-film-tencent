@@ -7,7 +7,7 @@ const ui=fs.readFileSync(path.join(__dirname,'../src/v06/CollabWorkspace.jsx'),'
 test('analysis completion retains local candidates without a cloud refresh or implicit publication',async()=>{
  const match=ui.match(/async function startCollabArtAnalysis\([\s\S]*?\n}\n/);assert.ok(match);
  let analyzed=0,refreshed=0;const jobs=new Map();
- const context={collabAnalysisJobs:jobs,analysisJobKey:(accountId,id)=>accountId+':'+id,listCollabEpisodes:()=>[{episodeNumber:1}],runAnalysis:async()=>{analyzed++;return {pending:1,completed:1,published:0,pendingEpisodes:[1],errors:[]};},artSyncNotice:()=> '本机已保存',readableCloudError:e=>e.message};
+ const context={collabAnalysisJobs:jobs,collabAnalysisRuns:new Map(),notifyBindingSaved:()=>{},analysisJobKey:(accountId,id)=>accountId+':'+id,listCollabEpisodes:()=>[{episodeNumber:1}],runAnalysis:async()=>{analyzed++;return {pending:1,completed:1,published:0,pendingEpisodes:[1],errors:[]};},artSyncNotice:()=> '本机已保存',readableCloudError:e=>e.message};
  vm.createContext(context);vm.runInContext(match[0]+';globalThis.run=startCollabArtAnalysis;',context);
  const result=await context.run({project:{id:'p',genre:'都市'},accountId:'a',profile:{id:'model',model:'mock'},api:{},assets:[],genre:'都市',refresh:async()=>{refreshed++}});
  assert.equal(analyzed,1);assert.equal(refreshed,0);assert.equal(result.published,0);assert.equal(result.pending,1);assert.equal(result.status,'completed');

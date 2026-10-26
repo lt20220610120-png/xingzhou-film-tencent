@@ -17,7 +17,7 @@ const imageIdentity=image=>image?.objectKey||String(image?.url||'').split('?')[0
 const CHARACTER_ATTRIBUTE_FRAGMENT=/^(?:人物)?(?:肤色|发色|发型|短发|长发|胡须|妆容|穿着|衣着|服装|上衣|裤子|裙子|鞋子|鞋|牛仔裤|旧胶鞋|皮肤|身材|年龄|气质|外貌|外观|体型|发型略显|短黑发|长黑发|黑发|白发|偏深|略显凌乱).*$/u;
 export const isCharacterAttributeFragment=text=>CHARACTER_ATTRIBUTE_FRAGMENT.test(String(text||'').trim());
 export function bindingSnapshot(project,ledger,assets,previous={}){
- const inspection=inspectCollabEpisodes(project.episodes),cards=[],entries=[],issues=[],promptIds=new Set();
+ const inspection=inspectCollabEpisodes(project.episodes),cards=[],entries=[],issues=[],invalidEntries=[],promptIds=new Set(),latestRuns=new Map();
  if(inspection.error)issues.push(inspection.error);
  for(const episode of inspection.episodes){
   const record=ledger.episodes?.[episode.episodeNumber],valid=record&&isReviewCurrent(record,episode);
@@ -38,19 +38,22 @@ export function bindingSnapshot(project,ledger,assets,previous={}){
   }
   for(const prompt of episode.prompts||[]){
    const label=String(prompt.label||''),match=/^(\d+)-(\d+)-(\d+)$/.exec(label),text=String(prompt.content||'');
-   if(!match||Number(match[1])!==episode.episodeNumber||!text.trim()||!prompt.id){issues.push(`提示词 ${label||'未编号'} 缺少明确身份或集场编号`);continue;}
+   const invalid=reason=>{issues.push(reason);invalidEntries.push({episode:episode.episodeNumber,sceneId:match&&Number(match[1])===episode.episodeNumber?`${Number(match[1])}-${Number(match[2])}`:null,label,reason,runId:prompt.generationRunId||''});};
+   if(match&&prompt.generationRunId)latestRuns.set(`${Number(match[1])}-${Number(match[2])}`,prompt.generationRunId);
+   if(!match||Number(match[1])!==episode.episodeNumber||!text.trim()||!prompt.id){invalid(`提示词 ${label||'未编号'} 内容为空或缺少明确身份或集场编号`);continue;}
    const id=String(prompt.id);
-   if(seen.has(id)||promptIds.has(id)){issues.push(`提示词身份重复：${label}`);continue;}seen.add(id);promptIds.add(id);
+   if(seen.has(id)||promptIds.has(id)){invalid(`提示词身份重复：${label}`);continue;}seen.add(id);promptIds.add(id);
    const sceneId=`${Number(match[1])}-${Number(match[2])}`;
    entries.push({id,episodeId:episode.id||String(episode.episodeNumber),episode:episode.episodeNumber,scene:Number(match[2]),number:Number(match[3]),sceneId,label,prompt:text,promptHash:bindingHash(text),runId:prompt.generationRunId||'',sceneReady:Boolean(valid&&record.scenes.some(scene=>scene.id===sceneId))});
   }
  }
  // Director batches belong to individual scenes, not to an entire project's version.
- const latestRuns=new Map();for(const entry of entries)if(entry.runId)latestRuns.set(entry.sceneId,entry.runId);
  for(let i=entries.length-1;i>=0;i--)if(latestRuns.has(entries[i].sceneId)&&entries[i].runId!==latestRuns.get(entries[i].sceneId))entries.splice(i,1);
+ for(let i=invalidEntries.length-1;i>=0;i--)if(latestRuns.has(invalidEntries[i].sceneId)&&invalidEntries[i].runId!==latestRuns.get(invalidEntries[i].sceneId))invalidEntries.splice(i,1);
+ issues.length=0;if(inspection.error)issues.push(inspection.error);issues.push(...invalidEntries.map(row=>row.reason));
  const labels=new Map();for(const entry of entries){const group=labels.get(entry.label)||[];group.push(entry.id);labels.set(entry.label,group);}
  for(const entry of entries)entry.duplicateLabel=labels.get(entry.label).length>1;
- const snapshot={projectId:project.id,directorProjectId:project.director_project_id||'',name:project.name,cards,entries,issues};
+ const snapshot={projectId:project.id,directorProjectId:project.director_project_id||'',name:project.name,cards,entries,issues,invalidEntries};
  snapshot.signature=bindingHash([snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries]);
  return snapshot;
 }

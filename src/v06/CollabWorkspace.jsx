@@ -1,3 +1,4 @@
+import {notifyBindingSaved} from './useScenePromptLinks.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
 import {assetPromptUsage} from '../../core/promptAssetUsage.js';
 import {loadFreshBinding} from '../../core/promptArtBinding.js';
@@ -58,17 +59,22 @@ import {artWorkflowState} from '../../core/artWorkflow.js';
 
 const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, assets: Box, storyboard: Clapperboard, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
+const collabAnalysisRuns = new Map();
+function currentAnalysisJob(key){
+ const active=[...(collabAnalysisRuns.get(key)||[])].filter(job=>['running','stopping'].includes(job.status));
+ if(!active.length)return collabAnalysisJobs.get(key);
+ return {...active[0],status:active.some(j=>j.status==='running')?'running':'stopping',activeEpisodes:[...new Set(active.flatMap(j=>j.activeEpisodes||[]))],notice:active.map(j=>j.notice).filter(Boolean).join('；'),jobs:active};
+}
 const analysisJobKey = (accountId,projectId) => `${accountId||'local'}:${projectId}`;
 const artSyncNotice = result => `本机已保存 ${result.completed} 集候选清单；${result.published} 集已发布${result.pending?`；${result.pending} 集有本地未发布内容`:''}。`;
 const fmtTime = (v) => { try { return new Date(v).toLocaleString('zh-CN', { hour12: false }); } catch { return v || '—'; } };
 
 const runAnalysis = args => runContinuousArtAnalysis(args);
 
-const stopAnalysis = async ({ projectId, api, accountId }) => {
-  const job = collabAnalysisJobs.get(analysisJobKey(accountId,projectId));
-  if (!job || job.status !== 'running') return;
-  job.cancelled = true; job.wakeRetry?.(); job.status = 'stopping'; job.notice = '正在停止分析…';
-  await Promise.allSettled([...new Set([job.taskId,...(job.taskIds||[])].filter(Boolean))].map(taskId=>api.cancelAiTask?.({taskId})));
+const stopAnalysis = async ({projectId,api,accountId}) => {
+ const jobs=[...(collabAnalysisRuns.get(analysisJobKey(accountId,projectId))||[])];
+ for(const job of jobs){job.cancelled=true;job.wakeRetry?.();job.status='stopping';job.notice='正在停止分析…';}
+ await Promise.allSettled([...new Set(jobs.flatMap(job=>[job.taskId,...(job.taskIds||[])]).filter(Boolean))].map(taskId=>api.cancelAiTask?.({taskId})));
 };
 
 function useCollabAnalysisJob(project,api,accountId,assets=[]) {
@@ -81,41 +87,43 @@ function useCollabAnalysisJob(project,api,accountId,assets=[]) {
     const unsubscribe=store.subscribe(update);
     store.load(project,assets).then(ledger=>{
       if(cancelled||!ledger)return;
-      const old=collabAnalysisJobs.get(key);
+      const old=currentAnalysisJob(key);
       if(old?.syncing||['running','stopping'].includes(old?.status))return;
       const summary=summarizeArtReview(ledger,project);
       collabAnalysisJobs.set(key,{...old,...summary,status:summary.pending?'pending':'completed',notice:artSyncNotice(summary),error:artReviewFailureSummary(summary.syncErrors)});update();
     }).catch(error=>{if(!cancelled){collabAnalysisJobs.set(key,{status:'failed',error:error.message});update();}});
     update(); const timer = setInterval(update, 500); return () => {cancelled=true;unsubscribe();clearInterval(timer);};
   }, [projectId,accountId,api,project.analysis_progress]);
-  return collabAnalysisJobs.get(key);
+  return currentAnalysisJob(key);
 }
 
 async function startCollabArtAnalysis({ project, assets, genre, profile, api, refresh, targetEpisodeNumbers, force = false, mapOnly = false, focusItem, detailsOnly = false, accountId }) {
   const key=analysisJobKey(accountId,project.id);
-  if (['running', 'stopping'].includes(collabAnalysisJobs.get(key)?.status)||collabAnalysisJobs.get(key)?.syncing) return collabAnalysisJobs.get(key);
+  const runs=collabAnalysisRuns.get(key)||new Set();collabAnalysisRuns.set(key,runs);
+  const conflict=[...runs].find(job=>['running','stopping'].includes(job.status)&&(targetEpisodeNumbers?.length?targetEpisodeNumbers.some(n=>job.activeEpisodes?.includes(n)):!job.targetEpisodeNumbers?.length));
+  if(conflict)return conflict;
   if (!profile) throw new Error('请选择一个已配置的大语言模型');
   if (!profile.model?.trim()) throw new Error('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称');
   const allEpisodes = listCollabEpisodes(project.episodes);
   if (!allEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先添加剧本分集');
   const scope = targetEpisodeNumbers?.length ? `第 ${targetEpisodeNumbers.join('、')} 集` : '全部分集';
-  const job = { status: 'running', error: '', notice: `${scope}美术分析准备中…`, cancelled: false, taskId: '', targetEpisodeNumbers };
-  collabAnalysisJobs.set(key, job);
+  const job = { status: 'running', error: '', notice: `${scope}美术分析准备中…`, cancelled: false, taskId: '', targetEpisodeNumbers,activeEpisodes:[] };
+  collabAnalysisJobs.set(key, job);runs.add(job);
   try {
     const result = await runAnalysis({ project, genre, profile, api, job,
       targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, detailsOnly, accountId,
-      onProgress: () => {} });
+      pipeline:true,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data),onProgress: () => {} });
     job.status = job.cancelled ? 'stopped' : result.errors?.length ? 'paused' : result.workflow?.phase==='review' ? 'awaiting-review' : 'completed'; job.taskId = '';
     Object.assign(job,result);job.notice = `${artSyncNotice(result)} ${result.workflow?.message||''}`;job.error=(result.errors||[]).join('\n');
   } catch (error) {
     job.taskId = '';
-    if (job.cancelled || String(error.message || '').includes('任务已停止')) {
+    if (job.cancelled&&!job.pipelineFailure || String(error.message || '').includes('任务已停止')) {
       job.status = 'stopped'; job.error = ''; job.notice = '分析已停止，已完成片段已保存；继续时不会重复付费。';
     } else {
       job.status = 'failed'; job.error = `分析暂停：${readableCloudError(error)}。已完成片段已保存，继续时仅处理未完成部分。`; job.notice = '';
     }
   }
-  return job;
+  runs.delete(job);collabAnalysisJobs.set(key,job);return job;
 }
 
 function ArtReviewEntry(props){
@@ -913,11 +921,10 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
             <button key={key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{label}</button>
           ))}
         </div><div className="art-whole-generation art-whole-generation-inline">{wholeControls}</div></div>
-        <div className="collab-art-head-right"><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{batchFormats.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(allPendingSelected ? [] : pendingEpisodeJobs.map((asset) => asset.id))}>{allPendingSelected ? '取消全选' : '全选未生成'}</button><button className="primary" onClick={()=>generateBatch(false)} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
+        <div className="collab-art-head-right"><ProjectCompositionControl inline project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/><ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy} label="批量生图模型"/><select className="batch-size-picker" aria-label="批量生成画幅" value={batchSize} onChange={event => setBatchSize(event.target.value)}>{batchFormats.map(format => <option key={format.value} value={format.size}>{format.label}</option>)}</select><button className="secondary" onClick={() => exportImages(episodeImages, `第${episode}集`)} disabled={!episodeImages.length}>导出本集图片（{episodeImages.length}）</button><button className="secondary" onClick={() => setBatchSelectedIds(allPendingSelected ? [] : pendingEpisodeJobs.map((asset) => asset.id))}>{allPendingSelected ? '取消全选' : '全选未生成'}</button><button className="primary" onClick={()=>generateBatch(false)} disabled={!batchSelectedIds.length || batchBusy || !canEdit}>{batchBusy ? '批量生成中…' : `一键生成（${batchSelectedIds.length}）`}</button></div>
       </div>
       {wholeModal}
       {exportError && <div className="collab-error">{exportError}</div>}
-      <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="art-workbench-subhead"><span>{ASSET_CATEGORIES[category]} · {categoryAssets.length} 项</span><AssetQuickNav entries={locations} locator={locator} /><input type="search" aria-label="搜索本集资产" placeholder="搜索资产名称" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
       <div className="collab-art-body art-workbench-rows">
         {list.map((selected, index) => <article ref={locator.register(selected.id)} tabIndex={-1} key={selected.id} className={`art-workbench-row ${batchSelectedIds.includes(selected.id) ? 'is-selected' : ''}`} aria-label={selected.name}>
