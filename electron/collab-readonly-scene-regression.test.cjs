@@ -32,7 +32,7 @@ test('项目协作导演提示词可编辑，但只回写项目协作独立云�
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(ui,/collabPatchStoryboard/);
   assert.match(ui,/base:savingDraft.base/);
-  assert.match(ui,/updates:\{content:prompt,generationConfig\}/);
+  assert.match(ui,/updates:\{content,generationConfig\}/);
   assert.doesNotMatch(ui,/directorCollabUpdateProject/);
   assert.match(server,/for update/);
 });

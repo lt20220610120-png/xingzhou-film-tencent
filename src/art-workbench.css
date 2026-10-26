@@ -389,6 +389,7 @@
 .asset-scene-links-popover>header>button:hover{background:#f1f3f9;color:#455b7b}
 .asset-scene-links-list{display:flex;flex-wrap:wrap;gap:6px;min-height:0;overflow:auto;overscroll-behavior:contain}
 .asset-scene-links-list>span{padding:3px 7px;border-radius:4px;background:#f1f4fa;line-height:1.6;overflow-wrap:anywhere}
+.asset-scene-links-parent{margin:12px 0 6px;color:#718096}
 .asset-view-filters{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
 .art-workbench .asset-missing-filter{white-space:nowrap;font-size:13px;padding:7px 11px;min-height:34px}
 .art-workbench .asset-missing-filter.active{background:#eee9fc;border-color:#b6a6e8;color:#6951ac}

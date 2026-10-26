@@ -39,7 +39,7 @@ test('项目协作分镜提示词可编辑并只写入协作项目副本', () =>
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(ui,/collabPatchStoryboard/);
   assert.match(ui,/base:savingDraft.base/);
-  assert.match(ui,/updates:\{content:prompt,generationConfig\}/);
+  assert.match(ui,/updates:\{content,generationConfig\}/);
   assert.doesNotMatch(ui,/directorCollabUpdateProject/);
   assert.match(server,/for update/);
 });

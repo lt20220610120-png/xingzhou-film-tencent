@@ -1,3 +1,5 @@
+import useProjectPromptBinding from './useProjectPromptBinding.js';
+import {storyboardPromptValue,storyboardSaveUpdates} from '../../core/promptAssetUsage.js';
 import {displayAssetName} from '../../core/collabStore.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {queueDraft,readQueuedDraft} from '../editing.js';
@@ -23,16 +25,22 @@ function ResourcePicker({api,projectId,assets,media,selected,onClose,onSelect,on
  return <Dialog open title="选择项目参考素材" onClose={onClose}><div className="generation-resource-tabs">{categories.map(([k,n])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{n}</button>)}<button onClick={onRefresh}><RefreshCw size={14}/>刷新图片</button></div><input aria-label="搜索资源名称" placeholder="搜索资源名称" value={query} onChange={e=>setQuery(e.target.value)}/><div className="generation-resource-grid"><button onClick={upload} disabled={busy}><Plus/><span>{busy?'上传中…':'上传本地素材'}</span></button>{shown.map(r=><button key={r.id} className={picked.some(p=>p.id===r.id)?'selected':''} onClick={()=>setPicked(current=>current.some(p=>p.id===r.id)?current.filter(p=>p.id!==r.id):[...current,r])}>{r.kind==='image'?<CloudAssetImage api={api} projectId={projectId} assetId={r.assetId} image={{...r,id:r.imageId||r.id}} alt={r.name} />:r.kind==='video'?<video src={r.url} preload="none"/>:<span>♫ 音频</span>}<small>{r.displayName||r.name}</small></button>)}</div>{error&&<p className="collab-error">{error}</p>}<footer className="generation-resource-tabs"><span>已选择 {picked.length} 项</span><button onClick={onClose}>取消</button><button className="primary" onClick={()=>onSelect(picked)}>确认引用</button></footer></Dialog>;
 }
 
-function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange}) {
+function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId}) {
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}`;
  const read=()=>{try{const queued=readQueuedDraft(storageKey);return queued.found?queued.value:JSON.parse(localStorage.getItem(storageKey)||'null')}catch{return null}};
  const sceneReferences=()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene);
- const cleanDraft=entry=>{const value=cleanStoryboardReferenceValue(entry.value,project.id);return value===entry.value?entry:{...entry,value,dirty:true};};
+ const cleanDraft=entry=>{
+  const cleaned=cleanStoryboardReferenceValue(entry.value,project.id);
+  const linked=storyboardPromptValue(promptBinding,shot,cleaned,accountId);
+  const value=linked||cleaned;
+  const needsSave=linked?.referenceBindingMode==='confirmed'&&(JSON.stringify(value.references)!==JSON.stringify(shot.generationConfig?.references||[])||value.bindingCompiledPrompt!==shot.generationConfig?.bindingCompiledPrompt);
+  return {...entry,value,dirty:entry.dirty||cleaned!==entry.value||needsSave};
+ };
  const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});
- const initial=()=>{const stored=read();return stored?cleanDraft(stored):cloudDraft();};
+ const initial=()=>{const stored=read();return stored?(stored.dirty&&stored.value.bindingSourcePromptId?stored:cleanDraft(stored)):cloudDraft();};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false);
  const current=useRef(draft);current.current=draft;
- useEffect(()=>{if(!current.current.dirty)setDraft(cloudDraft());},[shot,assets,media,scene,epNumber]);
+ useEffect(()=>{if(!current.current.dirty)setDraft(cloudDraft());else if(!current.current.value.bindingSourcePromptId&&current.current.value.prompt===shot.content)setDraft(cleanDraft(current.current));},[shot,assets,media,scene,epNumber,promptBinding]);
  const change=value=>{
   value=cleanStoryboardReferenceValue(value,project.id);
   const previous=current.current.value;
@@ -42,7 +50,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   }
   const next={...current.current,value,dirty:true};current.current=next;setDraft(next);queueDraft(storageKey,next);
  };
- const referenceCandidates=useMemo(()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene),[assets,media,project.id,epNumber,scene]);
+ const referenceCandidates=useMemo(()=>draft.value.referenceBindingMode?[]:projectReferenceCandidates(assets,media,project.id,epNumber,scene),[assets,media,project.id,epNumber,scene,draft.value.referenceBindingMode]);
  const cloudChanged=draft.dirty&&(shot.content!==draft.base.content||JSON.stringify(shot.generationConfig)!==JSON.stringify(draft.base.generationConfig));
  const resolveRefs=refs=>refreshAssetReferences(refs,assets,project.id).map(ref=>{
   const asset=assets.find(a=>a.id===ref.assetId),image=asset?.images?.find(i=>i.id===ref.id),file=media.find(m=>m.id===ref.id);
@@ -51,11 +59,11 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
  const save=async()=>{
   if(!canEdit)return;setSaving(true);setError('');
   const savingDraft=current.current;
-  try{const {prompt,...generationConfig}=savingDraft.value;
-   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,shotId:shot.id,base:savingDraft.base,updates:{content:prompt,generationConfig}});
+  try{const {content,generationConfig}=storyboardSaveUpdates(savingDraft.value);
+   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
    onProjectChange(saved);
    // Do not clear edits typed while the request was in flight.
-   if(current.current===savingDraft){const next={...savingDraft,base:{content:prompt,generationConfig},dirty:false};current.current=next;setDraft(next);queueDraft(storageKey,null);}
+   if(current.current===savingDraft){const next={...savingDraft,base:{content,generationConfig},dirty:false};current.current=next;setDraft(next);queueDraft(storageKey,null);}
    return true;
   }catch(e){setError(e.message);return false;}finally{setSaving(false);}
  };
@@ -73,10 +81,11 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return (input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
   if(unresolved.length)throw new Error(`以下引用尚未选择图片：${unresolved.map(a=>a.name).join('、')}`);
   await api.generationSubmit({...input,projectId:project.id,episode:epNumber,scene,shotId:shot.id,shotLabel:shot.label});window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();
- }}>{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/></article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
+ }}>{draft.value.referenceBindingMode&&<button type="button" onClick={()=>{queueDraft(storageKey,null);setDraft(cloudDraft());}}>重新载入本条关联素材</button>}{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/></article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
 }
 
-export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange}) {
+export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange,accountId}) {
+ const {data:promptBinding,loading:bindingLoading}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
  const [episodeId,setEpisodeId]=useState(null),[scene,setScene]=useState(''),[media,setMedia]=useState([]),[tasks,setTasks]=useState([]),[error,setError]=useState(''),[creating,setCreating]=useState(false);
  const [deleteTarget,setDeleteTarget]=useState(null),[deleting,setDeleting]=useState(false);
  const createPending=useRef(null);
@@ -124,7 +133,7 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   <section className="collab-sb-mid collab-sb-prompt-stack">
    <div className="collab-panel-title">场景 {currentScene} · {prompts.length} 条分镜</div>
    {error&&<p role="alert" className="collab-error">{error}</p>}
-   {prompts.map(p=><Shot key={`${project.id}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
+   {bindingLoading?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} promptBinding={promptBinding} accountId={accountId} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
    {<button className="collab-create-storyboard" onClick={create} disabled={!canEdit||creating}><Plus size={20}/>{creating?'创建中…':'创建分镜'}</button>}
   </section>
   <DeleteConfirm open={Boolean(deleteTarget)} title="删除分镜" name={deleteTarget?.label} detail={deleting?'正在删除…':'确认删除这条分镜？生成的视频与素材会保留，导演工作台原提示词不会删除。'} onCancel={()=>!deleting&&setDeleteTarget(null)} onConfirm={async()=>{
