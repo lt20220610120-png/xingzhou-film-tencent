@@ -83,6 +83,25 @@
 .imported-art-panel .prompt-art-needs article>div:first-child{grid-template-columns:repeat(3,minmax(0,1fr))}
 .imported-art-panel .prompt-art-needs article>div:first-child>b{grid-column:1/-1}
 .imported-art-panel .prompt-art-image img{height:96px}
+.imported-binding-workspace{display:grid;grid-template-columns:minmax(300px,.82fr) minmax(520px,1.18fr);gap:16px;align-items:start;margin-top:12px}
+.imported-binding-prompt-column,.imported-binding-cards-column{min-width:0;border:1px solid var(--binding-line);border-radius:10px;background:#fbfbfe;padding:12px}
+.imported-binding-prompt-column details{margin:0;background:#fff}
+.imported-binding-prompt-column textarea{min-height:380px;line-height:1.7}
+.imported-binding-prompt-column .prompt-art-actions{align-items:center;margin:12px 0 0}
+.imported-binding-cards-column .imported-art-category-tabs{margin:0 0 8px}
+.imported-binding-cards-column .prompt-art-needs{max-height:540px;margin-top:0;grid-template-columns:repeat(2,minmax(0,1fr))}
+.imported-binding-cards-column .prompt-art-needs article{grid-template-columns:minmax(0,1fr);gap:8px;padding:10px 11px}
+.imported-binding-cards-column .prompt-art-image{border-left:0;border-top:1px solid #e1e4ef;padding:8px 0 0}
+.imported-binding-footer{justify-content:flex-end;margin-bottom:0}
+@container(max-width:980px){
+ .imported-binding-workspace{grid-template-columns:minmax(280px,.8fr) minmax(420px,1.2fr)}
+ .imported-binding-cards-column .prompt-art-needs{grid-template-columns:1fr}
+}
+@container(max-width:720px){
+ .imported-binding-workspace{grid-template-columns:1fr}
+ .imported-binding-prompt-column textarea{min-height:260px}
+ .imported-binding-cards-column .prompt-art-needs{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 
 @media(max-width:900px){
   .prompt-art-panel{padding:14px}
@@ -120,6 +139,11 @@
 .prompt-art-prompt-column{padding:12px 14px;border:1px solid var(--binding-line);border-radius:10px;background:#fbfbfe}
 .prompt-art-prompt-heading{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px;color:var(--binding-muted);font-size:13px}
 .prompt-art-prompt-heading strong{color:var(--binding-ink);font-size:17px}
+.prompt-art-stepper{display:flex;align-items:center;gap:6px;margin-left:auto}
+.prompt-art-stepper button{width:26px;height:26px;padding:0;border-radius:50%;font-size:12px;line-height:1;background:#fff;color:#6b5bb1;border-color:#d7cfee}
+.prompt-art-stepper button.active{background:#6957b7;color:#fff;border-color:#6957b7;box-shadow:0 2px 6px #6957b733}
+.prompt-art-redistribute{background:#6957b7!important;color:#fff!important;border-color:#6957b7!important;font-weight:600}
+.prompt-art-redistribute:hover:not(:disabled){background:#58489f!important;border-color:#58489f!important}
 .prompt-art-prompt-column details{margin:9px 0 0;background:#fff}
 .prompt-art-prompt-column pre{max-height:430px;margin:0 0 10px;font-size:14px;line-height:1.75}
 .prompt-art-prompt-column .prompt-art-actions{margin:12px 0 2px}
@@ -148,3 +172,36 @@
 @container(max-width:500px){
  .prompt-art-cards-column .prompt-art-needs{grid-template-columns:1fr}
 }
+
+/* Both desks use the same bounded viewport; scrolling never stretches one half. */
+.prompt-art-panel .prompt-art-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+.prompt-art-panel .prompt-art-header-actions .window-model-select{display:flex;flex-direction:row;align-items:center;margin:0;gap:6px}
+.prompt-art-header-actions select{max-width:240px}
+.prompt-art-panel .prompt-art-workspace,.prompt-art-panel .imported-binding-workspace{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);align-items:stretch}
+.prompt-art-workspace>section,.imported-binding-workspace>section{height:clamp(420px,62vh,650px);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.prompt-art-prompt-heading{align-items:center;flex-shrink:0;gap:8px}
+.prompt-art-prompt-heading>span{white-space:nowrap;display:flex;align-items:center;gap:8px}
+.prompt-art-stepper{overflow-x:auto;min-width:0;padding:3px 0}
+.prompt-art-stepper button{flex:none;width:30px;height:30px}
+.prompt-art-panel .prompt-art-prompt-column details,.prompt-art-panel .imported-binding-prompt-column details{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.prompt-art-panel .prompt-art-prompt-column pre{flex:1;min-height:0;max-height:none;margin:0 0 8px;overflow:auto}
+.prompt-art-panel .imported-binding-prompt-column textarea{flex:1;min-height:0;height:100%;resize:none;margin-bottom:8px}
+.prompt-art-panel .prompt-art-cards-column .prompt-art-needs,.prompt-art-panel .imported-binding-cards-column .prompt-art-needs{flex:1;min-height:0;max-height:none;align-content:start;grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:0}
+.prompt-art-panel .imported-binding-cards-column .prompt-art-needs article>div:first-child{grid-template-columns:repeat(2,minmax(0,1fr))}
+.prompt-art-panel .prompt-art-needs article>div:first-child>label:last-child{grid-column:1/-1}
+.prompt-art-panel .imported-binding-cards-column>p{max-height:48px;overflow:auto;flex-shrink:0}
+@container(max-width:1050px){
+ .prompt-art-panel .prompt-art-cards-column .prompt-art-needs,.prompt-art-panel .imported-binding-cards-column .prompt-art-needs{grid-template-columns:1fr}
+}
+@container(max-width:620px){
+ .prompt-art-panel .prompt-art-workspace,.prompt-art-panel .imported-binding-workspace{grid-template-columns:1fr}
+ .prompt-art-workspace>section,.imported-binding-workspace>section{height:420px}
+ .prompt-art-header-actions select{max-width:180px}
+}
+
+.prompt-art-panel .prompt-art-source{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;margin-top:8px}
+.prompt-art-panel .prompt-art-source h3{margin:0 0 8px;font-size:14px;color:var(--binding-ink);font-weight:600}
+.prompt-art-panel .prompt-art-source pre,.prompt-art-panel .prompt-art-source textarea{flex:1;min-height:0;max-height:none;margin:0;overflow:auto;overscroll-behavior:contain}
+.prompt-art-panel .prompt-art-header-actions .window-model-select{white-space:nowrap;flex-shrink:0}
+.prompt-art-panel .prompt-art-scene-summary button{color:#356d7d!important;background:#e8f5f7!important}
+.prompt-art-panel .prompt-art-scene-summary button.selected{color:#fff!important;background:#287b8a!important}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {newArtReview,editArtReview,reviewSceneSignature} from './artReview.js';
-import {bindingSnapshot,entryBindingSignature,proposeEntryBinding,bindingProblems,compileEntryBinding,applyBindingAi,linkedPromptBook,validateCompiledBinding,validateLinkedSubmission} from './promptArtBinding.js';
+import {bindingSnapshot,currentEntryBinding,saveDistribution,entryBindingSignature,proposeEntryBinding,bindingProblems,compileEntryBinding,applyBindingAi,linkedPromptBook,validateCompiledBinding,validateLinkedSubmission} from './promptArtBinding.js';
 import {entryValue} from './promptBook.js';
 import {matchBasicReferences} from './automaticReferences.js';
 
@@ -36,6 +36,11 @@ test('逗号多人列表按已知人物卡片补全，描述与所有者道具�
  const snapshot=bindingSnapshot(f.project,f.ledger,f.assets,f.snapshot),decision=proposeEntryBinding(snapshot,snapshot.entries[0]);
  assert.deepEqual(decision.needs.filter(row=>row.category==='character').map(row=>row.text),['张三','李四']);
  assert.equal(decision.needs.filter(row=>row.category==='prop').length,1);
+});
+test('人物属性和服装描述不会被拆成独立人物卡片',()=>{
+ const f=fixture();f.project.episodes[0].prompts[0].content='【基础信息】\n人物：张三（参考@image1），肤色偏深、短黑发略显凌乱，穿牛仔裤和旧胶鞋\n场景：客厅\n道具：张三-杯子\n【镜头】\n张三进入画面。';
+ const snapshot=bindingSnapshot(f.project,f.ledger,f.assets,f.snapshot),decision=proposeEntryBinding(snapshot,snapshot.entries[0]);
+ assert.deepEqual(decision.needs.filter(row=>row.category==='character').map(row=>row.text),['张三']);
 });
 test('无图片时仍可确认卡片用途，视频须等选图且发布就绪',()=>{
  const f=fixture();f.assets[0].images=[];const snapshot=bindingSnapshot(f.project,f.ledger,f.assets,f.snapshot),entry=snapshot.entries[0],decision={...proposeEntryBinding(snapshot,entry),confirmed:true};
@@ -92,4 +97,30 @@ test('提交重新读取云源与本机确认，已更新或账号切换时阻�
  await assert.rejects(validateLinkedSubmission({api,book,entry,value,accountId:'other'}),/账号/);
  f.project.episodes[0].prompts[0].content+='后续修改';
  await assert.rejects(validateLinkedSubmission({api,book,entry,value,accountId:'u'}),/已更新/);
+});
+
+test('旧解析的属性伪卡片被重建，合法人工选择保留',()=>{
+ const {snapshot,decisions}=fixture(),entry=snapshot.entries[0],old=structuredClone(decisions.p1);
+ old.signature='legacy';old.needs[0].locked=true;
+ old.needs.push({...old.needs[0],id:'junk',text:'肤色偏深',start:200,end:204});
+ const next=currentEntryBinding(snapshot,entry,old);
+ assert.deepEqual(next.needs.map(n=>n.text),['张三','客厅']);
+ assert.equal(next.needs[0].locked,true);assert.equal(next.confirmed,false);
+});
+test('AI不能把外貌、否定句和时间作为资产，即使原文位置正确',()=>{
+ const {snapshot}=fixture();
+ for(const [category,text] of [['character','肤色偏深'],['character','短黑发略显凌乱'],['character','牛仔裤和旧胶鞋'],['character','同一时段无其他具名人物入镜'],['scene','日间']]){
+  const entry={...snapshot.entries[0],prompt:text};
+  assert.throws(()=>applyBindingAi(snapshot,entry,{needs:[]},{needs:[{category,text,start:0,end:text.length,visibility:'visible',reason:'测试',cardUid:null}]}),/误识别/);
+ }
+});
+test('分发保存不要求逐条确认，但整场发布和有效图片仍是生成前提',()=>{
+ const {snapshot,decisions}=fixture(),entry=snapshot.entries[0];
+ const ready=saveDistribution(snapshot,entry,{...decisions.p1,confirmed:false});
+ assert.equal(ready.confirmed,true);assert.doesNotThrow(()=>compileEntryBinding(snapshot,entry,ready));
+ const unresolved=saveDistribution(snapshot,entry,{...ready,needs:ready.needs.map(n=>({...n,cardUid:null}))});
+ assert.equal(unresolved.confirmed,false);
+ snapshot.cards[0].publishedSceneIds=[];
+ const unpublished=saveDistribution(snapshot,entry,{...ready,signature:entryBindingSignature(snapshot,entry)});
+ assert.throws(()=>compileEntryBinding(snapshot,entry,unpublished),/尚未核实发布/);
 });

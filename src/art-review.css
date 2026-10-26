@@ -135,7 +135,7 @@
 .art-review-history { color:#626774; font-size:14px; padding:18px 3px; line-height:1.9; }
 .art-review-history summary { cursor:pointer; }
 .art-review-history ul { padding-left:20px; }
-.art-review-footer { position:sticky; bottom:-24px; z-index:3; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border:1px solid var(--review-line); border-radius:12px; background:#fffffffa; box-shadow:0 -4px 18px #34315b08; padding:12px 76px 12px 18px; margin-top:10px; }
+.art-review-footer { position:relative; bottom:auto; z-index:3; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border:1px solid var(--review-line); border-radius:12px; background:#fffffffa; box-shadow:0 -4px 18px #34315b08; padding:12px 76px 12px 18px; margin-top:10px; }
 .art-review-footer>span { display:flex; align-items:center; gap:8px; font-size:14px; color:#655871; }
 .art-review-footer>div { display:flex; flex-wrap:wrap; gap:7px; }
 .art-review-footer button { font-size:14px; padding:8px 10px; }
@@ -187,7 +187,7 @@
 }
 @media(max-width:1200px) {
   .art-review-scene>header { flex-wrap:wrap; }
-  .art-review-footer { bottom:-18px; }
+  .art-review-footer { bottom:auto; }
 }
 @media(max-width:800px) {
   .art-review-scene-columns { grid-template-columns:1fr; }

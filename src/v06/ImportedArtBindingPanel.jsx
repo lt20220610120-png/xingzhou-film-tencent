@@ -126,32 +126,29 @@ export default function ImportedArtBindingPanel({book,entry:original,state,api,a
   {error&&<p className="collab-error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {showIssues&&<div className="imported-binding-issues" aria-label="待处理关联">{summary.rows.filter(row=>!row.ready).map(row=><button disabled={busy} key={row.id} onClick={()=>{onSelect(row.id);setDetails(true);}}><strong>{row.label}</strong><span>{row.issue}</span><small>展开处理</small></button>)}</div>}
   <details open={details} onToggle={event=>setDetails(event.currentTarget.open)}><summary>查看本条详情 / 手动调整（{entry.label}）</summary>
-  <details><summary>本场 {cards.length} 张图片的身份（按场整理，同场各条共用）</summary>
-   <div className="prompt-art-actions"><button disabled={busy||!profile||!cards.length} onClick={identify}>AI 整理本场素材身份</button>
-    <button disabled={busy||!cards.length} onClick={()=>execute(async()=>{
-     if(cards.some(card=>!importedCategories[card.category]||!card.name.trim()))throw Error('请为每张图片确定人物、场景或道具分类和名称');
-     mutate(current=>({...current,metadata:{...current.metadata,...Object.fromEntries(cards.map(card=>[card.uid,{...current.metadata[card.uid],category:card.category,name:card.name,description:card.description,confirmed:true}]))}}));setNotice('本场素材身份已确认，可继续逐条关联。');
-    })}>确认本场素材身份</button></div>
-   <div className="imported-art-category-tabs" role="group" aria-label="素材分类"><button type="button" className={cardCategory==='all'?'selected':''} onClick={()=>setCardCategory('all')}>全部 {cards.length}</button>{Object.entries(importedCategories).map(([key,name])=><button type="button" key={key} className={cardCategory===key?'selected':''} onClick={()=>setCardCategory(key)}>{name} {cards.filter(card=>card.category===key).length}</button>)}</div>
-   <div className="imported-art-cards" role="region" aria-label="本场图片身份列表" tabIndex={0}>{visibleCards.map(card=><article key={card.uid}>
-    <img src={mediaSource(card.reference)} alt={card.name} loading="lazy"/>
-    <label>分类<select aria-label={`${card.uid}分类`} disabled={busy} value={card.category} onChange={event=>changeMeta(card.uid,{category:event.target.value})}><option value="unknown">待核对</option>{Object.entries(importedCategories).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
-    <label>主体名称<input aria-label={`${card.uid}名称`} disabled={busy} value={card.name} onChange={event=>changeMeta(card.uid,{name:event.target.value})}/></label>
-    <label>妆造 / 所有者 / 说明<input aria-label={`${card.uid}说明`} disabled={busy} value={card.description} onChange={event=>changeMeta(card.uid,{description:event.target.value})}/></label>
-    <small>{card.identityConfirmed?'身份已确认':'身份待核对'}</small>
-   </article>)}</div>
-  </details>
-  <details><summary>查看或修正 {entry.label} 原提示词</summary><textarea aria-label="关联原提示词" rows={8} value={entry.prompt} disabled={busy} onChange={event=>{const prompt=event.target.value;mutate(current=>({...current,prompts:{...current.prompts,[entry.id]:prompt}}));}}/></details>
-  <div className="prompt-art-actions"><b>第二步：逐条关联</b><button disabled={busy||!profile} onClick={()=>associate(false)}>AI 关联本条</button><button disabled={busy||!profile} onClick={()=>associate(true)}>AI 逐条关联整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)api.cancelAiTask?.({taskId:task.current});}}>停止关联</button>}</div>
-  {decision.issue&&<p className="collab-error">{decision.issue}</p>}
-  <div className="prompt-art-needs" role="region" aria-label="本条素材关联列表" tabIndex={0}>{decision.needs.map(need=><article key={need.id}>
-   <div><b>{importedCategories[need.category]} · {need.text}</b><label>用途<select aria-label={`${need.text}用途`} value={need.visibility} disabled={busy} onChange={event=>changeNeed(need.id,{visibility:event.target.value})}>{Object.entries({visible:'画面使用',voice:'仅声音',mentioned:'仅提及',excluded:'本条不用'}).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
-   <label>使用图片<select aria-label={`${need.text}关联图片`} value={need.cardUid||''} disabled={busy||need.visibility!=='visible'} onChange={event=>changeNeed(need.id,{cardUid:event.target.value||null,imageId:event.target.value||null})}><option value="">待确定</option>{cards.filter(card=>card.category===need.category).map(card=><option key={card.uid} value={card.uid}>{card.name} · {card.uid.slice(-10)}</option>)}</select></label>
-   <label>关联依据<input aria-label={`${need.text}依据`} value={need.reason} disabled={busy} onChange={event=>changeNeed(need.id,{reason:event.target.value})}/></label></div>
-   <div className="prompt-art-image">{need.visibility==='visible'&&cards.find(card=>card.uid===need.cardUid)&&<img src={mediaSource(cards.find(card=>card.uid===need.cardUid).reference)} alt={`${need.text}已选图片`}/>}{need.locked&&<small>人工选择已锁定</small>}</div>
-  </article>)}</div>
-  <p>本条未选图片：{unused.map(card=>card.name).join('、')||'无'}</p>
-  <div className="prompt-art-actions"><button disabled={busy} onClick={confirm}>{decision.confirmed?'本条关联已确认':'确认本条关联'}</button><button disabled={busy||!ready} onClick={publish}>进入图视生成（{ready}/{snapshot.entries.length} 条就绪）</button></div>
+   <details className="imported-art-identity"><summary>本场 {cards.length} 张图片的身份（按场整理，同场各条共用）</summary>
+    <div className="prompt-art-actions"><button disabled={busy||!profile||!cards.length} onClick={identify}>AI 整理本场素材身份</button>
+     <button disabled={busy||!cards.length} onClick={()=>execute(async()=>{
+      if(cards.some(card=>!importedCategories[card.category]||!card.name.trim()))throw Error('请为每张图片确定人物、场景或道具分类和名称');
+      mutate(current=>({...current,metadata:{...current.metadata,...Object.fromEntries(cards.map(card=>[card.uid,{...current.metadata[card.uid],category:card.category,name:card.name,description:card.description,confirmed:true}]))}}));setNotice('本场素材身份已确认，可继续逐条分发。');
+     })}>确认本场素材身份</button></div>
+    <div className="imported-art-category-tabs" role="group" aria-label="素材分类"><button type="button" className={cardCategory==='all'?'selected':''} onClick={()=>setCardCategory('all')}>全部 {cards.length}</button>{Object.entries(importedCategories).map(([key,name])=><button type="button" key={key} className={cardCategory===key?'selected':''} onClick={()=>setCardCategory(key)}>{name} {cards.filter(card=>card.category===key).length}</button>)}</div>
+    <div className="imported-art-cards" role="region" aria-label="本场图片身份列表" tabIndex={0}>{visibleCards.map(card=><article key={card.uid}>
+     <img src={mediaSource(card.reference)} alt={card.name} loading="lazy"/>
+     <label>分类<select aria-label={'素材 '+card.uid+' 分类'} disabled={busy} value={card.category} onChange={event=>changeMeta(card.uid,{category:event.target.value})}><option value="unknown">待核对</option>{Object.entries(importedCategories).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label>
+     <label>主体名称<input aria-label={'素材 '+card.uid+' 名称'} disabled={busy} value={card.name} onChange={event=>changeMeta(card.uid,{name:event.target.value})}/></label>
+     <label>妆造 / 所有者 / 说明<input aria-label={'素材 '+card.uid+' 说明'} disabled={busy} value={card.description} onChange={event=>changeMeta(card.uid,{description:event.target.value})}/></label>
+     <small>{card.identityConfirmed?'身份已确认':'身份待核对'}</small>
+    </article>)}</div>
+   </details>
+   <div className="prompt-art-actions"><b>本条素材分发</b><button disabled={busy||!profile} onClick={()=>associate(false)}>AI重新读取并分发本条</button><button disabled={busy||!profile} onClick={()=>associate(true)}>AI重新读取并分发整本</button>{busy&&<button onClick={()=>{stopped.current=true;if(task.current)api.cancelAiTask?.({taskId:task.current});}}>停止分发</button>}</div>
+   <div className="imported-binding-workspace">
+    <section className="imported-binding-prompt-column" aria-label="当前提示词"><div className="prompt-art-source"><h3>提示词原文 · {entry.label}</h3><textarea aria-label="关联原提示词" rows={12} value={entry.prompt} disabled={busy} onChange={event=>{const prompt=event.target.value;mutate(current=>({...current,prompts:{...current.prompts,[entry.id]:prompt}}));}}/></div></section>
+    <section className="imported-binding-cards-column" aria-label="本条人物场景道具关联"><div className="imported-art-category-tabs" role="group" aria-label="关联分类"><button type="button" className={cardCategory==='all'?'selected':''} onClick={()=>setCardCategory('all')}>全部</button>{Object.entries(importedCategories).map(([key,name])=><button type="button" key={key} className={cardCategory===key?'selected':''} onClick={()=>setCardCategory(key)}>{name}</button>)}</div>{decision.issue&&<p className="collab-error">{decision.issue}</p>}<div className="prompt-art-needs" role="region" aria-label="本条素材关联列表" tabIndex={0}>{decision.needs.filter(need=>cardCategory==='all'||need.category===cardCategory).map(need=><article key={need.id}>
+     <div><b>{importedCategories[need.category]} · {need.text}</b><label>用途<select aria-label={need.text+'用途'} value={need.visibility} disabled={busy} onChange={event=>changeNeed(need.id,{visibility:event.target.value})}>{Object.entries({visible:'画面使用',voice:'仅声音',mentioned:'仅提及',excluded:'本条不用'}).map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label><label>使用图片<select aria-label={need.text+'关联图片'} value={need.cardUid||''} disabled={busy||need.visibility!=='visible'} onChange={event=>changeNeed(need.id,{cardUid:event.target.value||null,imageId:event.target.value||null})}><option value="">待确定</option>{cards.filter(card=>card.category===need.category).map(card=><option key={card.uid} value={card.uid}>{card.name} · {card.uid.slice(-10)}</option>)}</select></label><label>关联依据<input aria-label={need.text+'依据'} value={need.reason} disabled={busy} onChange={event=>changeNeed(need.id,{reason:event.target.value})}/></label></div><div className="prompt-art-image">{need.visibility==='visible'&&cards.find(card=>card.uid===need.cardUid)&&<img src={mediaSource(cards.find(card=>card.uid===need.cardUid).reference)} alt={need.text+'已选图片'}/>} {need.locked&&<small>人工选择已锁定</small>}</div>
+    </article>)}</div><p>本条未选图片：{unused.map(card=>card.name).join('、')||'无'}</p></section>
+   </div>
+   <div className="prompt-art-actions imported-binding-footer"><button disabled={busy} onClick={confirm}>{decision.confirmed?'本条关联已确认':'保存本条分发'}</button><button disabled={busy||!ready} onClick={publish}>进入图视生成（{ready}/{snapshot.entries.length} 条就绪）</button></div>
   </details>
 
  </section>;
