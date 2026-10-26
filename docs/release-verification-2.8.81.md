@@ -21,4 +21,8 @@
 
 ## 发布
 
-待核对公开签名清单及下载。
+已正式发布，实现源码 `3299f8e`。两处GitHub main与官网三份latest.json完全相同，Ed25519签名通过，版本2.8.81、大小103854884和SHA256均与本机一致；GitHub资产digest一致，官方镜像发布端完整SHA256校验通过，公开Range下载206、MZ头及总大小正确。证据output/publish-2881.log、output/playwright/public-release-2881.json。
+
+- 官网：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.81.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.81/Xingzhou-Film-Tencent-Setup-2.8.81.exe
+- 本机：C:/Users/11599/Documents/ChatGPT/行舟影视/tencent/release/2.8.81/Xingzhou-Film-Tencent-Setup-2.8.81.exe
