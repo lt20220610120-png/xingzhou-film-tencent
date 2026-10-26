@@ -21,4 +21,8 @@
 
 ## 发布
 
-待公开发布与三份清单、下载地址及签名复核后补记。
+已正式发布：更新仓库 main、源码仓库 main、官方 latest.json 均与本机签名清单完全一致，Ed25519 验证通过。GitHub 资产 digest 与本机 SHA256 一致；官方镜像 Range 返回 206/MZ/正确总长，完整下载 103843546 字节的 SHA256 同样一致。证据 output/playwright/public-release-2879.json。源码 e0e4bbd、跨分类等宽修正 b0a987e。
+
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.79.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.79/Xingzhou-Film-Tencent-Setup-2.8.79.exe
+- 本地：release/2.8.79/Xingzhou-Film-Tencent-Setup-2.8.79.exe
