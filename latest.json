@@ -1,12 +1,12 @@
 {
-  "version": "2.8.71",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.71/Xingzhou-Film-Tencent-Setup-2.8.71.exe",
-  "notes": "# 行舟影视 2.8.71\n\n- 项目协作「信息读取」自动分析对缺少判断依据的单条信息卡最多补全三次。\n- 三次仍无依据时标记为待补，继续分析后续集，不再重复卡在同一集。\n- 后续集出现同一人物并提供可核对原文时，自动回填声音、年龄等信息，再继续后续分析；后文首次出镜不会把服装和外貌倒灌到前面的电话声音场景。\n- 全文检查后仍无依据的条目保留“全文无充分依据”标记，不编造可见外貌，也不阻塞整本分析。\n- 正文、后文证据或人工修改发生变化时，旧补全标记自动失效并重新核对；新增“待补与回填”面板显示尝试次数、来源集和原文依据。",
-  "sha256": "b433e8c4ec298263ddd5938e501daa991269af0fca7ef10be449a3263186b59f",
-  "size": 103837760,
-  "publishedAt": "2026-10-25T15:42:10.559450+00:00",
+  "version": "2.8.77",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.77/Xingzhou-Film-Tencent-Setup-2.8.77.exe",
+  "notes": "# 行舟影视 2.8.77\n\n- 场景清单的资产卡片增加“提示词”关联入口，直接显示关联到哪些条目；AI 分发结果自动同步，也可人工调整多条提示词。\n- 按提示词分发改为左右审核工作台：左侧黑色提示词原文，右侧按人物、场景、道具显示已经关联的紧凑清单。用途、依据、图片等详细信息折叠查看。\n- 新增可展开的完整“本场景资产清单”，在当前提示词下点击“关联本条”即可补选；切换圆圈后，关联目标随当前提示词切换。\n- 内置基础设定分发规则：按人物、场景、道具字段及分号识别实体，外貌、衣着、年龄、动作等只作为属性；结合后续镜头判断实际用途和场景别名，缺项保留提醒。\n- 图视生成中的独立提示词与图片分发同步采用相同布局，保留手动导入、联动项目载入和提示词版本选择。\n- 场景修改、提示词审核共用同一份版本关联，避免两边结果不一致；人工修改后的迟到 AI 回包不再覆盖最新选择。",
+  "sha256": "8c907a87482c21ef0b65ddc84d2a9f70ba6e4a322564aed705d2e9155087cb50",
+  "size": 103841830,
+  "publishedAt": "2026-10-26T14:45:30.133285+00:00",
   "signature": {
     "algorithm": "Ed25519",
-    "value": "+bbY1BwtpMpbhlrfXE61N8XjGqpvtMgbFmrqgbpNpUbS8yLvHArvVd6ShQlhF9PXEzHwd88DyMNsBrTEczn5AQ=="
+    "value": "7VnB41GEcWxtWHZTwq4lScMNoqr1ubUnj8PXDUixSmVYdhfwqSxPTaQphbSXrkuIo/uXfuoREsWGBqHy5XRFBw=="
   }
 }

@@ -19,7 +19,9 @@
 - 两组浏览器脚本追加加载本版完整生产 CSS 后复验通过；证据在 `output/playwright/ui-2877.json`、`output/playwright/imported-audit-2877.json` 和同目录截图。
 - 独立 diff 复核覆盖：账号/项目隔离、跨场共享身份、版本隔离、来源变更、人工锁定、并发迟到回包、整场发布和图片门禁；旧版本有效关联继续沿用原签名契约。
 - 安装包 `release/2.8.77/Xingzhou-Film-Tencent-Setup-2.8.77.exe`，103841830 字节；SHA256 `8c907a87482c21ef0b65ddc84d2a9f70ba6e4a322564aed705d2e9155087cb50`。
-- 公开发布及更新清单核验待发布后补录。
+- 已正式发布：GitHub 更新仓库 main 清单、源码仓库 main 清单、xingzhoufilm.cn 官方清单均为 2.8.77，URL、大小、SHA256 和 Ed25519 签名核验一致。
+- 官方安装包 Range 请求返回 206，Content-Range 为 bytes 0-1023/103841830，文件头 MZ；GitHub 安装包 HEAD 返回 200，大小一致。公开验证证据 `output/playwright/public-release-2877.json`。
+- 源码提交 `33fc950`；公开包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.77/Xingzhou-Film-Tencent-Setup-2.8.77.exe ，官方镜像：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.77.exe 。
 
 ## 范围
 
