@@ -131,7 +131,7 @@
 .art-review-category-items .art-review-item b { font-size:15px; line-height:1.35; }
 .art-review-category-items .art-review-item small { font-size:12px; line-height:1.45; }
 .art-review-category-items .art-review-outfit { font-size:12px; padding:3px 6px; }
-.art-review-inventory .art-review-category-items{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));align-items:stretch}
+.art-review-inventory .art-review-category-items{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));align-items:stretch}
 .art-review-inventory .art-review-item{display:grid;grid-template-columns:minmax(0,1fr) 26px 26px;grid-template-rows:32px 28px;gap:5px;height:84px;min-height:84px;max-height:84px;overflow:hidden;padding:8px 10px;align-items:center}
 .art-review-inventory .art-review-item>div{grid-column:1/-1;grid-row:1;display:flex;flex-wrap:nowrap;gap:7px;width:100%;min-width:0;overflow:hidden}
 .art-review-inventory .art-review-item b{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
