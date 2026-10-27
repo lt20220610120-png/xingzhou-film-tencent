@@ -26,4 +26,7 @@
 - 安装包 103871989 字节，SHA256 c7becfb6277d17172217f1891e9e29d1cb2d47fa47abeadee0ad859ad896281e。
 - 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.87.exe
 - GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.87/Xingzhou-Film-Tencent-Setup-2.8.87.exe
-- 公开清单与文件复核待发布后填写。
+- 源码 9ba1501 已推送至 codex/monthly-license-legacy-exemption；GitHub v2.8.87 与官网镜像均已发布。
+- 三份 latest.json（updates 仓库、tencent 仓库、官网）逐字一致，Ed25519 签名有效；GitHub 资产大小/digest 与本机一致，镜像发布端完整 SHA256 通过。
+- 官网公开 Range 0-1023 返回 206，1024 字节、MZ 文件头、Content-Range 总长正确；output/verify-release-2887.py 输出 passed:true，output/playwright/public-release-2887.json。
+- 最后账号刷新边界补测后全量 2481/2481 再次通过，最终代码重建安装包与运行时 PASS。
