@@ -30,8 +30,10 @@
 
 - [x] 核心 TDD：新增 core/promptMissingSupplement.test.js；先运行观察缺少接口的 RED。实现 core/promptMissingSupplement.js，校验来源/证据、按场去重、模型补齐、守卫写入、重分发与部分失败。增加 promptDistributionService 场景维护互斥，防止同时分发。
 - [x] UI：PromptMissingBatchPanel 增加逐项与勾选补充；useScenePromptLinks 提供补充操作、进度；ArtReviewSection 传所选模型和目标签名。扩充模拟 fixture 与三宽浏览器验证，检查场/集卡片和发布后的美术资产。
-- [ ] 完整测试、构建、独立复核修正、2.8.85 NSIS/运行时、公开发布与校验；更新交接、记忆及验收记录。
+- [x] 完整测试、构建、独立复核修正、2.8.85 NSIS/运行时、公开发布与校验；更新交接、记忆及验收记录。
 
 独立复核的两项问题（曾删除身份排除标记、旧项目分集号归一化）和自查零填充场号互斥均 RED→GREEN。全量2467/2467、三组三宽UI、构建/NSIS/运行时通过。
+
+公开发布完成：源码1fef834；三份清单签名、GitHub资产digest、官方镜像完整发布端校验与公开Range通过，验收 docs/release-verification-2.8.85.md。
 
 Ruling: 沿用当前命名分支与现有安装包发布脚本，不新开 checkout；项目AGENTS已授权直接发布，无需架构、集成菜单或重复发布确认。新增卡片按原流程先保存清单，再由用户核实发布，不自动越过人审。

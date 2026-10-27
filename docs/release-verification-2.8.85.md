@@ -25,4 +25,10 @@
 - https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.85.exe
 - https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.85/Xingzhou-Film-Tencent-Setup-2.8.85.exe
 
-公开下载与签名清单验证在发布完成后补记。
+## 公开发布复核
+
+- 源码 1fef834 已推送至 codex/monthly-license-legacy-exemption；GitHub Release v2.8.85 已上传安装包。
+- 上传及第二仓库清单同步曾遭遇 TLS 连接中断；重试上传成功后，通过 output/finish-manifest-2885.py 仅补齐签名清单同步，没有重建或替换安装包。
+- GitHub asset digest、大小与本机一致；官方镜像发布端验证完整文件 SHA256 后原子发布。
+- updates 仓库、tencent 仓库和官网镜像三份 latest.json 完全一致，Ed25519 签名通过；公开 Range bytes=0-1023 返回 206、1024 字节，MZ 文件头及 Content-Range 总长正确。
+- output/verify-release-2885.py 输出 passed:true；记录 output/playwright/public-release-2885.json。
