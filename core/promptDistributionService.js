@@ -16,8 +16,9 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
 
 export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,concurrency}){
  let context=getContext,writer=Promise.resolve(),generation=0,notice='',paused=false;
- const tasks=new Map(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=concurrency?createTaskPool(concurrency):null;
+ const tasks=new Map(),maintenance=new Set(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=concurrency?createTaskPool(concurrency):null;
  const emit=()=>listeners.forEach(fn=>fn());
+ const entrySceneId=id=>{const label=context().project.episodes.flatMap(e=>e.prompts||[]).find(p=>p.id===id)?.label,match=/^(\d+)-(\d+)-(\d+)$/.exec(String(label||''));return match?`${Number(match[1])}-${Number(match[2])}`:null;};
  modelQueue.subscribe(emit);
  const read=async versionId=>{
   const saved=await api.promptArtLoad({projectId,accountId}),ctx=context();
@@ -35,13 +36,24 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   });writer=task.catch(()=>{});return task;
  };
  const service={
-  configure(fn){context=fn;},read,mutate,
+  configure(fn){context=fn;},read,mutate,getContext:()=>context(),
+  async withSceneMaintenance(sceneId,fn){
+   if(maintenance.has(sceneId))throw Error('本场正在补充，请完成后再试');
+   maintenance.add(sceneId);emit();
+   try{
+    const state=await read(),ids=state.snapshot.entries.filter(e=>e.sceneId===sceneId).map(e=>e.id);
+    if(ids.some(id=>tasks.has(id))||Object.values(state.saved?.sceneDistributionAttempts||{}).some(a=>a.status==='running'&&a.startedAt>Date.now()-10*60*1000&&ids.some(id=>a.label===state.snapshot.entries.find(e=>e.id===id)?.label)))throw Error('本场正在模型分发，请完成后再补充');
+    return await fn();
+   }finally{maintenance.delete(sceneId);emit();}
+  },
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
-  isBusy:id=>tasks.has(id),
+  isBusy:id=>tasks.has(id)||maintenance.has(entrySceneId(id)),
   status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],notice,paused,...modelQueue.status()}),
   resume(){paused=false;emit();},
   async stop(){paused=true;generation++;modelQueue.notify();const ids=[...tasks.values()].filter(t=>!t.manual).flatMap(t=>t.taskIds);await Promise.allSettled(ids.map(taskId=>api.cancelAiTask?.({taskId})));emit();},
   run(entryId,{profile,manual=false,versionId,job={}}={}){
+   const sceneId=entrySceneId(entryId);
+   if(maintenance.has(sceneId))return Promise.reject(Error('本场正在补充，请完成后再分发'));
    if(tasks.has(entryId))return tasks.get(entryId).promise;
    if(paused&&!manual)return Promise.reject(Error('已暂停自动分发'));
    if(!profile)return Promise.reject(Error('请选择分发模型'));

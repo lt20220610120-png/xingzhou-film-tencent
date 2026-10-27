@@ -6,6 +6,7 @@ import {getPromptDistributionService} from '../../core/promptDistributionService
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
 import {resolvePromptMissingReferences,promptHumanReviewSignature} from '../../core/promptReviewBatch.js';
+import {supplementPromptMissingReferences} from '../../core/promptMissingSupplement.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
 export function notifyBindingSaved(projectId,accountId,data){window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
@@ -13,6 +14,7 @@ export function notifyBindingSaved(projectId,accountId,data){window.dispatchEven
 export default function useScenePromptLinks({project,ledger,assets,api,accountId,enabled,canEdit}){
  const [saved,setSaved]=useState(null),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const resolving=useRef(false);
+ const [supplementProgress,setSupplementProgress]=useState('');
  useEffect(()=>{let alive=true;setLoaded(false);setSaved(null);
   if(enabled)Promise.resolve(api.promptArtLoad({projectId:project.id,accountId})).then(data=>{if(alive){setSaved(data);setLoaded(true);}}).catch(e=>alive&&setError(e.message));
   const sync=event=>{const d=event.detail;if(d.projectId===project.id&&d.accountId===accountId&&alive){setSaved(d.data);setLoaded(true);}};
@@ -55,5 +57,11 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
   if(!entry)throw Error('提示词已变化，请重新打开');
   return skipMissingBatch([{entryId,needId,signature:promptHumanReviewSignature(selected.snapshot,entry,selected.decisions[entryId])}],selected.snapshot.versionId);
  };
- return {links,assign,skipMissing,skipMissingBatch,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
+ const supplementMissing=async(targets,versionId,profile)=>{
+  if(!canEdit||!loaded||busy||resolving.current)throw Error('正在读取或保存关联，请稍后再试');
+  resolving.current=true;setBusy(true);setError('');setSupplementProgress('正在准备补充所选缺项…');
+  try{return await supplementPromptMissingReferences({service,store,api,targets,versionId,profile,actor:accountId,onProgress:setSupplementProgress});}
+  catch(e){setError(e.message);throw e;}finally{resolving.current=false;setBusy(false);setSupplementProgress('');}
+ };
+ return {links,assign,skipMissing,skipMissingBatch,supplementMissing,supplementProgress,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
 }

@@ -239,4 +239,5 @@
 .art-review-prompt-missing-list article span{color:#7d5b55;font-size:12px;overflow-wrap:anywhere}
 .art-review-prompt-missing-list article>div:last-child{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end}
 .art-review-prompt-missing-batch button{padding:5px 8px;font-size:12px;white-space:nowrap}
+.art-review-supplement-progress{font-size:13px;color:#26333f;margin:6px 0 10px}
 @media(max-width:680px){.art-review-prompt-missing-body>header,.art-review-prompt-missing-list article{align-items:stretch;flex-direction:column}.art-review-prompt-missing-list article>div:last-child{justify-content:flex-start}}

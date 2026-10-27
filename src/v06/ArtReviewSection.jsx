@@ -144,6 +144,12 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   if(result.failures.length)setError(result.failures.join('；'));
   if(action!=='approve')await refresh({manual:true});
  });
+ const supplementMissing=items=>act(async()=>{
+  const targets=items.map(({entry,need})=>({entryId:entry.id,needId:need.id,signature:promptHumanReviewSignature(reviewState.snapshot,entry,reviewState.decisions[entry.id])}));
+  const result=await promptLinks.supplementMissing(targets,reviewState.snapshot.versionId,profile);
+  setNotice(`已补充 ${result.added} 张卡片，复用 ${result.reused} 项；对应场景和分集清单已保存。请核实发布到美术与资产。`);
+  if(result.failures.length)setError(result.failures.join('；'));
+ });
  const closeOverlays=()=>{setAssignment(null);setPicker(null);setEditor(null);setConfirmation(null);setError('');setNotice('');};
  const chooseEpisode=next=>{closeOverlays();setReviewMode('prompt');setNumber(next);};
  const chooseScene=id=>{closeOverlays();setReviewMode('prompt');setSelectedScenes(previous=>({...previous,[number]:id}));};
@@ -194,6 +200,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   {text:busy>0?'正在后台保存或发布…':''},
   {text:running?analysisJob.notice:''},
   {text:notice},
+  {text:promptLinks.supplementProgress},
   {text:error,warning:true},
   {text:!current?'剧本正文已更新，旧核实记录保留。请重新分析本集，再核实和发布。':'',warning:true},
   {text:record.failure,warning:true},
@@ -220,7 +227,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
   <ArtDeferredPanel entries={deferredArtDetails(ledger,episodes,{includeResolved:true})} onOpenEpisode={chooseEpisode}/>
   <p className="art-review-sr-only" role="status" aria-live="polite" aria-atomic="true">{feedback.map(item=>item.text.split('\n')[0]).join('；')}</p>
   {!!feedback.length&&<details className={`art-review-feedback ${feedbackHasWarning?'has-warning':''}`}><summary><span>操作反馈（{feedback.reduce((sum,item)=>sum+item.text.split('\n').filter(Boolean).length,0)}）{feedbackHasWarning?' · 有待处理':''}</span>{(busy>0||running)&&<span className="art-review-feedback-progress"><Loader2 className="spin" size={14}/>处理中</span>}<ChevronDown size={16}/></summary><div className="art-review-feedback-body">{feedback.map((item,index)=><div key={index} className={item.warning?'art-review-warning':'art-review-message'}>{item.text}{item.cloud&&<button onClick={()=>setConfirmation({title:'采用云端清单',kind:'cloud',episodeNumber:number})}>采用云端版本</button>}</div>)}</div></details>}
-  {promptEnabled&&<PromptMissingBatchPanel key={`${project.id}:${reviewState.snapshot.versionId}`} items={wholeBatch.pendingMissing} disabled={!canEdit||busy>0||promptLinks.busy||!promptLinks.loaded} isBusy={id=>promptLinks.service.isBusy(id)} onSkip={items=>act(()=>promptLinks.skipMissingBatch(items.map(({entry,need})=>({entryId:entry.id,needId:need.id,signature:promptHumanReviewSignature(reviewState.snapshot,entry,reviewState.decisions[entry.id])})),reviewState.snapshot.versionId),'所选待处理项已确认无需参考图。')} onBackScene={entry=>{closeOverlays();setNumber(entry.episode);setSelectedScenes(old=>({...old,[entry.episode]:entry.sceneId}));setReviewMode('scene');}}/>}
+  {promptEnabled&&<PromptMissingBatchPanel key={`${project.id}:${reviewState.snapshot.versionId}`} items={wholeBatch.pendingMissing} disabled={!canEdit||busy>0||promptLinks.busy||!promptLinks.loaded} isBusy={id=>promptLinks.service.isBusy(id)} canSupplement={Boolean(profile)&&reviewState.snapshot.versionId===promptLinks.state.snapshot.versionId} onSupplement={supplementMissing} progress={promptLinks.supplementProgress} onSkip={items=>act(()=>promptLinks.skipMissingBatch(items.map(({entry,need})=>({entryId:entry.id,needId:need.id,signature:promptHumanReviewSignature(reviewState.snapshot,entry,reviewState.decisions[entry.id])})),reviewState.snapshot.versionId),'所选待处理项已确认无需参考图。')} onBackScene={entry=>{closeOverlays();setNumber(entry.episode);setSelectedScenes(old=>({...old,[entry.episode]:entry.sceneId}));setReviewMode('scene');}}/>}
   <div className="art-review-scene-list">{selectedScene&&!promptMode&&<ReviewScene key={`${number}:${selectedScene.id}`} scene={selectedScene} record={record} canChange={canChange} onAct={act} onUpdate={update} onEdit={openEditor} onAdd={(sceneId,category)=>{setError('');setPicker({episodeNumber:number,sceneId,category});}} onPublish={askPublish} promptLinks={promptLinks} onPromptAssign={setPromptAssignment}/>}</div>
   {hasScenePrompts&&<div hidden={!promptMode}><PromptArtBindingPanel key={`${accountId}:${project.id}:${selectedSceneId}`} project={project} ledger={ledger} assets={assets} api={api} accountId={accountId} canEdit={canChange} sceneId={selectedSceneId} profile={profile} modelId={modelId} setModelId={setModelId} modelProfiles={state.apiProfiles||[]} onBindingVersionChange={setReviewVersion} refresh={refresh} onBackScene={()=>setReviewMode('scene')} onSkipMissing={(entryId,needId,versionId)=>act(()=>promptLinks.skipMissing(entryId,needId,versionId),'已标记：本条无需参考图。')} sceneActions={<><button title={batchHint(sceneBatch)} disabled={!canChange||busy>0||!batchReady(sceneBatch)} onClick={()=>promptAct({sceneId:selectedSceneId},'approve')}>核实本场全部提示词</button><button title={batchHint(sceneBatch)} disabled={!canChange||busy>0||!batchReady(sceneBatch)} onClick={()=>promptAct({sceneId:selectedSceneId},'approve-publish')}>核实并发布本场提示词</button></>}/></div>}
   <details className="art-review-history"><summary>保存与分析记录（{record.history.length} 条）</summary><ul>{record.history.slice(-12).reverse().map((h,i)=><li key={i}>{new Date(h.at).toLocaleString('zh-CN')} · {h.reason}{h.sceneId?` · ${h.sceneId}`:''}</li>)}</ul>{(record.warnings||[]).map((w,i)=><p key={i}>{w}</p>)}</details>
