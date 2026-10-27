@@ -220,3 +220,15 @@
 .art-review-scene-navigation > header { flex-basis:100%; }
 .art-review-scene-navigation-list { flex:1; min-width:180px; }
 .art-review-mode-switch button { white-space:nowrap; }
+
+.art-review-prompt-missing-batch{margin:10px 0;padding:12px 14px;border:1px solid #eed5ca;border-radius:10px;background:#fff8f5;color:#542f2a}
+.art-review-prompt-missing-batch>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
+.art-review-prompt-missing-batch>header>div{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.art-review-prompt-missing-batch>header span,.art-review-prompt-missing-batch>header small{color:#7d5b55;font-size:12px}
+.art-review-prompt-missing-list{display:grid;gap:7px;max-height:240px;overflow:auto}
+.art-review-prompt-missing-list article{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid #f0ddd6;border-radius:8px;background:#fff}
+.art-review-prompt-missing-list article>div:first-child{display:flex;align-items:baseline;gap:9px;min-width:0;flex-wrap:wrap}
+.art-review-prompt-missing-list article span{color:#7d5b55;font-size:12px;overflow-wrap:anywhere}
+.art-review-prompt-missing-list article>div:last-child{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end}
+.art-review-prompt-missing-list button{padding:5px 8px;font-size:12px}
+@media(max-width:680px){.art-review-prompt-missing-batch>header,.art-review-prompt-missing-list article{align-items:stretch;flex-direction:column}.art-review-prompt-missing-list article>div:last-child{justify-content:flex-start}}

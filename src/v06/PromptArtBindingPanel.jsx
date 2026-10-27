@@ -12,7 +12,7 @@ import CloudAssetImage from './CloudAssetImage.jsx';
 import {ModelSelect} from './ModelSelect.jsx';
 import '../prompt-art-binding.css';
 
-export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,sceneActions,onBindingVersionChange}){
+export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,onSkipMissing,sceneActions,onBindingVersionChange}){
  const [available,setAvailable]=useState(false),[loaded,setLoaded]=useState(false),[saved,setSaved]=useState(null),[selected,setSelected]=useState(''),[version,setVersion]=useState(''),[category,setCategory]=useState('all'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const mounted=useRef(false),saving=useRef(false);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
@@ -63,7 +63,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
      <div className="prompt-art-source"><h3>提示词原文</h3><pre>{entry.prompt}</pre></div>
      {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
      {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，请重新分发核对。</p>}
-     {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b>{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div>}
+     {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.(entry.id,need.id))}>确认无需参考图</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
      {!distribution.working&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?'自动分发待处理':'上次分发未完成'}，可重新分发本条或返回场景检查。</p>}
      {decision.issue&&<p className="collab-error">{decision.issue}</p>}
     </section>

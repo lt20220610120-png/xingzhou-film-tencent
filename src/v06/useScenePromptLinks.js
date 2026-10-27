@@ -5,6 +5,7 @@ import {assignCardToPrompts,cardPromptIds} from '../../core/scenePromptAssignmen
 import {getPromptDistributionService} from '../../core/promptDistributionService.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
+import {skipPromptNeed} from '../../core/promptReviewBatch.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
 export function notifyBindingSaved(projectId,accountId,data){window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
@@ -40,5 +41,19 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
    setSaved(data);notifyBindingSaved(project.id,accountId,data);
   }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
  };
- return {links,assign,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
+ const skipMissing=async(entryId,needId)=>{
+  if(!canEdit||!loaded||busy)throw Error('正在读取或保存关联，请稍后再试');
+  setBusy(true);setError('');
+  try{
+   const latest=await api.promptArtLoad({projectId:project.id,accountId});
+   const fresh=bindingSnapshot(project,ledger,assets,latest?.snapshot),selected=selectBindingVersion(fresh,latest),entry=selected.snapshot.entries.find(row=>row.id===entryId);
+   if(!entry)throw Error('提示词已变化，请重新打开');
+   const decision=selected.decisions[entryId];
+   const nextDecision=skipPromptNeed(decision,needId);
+   const nextDecisions={...selected.decisions,[entryId]:nextDecision};
+   const data=await api.promptArtSave({projectId:project.id,accountId,baseRevision:latest?.revision||0,data:saveBindingVersion(latest,selected.snapshot,nextDecisions)});
+   setSaved(data);notifyBindingSaved(project.id,accountId,data);return data;
+  }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
+ };
+ return {links,assign,skipMissing,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
 }

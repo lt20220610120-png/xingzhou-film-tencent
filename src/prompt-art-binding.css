@@ -227,6 +227,9 @@
 .prompt-art-panel .scene-prompt-assignment-options label{flex-direction:row;align-items:center;gap:8px;margin:0;padding:10px;border:1px solid #dde6ed;border-radius:8px;background:#f5fbfc}
 .scene-prompt-assignment footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
 .prompt-art-panel .scene-missing-assets{flex-shrink:0;max-height:180px;overflow:auto;margin-top:10px;padding:10px;border:1px solid #eed5ca;border-radius:8px;background:#fff8f5;color:#7f3928;font-size:13px}
+.prompt-art-panel .scene-missing-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.prompt-art-panel .scene-missing-actions span{display:inline-flex}
+.prompt-art-panel .scene-missing-actions button{padding:5px 8px;font-size:12px}
 .prompt-art-panel .scene-missing-assets label{display:grid;grid-template-columns:minmax(70px,.6fr) minmax(0,1fr);align-items:center}
 
 /* Compact audit rows keep people, locations and props visible together. */
