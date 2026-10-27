@@ -3,6 +3,7 @@ import {fixture} from './promptDistribution.fixtures.js';
 import {createPromptDistributionService} from './promptDistributionService.js';
 import {promptReviewState,reviewPromptScope,skipPromptNeed} from './promptReviewBatch.js';
 import {saveBindingVersion} from './promptBindingVersions.js';
+import {newArtReview,applyArtReviewCandidate} from './artReview.js';
 
 test('empty, pending, missing and rule-only results cannot be bulk reviewed or published',async()=>{
  const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'}),scope={sceneId:'1-1'};let writes=0;
@@ -64,4 +65,46 @@ test('global review and publish processes ready prompts without blocking on late
  const before=promptReviewState(await service.read(),{});assert.equal(before.ready,false);assert.equal(before.reviewableEntries.length,3);
  const published=[];const result=await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async(n,ids)=>published.push([n,ids])},scope:{},actor:'u',action:'approve-publish'});
  assert.equal(result.count,3);assert.deepEqual(published,[[1,['1-1']]]);const after=promptReviewState(await service.read(),{});assert.equal(after.approved,3);assert.equal(after.entries.length,4);assert.equal(after.ready,false);
+});
+
+test('publish uses existing approval, skips completed checkpoints and emits episode progress without AI',async()=>{
+ const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
+ await Promise.all(['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}})));
+ let approvals=0,sends=0;const store={updateMany:async()=>{approvals++},publish:async()=>{sends++}};
+ await reviewPromptScope({service,store,actor:'u'});assert.equal(approvals,1);const modelCalls=f.calls,progress=[];
+ const options={service,store,actor:'u',action:'publish',onProgress:value=>progress.push(value)};
+ await reviewPromptScope(options);await reviewPromptScope(options);
+ assert.equal(approvals,1,'publishing must not dirty the approved ledger again');assert.equal(sends,1,'confirmed entries must not be sent again');assert.equal(f.calls,modelCalls);assert(progress.some(p=>p.done===3));
+});
+
+test('global publish cannot approve a partial scene when one prompt source is invalid',async()=>{
+ const f=fixture();f.project.episodes[0].prompts[2].content='';
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(['p1','p2'].map(id=>service.run(id,{profile:{id:'m'}})));
+ await assert.rejects(reviewPromptScope({service,store:{updateMany:async()=>assert.fail('unsafe approval')},actor:'u'}),/分发尚未完成/);
+});
+
+test('eight episode batches run four at a time, retain partial successes and retry only the failed episode',async()=>{
+ const f=fixture(),template=f.project.episodes[0];
+ f.project.episodes=Array.from({length:8},(_,i)=>({id:'ep'+(i+1),episodeNumber:i+1,content:template.content.replaceAll('1-1',`${i+1}-1`),prompts:[{...template.prompts[0],id:'p'+(i+1),label:`${i+1}-1-1`}]}));
+ for(const episode of f.project.episodes)f.ledger.episodes[episode.episodeNumber]=applyArtReviewCandidate(newArtReview(episode),episode,{items:[{category:'character',name:'【张三】',description:'成年男性，短发，灰色短袖。',ready:true}],mapping:[{sceneId:`${episode.episodeNumber}-1`,assets:[{category:'character',name:'【张三】'}]}],inventory:'清单',complete:true,warnings:[]});
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(f.project.episodes.map(e=>service.run(e.prompts[0].id,{profile:{id:'m'}})));
+ let active=0,peak=0,fail=true;const sent=[],progress=[];
+ const store={updateMany:async()=>{},publish:async n=>{sent.push(n);active++;peak=Math.max(active,peak);await new Promise(r=>setTimeout(r,n===8?35:8));active--;if(n===2&&fail)throw Error('模拟网络断开');}};
+ const first=await reviewPromptScope({service,store,actor:'u',action:'approve-publish',onProgress:p=>progress.push(p)});
+ assert.equal(peak,4);assert.equal(first.published,7);assert.equal(first.failures.length,1);assert(progress.some(p=>p.done>0&&p.active.length>0));
+ fail=false;sent.length=0;const second=await reviewPromptScope({service,store,actor:'u',action:'publish'});assert.deepEqual(sent,[2]);assert.equal(second.published,8);assert.equal(second.skipped,7);
+});
+
+test('cloud-confirmed publication is visible even if its prompt checkpoint fails afterwards',async()=>{
+ const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}})));
+ const store={updateMany:async()=>{},publish:async()=>{f.api.promptArtSave=async()=>{throw Error('模拟本机磁盘失败')};}},progress=[];
+ const result=await reviewPromptScope({service,store,actor:'u',action:'approve-publish',onProgress:p=>progress.push(p)});
+ assert.equal(result.failures.length,1);assert(progress.some(p=>p.cloudDone===3));assert.equal(result.published,0);
+});
+
+test('a prompt added to the same scene while publishing invalidates the captured current scope',async()=>{
+ const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}})));
+ const store={updateMany:async()=>{},publish:async()=>assert.fail('new unreviewed prompt must block')};await reviewPromptScope({service,store,actor:'u'});
+ let reads=0;const read=service.read;service.read=async id=>{if(++reads===2)f.project.episodes[0].prompts.push({...f.project.episodes[0].prompts[0],id:'p4',label:'1-1-4'});return read(id);};
+ const result=await reviewPromptScope({service,store,actor:'u',action:'publish'});assert.equal(result.published,0);assert.match(result.failures[0],/来源已变化/);
 });

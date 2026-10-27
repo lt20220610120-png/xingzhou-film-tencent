@@ -1,3 +1,5 @@
+import PromptPublicationProgress from './PromptPublicationProgress.jsx';
+import {publishedReviewProject} from '../../core/publishedReviewProject.js';
 import {notifyBindingSaved} from './useScenePromptLinks.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
 import {assetPromptUsage} from '../../core/promptAssetUsage.js';
@@ -1553,10 +1555,19 @@ export function CollabWorkspace({ state, api, account }) {
     const work=(async()=>{
     if (!project?.id) return;
     const projectId = project.id;
-    const isCurrentTarget = () => currentProjectIdRef.current === projectId && (options.manual || currentSectionRef.current !== 'art-review');
+    const isCurrentTarget = () => accountScope.current === (account?.id||'local') && currentProjectIdRef.current === projectId && (options.manual || currentSectionRef.current !== 'art-review');
     if (!isCurrentTarget()) return;
     const requestId = ++refreshRequestRef.current;
     try {
+      // Publication already received authoritative per-episode receipts. Refresh
+      // just the actual cloud asset IDs instead of downloading all analysis again.
+      if(options.assetsOnly){
+        const rows=await api.collabListAssets({projectId});
+        if(requestId!==refreshRequestRef.current||!isCurrentTarget())return;
+        const ledger=getArtReviewStore({api,projectId,accountId:account?.id}).snapshot();
+        const p=publishedReviewProject(project,ledger),normalizedAssets=prepareAssets(p,rows||[]);
+        setProject(p);setAssets(normalizedAssets);writeCache(`project-${projectId}`,p);writeCache(`assets-${projectId}`,normalizedAssets);return p;
+      }
       let [p, a] = await Promise.all([
         api.collabGetProject({ projectId }),
         api.collabListAssets({ projectId }),
@@ -1573,6 +1584,7 @@ export function CollabWorkspace({ state, api, account }) {
     } catch (error) {
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       if (options.manual) setRefreshNotice(`刷新失败：${error.message || '请稍后重试'}，当前编辑内容已保留`);
+      if(options.assetsOnly)throw error;
       if (String(error?.message || '').includes('project_access_denied')) {
         setProject(null);
         setAssets([]);
@@ -1582,7 +1594,7 @@ export function CollabWorkspace({ state, api, account }) {
     }
     })();
     refreshInFlight.current=work;try{return await work;}finally{refreshInFlight.current=null;}
-  }, [project?.id, loadProjects, state.directorProjects]);
+  }, [project, api, account?.id, loadProjects, state.directorProjects]);
 
   // 实时刷新：进入项目后轮询云端
   useEffect(() => {
@@ -1701,6 +1713,7 @@ export function CollabWorkspace({ state, api, account }) {
       </aside>
       <main className="collab-stage">
         <EpisodeIdentityPanel key={project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
+        <PromptPublicationProgress key={`${account?.id}:${project.id}`} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
         {section === 'art-review' && <ArtReviewEntry key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}

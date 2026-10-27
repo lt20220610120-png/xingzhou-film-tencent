@@ -13,6 +13,21 @@ function generated(n=1){
  return r;
 }
 const approved=n=>editArtReview(generated(n),{type:'approve-episode'},'owner');
+
+test('independent episodes upload concurrently with a four-request ceiling',async()=>{
+ const f=fixture({count:6});await f.store.load(f.project);await f.store.updateMany([1,2,3,4,5,6].map(number=>({number,reduce:()=>approved(number)})));
+ let release,active=0,peak=0;const gate=new Promise(r=>release=r),remote={};
+ f.api.collabArtReviewSave=async p=>{active++;peak=Math.max(peak,active);await gate;active--;return remote[p.episodeNumber]={...p.data,version:1};};
+ f.api.collabArtReviewPublish=async p=>({...remote[p.episodeNumber],version:2});
+ const jobs=[1,2,3,4,5,6].map(n=>f.store.publish(n,[`${n}-1`]));
+ try{await new Promise(r=>setTimeout(r,30));assert.equal(active,4);assert.equal(peak,4);}finally{release();await Promise.all(jobs);}
+});
+
+test('unchanged bulk update does not create a new upload or local write',async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));await f.store.publish(1,['1-1']);
+ const before=f.localWrites.length;await f.store.updateMany([{number:1,reduce:r=>r}]);await f.store.publish(1,['1-1']);
+ assert.equal(f.localWrites.length,before);assert.equal(f.saveCalls.length,1);assert.equal(f.publishCalls.length,1);
+});
 function revise(record,description){
  const item=reviewRoster(record)[0];
  return {...editArtReview(record,{type:'roster-upsert',itemId:item.id,sceneIds:record.scenes.map(s=>s.id),item:{...item,description,note:'最新本地补充',ready:true}}),rawOutput:'最新模型完整回包',generation:{status:'saved',taskId:'new-local-task'}};

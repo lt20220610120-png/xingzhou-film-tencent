@@ -1,5 +1,13 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createAnalysisCheckpoints}=require('./analysis-checkpoints.cjs');
+
+test('a late background review checkpoint cannot write into a newly signed-in account',()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'review-account-'));try{
+  let active='A';const store=createAnalysisCheckpoints(root,()=>active,'art-review-checkpoints');
+  store.save({projectId:'p',accountId:'A',data:{private:'A'}});active='B';
+  assert.throws(()=>store.save({projectId:'p',accountId:'A',data:{private:'A late'}}),/账号已变化/);assert.equal(store.load({projectId:'p'}),null);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
 test('review checkpoints survive restart and cannot overwrite legacy analysis or another account/project',()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-review-checkpoint-'));try{
   let account='one';const legacy=createAnalysisCheckpoints(root,()=>account),review=createAnalysisCheckpoints(root,()=>account,'art-review-checkpoints');legacy.save({projectId:'project-a',data:{outputs:['legacy preserved']}});review.save({projectId:'project-a',data:{episodes:{1:{manual:'睡衣',pending:true}}}});

@@ -22,12 +22,13 @@ test('restored persisted ledger distinguishes local complete from synced episode
 });
 
 function refreshFixture(){
- const match=ui.match(/const refreshProject = useCallback\(async[\s\S]*?\n  }, \[project\?\.id, loadProjects, state\.directorProjects\]\);/);assert.ok(match);
+ const match=ui.match(/const refreshProject = useCallback\(async[\s\S]*?\n  }, \[project, api, account\?\.id, loadProjects, state\.directorProjects\]\);/);assert.ok(match);
  const applied=[],reads=[],ref={current:'project-a'},section={current:'art'},cursor={current:0},flight={current:null},syncs=[];
  let resolveRead;const gate=new Promise(resolve=>{resolveRead=resolve;});
- const context={useCallback:fn=>fn,project:{id:'project-a'},currentProjectIdRef:ref,currentSectionRef:section,refreshRequestRef:cursor,refreshInFlight:flight,state:{directorProjects:[]},api:{collabGetProject:async p=>{reads.push(p.projectId);await gate;return {id:p.projectId};},collabListAssets:async()=>[]},syncDirector:{current:async p=>{syncs.push(p.id);return p;}},prepareAssets:(p,a)=>a,normalizeArtAssets:a=>a,projectPublishedReviewAssets:(p,a)=>a,setProject:p=>applied.push(p),setAssets:a=>applied.push(a),writeCache:()=>{},setRefreshNotice:()=>{},loadProjects:async()=>{},localStorage:{removeItem:()=>{}}};
+ const identity={current:'test'};
+ const context={accountScope:identity,account:{id:'test'},useCallback:fn=>fn,project:{id:'project-a'},currentProjectIdRef:ref,currentSectionRef:section,refreshRequestRef:cursor,refreshInFlight:flight,state:{directorProjects:[]},api:{collabGetProject:async p=>{reads.push(p.projectId);await gate;return {id:p.projectId};},collabListAssets:async()=>[]},syncDirector:{current:async p=>{syncs.push(p.id);return p;}},prepareAssets:(p,a)=>a,normalizeArtAssets:a=>a,projectPublishedReviewAssets:(p,a)=>a,setProject:p=>applied.push(p),setAssets:a=>applied.push(a),writeCache:()=>{},setRefreshNotice:()=>{},loadProjects:async()=>{},localStorage:{removeItem:()=>{}}};
  vm.createContext(context);vm.runInContext(match[0]+';globalThis.refresh=refreshProject;',context);
- return {ref,section,cursor,reads,applied,syncs,resolveRead,refresh:context.refresh};
+ return {identity,ref,section,cursor,reads,applied,syncs,resolveRead,refresh:context.refresh};
 }
 test('a late publication callback cannot refresh or reopen the project that was left',async()=>{
  const f=refreshFixture();f.ref.current='project-b';await f.refresh({manual:true});assert.equal(f.reads.length,0);assert.equal(f.applied.length,0);assert.equal(f.cursor.current,0);
@@ -41,4 +42,7 @@ test('entering local review gates a queued or in-flight automatic cloud refresh 
 });
 test('explicit publication refresh still loads published assets while the local review page is active',async()=>{
  const f=refreshFixture();f.section.current='art-review';const pending=f.refresh({manual:true});f.resolveRead();await pending;assert.deepEqual(f.reads,['project-a']);assert.equal(f.applied.length,2);assert.deepEqual(f.syncs,['project-a']);
+});
+test('publication refresh cannot apply data after account switches on the same project',async()=>{
+ const f=refreshFixture(),pending=f.refresh({manual:true});f.identity.current='another-account';f.resolveRead();await pending;assert.equal(f.applied.length,0);assert.equal(f.syncs.length,0);
 });

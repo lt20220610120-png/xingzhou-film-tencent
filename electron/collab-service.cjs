@@ -38,6 +38,13 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
   const session = () => getSession() || {};
   const account = () => { const a = session().account || session(); if (!a?.id) throw new Error('请先登录账号'); return a; };
   const call = (action, payload = {}) => callGateway(action, payload, session().token || '');
+  const reviewCall=async(action,{accountId:expected,...payload})=>{
+    const matches=()=>expected===undefined||String(session().account?.id||session().id||'')===String(expected);
+    if(!matches())throw Error('账号已变化，请回到原账号继续发布');
+    const result=await call(action,payload);
+    if(!matches())throw Error('账号已变化，发布回执已保留，请回到原账号重试');
+    return result;
+  };
   const attaching = new Map();
   const attachGenerated = p => {
     const key = `${account().id}:${p.projectId}:${p.assetId}:${p.filePath}`;
@@ -57,8 +64,8 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     isProducer: () => call('producer-status').then(r => r.isProducer === true),
     adminSetProducer: (p) => call('admin-set-producer', p),
     publishAnalysis:p=>call('analysis-publish',{...p,ackOnly:true}),
-    saveArtReview:p=>call('art-review-save',p),
-    publishArtReview:p=>call('art-review-publish',p),
+    saveArtReview:p=>reviewCall('art-review-save',p),
+    publishArtReview:p=>reviewCall('art-review-publish',p),
     appendEpisode:p=>call('art-episode-append',p),
     resolveEpisodeIdentity:p=>call('episode-identity-resolve',p),
     patchStoryboard: p => call('storyboard-patch',p),
