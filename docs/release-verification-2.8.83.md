@@ -14,7 +14,7 @@
 - 新增回归：模型返回基础设定缺项时先阻塞；人工跳过后 `pendingMissing` 清零，场景批量核实并发布成功。
 - `node scripts/verify-model-pipeline-ui.cjs`：1280、1700、2232 三种宽度通过；模型实际最大并发 6；工具栏单行；信息读取停止不取消下游分发；场/集/剧发布、图视提示词关联通过。
 - 安装包运行时 smoke：`qa/packaged-smoke-2.8.83-1793060249801`，PASS。
-- 最终安装包：103853659 字节；SHA256 `b4b2b73c105163bf3ccdea561f16d391db451350b1cf1495b040046f172ff512`。
+- 最终安装包：103853520 字节；SHA256 `9cf39eb6e7a2513d9e5405dfcb44665f5bffaedb1079b998d3df3578c1c37c6f`。
 
 ## 公开发布复核
 
@@ -27,3 +27,4 @@
 
 - https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.83.exe
 - https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.83/Xingzhou-Film-Tencent-Setup-2.8.83.exe
+
