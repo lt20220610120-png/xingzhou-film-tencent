@@ -15,6 +15,7 @@
 - 新增 core/promptMissingBatch.test.js：跨集原子确认、选择隔离、空/过期/运行中拒绝、等待写入时来源变更拒绝。实现前及复核修正前均观察到对应 RED，修正后 GREEN。
 - 独立复核发现来源版本在写入前变化时可能误改已归档版本；增加 followedCurrent 检查和竞态回归，定向 11/11 通过。
 - scripts/verify-prompt-missing-batch-ui.cjs：1280/1700/2232 三宽通过；检查全剧 6 项、默认收起/展开、选择仅影响所选、切集保持全剧计数、跨集返回场景、全部确认只保存一次、不自动发布、恢复核实按钮。output/playwright/prompt-missing-2884.json 及对应截图。
+- scripts/verify-model-pipeline-ui.cjs：1280/1700/2232 三宽既有链路回归通过；并发上限 6、信息读取停止后下游继续、独立清单分发启停、场/集/剧发布、美术提示词关联和同行构图均通过；output/pipeline-ui-2884.log。
 - npm run build：通过；output/build-2884.log。
 - node scripts/package-release.cjs：NSIS 与实际安装包运行时 PASS；qa/packaged-smoke-2.8.84-1793083027219，output/package-2884.log。测试使用模拟模型，未进行真实付费生成。
 - 安装包 103854324 字节；SHA256 e1dffc188af59e76335a958c318342840b122d31ee07f628aca929e33c00d814。
@@ -24,4 +25,11 @@
 - https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.84.exe
 - https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.84/Xingzhou-Film-Tencent-Setup-2.8.84.exe
 
-公开清单及下载校验结果在发布完成后补记。
+## 公开发布复核
+
+- 源码提交 06c61d7 已推送至 codex/monthly-license-legacy-exemption。
+- GitHub Release v2.8.84 已上传；asset digest、大小与本机一致。
+- 官方镜像发布端验证完整文件 SHA256 与大小后原子发布。
+- updates 仓库、tencent 仓库和官方镜像三份 latest.json 完全一致，Ed25519 签名验证通过。
+- 公开镜像下载 bytes=0-1023 返回 206 / 1024 字节，MZ 文件头、Content-Range 和总长符合本机文件。
+- output/verify-release-2884.py 输出 passed: true；记录 output/playwright/public-release-2884.json。
