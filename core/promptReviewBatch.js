@@ -25,23 +25,26 @@ export function skipPromptNeed(decision,needId,reason='人工确认：本条无�
 }
 export function promptReviewState(state,scope={}){
  const {snapshot,decisions,saved,ctx}=state,entries=snapshot.entries.filter(e=>inScope(e,scope)),reviews=saved?.versions?.[snapshot.versionId]?.reviews||{};
- const problems=[],pendingMissing=[];let approved=0,published=0;
+ const problems=[],pendingMissing=[],entryProblems=new Map();let approved=0,published=0;
  for(const invalid of snapshot.invalidEntries||[])if(scope.sceneId?invalid.sceneId===scope.sceneId||!invalid.sceneId&&invalid.episode===Number(scope.sceneId.split('-')[0]):scope.episode?invalid.episode===scope.episode:true)problems.push(invalid.reason);
  if(!Array.isArray(snapshot.invalidEntries)&&snapshot.issues?.length)problems.push(...snapshot.issues);
  if(!entries.length)problems.push('没有可核实的提示词');
  for(const entry of entries){
+  const localProblems=[];
   const decision=decisions[entry.id],cards=sceneInventoryCards(snapshot,entry);
-  if(!cards.length||ctx&&!sceneReadyForPromptDistribution(ctx.project,ctx.ledger,entry.sceneId))problems.push(`${entry.label}：场景清单尚未完成`);
-  if(!decision||decision.origin==='rules'||!cards.every(c=>decision.needs.some(n=>n.cardUid===c.uid)))problems.push(`${entry.label}：模型分发尚未完成`);
+  if(!cards.length||ctx&&!sceneReadyForPromptDistribution(ctx.project,ctx.ledger,entry.sceneId))localProblems.push('场景清单尚未完成');
+  if(!decision||decision.origin==='rules'||!cards.every(c=>decision.needs.some(n=>n.cardUid===c.uid)) )localProblems.push('模型分发尚未完成');
   else {
    const unresolved=decision.signature===entryBindingSignature(snapshot,entry)?(decision.needs||[]).filter(need=>need.visibility==='visible'&&!need.cardUid):[];
    unresolved.forEach(need=>pendingMissing.push({entry,need}));
-   problems.push(...bindingProblems(snapshot,entry,decision).map(p=>`${entry.label}：${p}`));
+   localProblems.push(...bindingProblems(snapshot,entry,decision));
   }
-  if(saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id]?.status==='running')problems.push(`${entry.label}：模型正在分发`);
+  if(saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id]?.status==='running')localProblems.push('模型正在分发');
+  const unique=[...new Set(localProblems)];if(unique.length)problems.push(...unique.map(p=>`${entry.label}：${p}`));entryProblems.set(entry.id,unique);
   if(reviews[entry.id]?.signature===promptHumanReviewSignature(snapshot,entry,decision)){approved++;if(reviews[entry.id].published)published++;}
  }
- return {entries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,approved,published};
+ const reviewableEntries=entries.filter(entry=>(entryProblems.get(entry.id)||[]).length===0);
+ return {entries,reviewableEntries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,approved,published};
 }
 
 // Resolve only the exact needs the person saw. One CAS write retains unrelated
@@ -65,14 +68,15 @@ export async function resolvePromptMissingReferences({service,targets,versionId}
 
 // Review is a deliberate human action; model completion alone never publishes.
 export async function reviewPromptScope({service,store,scope={},actor,action='approve',versionId}){
- const initial=await service.read(versionId),batch=promptReviewState(initial,scope);
- if(!batch.ready)throw Error('提示词分发尚未完成，不能核实或发布：'+batch.problems.slice(0,4).join('；'));
+ const initial=await service.read(versionId);let batch=promptReviewState(initial,scope),partialGlobal=!scope.sceneId&&!scope.episode&&!batch.ready;
+ if(partialGlobal){if(!batch.reviewableEntries.length)throw Error('提示词分发尚未完成，暂无可批量核实的提示词');batch={...batch,entries:batch.reviewableEntries};}
+ else if(!batch.ready)throw Error('提示词分发尚未完成，不能核实或发布：'+batch.problems.slice(0,4).join('；'));
  if(action==='publish'&&batch.approved!==batch.entries.length)throw Error('请先人工核实本范围全部提示词，再发布');
  if(batch.entries.some(e=>service.isBusy(e.id)))throw Error('本范围仍在模型分发，请完成后再核实');
  const signatures=new Map(batch.entries.map(e=>[e.id,promptHumanReviewSignature(initial.snapshot,e,initial.decisions[e.id])]));
  const check=state=>{
-  const current=promptReviewState(state,scope);
-  if(!current.ready||current.entries.length!==batch.entries.length||current.entries.some(e=>signatures.get(e.id)!==promptHumanReviewSignature(state.snapshot,e,state.decisions[e.id])))throw Error('核实期间提示词分发已变化，请重新检查');
+  let current=promptReviewState(state,scope);if(partialGlobal)current={...current,entries:current.reviewableEntries.filter(entry=>batch.entries.some(row=>row.id===entry.id))};
+  if((!partialGlobal&&!current.ready)||current.entries.length!==batch.entries.length||batch.entries.some(expected=>{const entry=current.entries.find(row=>row.id===expected.id);return !entry||signatures.get(entry.id)!==promptHumanReviewSignature(state.snapshot,entry,state.decisions[entry.id]);}))throw Error('核实期间提示词分发已变化，请重新检查');
   return current;
  };
  await service.mutate(initial.snapshot.versionId,state=>{

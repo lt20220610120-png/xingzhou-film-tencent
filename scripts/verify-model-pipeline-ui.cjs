@@ -11,7 +11,7 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   const manual=panel.getByRole('button',{name:'AI 重新分发本条',exact:true});await manual.waitFor();assert(await manual.isEnabled());
   const before=await page.evaluate(()=>qaPipeline.requests.filter(r=>r.label==='1-1-1').length);await manual.click();await page.waitForFunction(n=>qaPipeline.requests.filter(r=>r.label==='1-1-1').length>n,before);
   await page.locator('main>nav').getByRole('button',{name:'停止信息读取',exact:true}).click();await page.evaluate(()=>qaPipeline.release1());await page.waitForFunction(()=>qaPipeline.saved?.decisions?.p112?.confirmed&&qaPipeline.saved?.decisions?.p121?.confirmed&&!qaPipeline.job.activeEpisodes.includes(1));
-  assert(await page.getByRole('button',{name:'自动关联场景',exact:true}).isEnabled());assert(await panel.getByRole('button',{name:'核实并发布本场提示词',exact:true}).isEnabled());assert(await page.getByRole('button',{name:'核实全剧提示词',exact:true}).isDisabled());
+  assert(await page.getByRole('button',{name:'自动关联场景',exact:true}).isEnabled());assert(await panel.getByRole('button',{name:'核实并发布本场提示词',exact:true}).isEnabled());assert(await page.getByRole('button',{name:'核实全剧提示词',exact:true}).isEnabled());
   await panel.getByRole('button',{name:'核实并发布本场提示词',exact:true}).click();await page.waitForFunction(()=>Object.values(qaPipeline.saved.versions[qaPipeline.saved.selectedVersionId].reviews||{}).filter(r=>r.published).length===2);
   await page.getByRole('button',{name:'核实并发布本集提示词',exact:true}).click();await page.waitForFunction(()=>Object.values(qaPipeline.saved.versions[qaPipeline.saved.selectedVersionId].reviews||{}).filter(r=>r.published).length===3);
   await panel.getByRole('button',{name:'停止清单分发',exact:true}).click();await page.evaluate(()=>qaPipeline.releaseAll());

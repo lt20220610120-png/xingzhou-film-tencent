@@ -58,3 +58,10 @@ test('a complete episode publishes while later episodes are pending or their rea
  const published=[];await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async n=>published.push(n)},scope:{episode:1},actor:'u',action:'approve-publish'});
  assert.deepEqual(published,[1]);
 });
+test('global review and publish processes ready prompts without blocking on later pending episodes',async()=>{
+ const f=fixture();f.project.episodes.push({id:'ep2',episodeNumber:2,content:'2-1 日 内\n张三喝水。',prompts:[{id:'later',label:'2-1-1',content:f.project.episodes[0].prompts[0].content}]});
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}})));
+ const before=promptReviewState(await service.read(),{});assert.equal(before.ready,false);assert.equal(before.reviewableEntries.length,3);
+ const published=[];const result=await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async(n,ids)=>published.push([n,ids])},scope:{},actor:'u',action:'approve-publish'});
+ assert.equal(result.count,3);assert.deepEqual(published,[[1,['1-1']]]);const after=promptReviewState(await service.read(),{});assert.equal(after.approved,3);assert.equal(after.entries.length,4);assert.equal(after.ready,false);
+});
