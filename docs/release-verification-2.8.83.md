@@ -16,6 +16,13 @@
 - 安装包运行时 smoke：`qa/packaged-smoke-2.8.83-1793060249801`，PASS。
 - 最终安装包：103853659 字节；SHA256 `b4b2b73c105163bf3ccdea561f16d391db451350b1cf1495b040046f172ff512`。
 
+## 公开发布复核
+
+- 官方镜像已发布：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.83.exe`。
+- GitHub Release `v2.8.83` 已创建并上传安装包；GitHub asset digest 与本地 SHA256 一致。
+- updates 仓库、tencent 仓库和官方镜像的 `latest.json` 完全一致，签名校验通过；官方镜像 65536 字节 Range 下载返回 206，Content-Range 与总长一致。
+- 复核脚本输出：`output/verify-release-2883.py`，结果 `passed: true`。
+
 ## 发布地址
 
 - https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.83.exe
