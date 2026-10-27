@@ -1,5 +1,5 @@
-import {bindingHash,bindingProblems,sceneInventoryCards} from './promptArtBinding.js';
-import {saveBindingVersion} from './promptBindingVersions.js';
+import {bindingHash,bindingProblems,sceneInventoryCards,saveDistribution,entryBindingSignature} from './promptArtBinding.js';
+import {saveBindingVersion,promptSetId} from './promptBindingVersions.js';
 import {sceneReadyForPromptDistribution} from './promptDistributionService.js';
 import {editArtReview} from './artReview.js';
 
@@ -8,8 +8,8 @@ export const promptHumanReviewSignature=(snapshot,entry,decision)=>bindingHash([
 /**
  * Human resolution for a model-reported missing item.  A skipped reference is
  * deliberately persisted as an excluded, locked need so a later automatic
- * redistribution cannot turn it back into a blocking missing item.  The
- * The prompt association is considered complete after this explicit human
+ * redistribution cannot turn it back into a blocking missing item.
+ * Prompt association is considered complete after this explicit human
  * choice; the normal batch review action still records the audit checkpoint.
  */
 export function skipPromptNeed(decision,needId,reason='人工确认：本条无需参考图，可使用文生'){
@@ -34,7 +34,7 @@ export function promptReviewState(state,scope={}){
   if(!cards.length||ctx&&!sceneReadyForPromptDistribution(ctx.project,ctx.ledger,entry.sceneId))problems.push(`${entry.label}：场景清单尚未完成`);
   if(!decision||decision.origin==='rules'||!cards.every(c=>decision.needs.some(n=>n.cardUid===c.uid)))problems.push(`${entry.label}：模型分发尚未完成`);
   else {
-   const unresolved=(decision.needs||[]).filter(need=>need.visibility==='visible'&&!need.cardUid);
+   const unresolved=decision.signature===entryBindingSignature(snapshot,entry)?(decision.needs||[]).filter(need=>need.visibility==='visible'&&!need.cardUid):[];
    unresolved.forEach(need=>pendingMissing.push({entry,need}));
    problems.push(...bindingProblems(snapshot,entry,decision).map(p=>`${entry.label}：${p}`));
   }
@@ -42,6 +42,25 @@ export function promptReviewState(state,scope={}){
   if(reviews[entry.id]?.signature===promptHumanReviewSignature(snapshot,entry,decision)){approved++;if(reviews[entry.id].published)published++;}
  }
  return {entries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,approved,published};
+}
+
+// Resolve only the exact needs the person saw. One CAS write retains unrelated
+// decisions, including results that finished in other episodes in the meantime.
+export async function resolvePromptMissingReferences({service,targets,versionId}){
+ if(!targets?.length)throw Error('请选择待处理项');
+ const initial=await service.read(versionId),selectedVersion=initial.snapshot.versionId,followedCurrent=selectedVersion===promptSetId(initial.currentSnapshot);
+ return service.mutate(selectedVersion,state=>{
+  if(followedCurrent&&promptSetId(state.currentSnapshot)!==selectedVersion)throw Error('提示词来源版本已变化，请重新检查待处理项');
+  const pending=promptReviewState(state,{}).pendingMissing,decisions={...state.decisions};
+  for(const target of targets){
+   const row=pending.find(({entry,need})=>entry.id===target.entryId&&need.id===target.needId);
+   if(!row||target.signature!==promptHumanReviewSignature(state.snapshot,row.entry,state.decisions[row.entry.id]))throw Error('待处理项已变化，请重新检查');
+   if(service.isBusy(row.entry.id)||state.saved?.sceneDistributionAttempts?.[selectedVersion+':'+row.entry.id]?.status==='running')throw Error('所选提示词正在分发，请完成后再确认');
+   decisions[row.entry.id]=skipPromptNeed(decisions[row.entry.id],row.need.id);
+  }
+  for(const id of new Set(targets.map(t=>t.entryId)))decisions[id]=saveDistribution(state.snapshot,state.snapshot.entries.find(e=>e.id===id),decisions[id]);
+  return saveBindingVersion(state.saved,state.snapshot,decisions);
+ });
 }
 
 // Review is a deliberate human action; model completion alone never publishes.

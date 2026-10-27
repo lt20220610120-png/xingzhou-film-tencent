@@ -1,17 +1,18 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {bindingSnapshot} from '../../core/promptArtBinding.js';
 import {selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
 import {assignCardToPrompts,cardPromptIds} from '../../core/scenePromptAssignments.js';
 import {getPromptDistributionService} from '../../core/promptDistributionService.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
-import {skipPromptNeed} from '../../core/promptReviewBatch.js';
+import {resolvePromptMissingReferences,promptHumanReviewSignature} from '../../core/promptReviewBatch.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
 export function notifyBindingSaved(projectId,accountId,data){window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
 
 export default function useScenePromptLinks({project,ledger,assets,api,accountId,enabled,canEdit}){
  const [saved,setSaved]=useState(null),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const resolving=useRef(false);
  useEffect(()=>{let alive=true;setLoaded(false);setSaved(null);
   if(enabled)Promise.resolve(api.promptArtLoad({projectId:project.id,accountId})).then(data=>{if(alive){setSaved(data);setLoaded(true);}}).catch(e=>alive&&setError(e.message));
   const sync=event=>{const d=event.detail;if(d.projectId===project.id&&d.accountId===accountId&&alive){setSaved(d.data);setLoaded(true);}};
@@ -41,19 +42,18 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
    setSaved(data);notifyBindingSaved(project.id,accountId,data);
   }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
  };
- const skipMissing=async(entryId,needId)=>{
-  if(!canEdit||!loaded||busy)throw Error('正在读取或保存关联，请稍后再试');
-  setBusy(true);setError('');
+ const skipMissingBatch=async(targets,versionId)=>{
+  if(!canEdit||!loaded||busy||resolving.current)throw Error('正在读取或保存关联，请稍后再试');
+  resolving.current=true;setBusy(true);setError('');
   try{
-   const latest=await api.promptArtLoad({projectId:project.id,accountId});
-   const fresh=bindingSnapshot(project,ledger,assets,latest?.snapshot),selected=selectBindingVersion(fresh,latest),entry=selected.snapshot.entries.find(row=>row.id===entryId);
-   if(!entry)throw Error('提示词已变化，请重新打开');
-   const decision=selected.decisions[entryId];
-   const nextDecision=skipPromptNeed(decision,needId);
-   const nextDecisions={...selected.decisions,[entryId]:nextDecision};
-   const data=await api.promptArtSave({projectId:project.id,accountId,baseRevision:latest?.revision||0,data:saveBindingVersion(latest,selected.snapshot,nextDecisions)});
+   const data=await resolvePromptMissingReferences({service,targets,versionId});
    setSaved(data);notifyBindingSaved(project.id,accountId,data);return data;
-  }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
+  }catch(e){setError(e.message);throw e;}finally{resolving.current=false;setBusy(false);}
  };
- return {links,assign,skipMissing,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
+ const skipMissing=async(entryId,needId,versionId)=>{
+  const selected=await service.read(versionId),entry=selected.snapshot.entries.find(e=>e.id===entryId);
+  if(!entry)throw Error('提示词已变化，请重新打开');
+  return skipMissingBatch([{entryId,needId,signature:promptHumanReviewSignature(selected.snapshot,entry,selected.decisions[entryId])}],selected.snapshot.versionId);
+ };
+ return {links,assign,skipMissing,skipMissingBatch,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
 }

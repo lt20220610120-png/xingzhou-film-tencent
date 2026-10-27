@@ -222,13 +222,21 @@
 .art-review-mode-switch button { white-space:nowrap; }
 
 .art-review-prompt-missing-batch{margin:10px 0;padding:12px 14px;border:1px solid #eed5ca;border-radius:10px;background:#fff8f5;color:#542f2a}
-.art-review-prompt-missing-batch>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
-.art-review-prompt-missing-batch>header>div{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.art-review-prompt-missing-batch>header span,.art-review-prompt-missing-batch>header small{color:#7d5b55;font-size:12px}
+.art-review-prompt-missing-batch>summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;color:#542f2a}
+.art-review-prompt-missing-batch>summary::-webkit-details-marker{display:none}
+.art-review-prompt-missing-batch>summary span{font-size:12px;color:#7d5b55}
+.art-review-prompt-missing-batch>summary svg{margin-left:auto;transition:transform .15s}
+.art-review-prompt-missing-batch[open]>summary svg{transform:rotate(180deg)}
+.art-review-prompt-missing-body{margin-top:12px}
+.art-review-prompt-missing-body>header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.art-review-prompt-missing-body>header>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.art-review-prompt-missing-body label{display:flex;align-items:center;gap:9px;margin:0;min-width:0;color:#542f2a;font-size:13px}
+.art-review-prompt-missing-body input[type=checkbox]{width:16px;height:16px;min-height:16px;padding:0;margin:0;accent-color:#6957b7;flex:none}
+.art-review-prompt-missing-body>header span{font-size:12px;white-space:nowrap;color:#7d5b55}
 .art-review-prompt-missing-list{display:grid;gap:7px;max-height:240px;overflow:auto}
 .art-review-prompt-missing-list article{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid #f0ddd6;border-radius:8px;background:#fff}
-.art-review-prompt-missing-list article>div:first-child{display:flex;align-items:baseline;gap:9px;min-width:0;flex-wrap:wrap}
+.art-review-prompt-missing-list article>label{flex:1;flex-wrap:wrap}
 .art-review-prompt-missing-list article span{color:#7d5b55;font-size:12px;overflow-wrap:anywhere}
 .art-review-prompt-missing-list article>div:last-child{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end}
-.art-review-prompt-missing-list button{padding:5px 8px;font-size:12px}
-@media(max-width:680px){.art-review-prompt-missing-batch>header,.art-review-prompt-missing-list article{align-items:stretch;flex-direction:column}.art-review-prompt-missing-list article>div:last-child{justify-content:flex-start}}
+.art-review-prompt-missing-batch button{padding:5px 8px;font-size:12px;white-space:nowrap}
+@media(max-width:680px){.art-review-prompt-missing-body>header,.art-review-prompt-missing-list article{align-items:stretch;flex-direction:column}.art-review-prompt-missing-list article>div:last-child{justify-content:flex-start}}

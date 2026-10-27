@@ -63,7 +63,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
      <div className="prompt-art-source"><h3>提示词原文</h3><pre>{entry.prompt}</pre></div>
      {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
      {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，请重新分发核对。</p>}
-     {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.(entry.id,need.id))}>确认无需参考图</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
+     {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.(entry.id,need.id,selectedVersion))} title={`${need.text}：确认无需参考图`}>确认无需参考图{missing.length>1?` · ${need.text}`:""}</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
      {!distribution.working&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?'自动分发待处理':'上次分发未完成'}，可重新分发本条或返回场景检查。</p>}
      {decision.issue&&<p className="collab-error">{decision.issue}</p>}
     </section>
