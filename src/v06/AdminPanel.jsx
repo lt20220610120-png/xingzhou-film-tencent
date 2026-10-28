@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Ban, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Undo2, Clapperboard, PanelsTopLeft } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
-import {AdminWorkflow} from './AdminWorkflow.jsx';
 import {ProductionConsole} from './ProductionConsole.jsx';
 import {SoftwareLicenseAdmin} from './SoftwareLicense.jsx';
 import { WorkBuddyPanel } from './WorkBuddyPanel.jsx';
@@ -117,7 +116,7 @@ export function AdminPanel({ account, active = true, state={}, setState, onNavig
         <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
       </div>
       {tab==='license'&&<SoftwareLicenseAdmin api={api}/>}
-      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><ProductionConsole account={account} state={state} setState={setState} api={api} production={production} onNavigate={onNavigate}/><details><summary>旧版接续任务</summary><AdminWorkflow account={account} state={state} setState={setState} api={api} active={active} onNavigate={onNavigate}/></details></div>}
+      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><ProductionConsole account={account} state={state} setState={setState} api={api} production={production} onNavigate={onNavigate}/></div>}
       {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}
       <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab" hidden={tab !== 'users'}>
       <p className="admin-data-note">用户与邀请码保存在云端。删除或停用账号后，对方将失去软件使用权限。</p>

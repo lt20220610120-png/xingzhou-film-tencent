@@ -1,6 +1,6 @@
 import React, {useEffect, useId, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Bot, Check, ChevronDown, FolderOpen, Monitor, Search, X} from 'lucide-react';
+import {Bot, Check, ChevronDown, FileVideo, FolderOpen, Monitor, Search, X} from 'lucide-react';
 
 // Native modal supplies focus containment, Escape and focus restoration.
 export function ChoiceField({label, value, options = [], onChange, disabled = false, placeholder = '点击选择', hint}) {
@@ -29,11 +29,11 @@ export function ChoiceField({label, value, options = [], onChange, disabled = fa
 }
 
 export function PathField({label, value, kind='folder', onPick, onClear, disabled=false}) {
- const Icon=kind==='folder'?FolderOpen:Monitor;
+ const Icon=kind==='folder'?FolderOpen:kind==='media'?FileVideo:Monitor;
  const name=value?.split(/[\\/]/).filter(Boolean).pop();
  return <div className="furnace-field furnace-path"><span className="furnace-label">{label}</span><div className="furnace-path-row">
   <button type="button" className={`furnace-path-button ${value?'has-value':''}`} disabled={disabled} onClick={onPick} aria-label={`选择${label}`} title={value||label}>
-   <span className="furnace-path-icon"><Icon size={20}/></span><span className="furnace-path-copy"><strong>{name||(kind==='folder'?'选择或新建文件夹':'选择已安装的软件')}</strong><small>{value||(kind==='folder'?'点击打开文件夹窗口':'点击浏览本机应用程序')}</small></span><span className="furnace-path-action">{value?'更换':'浏览'}</span>
+   <span className="furnace-path-icon"><Icon size={20}/></span><span className="furnace-path-copy"><strong>{name||(kind==='folder'?'选择或新建文件夹':kind==='media'?'选择图片或视频尾帧':'选择已安装的软件')}</strong><small>{value||(kind==='folder'?'点击打开文件夹窗口':kind==='media'?'点击浏览尾帧文件':'点击浏览本机应用程序')}</small></span><span className="furnace-path-action">{value?'更换':'浏览'}</span>
   </button>{value&&onClear&&<button className="furnace-icon-button" type="button" disabled={disabled} aria-label={`清空${label}`} onClick={onClear}><X size={16}/></button>}
  </div></div>;
 }

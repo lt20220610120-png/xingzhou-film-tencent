@@ -2,6 +2,7 @@ import {parseDirectorScenes,inferDirectorEpisodeNumber} from './scriptImport.js'
 import {profileModels} from './videoCatalog.js';
 import {generationMediaProfiles} from './canvasStore.js';
 import {normalizeCapabilities} from './modelCapabilities.js';
+import {effectiveEditingInstruction} from './editingPresets.js';
 export function productionVideoIssues(c,state){
  let selected;try{selected=JSON.parse(c.videoModel);}catch{return ['请选择有效的视频模型'];}
  const p=generationMediaProfiles(state,'video').find(p=>p.id===selected[0]),model=p&&profileModels(p,'video').find(m=>m.id===selected[1]);if(!model)return ['所选视频模型已不存在'];
@@ -12,7 +13,7 @@ export function productionVideoIssues(c,state){
  return issues;
 }
 export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐集超分'],['edit','剪辑成片']];
-export function productionDefaults(){return {mode:'auto',style:'真人电影级',ratio:'9:16',maxDuration:32,promptProfileId:'',promptSkillId:'',analysisProfileId:'',artStyle:'AI真人',composition:'portrait-four',imageModel:'',fallbackImageModel:'',imageAttempts:2,imageConcurrency:2,imageRatio:'16:9',videoModel:'',videoDuration:30,videoResolution:'480p',videoConcurrency:2,agentPath:'',agentProtocol:'codex',agentModel:'',agentEffort:'high',topazPath:'',upscaleFactor:2,openFilmPath:'',editAgentPath:'',editAgentProtocol:'codex',editModel:'',editInstruction:'',musicFolder:'',soundFolder:'',outputRoot:'',endStage:'edit',humanConfirmed:false};}
+export function productionDefaults(){return {mode:'auto',style:'真人电影级',ratio:'9:16',maxDuration:32,promptProfileId:'',promptSkillId:'',analysisProfileId:'',artStyle:'AI真人',composition:'portrait-four',imageModel:'',fallbackImageModel:'',imageAttempts:2,imageConcurrency:2,imageRatio:'16:9',videoModel:'',videoDuration:30,videoResolution:'480p',videoConcurrency:2,agentPath:'',agentProtocol:'codex',agentModel:'',agentEffort:'high',topazPath:'',upscaleFactor:2,openFilmPath:'',editAgentPath:'',editAgentProtocol:'codex',editModel:'',editPreset:'default',editMarket:'domestic',tailFrameMode:'default',tailFramePath:'',editInstruction:'',musicFolder:'',soundFolder:'',voiceFolder:'',outputRoot:'',endStage:'edit',humanConfirmed:false};}
 export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={}){
  const issues=[];if(!project?.episodes?.some(e=>e.kind!=='setting'))issues.push('请上传剧本或选择导演项目');
  if(!c.outputRoot)issues.push('请选择项目输出目录');
@@ -28,7 +29,8 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
  if(!c.videoModel)issues.push('请选择视频渠道与模型');
  if(![2,4].includes(Number(c.upscaleFactor)))issues.push('超分倍率请选择 2 倍或 4 倍');
  if(c.endStage!=='archive'&&!c.topazPath)issues.push('请选择 Topaz 软件');
- if(c.endStage==='edit'&&(!c.openFilmPath||!c.editAgentPath||!c.editModel||!c.editInstruction.trim()))issues.push('请设置剪辑软件、Agent、模型及每集剪辑指令');
+ if(c.endStage==='edit'&&(!c.openFilmPath||!c.editAgentPath||!c.editModel||!effectiveEditingInstruction(c)))issues.push('请设置剪辑软件、Agent、模型及每集剪辑指令');
+ if(c.endStage==='edit'&&c.tailFrameMode==='custom'&&!c.tailFramePath)issues.push('请选择指定尾帧文件，或改用默认伪帧');
  if(!(Number(c.maxDuration)>0&&Number(c.maxDuration)<=35))issues.push('最高分段时长应在 1–35 秒之间');
  if(!(Number(c.videoDuration)>0&&Number(c.videoDuration)<=3600))issues.push('视频生成时长无效');
  for(const k of ['imageConcurrency','videoConcurrency','imageAttempts'])if(!Number.isInteger(Number(c[k]))||c[k]<1||c[k]>8)issues.push('并发和尝试次数应在 1–8 之间');

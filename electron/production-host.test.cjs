@@ -5,6 +5,7 @@ test('folder picker remembers location, allows creation, preserves cancellation 
  try{const host=createProductionHost({authorize:async()=>({id:owner,isAdmin:true}),dialog:{showOpenDialog:async value=>{options=value;if(switchOwner)owner='other';return {canceled:cancel,filePaths:cancel?[]:[dir]};}}});
   assert.equal(await host.choose({kind:'folder',title:'背景音乐文件夹',defaultPath:dir}),fs.realpathSync(dir));
   assert.equal(options.title,'背景音乐文件夹');assert.equal(options.defaultPath,dir);assert(options.properties.includes('createDirectory'));
+  await host.choose({kind:'media',title:'选择默认尾帧',defaultPath:dir});assert.equal(options.title,'选择默认尾帧');assert.equal(options.properties[0],'openFile');assert.deepEqual(options.filters[0].extensions,['png','jpg','jpeg','webp','mp4','mov','webm']);
   cancel=true;assert.equal(await host.choose({kind:'folder'}),null);
   cancel=false;switchOwner=true;await assert.rejects(host.choose({kind:'folder'}),/账号已变化/);
  }finally{fs.rmSync(dir,{recursive:true,force:true});}

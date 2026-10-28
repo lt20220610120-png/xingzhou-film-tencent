@@ -17,6 +17,8 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'setup overflow');
  await page.screenshot({path:`output/playwright/furnace-2889-setup-${width}.png`,fullPage:true});
  await page.getByRole('button',{name:/05.*超分与剪辑/}).click();await page.getByRole('button',{name:'沿用制作智能体',exact:true}).click();assert.equal(await page.getByRole('button',{name:'剪辑 Agent 模型',exact:true}).innerText(),'验收 Agent');
+ await page.getByRole('button',{name:'剧本类型',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'海外剧',exact:true}).click();assert.match(await page.locator('textarea').last().inputValue(),/海外剧字幕/);assert.match(await page.locator('textarea').last().inputValue(),/海外剧人名条/);
+ await page.getByRole('button',{name:'每集尾帧',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'使用指定尾帧文件',exact:true}).click();await page.evaluate(()=>qaProduction.pickResult='D:/素材/默认尾帧.mp4');await page.getByRole('button',{name:'选择尾帧参考文件',exact:true}).click();await page.getByText('D:/素材/默认尾帧.mp4',{exact:true}).waitFor();
  await page.evaluate(()=>qaProduction.pickResult='D:/素材/背景音乐');await page.getByRole('button',{name:'选择背景音乐文件夹',exact:true}).click();await page.getByText('D:/素材/背景音乐',{exact:true}).waitFor();await page.getByRole('button',{name:'清空背景音乐文件夹',exact:true}).click();assert.equal(await page.getByText('D:/素材/背景音乐',{exact:true}).count(),0);
  // Music/effects remain on the same row; long paths never push buttons out of their cards.
  const music=await page.getByRole('button',{name:'选择背景音乐文件夹',exact:true}).boundingBox(),sound=await page.getByRole('button',{name:'选择音效文件夹',exact:true}).boundingBox();assert.equal(music.y,sound.y);
