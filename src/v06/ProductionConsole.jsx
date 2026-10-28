@@ -18,7 +18,7 @@ export function ProductionConsole({account,state,setState,api,production,onNavig
  const pick=(key,kind='folder',label)=>action(async()=>{const value=await api.productionChoose({kind,title:label,defaultPath:config[key]});if(value)change({[key]:value,...(key==='agentPath'?{agentModel:''}:key==='editAgentPath'?{editModel:''}:{})});});
  const connect=editing=>action(async()=>{const key=editing?'edit':'production',path=editing?config.editAgentPath:config.agentPath,protocol=editing?config.editAgentProtocol:config.agentProtocol;
   setCheck(null);setConnections(v=>({...v,[key]:{path,protocol,pending:true}}));
-  try{const result=await api.productionConnect({path,protocol});setConnections(v=>({...v,[key]:{...result,path,protocol}}));}catch(e){setConnections(v=>({...v,[key]:{path,protocol,error:e.message}}));setCheck(null);}
+  try{const result=await api.productionConnect({path,protocol});const modelKey=editing?'editModel':'agentModel',current=config[modelKey],recommended=result.models?.find(m=>m.id===current)||result.models?.find(m=>/gpt[-_. ]?6\.1[-_. ]?sol/i.test(m.id))||result.models?.[0];if(!current&&recommended)setConfig(c=>({...c,[modelKey]:recommended.id}));setConnections(v=>({...v,[key]:{...result,path,protocol}}));}catch(e){setConnections(v=>({...v,[key]:{path,protocol,error:e.message}}));setCheck(null);}
  });
  const discover=editing=>action(async()=>{const found=await api.productionDiscover();if(!found.agentPath)throw Error('未找到 Codex 连接组件，请先安装 Codex，或点击浏览手动选择。');change(editing?{editAgentPath:found.agentPath,editModel:''}:{agentPath:found.agentPath,agentModel:''});});
  const issues=[...productionIssues(config,{project,models:imageModels,profiles:state.apiProfiles||[],skills:state.skills||[]}),...productionVideoIssues(config,state)];
