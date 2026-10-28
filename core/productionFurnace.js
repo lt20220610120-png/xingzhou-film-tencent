@@ -63,24 +63,28 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
  const persist=async run=>{run.updatedAt=Date.now();const snapshot=structuredClone(run);const writing=writes.then(()=>save(snapshot));writes=writing.catch(()=>{});await writing;emit();};
  const guard=run=>{if(run.status!=='running')throw Error('工作流已暂停');};
  async function execute(run){
-  const ctx={run,guard:()=>guard(run),checkpoint:()=>persist(run),notice:async text=>{run.message=text;await persist(run);}};
+   const log=async(text,kind='agent')=>{run.logs=[...(run.logs||[]),{id:crypto.randomUUID(),at:Date.now(),kind,text}].slice(-500);await persist(run);};
+   const ctx={run,guard:()=>guard(run),checkpoint:()=>persist(run),log,notice:async text=>{run.message=text;await log(text);}};
   try{
-   await adapters.validate?.(ctx);guard(run);
+    await log('已接管制作任务，先读取当前项目状态。');await adapters.validate?.(ctx);guard(run);
    for(const stage of ['prompts','art','images']){
     guard(run);if(run.stages[stage]?.status==='done'||run.config.mode==='semi')continue;
-    run.stages[stage]={status:'running'};await persist(run);
-    const result=await adapters[stage](ctx);guard(run);run.stages[stage]={status:result?.partial?'partial':'done'};await persist(run);
+     run.stages[stage]={status:'running'};await log(`开始执行：${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}`);
+     let result;
+     try{result=await adapters[stage](ctx);}catch(error){if(run.status!=='running')throw error;run.stageErrors={...(run.stageErrors||{}),[stage]:error.message};await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}出现问题：${error.message}；保留当前结果并继续后续阶段。`,'error');result={partial:true};}
+     guard(run);run.stages[stage]={status:result?.partial?'partial':'done'};await persist(run);
+     await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}${result?.partial?'存在待处理项，已继续后续阶段':'已完成'}。`,result?.partial?'warning':'success');
    }
    guard(run);await adapters.videos(ctx);
    guard(run);run.status=run.episodes.length&&run.episodes.every(e=>e.stage==='done')&&!Object.values(run.stages).some(s=>s.status==='partial')?'done':'attention';
-   run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await persist(run);
-  }catch(e){if(run.status==='running')run.status='attention';run.message=e.message;await persist(run);}
+    run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);
+  }catch(e){if(run.status==='running')run.status='attention';run.message=e.message;await log(`流程提示：${e.message}`,'error');await persist(run);}
  }
  return {
   get loadError(){return loadError;},
   snapshot:()=>runs,
   async restore(){if(ready)return;try{runs=await load();for(const run of runs){if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
-  async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],createdAt:Date.now()};runs.unshift(run);await persist(run);return run;},
+  async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],logs:[],createdAt:Date.now()};runs.unshift(run);await persist(run);return run;},
   async start(id){const run=runs.find(r=>r.id===id);if(!run||active.has(id))return;if(run.status==='done')return;active.set(id,true);try{run.status='running';await persist(run);return await execute(run);}finally{active.delete(id);}},
   async pause(id){const run=runs.find(r=>r.id===id);if(!run)return;run.status='paused';run.message='已暂停派发新任务，已提交任务仍保留';await persist(run);await adapters.pause?.(run);},
   async pauseAll(){for(const run of runs)if(run.status==='running'){run.status='paused';await persist(run);await adapters.pause?.(run);}},

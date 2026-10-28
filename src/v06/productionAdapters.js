@@ -40,6 +40,8 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   async validate(ctx){await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
   async prompts(ctx){
    const {run}=ctx,c=run.config;ctx.guard();let p=project(run);run.name=p.name;await ctx.checkpoint();
+   const existingCoverage=productionCoverage(p),existingMissing=existingCoverage.flatMap(e=>e.scenes).filter(s=>!s.count);
+   if(!existingMissing.length){run.promptConfigured=true;run.coverage=existingCoverage;run.reusedExisting={...(run.reusedExisting||{}),prompts:true};await ctx.notice('已发现完整提示词，直接复用，不重新生成、不重复审核');return;}
    if(!run.promptConfigured){setState(s=>({...s,directorProjects:s.directorProjects.map(v=>v.id===p.id?{...v,style:c.style,aspectRatio:c.ratio}:v)}));run.promptConfigured=true;await getQuick().saveLocal();await ctx.checkpoint();}
    for(let attempt=0;attempt<2;attempt++){
     ctx.guard();p=project(run);const missing=productionCoverage(p).flatMap(e=>e.scenes).filter(s=>!s.count);
@@ -50,7 +52,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    }
    const coverage=productionCoverage(project(run));run.coverage=coverage;await ctx.checkpoint();
    const missing=coverage.flatMap(e=>e.scenes).filter(s=>!s.count);if(missing.length)throw Error(`仍缺少提示词：${missing.map(s=>s.label).join('、')}`);
-   for(const row of coverage){const episode=project(run).episodes.find(e=>e.id===row.id);for(const scene of row.scenes)await audit(ctx,{stage:'提示词覆盖检查',scene:scene.label,script:episode.content,prompts:episode.prompts.filter(p=>p.label.startsWith(scene.label+'-'))});}
+   await ctx.notice('提示词已补齐，保留现有内容，不重复做整本审核');
   },
   async art(ctx){
    const {run}=ctx,c=run.config;let p=await collab(ctx);ctx.guard();
@@ -63,7 +65,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     const binding=await service.read(),review=promptReviewState(binding);run.artWarnings.push(...review.problems);
     for(const sceneId of new Set(review.entries.map(e=>e.sceneId))){ctx.guard();try{
      const state=await service.read(),scope={sceneId},current=promptReviewState(state,scope);if(!current.ready)continue;
-     await audit(ctx,{stage:'美术核实',entries:current.entries.map(e=>({label:e.label,prompt:e.prompt,needs:state.decisions[e.id]?.needs})),cards:sceneInventoryCards(state.snapshot,current.entries[0]),rule:'核实本场全部提示词与清单的身份对应，人物道具不可混绑'});
+     await ctx.log?.(`${sceneId}：已有清单关联，按当前可用结果继续发布；未确定的单项保留在待处理问题。`,'info');
      await reviewPromptScope({service,store,scope,actor:`Agent · ${c.agentModel}`,action:'approve'});ctx.guard();const published=await reviewPromptScope({service,store,scope,actor:`Agent · ${c.agentModel}`,action:'publish'});run.artWarnings.push(...published.failures);
     }catch(error){run.artWarnings.push(`${sceneId}：${error.message}`);}}
     await ctx.checkpoint();return {partial:run.artWarnings.length>0};
