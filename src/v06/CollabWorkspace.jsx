@@ -31,6 +31,7 @@ import {mediaModelChoices} from '../../core/modelChoices.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {autoReferences} from '../../core/generationReferences.js';
 import {StoryboardWorkbench} from './StoryboardWorkbench.jsx';
+import {ProjectVideoPool} from './ProjectVideoPool.jsx';
 // ============================================================
 // CollabWorkspace.jsx — 项目协作（云端实时协同）
 // 身份：制片(producer) / 美术(artist) / 协作者(collaborator)
@@ -59,7 +60,7 @@ import '../art-workbench.css';
 import ArtWorkflowControl from './ArtWorkflowControl.jsx';
 import {artWorkflowState} from '../../core/artWorkflow.js';
 
-const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, assets: Box, storyboard: Clapperboard, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
+const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, assets: Box, storyboard: Clapperboard, 'video-pool': Film, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
 const collabAnalysisRuns = new Map();
 function currentAnalysisJob(key){
@@ -1719,6 +1720,7 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
+        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} accountId={account?.id} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
         {section === 'group' && <GroupSection project={project} api={api} account={account} />}

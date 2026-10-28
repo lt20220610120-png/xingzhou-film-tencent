@@ -39,7 +39,8 @@ const { createWorkBuddyUpdater } = require('./workbuddy-update.cjs');
 const { createWorkBuddyPanel, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 const isDev = !app.isPackaged;
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
-const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();libtvService?.close().catch(()=>{});winAiPanel?.revoke().catch(()=>{});workflowEngine?.pauseAll();}});
+let productionHost;
+const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();libtvService?.close().catch(()=>{});winAiPanel?.revoke().catch(()=>{});workflowEngine?.pauseAll();void productionHost?.stop();}});
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
@@ -472,6 +473,9 @@ ipcMain.handle('admin-workflow-action',async(_,p)=>{await workflowAdmin();return
 ipcMain.handle('admin-workflow-open',async(_,p)=>{await workflowAdmin();const folder=await currentWorkflow().output(p.id);fs.mkdirSync(folder,{recursive:true});return shell.openPath(folder);});
 function startWorkflowTimer(){const timer=setInterval(()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());},5000);timer.unref();}
 
+productionHost=require('./production-host.cjs').createProductionHost({root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),dialog,shell});
+for(const action of ['list','save','choose','discover','preflight','connect','audit','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(_,p)=>{await workflowAdmin();return productionHost[action](p);});
+
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});
 async function libtvDirect(payload,signal){const input=await renewImageReferences(payload);if(input.kind==='image'&&!input.ratio){input.ratio=({'1280x720':'16:9','720x1280':'9:16','1024x1024':'1:1','1024x768':'4:3','768x1024':'3:4'})[input.size]||input.size||'16:9';}const job=await jobs().submit({...input,accountId:await libtvAccountId(),signal});try{return await jobs().waitForCompletion(job.id);}catch(e){if(input.kind==='image')return{pendingGeneration:{id:job.id},error:e.message};throw e;}}
@@ -487,6 +491,14 @@ ipcMain.handle('generation-import-episode-media',async(_,payload={})=>importEpis
 ipcMain.handle('generation-import-episode-files',async(_,payload={})=>importEpisodeFiles({dialog,destDir:mediaDir(),kind:payload.kind,episode:payload.episode}));
 ipcMain.handle('generation-delete-book-media',async(_,payload={})=>deleteEpisodeMedia({destDir:mediaDir(),paths:payload.paths,retainedPaths:[...generationRetainedPaths(payload.retainedPaths),...generationRetainedPaths(jobs().list({includeArchived:true}))]}));
 ipcMain.handle('media-export-file',async(_ ,input)=>exportMediaFile(input,{showSaveDialog:options=>dialog.showSaveDialog(options),downloadToFile:require('./media-service.cjs').downloadToFile,mediaDir}));
+ipcMain.handle('project-video-export',async(_,p)=>{
+ const account=await accessService.session();if(!account?.id)throw Error('请先登录');
+ const project=await collabService.getProject({projectId:p.projectId});
+ const result=await dialog.showOpenDialog({title:'选择视频下载文件夹',properties:['openDirectory','createDirectory']});if(result.canceled)return null;
+ const guard=async()=>{const current=await accessService.session();if(current?.id!==account.id)throw Error('账号已切换，下载已停止');await collabService.getProject({projectId:project.id});};
+ await guard();const media=await collabService.listMedia({projectId:project.id});
+ return require('./project-video-export.cjs').exportProjectVideos({project,ids:p.ids,jobs:jobs().list({includeArchived:true}),media,folder:result.filePaths[0],mediaRoot:mediaDir(),download:require('./media-service.cjs').downloadToFile,guard});
+});
 let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});protectWindow(canvasWindow,{allowUrl:canvasPage,openExternal:url=>shell.openExternal(url)});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:LOCAL_MEDIA_PRIVILEGES},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);

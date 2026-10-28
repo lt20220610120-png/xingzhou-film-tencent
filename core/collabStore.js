@@ -12,16 +12,17 @@ export const COLLAB_SECTIONS = [
   ['art', '美术'],
   ['assets', '资产'],
   ['storyboard', '分镜'],
+  ['video-pool', '视频池'],
   ['invite', '邀请协作'],
   ['stats', '数据'],
   ['group', '项目群'],
 ];
 
 const ROLE_SECTIONS = {
-  producer: ['info', 'art-review', 'art', 'assets', 'storyboard', 'invite', 'stats', 'group'],
+  producer: ['info', 'art-review', 'art', 'assets', 'storyboard', 'video-pool', 'invite', 'stats', 'group'],
   artist: ['info', 'art-review', 'art', 'assets', 'group'],
-  collaborator: ['storyboard', 'group'],
-  artist_collaborator: ['info', 'art-review', 'art', 'assets', 'storyboard', 'group'],
+  collaborator: ['storyboard', 'video-pool', 'group'],
+  artist_collaborator: ['info', 'art-review', 'art', 'assets', 'storyboard', 'video-pool', 'group'],
 };
 
 export const sectionsForRole = (role) => ROLE_SECTIONS[role] || ['group'];

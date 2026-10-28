@@ -42,6 +42,7 @@ import { DeleteConfirm } from './v06/DeleteConfirm.jsx';
 import { PersistentChat } from './v06/PersistentChat.jsx';
 import { RegistrationScreen, LockedRoleDialog } from './v06/AccountAccess.jsx';
 import { AdminPanel } from './v06/AdminPanel.jsx';
+import {useProductionFurnace} from './v06/useProductionFurnace.js';
 import { CanvasWorkspace } from './v06/CanvasWorkspace.jsx';
 import { CollabWorkspace } from './v06/CollabWorkspace.jsx';
 import { GenerationWorkspace } from './v06/GenerationWorkspace.jsx';
@@ -1185,6 +1186,7 @@ function App() {
     persistence.flush().then(()=>retireDirectorReplies(migrated.retired,localStorage)).catch(()=>{/* Original recovery keys stay until a successful retry. */});
   },[initialized,account?.id,storageLoadError]);
   const quickGeneration = useDirectorQuickGeneration({ state, stateRef, setState, api, accountId:account?.id, persistence, initialized });
+  const production=useProductionFurnace({api,account,stateRef,setState,quickGeneration});
 
   useEffect(()=>{
     const beforeQuit=async()=>{
@@ -1417,7 +1419,7 @@ function App() {
         {!!role&&nav==='winai'&&<WinAIWorkspace key={account?.id} account={account}/>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
         {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
-        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} setState={setState} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
+        {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} setState={setState} production={production} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
         {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} account={account} />}
         {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou

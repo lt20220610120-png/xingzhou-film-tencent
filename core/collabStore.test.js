@@ -7,9 +7,10 @@ import {
 } from './collabStore.js';
 
 test('三种协作身份的功能区权限', () => {
-  assert.deepEqual(sectionsForRole('producer'), ['info', 'art-review', 'art', 'assets', 'storyboard', 'invite', 'stats', 'group']);
+  assert.deepEqual(sectionsForRole('producer'), ['info', 'art-review', 'art', 'assets', 'storyboard', 'video-pool', 'invite', 'stats', 'group']);
   assert.deepEqual(sectionsForRole('artist'), ['info', 'art-review', 'art', 'assets', 'group']);
-  assert.deepEqual(sectionsForRole('collaborator'), ['storyboard', 'group']);
+  assert.deepEqual(sectionsForRole('collaborator'), ['storyboard', 'video-pool', 'group']);
+  assert.equal(canSee('artist', 'video-pool'), false);
   assert.equal(canSee('artist', 'storyboard'), false);
   assert.equal(canSee('artist', 'invite'), false);
   assert.equal(canSee('artist', 'stats'), false);
