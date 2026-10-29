@@ -2,6 +2,11 @@
 
 日期：2026-10-30（Asia/Shanghai）
 
+发布状态：已发布。官方镜像和 GitHub Release 均返回 103912941 字节，支持 Range 请求；SHA256 为 `a14c8a05df31fd5c06632f5d9ab0bf26bc2cedf3772f203d9b7061cbe60852e8`。
+
+- 官方：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.95.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.95
+
 ## 自动化与引用链路
 
 视频任务的实际调用顺序为：读取已保存提示词和美术关联 → 按固定模型能力计算参考图上限 → Agent 在人物/场景优先、道具最低的规则下选择 → 重写 `@image` 编号 → 审计 → 通过主进程再次校验 → 将筛选后的参考图数组发送给上游模型。发送结果保存 `referenceVerification`，包含每个 alias、图片 ID、素材 ID、类别、保留/舍弃原因。
