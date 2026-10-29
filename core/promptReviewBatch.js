@@ -3,7 +3,7 @@ import {saveBindingVersion,promptSetId} from './promptBindingVersions.js';
 import {sceneReadyForPromptDistribution} from './promptDistributionService.js';
 import {editArtReview,isSceneVerified,reviewSceneSignature} from './artReview.js';
 
-const inScope=(entry,scope)=>scope.sceneId?entry.sceneId===scope.sceneId:scope.episode?entry.episode===scope.episode:true;
+const inScope=(entry,scope)=>scope.sceneIds?scope.sceneIds.includes(entry.sceneId):scope.sceneId?entry.sceneId===scope.sceneId:scope.episode?entry.episode===scope.episode:true;
 export const promptHumanReviewSignature=(snapshot,entry,decision)=>bindingHash([entry.id,entry.prompt,entry.sceneId,sceneInventoryCards(snapshot,entry).map(c=>[c.uid,c.name,c.category,c.description,c.detailStatus]),decision?.needs?.map(({imageId,...need})=>need)]);
 /**
  * Human resolution for a model-reported missing item.  A skipped reference is
@@ -67,7 +67,8 @@ export async function resolvePromptMissingReferences({service,targets,versionId}
 }
 
 // Review is a deliberate human action; model completion alone never publishes.
-export async function reviewPromptScope({service,store,scope={},actor,action='approve',versionId,onProgress}){
+export async function reviewPromptScope({service,store,scope={},actor,action='approve',versionId,onProgress,guard=()=>{}}){
+ guard();
  const initial=await service.read(versionId),all=promptReviewState(initial,scope),global=!scope.sceneId&&!scope.episode;
  let entries=all.entries;
  if(global&&!all.ready){
@@ -111,23 +112,25 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
  report();
  if(action!=='publish'){
   await service.mutate(initial.snapshot.versionId,state=>{
+   guard();
    check(state);const data=saveBindingVersion(state.saved,state.snapshot,state.decisions),row=data.versions[state.snapshot.versionId],next={...row.reviews};
    for(const entry of entries)next[entry.id]={...next[entry.id],signature:signatures.get(entry.id),actor,at:Date.now(),published:next[entry.id]?.signature===signatures.get(entry.id)&&next[entry.id]?.published||false};
    row.reviews=next;return data;
   });
-  await store.updateMany(groups.map(({episode:number,ids})=>({number,reduce:r=>{for(const id of ids)if(!isSceneVerified(r.scenes?.find(s=>s.id===id)))r=editArtReview(r,{type:'approve',sceneId:id},actor);return r;}})));
+  guard();await store.updateMany(groups.map(({episode:number,ids})=>({number,reduce:r=>{guard();for(const id of ids)if(!isSceneVerified(r.scenes?.find(s=>s.id===id)))r=editArtReview(r,{type:'approve',sceneId:id},actor);return r;}})));
  }
  if(action==='approve')return {count:entries.length,published:0,failures};
  let cursor=0;
  const worker=async()=>{while(cursor<groups.length){
   const index=cursor++,group=groups[index],item=items[index];
   try{
+   guard();
    item.phase='checking';report();
    const state=await service.read(initial.snapshot.versionId);check(state,group.entries);
    const marks=state.saved?.versions?.[state.snapshot.versionId]?.reviews||{},record=store.snapshot?.().episodes?.[group.episode];
    const already=group.entries.every(e=>marks[e.id]?.published&&marks[e.id]?.signature===signatures.get(e.id))&&(!record||!record.pending&&[...group.ids].every(id=>record.published?.[id]?.signature===reviewSceneSignature(record.scenes.find(s=>s.id===id))));
    if(already){skipped+=group.entries.length;published+=group.entries.length;cloudDone+=group.entries.length;item.phase='complete';item.skipped=true;report();continue;}
-   await store.publish(group.episode,[...group.ids],{onProgress:phase=>{item.phase=phase;report();}});
+   guard();await store.publish(group.episode,[...group.ids],{onProgress:phase=>{item.phase=phase;report();}});
    cloudDone+=group.entries.length;item.phase='checkpoint';report();
    await service.mutate(initial.snapshot.versionId,current=>{
     check(current,group.entries);const data=saveBindingVersion(current.saved,current.snapshot,current.decisions),row=data.versions[current.snapshot.versionId];row.reviews={...row.reviews};

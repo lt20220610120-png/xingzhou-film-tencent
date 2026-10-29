@@ -21,6 +21,8 @@ test('semi mode invokes Agent per clip and hands off only complete episodes in n
  assert(f.events.indexOf('edit:2')>f.events.indexOf('edit:1'));
  const before=f.jobs.length;await f.adapter.videos(f.ctx);assert.equal(f.jobs.length,before);
 });
+test('video resume lists existing tasks once and never resubmits a previously archived clip',async()=>{const f=fixture();let lists=0;f.api.generationList=async()=>{lists++;return f.jobs;};await f.adapter.videos(f.ctx);assert.equal(lists,1);const before=f.events.filter(e=>e.startsWith('submit:')).length;f.run.items[0].status='uncertain';await f.adapter.videos(f.ctx);assert.equal(lists,2);assert.equal(f.events.filter(e=>e.startsWith('submit:')).length,before);assert.equal(f.run.items[0].status,'downloaded');});
+test('read-only monitor never creates or synchronizes a collaboration project',async()=>{const f=fixture();f.api.collabListProjects=async()=>[];f.api.collabCreateProject=async()=>{throw Error('must not create');};f.api.collabUpdateProject=async()=>{throw Error('must not sync');};const result=await f.adapter.monitor({...f.ctx,readOnly:true});assert.equal(result.art,false);assert.equal(result.images,false);assert.equal(f.run.monitor.art.summary.scenes,2);});
 test('unknown submitting task stays uncertain and does not poll forever or submit again',async()=>{
  const f=fixture();const entry='linked:collab:p11';f.jobs.push({id:'interrupted',status:'submitting',workflowRunId:f.run.id,workflowItemId:entry});await f.adapter.videos(f.ctx);
  assert.equal(f.run.items.find(i=>i.id===entry).status,'uncertain');assert(!f.events.includes('submit:1-1-1'));assert(!f.events.includes('upscale:1'));assert(f.events.includes('upscale:2'));

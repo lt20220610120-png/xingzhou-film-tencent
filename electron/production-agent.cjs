@@ -1,4 +1,5 @@
 const {spawn}=require('node:child_process');const fs=require('node:fs');
+const {readAgentStatus}=require('./production-agent-status.cjs');
 /** JSON-lines transports; no shell interpolation and no copied login credentials. */
 function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{}}){
  if(!fs.existsSync(executable)||!fs.statSync(executable).isFile()||!/^.+\.exe$/i.test(executable))throw Error('请选择实际 Agent .exe 连接组件');
@@ -17,7 +18,7 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{}}){
  }});
  function request(method,params,timeout=60000){return new Promise((resolve,reject)=>{const id=++serial;const timer=setTimeout(()=>{pending.delete(id);reject(Error(`Agent ${method} 超时`));},timeout);pending.set(id,{resolve,reject,timer});try{send({jsonrpc:'2.0',id,method,params});}catch(e){clearTimeout(timer);pending.delete(id);reject(e);}});}
  return {
-  async connect(){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');const result=await request('model/list',{});return {connected:true,protocol,models:(result.data||[]).map(m=>({id:m.id,name:m.displayName||m.id}))};}
+  async connect({status=false}={}){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');const result=await request('model/list',{});return {connected:true,protocol,models:(result.data||[]).map(m=>({id:m.id,name:m.displayName||m.id})),...(status?{status:await readAgentStatus(request,auth.account,cwd)}:{})};}
    await request('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'xingzhou-film',version:'1.0.0'}});const session=await request('session/new',{cwd,mcpServers:[]});return {connected:true,protocol,models:session.models?.availableModels?.map(m=>({id:m.modelId,name:m.name}))||[],sessionId:session.sessionId};},
   async run({model,prompt,edit=false,effort='high'}){
    if(protocol!=='codex'){const session=await request('session/new',{cwd,mcpServers:[]});if(model)await request('session/set_model',{sessionId:session.sessionId,modelId:model});let text='';const listener=m=>{if(m.method==='session/update'&&m.params?.sessionId===session.sessionId&&m.params.update?.sessionUpdate==='agent_message_chunk')text+=m.params.update.content?.text||'';};listeners.add(listener);try{await request('session/prompt',{sessionId:session.sessionId,prompt:[{type:'text',text:prompt}]},60*60*1000);return text;}finally{listeners.delete(listener);}}

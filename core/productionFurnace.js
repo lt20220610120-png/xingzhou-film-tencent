@@ -67,18 +67,26 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    const ctx={run,guard:()=>guard(run),checkpoint:()=>persist(run),log,notice:async text=>{run.message=text;await log(text);}};
   try{
     await log('已接管制作任务，先读取当前项目状态。');await adapters.validate?.(ctx);guard(run);
+   if(adapters.monitor){
+    try{const facts=await adapters.monitor(ctx);guard(run);for(const key of ['prompts','art','images'])if(typeof facts[key]==='boolean'){
+     run.stages[key]={status:facts[key]?'done':'pending',detectedAt:Date.now()};
+     if(facts[key]&&run.stageErrors)delete run.stageErrors[key];
+    }if(facts.art)run.artWarnings=[];if(facts.images)run.imageErrors=[];await persist(run);
+    }catch(error){guard(run);await log(`监测暂未完成：${error.message}；保留原成果，按原任务凭据接续。`,'warning');}
+   }
    for(const stage of ['prompts','art','images']){
     guard(run);if(run.stages[stage]?.status==='done'||run.config.mode==='semi')continue;
      run.stages[stage]={status:'running'};await log(`开始执行：${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}`);
      let result;
      try{result=await adapters[stage](ctx);if(run.stageErrors)delete run.stageErrors[stage];}catch(error){if(run.status!=='running')throw error;run.stageErrors={...(run.stageErrors||{}),[stage]:error.message};await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}出现问题：${error.message}；保留当前结果并继续后续阶段。`,'error');result={partial:true};}
      guard(run);run.stages[stage]={status:result?.partial?'partial':'done'};await persist(run);
+     if(stage==='prompts')delete ctx.artSnapshot;
      await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}${result?.partial?'存在待处理项，已继续后续阶段':'已完成'}。`,result?.partial?'warning':'success');
    }
    guard(run);await adapters.videos(ctx);
    guard(run);run.status=run.episodes.length&&run.episodes.every(e=>e.stage==='done')&&!Object.values(run.stages).some(s=>s.status==='partial')?'done':'attention';
     run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);
-  }catch(e){if(run.status==='running')run.status='attention';run.message=e.message;await log(`流程提示：${e.message}`,'error');await persist(run);}
+  }catch(e){if(run.status==='paused'){run.message='已暂停；完成成果和在途任务已保留，下次只接续缺项';await log(run.message,'info');}else{if(run.status==='running')run.status='attention';run.message=e.message;await log(`流程提示：${e.message}`,'error');}await persist(run);}
  }
  const controller={
   get loadError(){return loadError;},
@@ -86,6 +94,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
   async restore(){if(ready)return;try{runs=await load();for(const run of runs){if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
   async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],logs:[],createdAt:Date.now()};runs.unshift(run);await persist(run);return run;},
   async start(id){const run=runs.find(r=>r.id===id);if(!run||active.has(id))return;if(run.status==='done')return;active.set(id,true);try{run.status='running';await persist(run);return await execute(run);}finally{active.delete(id);}},
+  async refresh(id){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id))throw Error('运行时自动监测，请暂停并等待当前操作结束后刷新');if(!adapters.monitor)return;active.set(id,true);try{const result=await adapters.monitor({run,readOnly:true,guard:()=>{},checkpoint:()=>persist(run),log:async()=>{}});if(run.status==='done'&&(Object.values(result).some(v=>v===false)||run.monitor?.files?.invalidItems?.length||run.monitor?.files?.invalidEpisodes?.length)){run.status='attention';run.message='监测发现缺项，已保留原成果，点击继续接续';}await persist(run);return result;}catch(error){if(run.status==='done'){run.status='attention';run.message='监测暂未完成，已保留成果，请重试检查';await persist(run);}throw error;}finally{active.delete(id);}},
   async bindProject(id,projectId){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束再切换项目');if(run.items.length||run.videoSourceSignature)throw Error('任务已有视频提交记录，保留原项目，请创建新流程改选');await adapters.selectCollab(run,projectId);if(active.has(id)||run.status==='running'||run.items.length||run.videoSourceSignature)throw Error('任务状态已改变，请暂停后重试');run.collabProjectId=projectId;run.config.collabProjectId=projectId;delete run.stages.art;delete run.stages.images;await persist(run);},
   async saveRule(id,text){const run=runs.find(r=>r.id===id);if(!run||!String(text||'').trim()||text.length>8000)throw Error('请填写要保存的流程规则');run.config.workflowRules=String(text).trim();await persist(run);},
   async chat(id,{text,model}){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('Agent 正在回复，请稍候');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');chatting.add(id);

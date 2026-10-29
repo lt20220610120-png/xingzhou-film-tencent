@@ -1,6 +1,7 @@
 import React, {useEffect, useId, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {Bot, Check, ChevronDown, FileVideo, FolderOpen, Monitor, Search, X} from 'lucide-react';
+import {ProductionAgentStatus} from './ProductionAgentStatus.jsx';
 
 // Native modal supplies focus containment, Escape and focus restoration.
 export function ChoiceField({label, value, options = [], onChange, disabled = false, placeholder = '点击选择', hint}) {
@@ -49,6 +50,7 @@ export function AgentCard({editing, config, connection, busy, onChange, onPick, 
   <div className="furnace-agent-body"><PathField label={editing?'剪辑 Agent 连接组件':'制作 Agent 连接组件'} kind="file" value={config[pathKey]} disabled={busy} onPick={onPick}/>
    <div className="furnace-agent-actions"><button type="button" disabled={busy||config[protocolKey]!=='codex'} onClick={onDiscover}>自动查找 Codex</button>{editing&&<button type="button" disabled={busy||!config.agentPath} onClick={onReuse}>沿用制作智能体</button>}<button type="button" className="primary" disabled={busy||!config[pathKey]} onClick={onConnect}>{connection?.pending?'正在连接…':connected?'重新检查':'连接智能体'}</button></div>
    {error&&<p className="furnace-inline-error" role="alert">{error}</p>}
+   <ProductionAgentStatus connection={connected?connection:null}/>
    <ChoiceField label={editing?'剪辑 Agent 模型':'制作 Agent 模型'} value={config[modelKey]} options={connected?connection.models||[]:[]} disabled={busy||!connected} onChange={v=>onChange({[modelKey]:v})} placeholder={connected?'点击选择模型':'连接后选择模型'} hint={connected&&!connection.models?.length?'此连接未返回模型列表，请检查连接组件。':config[protocolKey]==='codex'?'使用本机 Codex 的登录状态，无需填写密钥。':'仅支持提供 ACP 协议的连接组件。'}/>
   </div>
  </div>;
