@@ -22,6 +22,20 @@
 - `npm test`：2517/2517通过；`npm run build`通过（仅既有大包体提示）。独立复核47/47定向测试通过，合法无参考选择、刷新失败恢复和超分清单验收增量已闭合。
 - UI覆盖1280/1700/2232宽度，模拟账号与5小时/周额度、只读刷新、逐场完成证据、滚动对话、启动暂停、文件选择弹窗、视频池范围下载。
 - 回归覆盖：已发布复用、部分关联、缺场景、无效引用、合法无参考/过期排除、暂停/重启接续、不重复视频提交、只读刷新不建协作、不重复同步、刷新互斥、文件丢失、hash变化、目录越界、超分缺片/倍率变更。
+- 三宽交互脚本通过，报告 `output/playwright/furnace-2894-ui.json`。实际安装包运行时PASS：`qa/packaged-smoke-2.8.94-1793273346130`，包含管理员门禁、隔离、安全沙盒、视频预览、数据恢复及页面启动。
+
+## 安装包
+
+- 源码提交：`df992cf`。
+- 本机：`release/2.8.94/Xingzhou-Film-Tencent-Setup-2.8.94.exe`。
+- 大小：103894638 字节；SHA256：`1937986ccb8ced0af8115a8bfab14b1ecc23b324ee4d1c67735b07656289ac6a`。
+- 未安装覆盖当前正在使用的软件，提供正式安装包升级。
+
+## 发布核验
+
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.94.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.94/Xingzhou-Film-Tencent-Setup-2.8.94.exe
+- 官方服务器安装前完整SHA256和大小核验通过。官方与两个GitHub main/latest.json均为2.8.94，Ed25519签名及version/size/sha256/installerUrl与本机清单一致；公开下载Range206、总大小和MZ头通过，报告 `output/release-2.8.94-public.json`。
 
 ## 能力边界
 
