@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createProductionAdapters} from '../src/v06/productionAdapters.js';
+import {createProductionAdapters,productionArtResumePlan} from '../src/v06/productionAdapters.js';
 import {productionDefaults} from './productionFurnace.js';
 import {newArtReview,editArtReview,reviewSceneSignature} from './artReview.js';
 import {bindingSnapshot,proposeEntryBinding} from './promptArtBinding.js';
@@ -12,7 +12,7 @@ function fixture(){
  const run={id:crypto.randomUUID(),projectId:'director',collabProjectId:'collab',status:'running',config:{...productionDefaults(),mode:'semi',videoModel:JSON.stringify(['video','v']),endStage:'edit'},items:[],episodes:[]};
  const api={collabGetProject:async()=>project,promptArtLoad:async()=>({enabled:true,snapshot,decisions}),collabListAssets:async()=>assets,artReviewLoadLocal:async()=>ledger,generationList:async()=>jobs,productionAudit:async p=>{events.push('audit:'+p.payload.label);return '{"approved":true}';},generationSubmit:async input=>{events.push('submit:'+input.shotLabel);const job={...input,id:crypto.randomUUID(),status:'success'};jobs.push(job);return job;},productionArchive:async p=>{events.push('archive:'+p.label);return {outputFile:p.label+'.mp4',sha256:'hash'};},productionPostStatus:async p=>{events.push(p.stage+':'+p.episode);return {status:'done',result:{file:'film.mp4'}};}};
  const adapter=createProductionAdapters({api,getState:()=>state,getAccount:()=>({id:'u'}),setState:()=>{},getQuick:()=>({})}),ctx={run,guard:()=>{if(run.status!=='running')throw Error('paused');},checkpoint:async()=>{},notice:async()=>{}};
- return {adapter,ctx,run,state,jobs,events,api};
+ return {adapter,ctx,run,state,jobs,events,api,ledger};
 }
 test('semi mode invokes Agent per clip and hands off only complete episodes in numeric order',async()=>{
  const f=fixture();await f.adapter.videos(f.ctx);assert.equal(f.run.name,'验收剧');assert.equal(f.run.items.length,4);assert(f.run.episodes.every(e=>e.stage==='done'));
@@ -27,4 +27,16 @@ test('unknown submitting task stays uncertain and does not poll forever or submi
 });
 test('missing scene prompts stop a partial episode from being considered complete',async()=>{
  const f=fixture();f.state.directorProjects[0].episodes[0].content+='\n1-2 街道 夜 外\n张三离开。';await assert.rejects(f.adapter.videos(f.ctx),/未生成提示词/);assert.equal(f.jobs.length,0);
+});
+
+test('existing published art survives auto resume with deleted collab duplicates and without model analysis',async()=>{
+ const f=fixture();delete f.run.collabProjectId;f.run.config.mode='auto';f.api.collabListProjects=async()=>[{id:'trash',director_project_id:'director',deleted_at:'now'},{id:'collab',director_project_id:'director'}];f.api.artReviewSaveLocal=async()=>{};
+ await f.adapter.art(f.ctx);assert.equal(f.run.collabProjectId,'collab');assert.equal(f.run.reusedExisting.art,true);assert.equal(f.events.length,0);assert(f.ledger.episodes[1].published['1-1']);
+});
+
+test('art resume targets only missing inventory and pending distribution, preserving completed episodes',async()=>{
+ const f=fixture(),project=f.state.directorProjects[0],binding=await f.api.promptArtLoad();
+ assert.deepEqual(productionArtResumePlan(project,f.ledger,binding),{inventory:[],mapOnly:[]});
+ delete f.ledger.episodes[2];assert.deepEqual(productionArtResumePlan(project,f.ledger,binding),{inventory:[2],mapOnly:[]});
+ delete f.ledger.episodes[1].published['1-1'];assert.deepEqual(productionArtResumePlan(project,f.ledger,binding),{inventory:[2],mapOnly:[1]});
 });

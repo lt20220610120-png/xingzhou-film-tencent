@@ -474,7 +474,7 @@ ipcMain.handle('admin-workflow-open',async(_,p)=>{await workflowAdmin();const fo
 function startWorkflowTimer(){const timer=setInterval(()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());},5000);timer.unref();}
 
 productionHost=require('./production-host.cjs').createProductionHost({root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),dialog,shell});
-for(const action of ['list','save','choose','discover','preflight','connect','audit','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(_,p)=>{await workflowAdmin();return productionHost[action](p);});
+for(const action of ['list','save','choose','discover','preflight','connect','chat','audit','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(_,p)=>{await workflowAdmin();return productionHost[action](p);});
 
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});

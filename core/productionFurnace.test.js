@@ -33,3 +33,14 @@ test('unknown submission and transport errors do not become automatic image retr
  assert.equal(imageFailureKind(new Error('429')),'rate-limit');
  assert.ok(productionIssues(productionDefaults()).length>0);
 });
+test('Agent conversation records actual actions, preserves task state and rejects concurrent messages',async()=>{
+ let release;const pending=new Promise(r=>release=r),stored=[];let calls=0;
+ const c=createProductionController({load:async()=>[],save:async r=>stored.push(r),adapters:{chat:async()=>{calls++;await pending;return {reply:'先暂停当前派发。',action:'pause'};},pause:async()=>{}}});
+ const run=await c.create('p',productionDefaults());run.items=[{id:'saved-job',status:'submitted'}];const sending=c.chat(run.id,{text:'先暂停',model:'m'});await new Promise(r=>setImmediate(r));await assert.rejects(c.chat(run.id,{text:'重复点击',model:'m'}),/正在回复/);release();await sending;
+ assert.equal(calls,1);assert.equal(run.status,'paused');assert.equal(run.items[0].id,'saved-job');assert.deepEqual(run.conversation.map(m=>m.role),['user','assistant','system']);assert.match(run.conversation.at(-1).text,/已暂停/);
+ await c.saveRule(run.id,'复用已发布的清单');assert.equal(run.config.workflowRules,'复用已发布的清单');
+});
+test('chat cannot change projects after paid submissions and failed action remains visible',async()=>{
+ const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async()=>({reply:'尝试改选',action:'select_collab',projectId:'other'}),selectCollab:async()=>{throw Error('不应执行');}}});const run=await c.create('p',productionDefaults());run.items=[{id:'submitted'}];
+ await assert.rejects(c.chat(run.id,{text:'切换',model:'m'}),/已有视频提交记录/);assert.match(run.conversation.at(-1).text,/指令未完成/);assert.equal(run.collabProjectId,undefined);
+});
