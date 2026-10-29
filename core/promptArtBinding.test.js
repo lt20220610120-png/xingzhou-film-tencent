@@ -16,6 +16,7 @@ function fixture(){
  const ledger={episodes:{1:record}},snapshot=bindingSnapshot(project,ledger,assets),decisions=Object.fromEntries(snapshot.entries.map(entry=>[entry.id,{...proposeEntryBinding(snapshot,entry),confirmed:true}]));
  return {project,ledger,assets,snapshot,decisions};
 }
+test('compiled references replace empty director placeholders after anchoring without modifying source',()=>{const f=fixture();f.project.episodes[0].prompts[0].content=f.project.episodes[0].prompts[0].content.replace('张三','张三（参考@）');const snapshot=bindingSnapshot(f.project,f.ledger,f.assets,f.snapshot),entry=snapshot.entries[0],decision={...proposeEntryBinding(snapshot,entry),confirmed:true};const result=compileEntryBinding(snapshot,entry,decision);assert.match(result.prompt,/张三（参考@image1）/);assert(!result.prompt.includes('（参考@）'));assert(entry.prompt.includes('（参考@）'));});
 test('提前关联保留类别、每条只选必要子集，杯子不混入人物引用',()=>{
  const {snapshot,decisions}=fixture();
  const first=compileEntryBinding(snapshot,snapshot.entries[0],decisions.p1),second=compileEntryBinding(snapshot,snapshot.entries[1],decisions.p2);

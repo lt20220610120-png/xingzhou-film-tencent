@@ -3,6 +3,7 @@ import {Bot,Send,RefreshCw,BookMarked} from 'lucide-react';
 import {ChoiceField} from './ProductionControls.jsx';
 import {productionProjectCandidates} from '../../core/productionProject.js';
 import {ProductionAgentStatus} from './ProductionAgentStatus.jsx';
+import {ProductionGoals} from './ProductionGoals.jsx';
 export function ProductionConversation({run,production,api,onSaveDefault}){
  const [text,setText]=useState(''),[busy,setBusy]=useState(false),[models,setModels]=useState([]),[model,setModel]=useState(run.config.agentModel||''),[error,setError]=useState(''),[candidates,setCandidates]=useState([]),[rule,setRule]=useState(run.config.workflowRules||''),[notice,setNotice]=useState('');
  const pane=useRef(null),follow=useRef(true),owner=useRef(run.id);owner.current=run.id;
@@ -17,6 +18,7 @@ export function ProductionConversation({run,production,api,onSaveDefault}){
  return <section className="furnace-conversation" aria-label="制作 Agent 对话">
   <header><div><Bot size={20}/><div><b>制作 Agent</b><small>沟通、纠正与工作日志</small></div></div><button type="button" disabled={busy} onClick={load}><RefreshCw size={14}/>刷新模型与项目</button></header>
   <div style={{padding:'0 18px'}}><ProductionAgentStatus connection={connection}/>{connection?.error&&<small className="production-status-muted">账号状态读取失败：{connection.error}。可点击刷新重试。</small>}</div>
+  <ProductionGoals run={run}/>
   <div className="furnace-chat-controls"><ChoiceField label="对话模型" value={model} options={models.length?models:run.config.agentModel?[{id:run.config.agentModel,name:run.config.agentModel}]:[]} onChange={setModel} disabled={busy}/><ChoiceField label="接续协作项目" value={run.collabProjectId||run.config.collabProjectId||''} options={candidates.length?candidates.map(p=>({id:p.id,name:p.name+' · '+p.id.slice(0,8)})):(run.collabProjectId?[{id:run.collabProjectId,name:'当前协作项目 · '+run.collabProjectId.slice(0,8)}]:[])} placeholder="自动识别，未开启时自动创建" disabled={busy||run.status==='running'} onChange={v=>act(async()=>{await production.bindProject(run.id,v);setNotice('协作项目已更换，点击继续或发送接续指令。');})}/></div>
   <div ref={pane} role="log" aria-label="工作日志与对话消息" aria-live="polite" className="furnace-conversation-messages" onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<65;}}>
    {!events.length&&<p className="furnace-chat-empty">可以询问当前进度，或发送“读取已有协作项目，继续补齐图片”等指令。</p>}

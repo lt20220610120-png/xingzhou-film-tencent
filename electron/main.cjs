@@ -113,7 +113,7 @@ function secureMainWindow(win){
 }
 process.on('uncaughtException',(error)=>appendStartupLog(`uncaughtException ${error?.stack||error}`));
 process.on('unhandledRejection',(error)=>appendStartupLog(`unhandledRejection ${error?.stack||error}`));
-function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});mainWindow=win;secureMainWindow(win);win.on('close',event=>{if(!quitHandler.canClose()){event.preventDefault();app.quit();}});win.on('closed',()=>{if(mainWindow===win){mainWindow=null;workBuddyPanel?.revoke();winAiPanel?.revoke();}});win.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame){workBuddyPanel?.revoke();winAiPanel?.revoke();}});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
+function createWindow(){ const win=new BrowserWindow({show:!isPackagedSmoke,width:1500,height:940,minWidth:1120,minHeight:720,backgroundColor:'#f4f1ea',title:'行舟影视',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),backgroundThrottling:false,contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});mainWindow=win;secureMainWindow(win);win.on('close',event=>{if(!quitHandler.canClose()){event.preventDefault();app.quit();}});win.on('closed',()=>{if(mainWindow===win){mainWindow=null;workBuddyPanel?.revoke();winAiPanel?.revoke();}});win.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame){workBuddyPanel?.revoke();winAiPanel?.revoke();}});let recovered=false;win.webContents.on('did-fail-load',(_,code,description,url,isMainFrame)=>{if(!isMainFrame)return;appendStartupLog(`did-fail-load ${code} ${description} ${url}`);if(!recovered){recovered=true;setTimeout(()=>win.reload(),300)}});win.webContents.on('render-process-gone',(_,details)=>{appendStartupLog(`render-process-gone ${details.reason} ${details.exitCode}`);if(!recovered&&!win.isDestroyed()){recovered=true;setTimeout(()=>win.reload(),300)}});if(isDev&&!isPackagedSmoke)win.loadURL('http://127.0.0.1:5173');else win.loadFile(path.join(__dirname,'../dist/index.html')).catch(error=>appendStartupLog(`loadFile ${error.message}`)); }
 ipcMain.handle('save-txt',async(_,{name,content})=>{const r=await dialog.showSaveDialog({defaultPath:`${name}.txt`,filters:[{name:'TXT 剧本文档',extensions:['txt']}]});if(r.canceled)return null;fs.writeFileSync(r.filePath,'\ufeff'+content,'utf8');return r.filePath});
 ipcMain.handle('save-creator-document', (_, payload) => saveCreatorDocument(payload, { dialog, window: mainWindow }));
 ipcMain.handle('import-creator-video', () => importCreatorVideo({ dialog, window: mainWindow }));
@@ -405,6 +405,7 @@ ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
 ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
 async function submitGeneration(event,p){
+ let input,accountId;try{
  if(p.referenceBindingMode){
   await workflowAdmin();
   if(!promptArtEnabled())throw Error('当前版本未启用提示词联动美术');
@@ -420,8 +421,10 @@ async function submitGeneration(event,p){
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
- const input=await renewImageReferences(p),accountId=p.provider==='libtv'?await libtvAccountId():undefined;
+ input=await renewImageReferences(p);accountId=p.provider==='libtv'?await libtvAccountId():undefined;
+ if(p.workflowRunId){try{input=await productionHost.selectReferences({runId:p.workflowRunId,input});}catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}}
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
+ }catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}
  return jobs().submit({...input,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal});
 }
 ipcMain.handle('generation-submit',submitGeneration);
@@ -431,7 +434,7 @@ function currentWorkflow(){
  const root=path.join(getDataDir(),'admin-workflows');
  if(workflowEngine&&workflowRoot===root)return workflowEngine;
  workflowEngine?.pauseAll();workflowRoot=root;
- workflowEngine=require('./admin-workflow.cjs').createWorkflowEngine({root,authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),
+ workflowEngine=require('./admin-workflow.cjs').createWorkflowEngine({root,authorize:workflowAdmin,onActivity:(id,running)=>id?productionAwake.set(id,running):productionAwake.clear(),mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),
   prepare:async(run,item,guard,save)=>{
    await guard();const state=readJson(dataFile(),{}),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(state,'video').find(p=>p.id===run.settings.profileId),ai=state.apiProfiles?.find(p=>p.id===run.settings.aiProfileId);
    if(!ai)throw Error('AI 接口已不存在，请恢复原配置');
@@ -473,8 +476,9 @@ ipcMain.handle('admin-workflow-action',async(_,p)=>{await workflowAdmin();return
 ipcMain.handle('admin-workflow-open',async(_,p)=>{await workflowAdmin();const folder=await currentWorkflow().output(p.id);fs.mkdirSync(folder,{recursive:true});return shell.openPath(folder);});
 function startWorkflowTimer(){const timer=setInterval(()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());},5000);timer.unref();}
 
+const productionAwake=require('./production-awake.cjs').createProductionAwake(require('electron').powerSaveBlocker);
 productionHost=require('./production-host.cjs').createProductionHost({root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),dialog,shell});
-for(const action of ['list','save','choose','discover','preflight','connect','chat','audit','verify','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(_,p)=>{await workflowAdmin();return productionHost[action](p);});
+for(const action of ['list','save','choose','discover','preflight','connect','chat','audit','work','verify','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(_,p)=>{await workflowAdmin();return productionHost[action](p);});
 
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});

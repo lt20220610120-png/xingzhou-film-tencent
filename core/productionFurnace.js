@@ -66,7 +66,9 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    const log=async(text,kind='agent')=>{run.logs=[...(run.logs||[]),{id:crypto.randomUUID(),at:Date.now(),kind,text}].slice(-500);await persist(run);};
    const ctx={run,guard:()=>guard(run),checkpoint:()=>persist(run),log,notice:async text=>{run.message=text;await log(text);}};
   try{
-    await log('已接管制作任务，先读取当前项目状态。');await adapters.validate?.(ctx);guard(run);
+    await log('已接管制作任务，先读取当前项目状态。');
+   let recoveryRound=0;while(true){
+   try{await adapters.validate?.(ctx);guard(run);if(run.stageErrors)delete run.stageErrors.validation;}catch(error){guard(run);if(!adapters.recover)throw error;run.stageErrors={...run.stageErrors,validation:error.message};await log('前置目标待修复：'+error.message,'warning');}
    if(adapters.monitor){
     try{const facts=await adapters.monitor(ctx);guard(run);for(const key of ['prompts','art','images'])if(typeof facts[key]==='boolean'){
      run.stages[key]={status:facts[key]?'done':'pending',detectedAt:Date.now()};
@@ -83,9 +85,15 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
      if(stage==='prompts')delete ctx.artSnapshot;
      await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}${result?.partial?'存在待处理项，已继续后续阶段':'已完成'}。`,result?.partial?'warning':'success');
    }
-   guard(run);await adapters.videos(ctx);
-   guard(run);run.status=run.episodes.length&&run.episodes.every(e=>e.stage==='done')&&!Object.values(run.stages).some(s=>s.status==='partial')?'done':'attention';
-    run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);
+   guard(run);try{await adapters.videos(ctx);if(run.stageErrors)delete run.stageErrors.videos;}catch(error){guard(run);if(!adapters.recover)throw error;run.stageErrors={...run.stageErrors,videos:error.message};await log('视频前置目标待修复：'+error.message,'warning');}
+   guard(run);run.status=run.episodes.length&&run.episodes.every(e=>e.stage==='done')&&!Object.values(run.stages).some(s=>s.status==='partial')&&!Object.keys(run.stageErrors||{}).length?'done':'attention';
+    if(run.status==='done'||!adapters.recover){run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);break;}
+    run.status='running';guard(run);let recovery;try{recovery=await adapters.recover(ctx);}catch(error){guard(run);await log('Agent 修复暂未完成，保留目标并稍后重试：'+error.message,'warning');recovery={retry:true,delay:60000};}
+    guard(run);if(recovery?.budget){run.status='waiting-budget';run.message=recovery.reason||'生成渠道余额不足，成果已保存，充值后点击继续';await log(run.message,'warning');await persist(run);break;}
+    recoveryRound++;const delay=recovery?.delay??Math.min(300000,5000*2**Math.min(recoveryRound,6));run.recovery={...run.recovery,round:recoveryRound,nextAt:Date.now()+delay};run.message=delay?'目标尚未完成，Agent 已安排下一轮接续':'修复已完成，正在验证并接续';await persist(run);
+    if(adapters.waitForRecovery)await adapters.waitForRecovery(delay,ctx);else {let remaining=delay;while(remaining>0){guard(run);const step=Math.min(1000,remaining);await new Promise(r=>setTimeout(r,step));remaining-=step;}}
+    guard(run);delete ctx.artSnapshot;delete ctx.collabSnapshot;
+   }
   }catch(e){if(run.status==='paused'){run.message='已暂停；完成成果和在途任务已保留，下次只接续缺项';await log(run.message,'info');}else{if(run.status==='running')run.status='attention';run.message=e.message;await log(`流程提示：${e.message}`,'error');}await persist(run);}
  }
  const controller={

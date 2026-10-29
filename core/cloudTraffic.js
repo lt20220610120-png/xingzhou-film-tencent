@@ -17,7 +17,9 @@ export function createDirectorSync() {
     const inspection=inspectCollabEpisodes(source.episodes);
     if(inspection.error)return {...project,director_sync_warning:`导演源分集编号待核对，本次未同步：${inspection.error}`};
     const key=`${project.id}:${source.id}`;
-    const updates={script:source.masterScript||'',episodes:source.episodes||[]};
+    const episodeIds=new Map(inspectCollabEpisodes(project.episodes||[]).episodes.map(e=>[e.episodeNumber,e.id]));
+    const sourceNumbers=new Map(inspection.episodes.map(e=>[e.id,e.episodeNumber]));
+    const updates={script:source.masterScript||'',episodes:(source.episodes||[]).map(e=>({...e,id:episodeIds.get(sourceNumbers.get(e.id))||e.id}))};
     const snapshot=JSON.stringify(updates);
     if(key===lastKey && snapshot===lastSnapshot) return project;
     const saved=await update({projectId:project.id,scope:'director-sync',updates});

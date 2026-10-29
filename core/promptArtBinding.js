@@ -194,6 +194,9 @@ export function compileEntryBinding(snapshot,entry,decision){
  for(const span of merged.reverse()){
   prompt=prompt.slice(0,span.end)+`（参考${[...new Set(span.ids)].map(id=>aliases.get(id)).join(' ')}）`+prompt.slice(span.end);
  }
+ // Remove director template placeholders only after original-text anchors have
+ // been applied. Existing numbered manual references remain separately gated.
+ prompt=prompt.replace(/[（(]参考\s*@\s*[）)]/g,'');
  if(manual.length)prompt+='\n【人工指定参考】\n'+manual.map(row=>`${row.name}（参考${aliases.get(row.id)}）`).join('\n');
  return {prompt,references};
 }
@@ -227,7 +230,12 @@ export async function loadFreshBinding({api,projectId,accountId,localSources=[],
  const source=localSources.find(row=>!row.cloudProjectId&&row.id===project.director_project_id);
  const effectiveLedger=structuredClone(ledger||{episodes:{}});effectiveLedger.episodes||={};
  for(const [number,progress] of Object.entries(project.analysis_progress||{}))if(progress.review&&Number(progress.review.version)>Number(effectiveLedger.episodes[number]?.version||0))effectiveLedger.episodes[number]=progress.review;
- const currentSnapshot=bindingSnapshot(source?{...project,episodes:source.episodes}:project,effectiveLedger,assets,saved?.snapshot);
+ // Director and cloud collaboration episodes have independent database IDs.
+ // Refresh content by episode number while retaining collaboration identity,
+ // otherwise every card key/UID is recreated and all saved bindings go stale.
+ const ids=new Map(inspectCollabEpisodes(project.episodes).episodes.map(e=>[e.episodeNumber,e.id]));
+ const sourceEpisodes=source?inspectCollabEpisodes(source.episodes).episodes.map(e=>({...e,id:ids.get(e.episodeNumber)||e.id})):null;
+ const currentSnapshot=bindingSnapshot(source?{...project,episodes:sourceEpisodes}:project,effectiveLedger,assets,saved?.snapshot);
  const selected=selectBindingVersion(currentSnapshot,saved,versionId||undefined);
  return {saved,...selected,currentSnapshot};
 }

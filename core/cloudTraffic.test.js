@@ -19,3 +19,4 @@ test('unchanged local director source skips repeat write while edits and failed 
   await sync(project,source,update);assert.equal(writes,3);
   await sync({...project,locked:true},{...source,masterScript:'third'},update);assert.equal(writes,3);
 });
+test('director sync updates content while preserving independent cloud episode identity',async()=>{const sync=createDirectorSync(),project={id:'p',myRole:'producer',episodes:[{id:'cloud-e',episodeNumber:1,content:'old'}]},source={id:'d',episodes:[{id:'director-e',title:'第1集',content:'1-1 房间 日 内\n新内容'}]};let updates;await sync(project,source,async p=>{updates=p.updates;return project;});assert.equal(updates.episodes[0].id,'cloud-e');assert.match(updates.episodes[0].content,/新内容/);});

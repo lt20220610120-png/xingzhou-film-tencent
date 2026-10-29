@@ -1,0 +1,2 @@
+function createProductionAwake(powerSaveBlocker){const active=new Set();let token=null;const update=()=>{if(active.size&&token===null)token=powerSaveBlocker.start('prevent-app-suspension');if(!active.size&&token!==null){powerSaveBlocker.stop(token);token=null;}};return {set(id,running){running?active.add(id):active.delete(id);update();},clear(){active.clear();update();}};}
+module.exports={createProductionAwake};
