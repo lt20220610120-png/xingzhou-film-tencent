@@ -10,6 +10,7 @@ test('episode readiness requires every expected distinct clip and verified outpu
  assert.equal(completeEpisode(['a'],[clip]),true);
  assert.equal(completeEpisode(['a'],[{...clip,sha256:''}]),false);
 });
+test('paused workflow may update only future video retry policy, preserving submitted tasks and prompt identity',async()=>{const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{validateVideoPolicy:async()=>{}}}),run=await c.create('p',{...productionDefaults(),videoModel:'primary'});run.items=[{id:'i',jobId:'original',status:'submitted'}];run.videoSourceSignature='stable';await c.updateVideoPolicy(run.id,{videoAttempts:3,videoFallbackEnabled:true,fallbackVideoModel:'backup',fallbackVideoAttempts:2,videoModel:'malicious'});assert.equal(run.config.videoModel,'primary');assert.equal(run.config.videoAttempts,3);assert.equal(run.items[0].jobId,'original');assert.equal(run.videoSourceSignature,'stable');run.status='running';await assert.rejects(c.updateVideoPolicy(run.id,{}),/暂停/);});
 test('partial art/images stay resumable and cannot make the whole run complete',async()=>{
  let images=0,art=0;const saved=[];
  const controller=createProductionController({load:async()=>[],save:async r=>saved.push(structuredClone(r)),adapters:{prompts:async()=>{},art:async()=>{art++;return {partial:true};},images:async()=>{images++;return {partial:true};},videos:async({run})=>{run.episodes=[{number:1,stage:'done'}];}}});

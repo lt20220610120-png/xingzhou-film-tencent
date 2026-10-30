@@ -1,6 +1,6 @@
 import {bindingProblems,entryBindingSignature,cardInEntry,bindingHash} from './promptArtBinding.js';
 
-export const isFundingError=error=>/insufficient[_ -]quota|not enough (?:quota|credits?)|quota.*(?:insufficient|exhausted)|credit balance.*(?:low|insufficient)|余额不足|额度不足|欠费|充值|余额.*不足/i.test(String(error?.message||error||''));
+export const isFundingError=error=>/insufficient[_ -](?:quota|balance|credits?)|not enough (?:quota|credits?|points)|quota.*(?:insufficient|exhausted)|credit balance.*(?:low|insufficient)|余额不足|额度不足|积分.*不足|欠费|充值|余额.*不足|FT请求失败[（(]402[）)]/i.test(String(error?.message||error||''));
 export const productionRecoveryFingerprint=(goals,config={})=>bindingHash([goals.map(g=>[g.kind,g.target,String(g.error||'').replace(/\(?request[ _-]?id\s*[:=]\s*[^\s)]+\)?/ig,'request-id').replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/ig,'id').replace(/\d{4}-\d\d-\d\d[T ][\d:.Z+-]+/g,'time')]),config.imageModel,config.fallbackImageModel,config.videoModel]);
 export function acceptProductionBinding(snapshot,entry,decision,approval){
  if(approval?.id!==entry.id||approval.approved!==true||!approval.reason?.trim()||!Array.isArray(decision?.needs))throw Error('Agent 未确认已有关联可继续使用');

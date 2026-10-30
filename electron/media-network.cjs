@@ -24,6 +24,7 @@ let mediaFetch;
 // Electron's Chromium network stack follows the desktop's system proxy/PAC.
 // Node fetch does not, which can make generation succeed but result GETs fail.
 function configureMediaFetch(fetcher) { mediaFetch = fetcher; }
+function fetchMedia(url,options) { return (mediaFetch||globalThis.fetch)(url,options); }
 let cacheScope = () => '';
 function configureMediaCache(cache, scope) { imageCache = cache; cacheScope = scope || (()=>''); }
 async function readMediaBytes(url, options = {}) {
@@ -69,4 +70,4 @@ async function downloadMediaBytes(url, { fetchFn = mediaFetch || globalThis.fetc
   }
 }
 
-module.exports = { readMediaBytes, isMediaNetworkError, configureMediaCache, configureMediaFetch };
+module.exports = { readMediaBytes, isMediaNetworkError, configureMediaCache, configureMediaFetch, fetchMedia };

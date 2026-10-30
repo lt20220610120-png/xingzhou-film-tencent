@@ -5,7 +5,7 @@ import { mediaSource } from '../../core/generationReferences.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { MediaPreview } from './MediaPreview.jsx';
 
-const names = { submitting: '提交中', submitted: '排队 / 生成中', downloading: '下载中', success: '已完成', failed: '失败', uncertain: '待核对' };
+const names = { submitting: '提交中', submitted: '排队 / 生成中', downloading: '已生成 · 下载中', success: '已成功', failed: '失败', uncertain: '待核对' };
 const clearable = task => ['success', 'failed', 'uncertain'].includes(task.status);
 function storageSize(bytes = 0) {
   if (bytes < 1024) return `${bytes} B`;
@@ -73,6 +73,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
       <p className="generation-result-prompt" title={task.originalPrompt || task.prompt}>{task.originalPrompt || task.prompt}</p>
       <small>{models.find(model => model.id === task.model)?.name || task.model}</small>
       {task.jobId && <small title={task.jobId}>任务 {task.jobId}</small>}
+      {task.checkedAt&&<small>最近检测 {new Date(task.checkedAt).toLocaleTimeString('zh-CN',{hour12:false})}{task.status==='success'?' · 视频池下载好':''}</small>}
       {(task.error || task.warning) && <details className="generation-result-error"><summary>{task.status === 'failed' ? '查看失败原因' : '查看任务提示'}</summary><p>{task.error || task.warning}</p></details>}
       <footer><div className="generation-card-actions">
         {task.likeCanvasUrl&&<button className="secondary" onClick={()=>api.openExternal(task.likeCanvasUrl)}>Like 原画布</button>}

@@ -15,6 +15,8 @@ function fixture(){
  const accountId=crypto.randomUUID(),adapter=createProductionAdapters({api,getState:()=>state,getAccount:()=>({id:accountId}),setState:()=>{},getQuick:()=>({})}),ctx={run,guard:()=>{if(run.status!=='running')throw Error('paused');},checkpoint:async()=>{},notice:async()=>{}};
  return {adapter,ctx,run,state,jobs,events,api,ledger};
 }
+
+test('video failure uses configured primary/fallback attempts, never redoes successful clips',async()=>{const f=fixture();f.run.config.endStage='archive';f.run.config.videoAttempts=2;f.run.config.videoFallbackEnabled=true;f.run.config.fallbackVideoAttempts=2;f.run.config.fallbackVideoModel=JSON.stringify(['backup','b']);f.state.mediaProfiles.push({id:'backup',name:'备用',kind:'video',model:'b',capabilities:{maxImages:8,durations:[30],ratios:['9:16'],resolutions:['480p']}});const seen=[];f.api.generationSubmit=async input=>{seen.push([input.shotLabel,input.profileId]);const job={...input,id:crypto.randomUUID(),status:input.profileId==='backup'?'success':'failed',error:input.profileId==='backup'?'':'generation failed'};f.jobs.push(job);return job;};await f.adapter.videos(f.ctx);assert.equal(f.run.items.filter(i=>i.status==='downloaded').length,4);assert.deepEqual(seen.filter(i=>i[0]==='1-1-1').map(i=>i[1]),['video','video','backup']);const count=seen.length;await f.adapter.videos(f.ctx);assert.equal(seen.length,count);});
 test('semi mode invokes Agent per clip and hands off only complete episodes in numeric order',async()=>{
  const f=fixture();await f.adapter.videos(f.ctx);assert.equal(f.run.name,'验收剧');assert.equal(f.run.items.length,4);assert(f.run.episodes.every(e=>e.stage==='done'));
  assert.equal(f.events.filter(e=>e.startsWith('audit:')).length,4);

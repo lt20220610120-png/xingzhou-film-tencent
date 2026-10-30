@@ -16,6 +16,7 @@ import {loadFreshBinding,linkedPromptBook} from '../../core/promptArtBinding.js'
 import {planProductionReferenceSelection,selectProductionReferences} from '../../core/productionReferenceSelection.js';
 import {workflowInput} from '../../core/adminWorkflow.js';
 import {produceImages} from '../../core/productionImages.js';
+import {runProductionVideoTask} from '../../core/productionVideoTask.js';
 import {assetHasImages} from '../../core/assetImages.js';
 import {mediaModelChoices} from '../../core/modelChoices.js';
 import {generationMediaProfiles} from '../../core/canvasStore.js';
@@ -93,6 +94,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   async chat(run,{text,model,history}){const context=await this.inspect(run);const reply=await api.productionChat({runId:run.id,text,model,history,context});return {...reply,context};},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
   async validate(ctx){await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
+  async validateVideoPolicy(config){const issues=productionVideoIssues(config,getState());if(issues.length)throw Error(issues.join('；'));},
   async prompts(ctx){
    const {run}=ctx,c=run.config;ctx.guard();let p=project(run);run.name=p.name;await ctx.checkpoint();
    const existingCoverage=productionCoverage(p),existingMissing=existingCoverage.flatMap(e=>e.scenes).filter(s=>!s.count);
@@ -153,28 +155,19 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    await postReady();const tasks=await api.generationList({includeArchived:true});
    const worker=async()=>{while(cursor<run.items.length){ctx.guard();const item=run.items[cursor++];if(item.status==='downloaded')continue;const entry=book.entries.find(e=>e.id===item.id);if(!entry){item.status='blocked';item.error='来源提示词已变化';continue;}
     try{
-     const excluded=new Set(item.previousFailedJobs?.map(j=>j.id)||[]);let job=tasks.find(j=>j.id===item.jobId)||[...tasks].reverse().find(j=>!excluded.has(j.id)&&j.workflowRunId===run.id&&j.workflowItemId===item.id);
-     if(job?.status==='failed'&&(isFundingError(job.error)||(item.generationAttempts||0)<2)){
-      item.previousFailedJobs=[...(item.previousFailedJobs||[]),{id:job.id,status:'failed',error:job.error}].slice(-20);delete item.jobId;item.status='queued';if(!isFundingError(job.error))item.generationAttempts=(item.generationAttempts||0)+1;job=null;await ctx.checkpoint();
-     }
-     if(!job){checkSource();if(['submitting','uncertain'].includes(item.status))throw Error('此前提交结果未确认，请先核对原任务');
-      if(ctx.videoBudget)throw Error(ctx.videoBudget);
-      const settings={profileId:model.profileId,model:model.model,duration:Number(c.videoDuration),ratio:c.ratio,resolution:c.videoResolution,allowReferenceSelection:true};
-      // All clips use the explicitly selected video settings, not an old editor draft.
-      const source={...book,drafts:{...book.drafts,[entry.id]:{...book.drafts[entry.id],duration:Number(c.videoDuration)}}};const input=workflowInput(source,entry,settings,videoProfile);ctx.guard();
-      await planProductionReferenceSelection({ctx,input,entry:{...entry,id:item.id},work:(task,messages)=>work(ctx,task,messages)});
-      const outbound=selectProductionReferences(input);await audit(ctx,{stage:'提交前素材检查',label:entry.label,prompt:outbound.prompt,references:outbound.referenceVerification.selected,rule:'核对本条人物、场景、道具及引用；只做检查，不能修改人工选择'});
-     // Submit the exact, verified outbound payload. It contains the selected
-     // reference array, rewritten @ aliases and the audit receipt. Passing the
-     // pre-selection input here would let the IPC layer re-expand omitted refs
-     // and break the prompt-to-image correspondence we just checked.
-     item.status='submitting';await ctx.checkpoint();job=await api.generationSubmit({...outbound,projectId:p.id,episode:entry.episode,scene:entry.sceneId||entry.label.split('-').slice(0,2).join('-'),shotId:entry.sourcePromptId||entry.id,shotLabel:entry.label,workflowRunId:run.id,workflowItemId:item.id});item.jobId=job.id;item.referenceVerification=job.referenceVerification||outbound.referenceVerification;item.status='submitted';if(item.referenceVerification)await ctx.log?.('发送引用验收：'+item.label+'，'+item.referenceVerification.selected.length+' 张参考图逐项对应 @；舍弃 '+item.referenceVerification.omitted.length+' 张低权重参考图。');await ctx.checkpoint();
-     }
-     if(job.status==='submitting'&&!job.jobId){item.status='uncertain';throw Error('原提交未取得上游任务编号，请核对原任务；未重复提交');}
-     while(!['success','failed','uncertain'].includes(job.status)){ctx.guard();await wait(5000);ctx.guard();if(!job.nextPollAt||job.nextPollAt<=Date.now())job=await api.generationRefresh({id:job.id,apiKey:videoProfile.apiKey,endpoint:videoProfile.endpoint});}
-     if(job.status!=='success'){item.status=job.status;if(isFundingError(job.error))ctx.videoBudget=job.error;throw Error(job.error||job.warning||'生成未完成');}
-     ctx.guard();Object.assign(item,await api.productionArchive({runId:run.id,jobId:job.id,label:item.label,episode:item.episode}),{status:'downloaded',error:''});await ctx.checkpoint();await postReady();
-    }catch(error){if(run.status!=='running')throw error;if(isFundingError(error)){ctx.videoBudget=error.message;item.status='failed';}else if(/前置引用核验失败，尚未提交生成/.test(error.message))item.status='blocked';else if(item.status==='submitting')item.status='uncertain';else if(!['failed','uncertain'].includes(item.status))item.status='blocked';item.error=error.message;await ctx.checkpoint();}
+     await runProductionVideoTask({ctx,item,tasks,models:mediaModelChoices(getState(),'video'),wait,
+      submit:async selected=>{
+       checkSource();const selectedProfile=generationMediaProfiles(getState(),'video').find(m=>m.id===selected.profileId);
+       const settings={profileId:selected.profileId,model:selected.model,duration:Number(c.videoDuration),ratio:c.ratio,resolution:c.videoResolution,allowReferenceSelection:true};
+       const source={...book,drafts:{...book.drafts,[entry.id]:{...book.drafts[entry.id],duration:Number(c.videoDuration)}}},input=workflowInput(source,entry,settings,selectedProfile);ctx.guard();
+       await planProductionReferenceSelection({ctx,input,entry:{...entry,id:item.id},work:(task,messages)=>work(ctx,task,messages)});
+       const outbound=selectProductionReferences(input);await audit(ctx,{stage:'提交前素材检查',label:entry.label,prompt:outbound.prompt,references:outbound.referenceVerification.selected,rule:'核对本条人物、场景、道具及引用；只做检查，不能修改人工选择'});
+       ctx.guard();item.status='submitting';await ctx.checkpoint();const result=await api.generationSubmit({...outbound,projectId:p.id,episode:entry.episode,scene:entry.sceneId||entry.label.split('-').slice(0,2).join('-'),shotId:entry.sourcePromptId||entry.id,shotLabel:entry.label,workflowRunId:run.id,workflowItemId:item.id});
+       item.referenceVerification=result.referenceVerification||outbound.referenceVerification;await ctx.log?.('发送引用验收：'+item.label+'，'+item.referenceVerification.selected.length+' 张参考图逐项对应 @；舍弃 '+item.referenceVerification.omitted.length+' 张低权重参考图。');return result;
+      },
+      refresh:async job=>{const original=generationMediaProfiles(getState(),'video').find(m=>m.id===job.profileId)||videoProfile;return api.generationRefresh({id:job.id,apiKey:original.apiKey,endpoint:original.endpoint});},
+      archive:job=>api.productionArchive({runId:run.id,jobId:job.id,label:item.label,episode:item.episode}),onReady:postReady});
+    }catch(error){if(run.status!=='running')throw error;if(isFundingError(error)){ctx.videoBudget=error.message;item.status='failed';}else if(/前置引用核验失败，尚未提交生成/.test(error.message))item.status='blocked';else if(item.status==='submitting')item.status='uncertain';else if(!['failed','uncertain','retry-exhausted','success'].includes(item.status))item.status='blocked';item.error=error.message;await ctx.checkpoint();}
    }};
    await Promise.all(Array.from({length:Number(c.videoConcurrency)},worker));await postReady();await Promise.all(postJobs.values());
   },

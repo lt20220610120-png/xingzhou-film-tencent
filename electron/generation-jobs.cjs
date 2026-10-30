@@ -24,6 +24,7 @@ function createGenerationJobs(dir,options={}) {
   if(fs.existsSync(file)){
     const rows=JSON.parse(fs.readFileSync(file,'utf8'));let changed=false;
     const repaired=rows.map(job=>{let niney=false;try{niney=new URL(job.endpoint).hostname==='9yapi.shop';}catch{}
+      if(fnko.isFnkoEndpoint(job.endpoint)&&job.status==='uncertain'&&!job.jobId&&!job.url&&/^FT请求失败[（(]402[）)]/.test(String(job.error))){changed=true;return {...job,status:'failed',submissionAttempted:false,warning:'上游明确余额拒绝，未创建生成任务；充值后可继续。'};}
       if(niney&&job.status==='uncertain'&&!job.jobId&&!job.url&&String(job.error).includes('9Y 视频只接受公网 HTTPS 素材地址')&&job.references?.some(r=>r.filePath&&!/^https:\/\//i.test(r.url||''))){changed=true;return {...job,status:'failed',submissionAttempted:false,error:'参考素材尚未完成上传，生成请求未发出；可复用此条目后重新生成。'};}return job;
     });
     if(changed){fs.writeFileSync(file+'.tmp',JSON.stringify(repaired));fs.renameSync(file+'.tmp',file);}
@@ -176,6 +177,7 @@ function createGenerationJobs(dir,options={}) {
       const work = (async () => {
         let job=read().find(r=>r.id===id);
         if (!job) throw new Error('任务不存在');
+        if(!['success','failed'].includes(job.status))job={...job,checkedAt:new Date().toISOString(),pollCount:(job.pollCount||0)+1,nextPollAt:Date.now()+(job.workflowRunId?5000:30000)};
         if(job.provider==='likeai'){
           if(['success','failed'].includes(job.status))return job;
           const service=typeof options.likeService==='function'?options.likeService():options.likeService;if(!service)return save({...job,warning:'Like连接组件尚未就绪'});
@@ -193,15 +195,16 @@ function createGenerationJobs(dir,options={}) {
         if(fnko.isFnkoEndpoint(job.endpoint)){
           if(job.status==='success'||job.status==='failed')return job;
           if(!endpoint||new URL(endpoint).origin!==new URL(job.endpoint).origin)return save({...job,warning:'请使用原站新Key查询；未向其他站点发送密钥'});
-          if(!job.jobId&&job.status==='downloading'&&job.urls?.length){
+          if(job.status==='downloading'&&job.urls?.length){
             try{const files=[];for(const url of job.urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});}
-            catch(e){return save({...job,warning:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});}
+            catch(e){job={...job,warning:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)};if(!job.jobId)return save(job);}
           }
           if(!job.jobId)return save({...job,warning:'提交尚未确认，请用原请求编号核对站点任务日志，不自动重发'});
           try{
             const result=await fnko.status({...job,apiKey});
+            job={...job,remoteStatus:result.status,costYuan:result.costYuan??job.costYuan};
             if(result.status==='failed')return save({...job,status:'failed',error:result.errorMessage||'原任务失败'});
-            if(result.status!=='success')return save({...job,status:'submitted',warning:result.warning||'',nextPollAt:Date.now()+30000});
+            if(result.status!=='success')return save({...job,status:'submitted',warning:result.warning||'',error:'',nextPollAt:Date.now()+(job.workflowRunId?5000:30000)});
             const urls=result.resultUrls?.length?result.resultUrls:[result.videoUrl].filter(Boolean);
             if(!urls.length)throw Error('原任务结果尚未就绪');
             job=save({...job,status:'downloading',url:urls[0],urls});const files=[];for(const url of urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});

@@ -2,7 +2,7 @@ const {spawn}=require('node:child_process');const fs=require('node:fs');
 const {readAgentStatus}=require('./production-agent-status.cjs');
 /** JSON-lines transports; no shell interpolation and no copied login credentials. */
 function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{}}){
- if(!fs.existsSync(executable)||!fs.statSync(executable).isFile()||!/^.+\.exe$/i.test(executable))throw Error('请选择实际 Agent .exe 连接组件');
+ executable=require('./production-agent-path.cjs').resolveAgentExecutable(executable,protocol);
  const child=spawn(executable,protocol==='codex'?['app-server','--listen','stdio://']:[],{cwd,windowsHide:true,stdio:['pipe','pipe','pipe'],shell:false});
  let serial=0,buffer='',closed=false;const pending=new Map(),listeners=new Set();let stderr='';
  const fail=error=>{closed=true;for(const p of pending.values()){clearTimeout(p.timer);p.reject(error);}pending.clear();listeners.forEach(fn=>fn({method:'disconnected',params:{message:error.message}}));};

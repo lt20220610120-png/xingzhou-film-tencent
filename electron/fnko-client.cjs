@@ -59,22 +59,34 @@ function createFnkoClient(deps={}){
    attempted=true;const data=await json(await fetchFn(b+suffix,{method:'POST',headers,body:requestBody,redirect:'error',signal:signal(input)}),input.apiKey),result=decode(data);
    if(!result.jobId&&!result.resultUrls.length)throw Error('提交未返回任务编号，请核对原幂等编号，不自动重发');
    if(!result.jobId&&result.resultUrls.length)result.status='success';return result;
-  }catch(error){if(!attempted)error.beforeSubmission=true;throw error;}
+  }catch(error){if(!attempted||[400,401,402,403,404,422,429].includes(error.httpStatus))error.beforeSubmission=true;throw error;}
  }
  async function status(input){
   const b=base(input),native=b.endsWith('/api/open/v1'),openai=!b.includes('/api/');
   if(!input.jobId)throw Error('原任务编号不存在');
   const suffix=native?'/jobs/'+encodeURIComponent(input.jobId):openai&&input.kind!=='image'?'/videos/'+encodeURIComponent(input.jobId):`/${input.kind||'video'}/status?jobId=${encodeURIComponent(input.jobId)}`;
-  return decode(await json(await fetchFn(b+suffix,{headers:auth(input),redirect:'error',cache:'no-store',signal:signal(input)}),input.apiKey));
+  const statusFetch=deps.statusFetch||deps.fetchFn||require('./media-network.cjs').fetchMedia;
+  return decode(await json(await statusFetch(b+suffix,{headers:auth(input),redirect:'error',credentials:'omit',cache:'no-store',signal:signal(input)}),input.apiKey));
  }
  async function download(input,dir){
   let url=input.url||input.videoUrl||input.resultUrls?.[0];if(!url)throw Error('原任务结果地址尚未返回');
-  const b=base(input),u=new URL(url,b+'/');url=u.href;const own=b.endsWith('/api/open/v1')&&u.origin===new URL(b).origin&&u.pathname===`/api/open/v1/jobs/${input.jobId}/content`;
-  const response=await fetchFn(url,{headers:own?auth(input):{},redirect:'manual',signal:signal(input)});
-  if(response.status>=300&&response.status<400)throw Error('结果地址跳转，请重新查询获取有效下载地址');
+  const b=base(input),downloadFetch=deps.downloadFetch||deps.fetchFn||require('./media-network.cjs').fetchMedia,timeout=signal(input);let response;
+  url=new URL(url,b+'/').href;const seen=new Set();
+  for(let hop=0;hop<=5;hop++){
+   const u=new URL(url);if(u.protocol!=='https:'||u.username||u.password)throw Error('结果下载只允许无凭据的 HTTPS 地址');
+   if(seen.has(url))throw Error('结果地址跳转循环，请重新查询原任务');seen.add(url);
+   const own=b.endsWith('/api/open/v1')&&u.origin===new URL(b).origin&&u.pathname===`/api/open/v1/jobs/${input.jobId}/content`;
+   const readOptions={headers:own?auth(input):{},redirect:'manual',credentials:'omit',signal:timeout};
+   try{response=await downloadFetch(url,{...readOptions,signal:AbortSignal.any([timeout,AbortSignal.timeout(30000)])});}
+   catch(error){const fallback=deps.fallbackDownloadFetch||(!deps.fetchFn&&!deps.downloadFetch?globalThis.fetch:null);if(!fallback||timeout.aborted)throw error;response=await fallback(url,readOptions);}
+   if(response.status<300||response.status>=400)break;
+   const location=response.headers.get('location');await response.body?.cancel?.();
+   if(!location||hop===5)throw Error('结果地址跳转过多或地址为空，请重新查询原任务');url=new URL(location,url).href;
+  }
   if(!response.ok)throw Error(`结果尚未就绪或链接失效（${response.status}），请重新查询原任务，不要重新生成`);
-  const mime=response.headers.get('content-type')||'';if(mime&&!/^(image\/|video\/|application\/octet-stream)/.test(mime))throw Error('结果并非媒体文件');
-  const file=path.join(dir,`fnko-${Date.now()}-${crypto.randomUUID()}.${input.kind==='image'?'png':'mp4'}`);await fs.mkdir(dir,{recursive:true});await fs.writeFile(file,Buffer.from(await response.arrayBuffer()));return file;
+  const mime=response.headers.get('content-type')||'';if(mime&&!(input.kind==='image'?/^(image\/|application\/octet-stream)/:/^(video\/|application\/octet-stream)/).test(mime))throw Error('结果并非所需类型的媒体文件');
+  const bytes=Buffer.from(await response.arrayBuffer());if(!bytes.length)throw Error('结果下载返回空文件，保留原任务继续下载');
+  const file=path.join(dir,`fnko-${Date.now()}-${crypto.randomUUID()}.${input.kind==='image'?'png':'mp4'}`);await fs.mkdir(dir,{recursive:true});await fs.writeFile(file,bytes);return file;
  }
  async function generateImage(input){
   let result=await submit({...input,kind:'image',ratio:input.ratio||'auto',idempotencyKey:input.idempotencyKey||crypto.randomUUID()});

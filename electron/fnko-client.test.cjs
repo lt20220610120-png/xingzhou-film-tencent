@@ -1,5 +1,24 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createFnkoClient}=require('./fnko-client.cjs');
+
+test('completed protected video follows HTTPS redirects without leaking API credentials',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-redirect-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let calls=0;
+ const c=createFnkoClient({fetchFn:async(url,o)=>{calls++;if(calls===1){assert.equal(o.headers.Authorization,'Bearer fixture');return new Response(null,{status:302,headers:{location:'https://cdn.invalid/film.mp4'}});}assert.equal(url,'https://cdn.invalid/film.mp4');assert(!o.headers.Authorization);return new Response(Buffer.from('video'),{headers:{'content-type':'video/mp4'}});}});
+ const file=await c.download({endpoint:'https://fanke2026.xyz/api/open/v1',jobId:'j1',kind:'video',url:'/api/open/v1/jobs/j1/content',apiKey:'fixture'},dir);assert.equal(fs.readFileSync(file,'utf8'),'video');assert.equal(calls,2);
+});
+test('network failure can use a second read transport for the same result without repeating generation',async t=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-read-retry-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let reads=0;const c=createFnkoClient({downloadFetch:async()=>{throw Error('net::ERR_EMPTY_RESPONSE');},fallbackDownloadFetch:async(url,o)=>{reads++;assert.equal(url,'https://cdn.invalid/a');assert(!o.headers.Authorization);return new Response(Buffer.from('video'),{headers:{'content-type':'video/mp4'}});}});const file=await c.download({endpoint:'https://fanke2026.xyz/v1',kind:'video',url:'https://cdn.invalid/a'},dir);assert.equal(reads,1);assert(fs.existsSync(file));});
+test('explicit HTTP 402 rejection is not an unknown paid submission',async()=>{const c=createFnkoClient({fetchFn:async url=>url.endsWith('/models')?Response.json({data:[{id:'v',type:'video'}]}):Response.json({error:'insufficient quota'},{status:402})});await assert.rejects(c.submit({endpoint:'https://fanke2026.xyz/v1',kind:'video',model:'v',apiKey:'fixture',prompt:'hello',duration:5}),e=>e.httpStatus===402&&e.beforeSubmission===true);});
+test('video download rejects downgrade, redirect loops and empty payload without completed files',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-bad-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ for(const location of ['http://cdn.invalid/a.mp4','https://cdn.invalid/a.mp4']){let calls=0;const c=createFnkoClient({fetchFn:async()=>{calls++;return new Response(null,{status:302,headers:{location}});}});await assert.rejects(c.download({endpoint:'https://fanke2026.xyz/v1',jobId:'j',kind:'video',url:'https://cdn.invalid/a.mp4',apiKey:'fixture'},dir),/HTTPS|跳转/);assert(calls<=6);}
+ const empty=createFnkoClient({fetchFn:async()=>new Response(Buffer.alloc(0),{headers:{'content-type':'video/mp4'}})});await assert.rejects(empty.download({endpoint:'https://fanke2026.xyz/v1',kind:'video',url:'https://cdn.invalid/a.mp4'},dir),/空/);assert.equal(fs.readdirSync(dir).length,0);
+});
+test('workflow polling persists remote success and read errors while retaining original download identity',async t=>{
+ const fnko=require('./fnko-client.cjs'),{createGenerationJobs}=require('./generation-jobs.cjs'),old={submit:fnko.submit,status:fnko.status,download:fnko.download},dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-monitor-'));t.after(()=>{Object.assign(fnko,old);fs.rmSync(dir,{recursive:true,force:true});});
+ let posts=0;fnko.submit=async()=>{posts++;return {jobId:'original',status:'submitted'};};const jobs=createGenerationJobs(dir),input={workflowRunId:'run',endpoint:'https://fanke2026.xyz/v1',kind:'video',apiKey:'fixture',prompt:'test',model:'v'};const job=await jobs.submit(input);
+ fnko.status=async()=>({status:'success',resultUrls:['https://cdn.invalid/original.mp4']});fnko.download=async()=>{throw Error('temporary network failure');};let value=await jobs.refresh({...input,id:job.id});assert.equal(value.status,'downloading');assert.equal(value.remoteStatus,'success');assert(value.checkedAt);assert(value.nextPollAt>Date.now());assert.match(value.warning,/network/);
+ fnko.status=async()=>{throw Error('status temporarily unavailable');};fnko.download=async()=>path.join(dir,'done.mp4');value=await jobs.refresh({...input,id:job.id});assert.equal(value.status,'success');assert.equal(posts,1);assert.equal(value.jobId,'original');
+});
 test('both image dialects accept legacy size and preserve selected current imageSize/version fields',async()=>{
  for(const native of [false,true]){
   let paid=0;const client=createFnkoClient({fetchFn:async(url,o={})=>{

@@ -24,7 +24,7 @@ const { createDoubaoWorkService } = require('./doubao-work.cjs');
 const { createGeminiQuitHandler } = require('./gemini-shutdown.cjs');
 const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
 const { readMediaBytes, configureMediaCache, configureMediaFetch } = require('./media-network.cjs');
-configureMediaFetch((url,options)=>net.fetch(url,options));
+configureMediaFetch(require('./media-read-transport.cjs').createMediaReadFetch(net));
 const { createCosImageCache } = require('./cos-image-cache.cjs');
 const { createAssetImagePreview } = require('./asset-image-preview.cjs');
 const { discoverModels } = require('./model-discovery.cjs');
@@ -474,10 +474,13 @@ ipcMain.handle('admin-workflow-create',async(_,p)=>{
 });
 ipcMain.handle('admin-workflow-action',async(_,p)=>{await workflowAdmin();return currentWorkflow().action(p);});
 ipcMain.handle('admin-workflow-open',async(_,p)=>{await workflowAdmin();const folder=await currentWorkflow().output(p.id);fs.mkdirSync(folder,{recursive:true});return shell.openPath(folder);});
-function startWorkflowTimer(){const timer=setInterval(()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());},5000);timer.unref();}
+function startWorkflowTimer(){
+ const videoMonitor=require('./generation-monitor.cjs').createGenerationMonitor({jobs,getProfiles:async()=>{const {generationMediaProfiles}=await import('../core/canvasStore.js');return generationMediaProfiles(readJson(dataFile(),{}),'video');},authorize:async()=>{if(directoryMigration)return null;try{await licenseClient?.requireActive();return readCloudSession()?.account;}catch{return null;}}});
+ const tick=()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());void videoMonitor.pump().catch(()=>{});};const timer=setInterval(tick,5000);timer.unref();void tick();
+}
 
 const productionAwake=require('./production-awake.cjs').createProductionAwake(require('electron').powerSaveBlocker);
-productionHost=require('./production-host.cjs').createProductionHost({root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),dialog,shell});
+productionHost=require('./production-host.cjs').createProductionHost({root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),onActivity:(id,running)=>productionAwake.set(id,running),dialog,shell});
 for(const action of ['list','save','choose','discover','preflight','connect','chat','audit','work','verify','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(_,p)=>{await workflowAdmin();return productionHost[action](p);});
 
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
