@@ -27,7 +27,11 @@ generation-monitor在主进程按5秒扫描到期原任务，最多4个并发，
 - 三宽Playwright（1280/1700/2232）通过；包括主备设置、分集池默认收起、未完成云端读取时本机已提交记录仍立即展示。
 - `npm test`：2566/2566；`npm run build`：通过。
 - 独立只读复核：10组定向55/55，无阻塞项。传输测试覆盖响应头后取消/连接中断/请求错误，修复后完整重跑通过。
-- 打包与公开清单结果在发布后补充。
+- NSIS安装包与实际打包运行时通过：qa/packaged-smoke-2.8.96-1793372185027。
+- 已发布；源码6d23d00；包103914954字节，SHA256 `add0ded3d0f4e248eb998d26e6038f0475ffaecb54e114f7db12fe0e34f5084a`。
+- 官方与两个GitHub仓库共3份latest.json均通过签名、版本、地址、大小与SHA256一致性校验；官方安装包Range206与MZ头正确。
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.96.exe
+- GitHub安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.96/Xingzhou-Film-Tencent-Setup-2.8.96.exe
 
 ## 边界
 
