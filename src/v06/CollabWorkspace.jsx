@@ -136,7 +136,7 @@ export function ReviewSection(props){
  const [tab,setTab]=useState(()=>localStorage.getItem(tabKey)||'art');
  const onlyVoice=props.project.myRole==='collaborator',active=onlyVoice?'voices':tab;
  const choose=value=>{setTab(value);localStorage.setItem(tabKey,value);};
- return <><nav className="review-section-tabs" aria-label="清单核实类型"><button className={active==='art'?'active':''} disabled={onlyVoice} onClick={()=>choose('art')}>美术核实</button><button className={active==='voices'?'active':''} onClick={()=>choose('voices')}>音色</button></nav>{active==='voices'?<ProjectVoices {...props}/>:<ArtReviewEntry {...props}/>}</>;
+ return <><nav className="review-section-tabs" aria-label="清单核实类型"><button className={active==='voices'?'active':''} onClick={()=>choose('voices')}>音色</button><button className={active==='art'?'active':''} disabled={onlyVoice} onClick={()=>choose('art')}>核实分发</button></nav>{active==='voices'?<ProjectVoices {...props}/>:<ArtReviewEntry {...props}/>}</>;
 }
 
 function ArtReviewEntry(props){

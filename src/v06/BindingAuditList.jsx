@@ -1,7 +1,7 @@
 import React from 'react';
 import {bindingImages} from '../../core/promptArtBinding.js';
 
-export const bindingCategoryLabels={character:'人物',scene:'场景',prop:'道具'};
+export const bindingCategoryLabels={voice:'音色',character:'人物',scene:'场景',prop:'道具'};
 const usages={visible:'画面使用',voice:'仅声音',mentioned:'仅提及'};
 // The default view is a compact audit list; technical controls stay in details.
 export default function BindingAuditList({cards,needs,category='all',renderImage,renderControls}){
