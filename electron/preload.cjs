@@ -1,6 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
- audioGenerate:payload=>ipcRenderer.invoke('audio-generate',payload),
+ audioGenerate:payload=>ipcRenderer.invoke('audio-generate',payload),audioResultsList:()=>ipcRenderer.invoke('audio-results-list'),audioResultSave:p=>ipcRenderer.invoke('audio-result-save',p),audioResultDelete:p=>ipcRenderer.invoke('audio-result-delete',p),audioResultsClear:()=>ipcRenderer.invoke('audio-results-clear'),
   licenseCheck:()=>ipcRenderer.invoke('license-check'),
   licenseRoute:payload=>ipcRenderer.invoke('license-route',payload),
  licensePrepare:p=>ipcRenderer.invoke('license-prepare',p),

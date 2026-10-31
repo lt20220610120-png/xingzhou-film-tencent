@@ -243,7 +243,11 @@ ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
 ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun,doubaoRun,chatgptRun}));
-ipcMain.handle('audio-generate',async(event,payload)=>require('./audio-provider.cjs').generateSpeech({...payload,destDir:path.join(mediaDir(),'语音生成'),signal:event.securitySignal},{fetchFn:(url,options)=>net.fetch(url,options)}));
+ipcMain.handle('audio-generate',async(event,payload)=>{const result=await require('./audio-provider.cjs').generateSpeech({...payload,destDir:path.join(mediaDir(),'语音生成'),signal:event.securitySignal},{fetchFn:(url,options)=>net.fetch(url,options)});return audioResults().record({...result,text:payload.input,instructions:payload.instructions,language:payload.language,model:payload.model,saved:false});});
+ipcMain.handle('audio-results-list',()=>audioResults().list());
+ipcMain.handle('audio-result-save',(_,payload)=>audioResults().save(String(payload?.id||'')));
+ipcMain.handle('audio-result-delete',(_,payload)=>audioResults().remove(String(payload?.id||'')));
+ipcMain.handle('audio-results-clear',()=>audioResults().clear());
 ipcMain.handle('app-version',()=>app.getVersion());
 ipcMain.handle('check-update',async()=>{const {manifest,source}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
 let downloadedInstaller=null,activeDownload=null;
@@ -385,6 +389,7 @@ ipcMain.handle('collab-send-message',(_,payload)=>collabService.sendMessage(payl
 ipcMain.handle('collab-send-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'发送图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp','gif']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.sendMessage({projectId:payload.projectId,content:payload.content||'',imagePath:r.filePaths[0]})});
 ipcMain.handle('collab-get-stats',(_,payload)=>collabService.getStats(payload));
 function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
+const audioResults=()=>require('./audio-results.cjs').createAudioResultStore({dataDir:getDataDir(),resultsDir:()=>path.join(mediaDir(),'语音生成')});
 const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
 const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>accessService.readSession()});
 const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});

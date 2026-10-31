@@ -21,14 +21,14 @@ function VoiceCard({character,profile={},profiles,defaultId,store,api,canEdit,on
   if(!selected)throw Error('请选择语音模型');await saveDraft();
   const result=await api.audioGenerate({...selected,input:quote,instructions:instructions||selected.instructions,language});
   if(!alive.current)return;
-  await store.setVoiceProfile(character.key,p=>setVoiceCandidate(p,{...result,id:crypto.randomUUID(),name:character.name+'音色'},settings()));
+  await store.setVoiceProfile(character.key,p=>setVoiceCandidate(p,{...result,name:character.name+'音色',sourceResultId:result.id},settings()));
  });
  const upload=()=>execute(async()=>{
   const files=api.mediaImportFiles?await api.mediaImportFiles('audio'):[await api.mediaImportFile('audio')].filter(Boolean);
   if(!alive.current)return;
   await store.setVoiceProfile(character.key,p=>files.reduce((next,file)=>setVoiceCandidate(next,{...file,id:crypto.randomUUID(),name:character.name+'音色'},{quote,language}),p));
  });
- const confirm=id=>execute(async()=>{await store.setVoiceProfile(character.key,p=>confirmVoiceCandidate(p,id));await onChanged();});
+ const confirm=id=>execute(async()=>{const candidate=profile.candidates?.find(c=>c.id===id);await store.setVoiceProfile(character.key,p=>confirmVoiceCandidate(p,id));if(candidate?.sourceResultId&&api.audioResultSave)await api.audioResultSave({id:candidate.sourceResultId});await onChanged();});
  return <article className="project-voice-card">
   <header><h3>{character.name}</h3><span>{character.episodes.length} 集 · {profile.confirmed?'音色已确定':'待确定音色'}</span></header>
   <details><summary>人物介绍与关联场景</summary><p>{character.description||'清单尚无人物介绍'}</p><p>出场：{character.episodes.join('、')} 集</p><p>正常对白场景：{character.speakingSceneIds.join('、')||'尚未识别到正常对白'}</p></details>
