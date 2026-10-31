@@ -1,3 +1,4 @@
+import {VOICE_READING_RULE} from './characterVoices.js';
 // ============================================================
 // collabArtSkill.js — 内置锁死的「剧本美术清单」Skill
 // 项目协作·信息读取 专用。不可在界面中更换，仅可通过更新软件版本升级。
@@ -9,6 +10,9 @@ import {ART_LOCALE_RULES} from './artLocale.js';
 import skillV5 from './artAssetSkillV5.json' with { type: 'json' };
 export const COLLAB_ART_SKILL_VERSION = skillV5.version;
 export const COLLAB_ART_SKILL = Object.entries(skillV5.files).map(([name,content])=>`【内置文件：${name}】\n${content}`).join('\n\n') + `
+【语音读取规则】
+${VOICE_READING_RULE}
+全剧读取结束由程序按实际出场不同集数>=3汇总主要人物，收录一条正常对白原话。
 【行舟影视输出适配】
 ${ART_LOCALE_RULES}
 第一级：集（### 第N集）；第二级：人物：/ 场景：/ 道具：；第三级：- 【资产名】。

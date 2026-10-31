@@ -1,4 +1,5 @@
 import {parseArtAnalysis,parseAssetName,readAssetPrompt,characterAppearanceIssue} from './collabStore.js';
+import {validateEpisodeVoices,VOICE_READING_RULE} from './characterVoices.js';
 import {parseDirectorScenesReadonly} from './scriptImport.js';
 import {episodeNumbersInText} from './collabEpisodes.js';
 
@@ -118,6 +119,9 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
   s.mappingReady=validMapping||oldApproval||s.mappingReady;
   s.items.forEach(i=>used.add(reviewAssetKey(i)));
  }
+ if(decoded.mapping.length&&decoded.mapping.every(s=>Array.isArray(s?.speakers))){
+  try{next.voiceAnalysis=validateEpisodeVoices(episode,next.scenes,{scenes:decoded.mapping});delete next.voiceError;}catch(error){next.voiceError=error.message;warnings.push(error.message);}
+ }
  next.inventory=decoded.inventory||next.inventory;next.rawOutput=rawOutput;next.dependencies=dependencies;next.warnings=[...new Set(warnings)];refreshRoster(next);
  next.status=!decoded.complete?'inventory-pending':next.scenes.every(s=>s.mappingReady)?'generated':'mapping-pending';next.generatedAt=Date.now();next.taskId=taskId;delete next.failure;
  return next;
@@ -223,7 +227,7 @@ export function artReviewContext(records,episode,{allowUnverified=false}={}){
 }
 export function buildArtReviewInstruction(episode,record,{mappingOnly=false}={}){
  const locked=record.scenes.filter(s=>s.items.some(i=>i.manual)||isSceneVerified(s)||s.removed.length).map(s=>({sceneId:s.id,preserve:isSceneVerified(s)?s.items:s.items.filter(i=>i.manual),removed:s.removed.map(r=>({category:r.item.category,name:r.item.name})).filter(r=>!s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(r)))}));
- return `【本次输出适配】\n${mappingOnly?'已保存本集完整美术清单，本次只补齐对应表，不重新写清单。':'先按完整 Skill 输出且只输出本集三类美术清单，名称与详细描述都保留。重新读取只补缺，不覆盖已有信息卡；同名同状态沿用第一次生成，补齐手工条目的详细描述。'}\n随后输出独立标记 ${ART_REVIEW_MAP_MARKER}，再输出一个 JSON 对象：{"scenes":[{"sceneId":"${episode.episodeNumber}-1","assets":[{"category":"character","name":"【角色-具体造型】"}]}]}。每个真实场景必须出现且只出现一次，空场景 assets=[]；name 必须逐字引用清单条目。同一资产可以关联多个场景，不复制名单条目。每场只列本场可见的人物具体服装造型、场景、道具；同集多套衣服不得全部挂到每场。仅声音/仅提及的实体保留审计提醒，不分配可见人物。保留原文场次编号，不新增或重编号。不要推理过程，不用代码围栏。\n人工已核实或手工改动具有优先级。锁定名称须逐字保留，删掉的条目不得放回对应场；新增造型补齐客观细节，并沿用正确人物基础形象。当前场服装优先于前集服装候选。\n${JSON.stringify({sceneIds:record.scenes.map(s=>s.id),savedRoster:reviewRoster(record),manualCorrections:locked,excludedUnassigned:(record.excludedUnassigned||[]).map(i=>({category:i.category,name:i.name})),...(mappingOnly?{savedInventory:record.inventory}:{}),untrustedData:{currentEpisode:episode.content}})}`;
+ return `${VOICE_READING_RULE}\n逐场JSON每场增加 speakers:[{"name":"人物姓名","quote":"一句普通对白","evidence":"含姓名和对白的逐字原文","kind":"dialogue"}]；空对白为[]。\n【本次输出适配】\n${mappingOnly?'已保存本集完整美术清单，本次只补齐对应表，不重新写清单。':'先按完整 Skill 输出且只输出本集三类美术清单，名称与详细描述都保留。重新读取只补缺，不覆盖已有信息卡；同名同状态沿用第一次生成，补齐手工条目的详细描述。'}\n随后输出独立标记 ${ART_REVIEW_MAP_MARKER}，再输出一个 JSON 对象：{"scenes":[{"sceneId":"${episode.episodeNumber}-1","assets":[{"category":"character","name":"【角色-具体造型】"}]}]}。每个真实场景必须出现且只出现一次，空场景 assets=[]；name 必须逐字引用清单条目。同一资产可以关联多个场景，不复制名单条目。每场只列本场可见的人物具体服装造型、场景、道具；同集多套衣服不得全部挂到每场。仅声音/仅提及的实体保留审计提醒，不分配可见人物。保留原文场次编号，不新增或重编号。不要推理过程，不用代码围栏。\n人工已核实或手工改动具有优先级。锁定名称须逐字保留，删掉的条目不得放回对应场；新增造型补齐客观细节，并沿用正确人物基础形象。当前场服装优先于前集服装候选。\n${JSON.stringify({sceneIds:record.scenes.map(s=>s.id),savedRoster:reviewRoster(record),manualCorrections:locked,excludedUnassigned:(record.excludedUnassigned||[]).map(i=>({category:i.category,name:i.name})),...(mappingOnly?{savedInventory:record.inventory}:{}),untrustedData:{currentEpisode:episode.content}})}`;
 }
 export function projectPublishedReviewAssets(project,assets){
  const reviews=Object.entries(project.analysis_progress||{}).filter(([,r])=>r.review?.published&&Object.keys(r.review.published).length);
