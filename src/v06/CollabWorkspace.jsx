@@ -131,6 +131,14 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   runs.delete(job);collabAnalysisJobs.set(key,job);return job;
 }
 
+export function ReviewSection(props){
+ const tabKey=`xz-review-tab:${props.accountId}:${props.project.id}`;
+ const [tab,setTab]=useState(()=>localStorage.getItem(tabKey)||'art');
+ const onlyVoice=props.project.myRole==='collaborator',active=onlyVoice?'voices':tab;
+ const choose=value=>{setTab(value);localStorage.setItem(tabKey,value);};
+ return <><nav className="review-section-tabs" aria-label="清单核实类型"><button className={active==='art'?'active':''} disabled={onlyVoice} onClick={()=>choose('art')}>美术核实</button><button className={active==='voices'?'active':''} onClick={()=>choose('voices')}>音色</button></nav>{active==='voices'?<ProjectVoices {...props}/>:<ArtReviewEntry {...props}/>}</>;
+}
+
 function ArtReviewEntry(props){
  const {project,assets,api,accountId,refresh}=props;
  const job=useCollabAnalysisJob(project,api,accountId,assets);
@@ -1530,7 +1538,7 @@ export function CollabWorkspace({ state, api, account }) {
     const cachedAssets = readCache(`assets-${lastId}`);
     if (cachedProject) {
       setProject(cachedProject); setAssets(prepareAssets(cachedProject,cachedAssets || []));
-      const lastSection = localStorage.getItem('xz-collab-last-section');
+      let lastSection = localStorage.getItem('xz-collab-last-section');if(lastSection==='voices'){lastSection='art-review';localStorage.setItem(`xz-review-tab:${account?.id}:${cachedProject.id}`,'voices');}
       setSection(lastSection && sectionsForRole(cachedProject.myRole).includes(lastSection) ? lastSection : sectionsForRole(cachedProject.myRole)[0]);
     }
     // 后台校验项目仍可访问并拉取最新数据
@@ -1722,9 +1730,8 @@ export function CollabWorkspace({ state, api, account }) {
         <EpisodeIdentityPanel key={project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
         <PromptPublicationProgress key={`${account?.id}:${project.id}`} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
-        {section === 'art-review' && <ArtReviewEntry key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
+        {section === 'art-review' && <ReviewSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
-        {section === 'voices' && <ProjectVoices key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} accountId={account?.id} canEdit={canEditArt} />}
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
         {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} accountId={account?.id} />}

@@ -1,0 +1,19 @@
+const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');const assert=require('node:assert/strict'),fs=require('node:fs');
+(async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),report=[];try{for(const width of [1280,1700,2232]){
+ const page=await browser.newPage({viewport:{width,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:'+(process.env.VOICE_REVIEW_PORT||'5843')+'/scripts/fixtures/voice-review-ui.html',{waitUntil:'networkidle'});
+ const card=name=>page.locator('.project-voice-card').filter({has:page.getByRole('heading',{name,exact:true})});
+ await page.getByRole('region',{name:'音色核实'}).waitFor();assert.equal(await page.locator('.project-voice-card').count(),3);
+ await page.getByRole('button',{name:'未采用音色',exact:true}).click();assert.equal(await page.locator('.project-voice-card').count(),1);assert.equal(await card('小王').count(),1);
+ await page.getByRole('button',{name:'未生成音色',exact:true}).click();assert.equal(await card('小林').count(),1);
+ assert.equal(await card('小林').getByLabel('小林音色描述').inputValue(),'');await card('小林').getByRole('button',{name:'生成语音',exact:true}).click();await page.waitForFunction(()=>voiceQA.ledger.voiceProfiles.小林?.candidates?.length===1);
+ const sent=await page.evaluate(()=>voiceQA.requests[0]);assert.equal(sent.input,'回家。');assert.match(sent.instructions,/32岁司机/);assert.match(sent.instructions,/小林：回家。/);
+ await page.getByRole('button',{name:'全部',exact:true}).click();await page.getByRole('searchbox',{name:'搜索人物音色'}).fill('小林');assert.equal(await page.locator('.project-voice-card').count(),1);await page.getByRole('searchbox').fill('');
+ await card('小林').getByRole('button',{name:'导出语音',exact:true}).click();assert.equal(await page.evaluate(()=>voiceQA.exports.length),1);
+ await page.getByRole('button',{name:'新增人物卡片',exact:true}).click();const manual=card('新增人物');await manual.waitFor();await manual.getByRole('button',{name:'编辑人物与场景'}).click();await manual.getByLabel('卡片名称',{exact:true}).fill('小林特别音色');await manual.getByLabel('人物名称',{exact:true}).fill('小林');await manual.getByLabel('人物介绍',{exact:true}).fill('32岁司机，朴素利落');await manual.getByRole('checkbox',{name:'1-1',exact:true}).check();await manual.getByRole('button',{name:'保存人物信息'}).click();
+ await card('小林特别音色').waitFor();await page.getByRole('button',{name:'一键补全',exact:true}).click();await page.getByRole('status').getByText(/人物前置信息已补全/).waitFor();assert.equal(await card('小林特别音色').getByLabel('小林特别音色一句话').inputValue(),'回家。');assert.equal(await card('小林特别音色').getByLabel('小林特别音色音色描述').inputValue(),'');
+ await page.getByRole('button',{name:'一键生成所有人物音色'}).click();await page.getByRole('status').getByText(/完成 1 人/).waitFor();assert.equal(await page.evaluate(()=>voiceQA.requests.length),2);
+ await page.getByRole('button',{name:'一键确定采用',exact:true}).click();await page.getByRole('status').getByText(/完成 3 人/).waitFor();assert.equal(await page.evaluate(()=>voiceQA.ledger.voiceProfiles.老周.confirmed.id),'adopted');
+ const boxes=await page.locator('.project-voice-card').evaluateAll(nodes=>nodes.slice(0,2).map(n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};}));assert.equal(boxes[0].x,boxes[1].x);assert(boxes[1].y>=boxes[0].y+boxes[0].h);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'horizontal overflow');assert.deepEqual(errors,[]);fs.mkdirSync('output/playwright',{recursive:true});await page.screenshot({path:`output/playwright/voice-review-${width}.png`,fullPage:true});report.push({width,passed:true,identityInRequest:true,optionalDescription:true,batch:true,manual:true});await page.close();
+ }console.log(JSON.stringify(report));}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
+

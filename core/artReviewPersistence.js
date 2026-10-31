@@ -70,6 +70,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  };
  const store={
   snapshot:()=>ledger,
+  flush:()=>chain,
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
   setVoiceProfile(key,reduce){return enqueue(async()=>{const next=structuredClone(ledger);next.voiceProfiles={...next.voiceProfiles,[key]:reduce(structuredClone(Object.hasOwn(next.voiceProfiles||{},key)?next.voiceProfiles[key]:{}))};await persist(next);return next.voiceProfiles[key];});},
   setContext(value){return enqueue(()=>persist({...structuredClone(ledger),scriptContext:structuredClone(value)}));},

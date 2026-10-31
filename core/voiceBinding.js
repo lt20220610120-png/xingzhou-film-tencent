@@ -1,7 +1,7 @@
 import {numberedReferences} from './generationReferences.js';
 export const entryVoiceCards=(snapshot,entry)=>(snapshot.voiceCards||[]).filter(v=>v.sceneIds.includes(entry.sceneId)&&(!v.entryIds||v.entryIds.includes(entry.id)));
-export const VOICE_BINDING_RULE='另行读取提示词全文的正常对白。图片入镜与讲话分别判断；不能因人物可见、被提及或出现姓名就附音频。排除旁白、画外音、电话画外声、心声/OS/VO。返回 speakers:[{"voiceUid":"本场音色uid","evidence":"含说话人及其正常对白的连续原文","kind":"dialogue"}]。只选实际说话且有对应音色的人物，不使用的音频不返回，无人讲话或没有对应音色为[]。文件名只是身份线索，不代表已听取音频；不确定不猜测。';
-export function voiceBindingData(snapshot,entry){return {voiceCards:entryVoiceCards(snapshot,entry).map(v=>({uid:v.uid,name:v.name,description:v.description||''})),dialogueSource:entry.prompt};}
+export const VOICE_BINDING_RULE='另行读取提示词全文的正常对白。图片入镜与讲话分别判断；不能因人物可见、被提及或出现姓名就附音频。排除旁白、画外音、电话画外声、心声/OS/VO。返回 speakers:[{"voiceUid":"本场音色uid","evidence":"含说话人及其正常对白的连续原文","kind":"dialogue"}]。同人物不同年龄阶段必须按本条实际年龄选择对应voiceUid，不把全部年龄音色一起关联。只选实际说话且有对应音色的人物，不使用的音频不返回，无人讲话或没有对应音色为[]。文件名只是身份线索，不代表已听取音频；不确定不猜测。';
+export function voiceBindingData(snapshot,entry){return {voiceCards:entryVoiceCards(snapshot,entry).map(v=>({uid:v.uid,name:v.name,characterName:v.characterName||v.name,ageStage:v.ageStage||'default',description:v.description||''})),dialogueSource:entry.prompt};}
 export function applyVoiceBinding(snapshot,entry,decision,speakers){
  const cards=entryVoiceCards(snapshot,entry);
  if(!cards.length&&!speakers?.length)return {...decision,speakers:[]};

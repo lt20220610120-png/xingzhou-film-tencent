@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createProductionController,completeEpisode,imageFailureKind,productionDefaults,productionIssues} from './productionFurnace.js';
+import {createProductionController,completeEpisode,imageFailureKind,productionDefaults,productionIssues,VOICE_AUTOMATION_RULE} from './productionFurnace.js';
+test('automation defaults include an explicit first-sample voice policy',()=>{const c=productionDefaults();assert.equal(c.voiceModelId,'');assert.match(VOICE_AUTOMATION_RULE,/第一条成功生成/);assert.match(VOICE_AUTOMATION_RULE,/年龄阶段/);});
+test('automatic stage order puts character voices between prompts and art',async()=>{const order=[],c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>order.push('prompts'),voices:async()=>order.push('voices'),art:async()=>order.push('art'),images:async()=>order.push('images'),videos:async({run})=>{order.push('videos');run.episodes=[{number:1,stage:'done'}]}}});const run=await c.create('p',{...productionDefaults(),mode:'auto'});await c.start(run.id);assert.deepEqual(order,['prompts','voices','art','images','videos']);assert.equal(run.stages.voices.status,'done');});
 
 test('episode readiness requires every expected distinct clip and verified output',()=>{
  const clip={id:'a',status:'downloaded',outputFile:'a.mp4',sha256:'sha'};
