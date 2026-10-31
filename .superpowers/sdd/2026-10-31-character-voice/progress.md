@@ -8,3 +8,5 @@ Task 3: implemented; voiceBinding/imported/scene/prompt 35/35; mixed-folder miss
 Task 4: implemented; audio selection + production selection + real file hash 9/9; initial missing exports and audio hash refusal RED -> GREEN. Automation sends original complete binding to trusted main process, which verifies then clips.
 Full suite first run 2592/2594: two old role-matrix expectations updated to include new voice section. Focused permissions/automation 42/42.
 Task 5: complete; audio-results local index/store, per-result save/delete/export/playback, clear-all cleanup including orphan legacy audio, ProjectVoices confirmation linkage, fixture/UI verification. Full suite 2596/2596; build and 1280/1700/2232 UI verification pass. Release packaging pending.
+
+2026-11-01 completion: 2.8.100 fixes independent review findings; 2602/2602 tests, build, 3-width audio UI, real React episode/scene optional-audio export UI, prompt audio export tests, NSIS runtime PASS. Published official mirror and both GitHub signed manifests verified. Installed D:/行舟影视客户端/Xingzhou Film Tencent Edition 2.8.100.0.

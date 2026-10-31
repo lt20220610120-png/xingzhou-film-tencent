@@ -11,4 +11,11 @@
 - scripts/verify-audio-ui.cjs：1280/1700/2232三宽通过；scripts/verify-voice-export-ui.cjs：实际React按集、按场景选择含音频通过。底层按提示词音频目录和格式测试通过。
 - 本轮验证使用模拟生成接口，未执行真实收费视频生成；模型语义准确率和跨机协作音色同步尚未做真实整剧验收。
 
-安装包、运行时及公开清单验收结果在发布后补记。
+安装包与实际安装：
+- 源码fb4acf6，NSIS运行时PASS，安装包103940785字节。
+- SHA256：9c574c83a7ca0ff35600748a01137013c59b19791d9e817417cc1b99c5c5b66e。
+- 本机安装到 D:/行舟影视客户端/Xingzhou Film Tencent Edition，实际exe版本2.8.100.0。
+- 官网和两个GitHub公开latest.json版本/大小/哈希/Ed25519签名通过，官网Range206及MZ头通过；官网发布端完整哈希通过。
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.100.exe
+- 本地安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.100/Xingzhou-Film-Tencent-Setup-2.8.100.exe
+- 旧语音生成目录先前已按用户要求清空，本次核验为0个旧文件。
