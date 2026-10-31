@@ -1,9 +1,9 @@
 const {spawn}=require('node:child_process');const fs=require('node:fs');
 const {readAgentStatus}=require('./production-agent-status.cjs');
 /** JSON-lines transports; no shell interpolation and no copied login credentials. */
-function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{}}){
+function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawnProcess=spawn}){
  executable=require('./production-agent-path.cjs').resolveAgentExecutable(executable,protocol);
- const child=spawn(executable,protocol==='codex'?['app-server','--listen','stdio://']:[],{cwd,windowsHide:true,stdio:['pipe','pipe','pipe'],shell:false});
+ const child=spawnProcess(executable,protocol==='codex'?['app-server','--listen','stdio://']:[],{cwd,windowsHide:true,stdio:['pipe','pipe','pipe'],shell:false});
  let serial=0,buffer='',closed=false;const pending=new Map(),listeners=new Set();let stderr='';
  const fail=error=>{closed=true;for(const p of pending.values()){clearTimeout(p.timer);p.reject(error);}pending.clear();listeners.forEach(fn=>fn({method:'disconnected',params:{message:error.message}}));};
  child.on('error',fail);child.on('exit',()=>fail(Error('Agent 连接已结束'+(stderr?'：'+stderr.slice(-200):''))));child.stderr.on('data',b=>{stderr=(stderr+b.toString()).slice(-2000);});
@@ -22,7 +22,10 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{}}){
    await request('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'xingzhou-film',version:'1.0.0'}});const session=await request('session/new',{cwd,mcpServers:[]});return {connected:true,protocol,models:session.models?.availableModels?.map(m=>({id:m.modelId,name:m.name}))||[],sessionId:session.sessionId};},
   async run({model,prompt,edit=false,effort='high'}){
    if(protocol!=='codex'){const session=await request('session/new',{cwd,mcpServers:[]});if(model)await request('session/set_model',{sessionId:session.sessionId,modelId:model});let text='';const listener=m=>{if(m.method==='session/update'&&m.params?.sessionId===session.sessionId&&m.params.update?.sessionUpdate==='agent_message_chunk')text+=m.params.update.content?.text||'';};listeners.add(listener);try{await request('session/prompt',{sessionId:session.sessionId,prompt:[{type:'text',text:prompt}]},60*60*1000);return text;}finally{listeners.delete(listener);}}
-   const thread=await request('thread/start',{model,cwd,approvalPolicy:'on-request',sandbox:edit?'workspace-write':'read-only'});const threadId=thread.thread.id;
+   // Internal production work must not populate the user's Codex chat history.
+   const thread=await request('thread/start',{model,cwd,ephemeral:true,approvalPolicy:'on-request',sandbox:edit?'workspace-write':'read-only'});
+   if(thread.thread?.ephemeral!==true)throw Error('本机 Codex 未确认后台临时会话，请更新 Codex 后重试');
+   const threadId=thread.thread.id;
    let text='';return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{done(Error('Agent 执行超时，已有项目文件保留'));},60*60*1000);
     const done=(error)=>{clearTimeout(timer);listeners.delete(listener);error?reject(error):resolve(text);};
     const listener=m=>{if(m.method==='disconnected')return done(Error(m.params.message));if(m.params?.threadId!==threadId)return;

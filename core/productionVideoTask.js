@@ -28,7 +28,7 @@ export async function runProductionVideoTask({ctx,item,tasks,models,submit,refre
   candidates=matching();const history=[...new Map([...(item.previousFailedJobs||[]),...candidates].map(j=>[j.id,j])).values()];
   // A historical funding failure belongs to a previous run; after recharge it
   // does not consume the user-defined generation attempts.
-  const selected=nextVideoAttempt(run.config,history,models);if(!selected){item.status='retry-exhausted';item.error='主备视频模型已达到本次设置的尝试次数；保留所有原任务，可暂停后增加次数继续';await ctx.checkpoint();await ctx.log?.(item.label+' · '+item.error,'warning');return;}
+  const selected=nextVideoAttempt(run.config,history,models);if(!selected){item.status='retry-exhausted';item.error='已执行全部预设视频模型与尝试次数，保留失败原因和所有原任务';await ctx.checkpoint();await ctx.log?.(item.label+' · '+item.error,'warning');return;}
   item.status='preparing';item.error='';item.warning='';await ctx.checkpoint();await ctx.log?.(`${item.label} · 使用${selected.id===run.config.videoModel?'主':'备用'}模型提交：${selected.name||selected.model}`);
   try{job=await submit(selected);}catch(error){if(isFundingError(error)){ctx.videoBudget=error.message;item.status='failed';}else if(item.status==='preparing'||/前置引用核验失败，尚未提交生成/.test(error.message)||error.beforeSubmission)item.status='blocked';else item.status='uncertain';item.error=error.message;await ctx.checkpoint();throw error;}
  }
