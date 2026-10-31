@@ -16,3 +16,5 @@ Task 5: complete; audio-results local index/store, per-result save/delete/export
 2.8.101发布完成：安装包103934851字节，SHA256 1e92d6a855656f54827d4a16887f960b7f8aaaa4d54196c69b05a557062971c8；本机2.8.101.0；官网和双GitHub清单核对通过。
 
 2026-11-01 UI follow-up:分段控件改为音色/核实分发，音色前置；场景清单、本集清单、提示词分发显示音色类别；2609/2609和构建通过，待发布2.8.102。
+
+2.8.102发布完成：整场分发读取sceneSource并返回/校验speakers；2610/2610；包103935296字节，SHA256 20257bbd475661e0ca4817782a26b349b79247e372a292a37e83a0e3ee153141；官网及双GitHub清单签名通过。

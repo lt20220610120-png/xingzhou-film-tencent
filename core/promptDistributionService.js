@@ -19,6 +19,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
  const tasks=new Map(),maintenance=new Set(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=concurrency?createTaskPool(concurrency):null;
  const emit=()=>listeners.forEach(fn=>fn());
  const entrySceneId=id=>{const label=context().project.episodes.flatMap(e=>e.prompts||[]).find(p=>p.id===id)?.label,match=/^(\d+)-(\d+)-(\d+)$/.exec(String(label||''));return match?`${Number(match[1])}-${Number(match[2])}`:null;};
+ const sceneSource=(ctx,sceneId)=>{const n=Number(String(sceneId).split('-')[0]),record=ctx.ledger?.episodes?.[n];return record?.scenes?.find(s=>s.id===sceneId)?.source||'';};
  modelQueue.subscribe(emit);
  const read=async versionId=>{
   const saved=await api.promptArtLoad({projectId,accountId}),ctx=context();
@@ -65,7 +66,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      if(stopped())throw Error('任务已停止');
      let state=await read(versionId);const entry=state.snapshot.entries.find(e=>e.id===entryId);
      if(!entry||!sceneReadyForPromptDistribution(state.ctx.project,state.ctx.ledger,entry.sceneId))throw Error('场景清单尚未分析完成，请先分析本场清单');
-     selectedId=state.snapshot.versionId;stamp=sceneDistributionStamp(state.snapshot,entry);claimKey=selectedId+':'+entryId;
+     selectedId=state.snapshot.versionId;stamp=sceneDistributionStamp(state.snapshot,entry,sceneSource(state.ctx,entry.sceneId));claimKey=selectedId+':'+entryId;
      const followedCurrent=selectedId===promptSetId(state.currentSnapshot);
      const previous=state.saved?.sceneDistributionAttempts?.[claimKey];
      if(!manual&&previous?.stamp===stamp&&previous.status==='done'&&state.decisions[entryId]?.origin==='scene-inventory-ai')return state.decisions[entryId];
@@ -73,7 +74,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      await mutate(selectedId,latest=>{
       if(stopped())throw Error('任务已停止');
       if(followedCurrent&&promptSetId(latest.currentSnapshot)!==selectedId)throw Error('提示词来源版本已变化，旧分发未应用');
-      state=latest;captured=latest;stamp=sceneDistributionStamp(latest.snapshot,latest.snapshot.entries.find(e=>e.id===entryId));decisionToken=bindingHash(latest.decisions[entryId]||null);
+      state=latest;captured=latest;const currentEntry=latest.snapshot.entries.find(e=>e.id===entryId);stamp=sceneDistributionStamp(latest.snapshot,currentEntry,sceneSource(latest.ctx,currentEntry.sceneId));decisionToken=bindingHash(latest.decisions[entryId]||null);
       const running=latest.saved?.sceneDistributionAttempts?.[claimKey];
       if(running?.status==='running'&&running.startedAt>Date.now()-10*60*1000)throw Error('本条正在另一窗口分发，请稍后再试');
       return {...saveBindingVersion(latest.saved,latest.snapshot,latest.decisions),sceneDistributionAttempts:{...latest.saved?.sceneDistributionAttempts,[claimKey]:{stamp,status:'running',owner,startedAt:Date.now(),label:entry.label}}};
@@ -82,17 +83,17 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      const seeded=currentEntryBinding(state.snapshot,entry,state.decisions[entryId]);
      const seed={...seeded,needs:state.decisions[entryId]?.signature===seeded.signature?state.decisions[entryId].needs:seeded.needs.filter(n=>n.locked),issue:''};
      notice=`${manual?'重新':'自动'}分发 ${entry.label}`;emit();
-     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed),call:messages=>{
+     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId)),call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
       const cardCount=state.snapshot.entries.find(e=>e.id===entryId)?sceneCards(state.snapshot,state.snapshot.entries.find(e=>e.id===entryId)).length:0;
       return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,isStopped:stopped});
-     },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw)});
+     },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw,sceneSource(state.ctx,entry.sceneId))});
      if(stopped())throw Error('任务已停止');
      await mutate(selectedId,latest=>{
       if(stopped())throw Error('任务已停止');
       if(followedCurrent&&promptSetId(latest.currentSnapshot)!==selectedId)throw Error('提示词来源版本已变化，旧分发未应用');
       const current=latest.snapshot.entries.find(e=>e.id===entryId);
-      if(!current||sceneDistributionStamp(latest.snapshot,current)!==stamp)throw Error('本条来源或场景清单已变化，旧分发未应用');
+      if(!current||sceneDistributionStamp(latest.snapshot,current,sceneSource(latest.ctx,current.sceneId))!==stamp)throw Error('本条来源或场景清单已变化，旧分发未应用');
       if(bindingHash(latest.decisions[entryId]||null)!==decisionToken)throw Error('分发期间关联已被人工修改，已保留最新选择');
       if(latest.saved.sceneDistributionAttempts?.[claimKey]?.owner!==owner)throw Error('本条分发任务已变化');
       const rebased={...result,signature:currentEntryBinding(latest.snapshot,current).signature};

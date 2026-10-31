@@ -75,3 +75,9 @@ test('AI误报缺项时可手动指定本场已有卡片，替换不用记录并
  assert.match(compileEntryBinding(f.snapshot,f.entry,saveDistribution(f.snapshot,f.entry,resolved)).prompt,/破旧面包车驾驶室（参考@image/);
  assert.throws(()=>resolveSceneMissing(f.snapshot,f.entry,d,missing.id,'person'),/同类别/);
 });
+
+test('voice scene distribution reads the complete scene source and requires exact speaker evidence',()=>{
+ const f=fixture();f.snapshot.voiceCards=[{uid:'voice:周凯',name:'周凯音色',characterName:'周凯',sceneIds:['1-1'],reference:{id:'v1',kind:'audio',filePath:'D:/zhou.wav'}},{uid:'voice:赵国强',name:'赵国强音色',characterName:'赵国强',sceneIds:['1-1'],reference:{id:'v2',kind:'audio',filePath:'D:/zhao.wav'}}];const source='1-1 日 内\n周凯：你来了。\n赵国强（暴怒）：滚出去！';const messages=sceneDistributionMessages(f.snapshot,f.entry,f.decision,source);const payload=JSON.parse(messages[1].content);assert.equal(payload.dialogueSource,source);assert.match(messages[0].content,/完整阅读 dialogueSource/);
+ const d=applySceneDistribution(f.snapshot,f.entry,f.decision,{...f.raw,speakers:[{voiceUid:'voice:周凯',evidence:'周凯：你来了。',kind:'dialogue'},{voiceUid:'voice:赵国强',evidence:'赵国强（暴怒）：滚出去！',kind:'dialogue'}]},source);assert.deepEqual(d.speakers.map(s=>s.voiceUid),['voice:周凯','voice:赵国强']);
+});
+
