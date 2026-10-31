@@ -129,6 +129,9 @@ body { background:var(--paper); }
 .api-connection-info .active-badge { color:#15715e; background:#e7f5ee; padding:2px 7px; display:inline-flex; gap:4px; align-items:center; border-radius:4px; font-size:10px; }
 .api-connection-actions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
 .api-connection-actions button { padding:7px 10px; }
+.api-connection-info > * { min-width:0; }
+.api-connection-info .api-model-name,.api-connection-info .api-endpoint { align-self:center; line-height:1.45; }
+.api-connection-actions { align-items:center; min-height:38px; }
 .imported-art-category-tabs { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
 .imported-art-category-tabs button { padding:5px 9px; font-size:12px; }
 .imported-art-category-tabs button.selected { background:#e8f5f7; border-color:#9cced5; color:#286b79; }
@@ -182,6 +185,7 @@ body { background:var(--paper); }
   .api-form-fields { grid-template-columns:minmax(0,1fr); }
   .api-form-fields .full { grid-column:1; }
 }
+.api-list-toolbar input { height:38px; box-sizing:border-box; }
 .collab-shell { min-height:100vh; }
 .collab-rail { width:176px; }
 .collab-art-body { gap:12px; }

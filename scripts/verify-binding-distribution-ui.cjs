@@ -11,7 +11,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
  await page.getByRole('button',{name:/返回独立关联/}).waitFor();
  // Current workflow can switch to generation after successful automatic processing. Reopen binding details.
  if(!await page.locator('.imported-art-panel').count())await page.getByRole('button',{name:/返回独立关联/}).click();
- await page.locator('.imported-art-panel > details > summary').click();
+ if(!await page.locator('.imported-binding-workspace').isVisible())await page.locator('details').filter({hasText:/查看本条详情/}).locator('summary').click();
  await page.locator('.imported-binding-workspace').waitFor();
  for(const width of [1280,1700]){
  await page.setViewportSize({width,height:1000});

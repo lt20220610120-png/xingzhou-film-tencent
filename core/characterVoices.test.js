@@ -16,6 +16,20 @@ test('major voices count unique appearance episodes and invalidate changed sourc
  const r=v.projectVoiceRoster(project,ledger);assert.equal(r.complete,true);assert.equal(r.characters.length,1);assert.deepEqual(r.characters[0].episodes,[1,2,3]);assert.equal(r.characters[0].major,true);assert.equal(r.characters[0].quote,'我回来了。');
  project.episodes[2]={...ep(3),content:'改变正文'};const changed=v.projectVoiceRoster(project,ledger);assert.equal(changed.complete,false);assert.equal(changed.characters[0].major,false);
 });
+test('group or ensemble cards are excluded while speaking creatures remain eligible',()=>{
+ assert.equal(v.isVoiceEligibleCharacter({name:'围观者群像',description:'多人'}),false);
+ assert.equal(v.isVoiceEligibleCharacter({name:'助手群像'}),false);
+ assert.equal(v.isVoiceEligibleCharacter({name:'旺财',description:'会说话的犬'}),true);
+ const project={episodes:[1,2,3].map(n=>({...ep(n),content:`${n}-1 日 内\n旺财：我回来了。`}))},ledger={episodes:{}};
+ for(let n=1;n<=3;n++){
+  const episode={...ep(n),content:`${n}-1 日 内\n旺财：我回来了。`};
+  const s={...scene(n),source:episode.content,items:[...scene(n).items,{category:'character',name:'围观者群像',description:'观众群体'},{category:'character',name:'旺财',description:'会说话的犬'}]};
+  ledger.episodes[n]={sourceContent:episode.content,scenes:[s],voiceAnalysis:v.validateEpisodeVoices(episode,[s],{scenes:[{sceneId:n+'-1',appearances:[{name:'旺财',ageStage:'default',assetName:'旺财'}],speakers:[{name:'旺财',quote:'我回来了。',evidence:'旺财：我回来了。',kind:'dialogue',language:'Chinese'}]}]})};
+ }
+ const roster=v.projectVoiceRoster(project,ledger).characters;
+ assert.equal(roster.some(c=>c.characterName==='围观者群像'),false);
+ assert.equal(roster.some(c=>c.characterName==='旺财'),true);
+});
 test('new candidate never replaces confirmed timbre until explicit confirmation',()=>{
  const a=v.setVoiceCandidate({}, {id:'a',filePath:'D:/a.wav'}, {profileId:'q',instructions:'温暖'});
  const confirmed=v.confirmVoiceCandidate(a,'a');const next=v.setVoiceCandidate(confirmed,{id:'b',filePath:'D:/b.wav'},{});
