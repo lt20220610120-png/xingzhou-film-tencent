@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {loadFreshBinding} from '../../core/promptArtBinding.js';
+import {bindingSnapshot,loadFreshBinding} from '../../core/promptArtBinding.js';
 import {BINDING_SAVED_EVENT} from './useScenePromptLinks.js';
 
 // Read-only consumers share the canonical saved prompt decisions. This never
@@ -13,7 +13,7 @@ export default function useProjectPromptBinding({api,project,assets,accountId,lo
    if(!api.promptArtLoad||!api.promptArtStatus){setValue({data:null,loading:false});return;}
    try{
     const status=await api.promptArtStatus();
-    const data=status?.enabled?await loadFreshBinding({api,projectId:project.id,accountId,localSources:localSources||[],allowUnbound:true}):null;
+    const data=status?.enabled?await loadFreshBinding({api,projectId:project.id,accountId,localSources:localSources||[],allowUnbound:true}):{snapshot:bindingSnapshot(project,await api.artReviewLoadLocal({projectId:project.id,accountId})||{},assets||[])};
     if(alive&&request===ticket.current)setValue({data,loading:false});
    }catch(error){if(alive&&request===ticket.current)setValue({data:{error:error.message},loading:false});}
   };

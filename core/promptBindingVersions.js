@@ -1,7 +1,7 @@
 import {bindingHash,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
 
 export const promptSetId=snapshot=>'v-'+bindingHash((snapshot.entries||[]).map(({id,label,prompt,sceneId})=>[id,label,prompt,sceneId]));
-const distributionStamp=(snapshot,entry)=>bindingHash([entry.id,entry.prompt,entry.sceneId,snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus])]);
+const distributionStamp=(snapshot,entry)=>bindingHash([...(snapshot.voiceCards?.length?[snapshot.voiceCards.filter(c=>c.sceneIds.includes(entry.sceneId)).map(c=>[c.uid,c.reference.id])]:[]),entry.id,entry.prompt,entry.sceneId,snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus])]);
 function archive(saved){
  const versions={...saved?.versions};
  if(saved?.snapshot?.entries?.length){const id=promptSetId(saved.snapshot);versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot:saved.snapshot,decisions:saved.decisions||{},createdAt:versions[id]?.createdAt||saved.updatedAt||new Date().toISOString()};}

@@ -417,13 +417,15 @@ async function submitGeneration(event,p){
   if(p.bindingOrigin==='imported'){
    const {validateImportedSubmission}=await import('../core/importedArtBinding.js');
    compiled=validateImportedSubmission(promptArtStore().load({accountId,projectId:p.bindingProjectId}),p,accountId);
-   await require('./imported-binding-media.cjs').verifiedImportedImages(compiled.references,mediaDir());
+
   }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
  input=await renewImageReferences(p);accountId=p.provider==='libtv'?await libtvAccountId():undefined;
  if(p.workflowRunId){try{input=await productionHost.selectReferences({runId:p.workflowRunId,input});}catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}}
+ if(input.kind==='video')input=(await import('../core/audioReferenceSelection.js')).selectAudioReferences(input,input.modelCapabilities||{});
+ if(p.bindingOrigin==='imported')await require('./imported-binding-media.cjs').verifiedImportedImages(input.references,mediaDir());
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
  }catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}
  return jobs().submit({...input,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal});

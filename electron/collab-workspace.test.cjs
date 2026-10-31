@@ -62,8 +62,8 @@ test('CollabWorkspace：身份权限过滤与七个功能区', () => {
 
 test('collabStore：权限矩阵符合产品设定', async () => {
   const store = await import('../core/collabStore.js');
-  assert.deepEqual(store.sectionsForRole('artist'), ['info', 'art-review', 'art', 'assets', 'group']);
-  assert.deepEqual(store.sectionsForRole('collaborator'), ['storyboard', 'video-pool', 'group']);
+  assert.deepEqual(store.sectionsForRole('artist'), ['info', 'art-review', 'art', 'voices', 'assets', 'group']);
+  assert.deepEqual(store.sectionsForRole('collaborator'), ['voices', 'storyboard', 'video-pool', 'group']);
 });
 
 test('项目删除采用三天恢复窗口字段', () => {

@@ -71,7 +71,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  const store={
   snapshot:()=>ledger,
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
-  setVoiceProfile(key,reduce){return enqueue(async()=>{const next=structuredClone(ledger);next.voiceProfiles||={};next.voiceProfiles[key]=reduce(structuredClone(next.voiceProfiles[key]||{}));await persist(next);return next.voiceProfiles[key];});},
+  setVoiceProfile(key,reduce){return enqueue(async()=>{const next=structuredClone(ledger);next.voiceProfiles={...next.voiceProfiles,[key]:reduce(structuredClone(Object.hasOwn(next.voiceProfiles||{},key)?next.voiceProfiles[key]:{}))};await persist(next);return next.voiceProfiles[key];});},
   setContext(value){return enqueue(()=>persist({...structuredClone(ledger),scriptContext:structuredClone(value)}));},
   setAnalysisRun(value){return enqueue(()=>persist({...structuredClone(ledger),analysisRun:structuredClone(value)}));},
   setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},

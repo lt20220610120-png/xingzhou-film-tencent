@@ -1,5 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const {verifiedImportedImages,bindingImageInputs}=require('./imported-binding-media.cjs');
+test('associated folder audio is content verified but cannot be sent as a vision image',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-audio-binding-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'整本提示词素材');await fs.mkdir(dir);
+ const hash=crypto.createHash('sha256').update('sample').digest('hex'),filePath=path.join(dir,hash+'.wav');await fs.writeFile(filePath,'sample');const ref={id:`folder-${hash}-wav`,kind:'audio',filePath};
+ assert.equal((await verifiedImportedImages([ref],root))[0].filePath,filePath);await assert.rejects(bindingImageInputs([ref],root,{}),/图片/);
+ await fs.writeFile(filePath,'changed');await assert.rejects(verifiedImportedImages([ref],root),/内容已变化/);
+});
 test('导入图片按真实路径和内容哈希复核；替换或越界不能生成',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-import-binding-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const dir=path.join(root,'整本提示词素材');await fs.mkdir(dir);

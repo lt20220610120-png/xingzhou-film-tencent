@@ -12,11 +12,16 @@ export function beginImportedBinding(book,accountId){
  return {...book,importedBinding:book.importedBinding?{...book.importedBinding,stage:'review',...(book.importedBinding.stage==='manual'?{prompts}:{} )}:{accountId,stage:'review',metadata:{},decisions:{},prompts}};
 }
 export function importedSnapshot(book){
- const work=book.importedBinding||{},cards=new Map(),labels=new Set(),entries=[];
+ const work=book.importedBinding||{},cards=new Map(),voiceCards=new Map(),labels=new Set(),entries=[];
  for(const original of book.entries){
   const sceneId=`${original.episode}-${original.scene}`,prompt=work.prompts?.[original.id]??original.prompt;
   const label=`${original.episode}-${original.scene}-${original.number}`;
   entries.push({...original,label,sceneId,prompt,sceneReady:true,duplicateLabel:labels.has(label)});labels.add(label);
+  for(const ref of bookSharedReferences(book,original).filter(ref=>ref.kind==='audio')){
+   const uid='audio:'+ref.id,meta=work.metadata?.[ref.id]||{};
+   if(!voiceCards.has(uid))voiceCards.set(uid,{uid,name:meta.name||referenceName(ref.name),description:meta.description||'按文件标签识别，未听取音频内容',sceneIds:[],entryIds:[],reference:{...ref}});
+   const voice=voiceCards.get(uid);if(!voice.sceneIds.includes(sceneId))voice.sceneIds.push(sceneId);voice.entryIds.push(original.id);
+  }
   for(const ref of bookSharedReferences(book,original).filter(ref=>ref.kind==='image')){
    const meta=work.metadata?.[ref.id]||{};
    if(!cards.has(ref.id))cards.set(ref.id,{uid:ref.id,key:ref.id,assetId:ref.id,category:meta.category||ref.category||'unknown',name:meta.name??referenceName(ref.name),description:meta.description||'',identityConfirmed:!!meta.confirmed,entryIds:[],sceneIds:[],publishedSceneIds:[],images:[{id:ref.id,url:ref.url||`xzmedia://local/${encodeURIComponent(ref.filePath||'')}`}],reference:{...ref},detailStatus:''});
@@ -27,8 +32,8 @@ export function importedSnapshot(book){
  }
  const duplicates=new Set(entries.filter(entry=>entry.duplicateLabel).map(entry=>entry.label));
  for(const entry of entries)entry.duplicateLabel=duplicates.has(entry.label);
- const snapshot={kind:'imported',projectId:importedBindingId(book),name:book.name,cards:[...cards.values()],entries,issues:[]};
- snapshot.signature=bindingHash([snapshot.projectId,snapshot.cards,snapshot.entries]);
+ const snapshot={voiceCards:[...voiceCards.values()],kind:'imported',projectId:importedBindingId(book),name:book.name,cards:[...cards.values()],entries,issues:[]};
+ snapshot.signature=bindingHash([snapshot.voiceCards,snapshot.projectId,snapshot.cards,snapshot.entries]);
  return snapshot;
 }
 export function importedDecision(snapshot,entry,decisions={}){

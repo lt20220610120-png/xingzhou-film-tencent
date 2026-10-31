@@ -1,3 +1,4 @@
+import {numberedReferences} from './generationReferences.js';
 import {compileEntryBinding,entryBindingSignature} from './promptArtBinding.js';
 import {auditedBindingNeeds} from './scenePromptAssignments.js';
 
@@ -16,6 +17,13 @@ export function assetPromptUsage(binding,asset){
 export function storyboardPromptValue(binding,shot,value,accountId){
  const pending=issue=>({...value,references:[],referenceBindingMode:'pending',bindingIssue:issue});
  if(binding?.error)return pending('提示词素材关联读取失败，请刷新重试：'+binding.error);
+ if(binding?.snapshot&&!binding.snapshot.entries?.length){
+  const sceneId=String(shot.label||'').split('-').slice(0,2).join('-'),voices=(binding.snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(sceneId));
+  if(!voices.length)return null;
+  const references=[...(value.references||[]).filter(r=>!String(r.id).startsWith('voice:')),...voices.map(c=>c.reference)],aliases=new Map(numberedReferences(references).map(r=>[r.id,r.alias]));
+  const prompt=String(value.prompt||'').split('\n【场景人物音色参考】')[0]+'\n【场景人物音色参考】\n'+voices.map(c=>`${c.name}：使用 ${aliases.get(c.reference.id)} 的音色；对白仍按本条剧本。`).join('\n');
+  return {...value,prompt,references,sceneVoiceAssociation:sceneId};
+ }
  if(!binding?.saved?.enabled||!binding.snapshot?.entries?.length)return null;
  const {snapshot,decisions}=binding,exact=snapshot.entries.filter(entry=>entry.id===(shot.sourcePromptId||shot.id));
  const rows=exact.length?exact:snapshot.entries.filter(entry=>entry.label===shot.label&&entry.prompt===shot.content);

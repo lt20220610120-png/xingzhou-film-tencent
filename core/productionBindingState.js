@@ -4,6 +4,7 @@ import {bindingProblems,entryBindingSignature,sceneInventoryCards} from './promp
 // no-reference decision is also completed work, provided its source is current.
 export function hasProductionAssociation(snapshot,entry,decision){
  const needs=decision?.needs;
+ if(snapshot.voiceCards?.some(c=>c.sceneIds.includes(entry.sceneId))&&(decision?.signature!==entryBindingSignature(snapshot,entry)||!Array.isArray(decision?.speakers)))return false;
  if(!Array.isArray(needs))return false;
  const cards=sceneInventoryCards(snapshot,entry);
  if(needs.some(n=>n.visibility==='visible'&&cards.some(c=>c.uid===n.cardUid&&c.category===n.category)))return true;

@@ -56,7 +56,7 @@ export async function runImportedAuto({book,targetEntryId=null,call,save,readIma
   try{compileEntryBinding(snapshot,entry,old);continue;}catch{}
   let decision=importedDecision(snapshot,entry,current.importedBinding.decisions);
   const cards=snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId));
-  if(!cards.length){
+  if(!cards.length&&!snapshot.voiceCards?.some(c=>c.sceneIds.includes(entry.sceneId))){
    await persist({...current.importedBinding,decisions:{...current.importedBinding.decisions,[entry.id]:{...decision,autoIssue:'本场没有导入图片，请补齐素材'}}});continue;
   }
   try{

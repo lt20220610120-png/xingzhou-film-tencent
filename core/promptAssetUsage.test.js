@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {assetPromptUsage,storyboardPromptValue,storyboardSaveUpdates} from './promptAssetUsage.js';
 import {entryBindingSignature} from './promptArtBinding.js';
+test('project without director prompts associates confirmed timbre by scene without copying other scenes',()=>{
+ const binding={snapshot:{entries:[],voiceCards:[{uid:'v',name:'张三',sceneIds:['1-1'],reference:{id:'voice:a',kind:'audio',filePath:'D:/a.wav'}},{uid:'w',name:'李四',sceneIds:['1-2'],reference:{id:'voice:b',kind:'audio',filePath:'D:/b.wav'}}]}};
+ const r=storyboardPromptValue(binding,{label:'1-1-1'},{prompt:'张三：你好。',references:[]},'u');assert.deepEqual(r.references.map(r=>r.id),['voice:a']);assert.match(r.prompt,/张三.*@audio1/);
+});
 
 function fixture(){
  const cards=[['a','character','【张三】'],['b','character','【李四】'],['s','scene','【客厅】'],['p','prop','【茶杯】']].map(([uid,category,name])=>({uid,assetId:uid,category,name,description:'已核实描述',sceneIds:['1-1'],publishedSceneIds:['1-1'],images:[{id:uid+'-img',url:'https://test/'+uid+'.png'}]}));

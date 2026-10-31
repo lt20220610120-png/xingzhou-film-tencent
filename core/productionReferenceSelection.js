@@ -1,7 +1,9 @@
+import {selectAudioReferences} from './audioReferenceSelection.js';
 import {numberedReferences} from './generationReferences.js';
 import {bindingHash} from './promptArtBinding.js';
-export const productionImageLimit=(caps={},references=[])=>Math.min(caps.maxImages??1,(caps.maxTotalRefs??256)-references.filter(r=>r.kind!=='image').length,(caps.maxVisualRefs??256)-references.filter(r=>r.kind==='video').length);
+export const productionImageLimit=(caps={},references=[])=>{const selected=selectAudioReferences({references},caps).references;return Math.max(0,Math.min(caps.maxImages??1,(caps.maxTotalRefs??256)-selected.filter(r=>r.kind!=='image').length,(caps.maxVisualRefs??256)-selected.filter(r=>r.kind==='video').length));};
 export function selectProductionReferences(input){
+ input=selectAudioReferences(input,input.modelCapabilities||{});
  const all=input.references||[],images=all.filter(r=>r.kind==='image'),limit=productionImageLimit(input.modelCapabilities,all),plan=input.workflowReferenceSelection,over=images.length>limit;
  let selected=images;
  if(over){
