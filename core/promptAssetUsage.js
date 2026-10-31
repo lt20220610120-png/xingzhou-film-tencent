@@ -19,9 +19,9 @@ export function storyboardPromptValue(binding,shot,value,accountId){
  if(binding?.error)return pending('提示词素材关联读取失败，请刷新重试：'+binding.error);
  if(binding?.snapshot&&!binding.snapshot.entries?.length){
   const sceneId=String(shot.label||'').split('-').slice(0,2).join('-'),voices=(binding.snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(sceneId));
-  if(!voices.length)return null;
+  if(!voices.length&&!value.sceneVoiceAssociation)return null;
   const references=[...(value.references||[]).filter(r=>!String(r.id).startsWith('voice:')),...voices.map(c=>c.reference)],aliases=new Map(numberedReferences(references).map(r=>[r.id,r.alias]));
-  const prompt=String(value.prompt||'').split('\n【场景人物音色参考】')[0]+'\n【场景人物音色参考】\n'+voices.map(c=>`${c.name}：使用 ${aliases.get(c.reference.id)} 的音色；对白仍按本条剧本。`).join('\n');
+  const prompt=String(value.prompt||'').split('\n【场景人物音色参考】')[0]+(voices.length?'\n【场景人物音色参考】\n':'')+voices.map(c=>`${c.name}：使用 ${aliases.get(c.reference.id)} 的音色；对白仍按本条剧本。`).join('\n');
   return {...value,prompt,references,sceneVoiceAssociation:sceneId};
  }
  if(!binding?.saved?.enabled||!binding.snapshot?.entries?.length)return null;

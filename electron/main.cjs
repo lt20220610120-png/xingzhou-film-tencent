@@ -246,6 +246,7 @@ ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config
 ipcMain.handle('audio-generate',async(event,payload)=>{const result=await require('./audio-provider.cjs').generateSpeech({...payload,destDir:path.join(mediaDir(),'语音生成'),signal:event.securitySignal},{fetchFn:(url,options)=>net.fetch(url,options)});return audioResults().record({...result,text:payload.input,instructions:payload.instructions,language:payload.language,model:payload.model,saved:false});});
 ipcMain.handle('audio-results-list',()=>audioResults().list());
 ipcMain.handle('audio-result-save',(_,payload)=>audioResults().save(String(payload?.id||'')));
+ipcMain.handle('audio-result-retain',(_,payload)=>audioResults().retain(String(payload?.id||'')));
 ipcMain.handle('audio-result-delete',(_,payload)=>audioResults().remove(String(payload?.id||'')));
 ipcMain.handle('audio-results-clear',()=>audioResults().clear());
 ipcMain.handle('app-version',()=>app.getVersion());
@@ -362,7 +363,7 @@ async function renewImageReferences(payload) {
 ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=[],archive=true,filename='图片',layout='flat'})=>{
  const safe=s=>String(s||'图片').replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
  const imageExt=image=>{const ext=path.extname(String(image?.filename||'')).toLowerCase();return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png'};
- const fetchImage=async image=>{const resolved=((image.id&&image.id!=='legacy')||image.assetId) ? await collabService.resolveAssetImage({projectId:image.projectId,assetId:image.assetId,imageId:image.id}) : image;if(!resolved?.url)throw new Error('图片地址为空');return (await readMediaBytes(resolved.url,{label:'图片下载'})).bytes};
+ const fetchImage=async image=>{if(image.kind==='audio'){if(image.filePath){const file=await fs.promises.realpath(image.filePath),root=await fs.promises.realpath(getDataDir()),relative=path.relative(root,file);if(!relative||relative.startsWith('..')||path.isAbsolute(relative)||!/^\.(wav|mp3|m4a|aac|ogg|flac)$/i.test(path.extname(file)))throw Error('音频文件不在资料目录');return fs.promises.readFile(file);}if(image.url)return (await readMediaBytes(image.url,{label:'音频下载'})).bytes;throw Error('音频文件不存在');}const resolved=((image.id&&image.id!=='legacy')||image.assetId) ? await collabService.resolveAssetImage({projectId:image.projectId,assetId:image.assetId,imageId:image.id}) : image;if(!resolved?.url)throw new Error('图片地址为空');return (await readMediaBytes(resolved.url,{label:'图片下载'})).bytes};
  const uniqueFile=target=>{if(!fs.existsSync(target))return target;const ext=path.extname(target);const base=target.slice(0,-ext.length);let index=2;while(fs.existsSync(`${base} (${index})${ext}`))index+=1;return `${base} (${index})${ext}`};
  if(!Array.isArray(images)||!images.length)throw new Error('没有可导出的图片');
  const first=images[0];

@@ -1,4 +1,4 @@
-import {listCollabEpisodes} from './collabEpisodes.js';
+import {listCollabEpisodes,inspectCollabEpisodes} from './collabEpisodes.js';
 
 export const characterVoiceKey=name=>String(name||'').normalize('NFKC').replace(/[【】]/g,'').split(/[-—－]/)[0].trim();
 const nonDialogue=/(?:旁白|画外音|心声|内心独白|独白旁述|\b(?:OS|VO|V\.O\.|O\.S\.)\b)/i;
@@ -15,7 +15,8 @@ export function validateEpisodeVoices(episode,scenes,data){
   if(!scene||seen.has(scene.id)||!Array.isArray(row.speakers))throw Error('语音场景不存在、重复或名单不完整');seen.add(scene.id);
   const speakers=[];
   for(const item of row.speakers){
-   if(item.kind!=='dialogue')continue;
+   if(['thought','narration','voiceover','offscreen'].includes(item.kind))continue;
+   if(item.kind!=='dialogue')throw Error('对白类型缺失或无效');
    const name=characterVoiceKey(item.name),quote=String(item.quote||'').trim(),evidence=String(item.evidence||'').trim();
    if(!name||!quote||!evidence||!scene.source.includes(evidence)||!evidence.includes(quote)||!evidence.includes(name))throw Error('对白缺少人物及逐字原文依据');
    if(nonDialogue.test(evidence.slice(0,evidence.indexOf(quote))))continue;
@@ -26,7 +27,7 @@ export function validateEpisodeVoices(episode,scenes,data){
  return {schema:1,sourceContent:String(episode.content||''),scenes:rows,readAt:Date.now()};
 }
 export function projectVoiceRoster(project,ledger={}){
- const episodes=listCollabEpisodes(project.episodes),characters=new Map();let read=0;
+ const inspection=inspectCollabEpisodes(project.episodes),episodes=inspection.episodes,characters=new Map();let read=0;
  for(const ep of episodes){
   const record=ledger.episodes?.[ep.episodeNumber];if(record?.sourceContent!==String(ep.content||''))continue;
   const current=record.voiceAnalysis?.sourceContent===String(ep.content||'');if(current)read++;
@@ -41,7 +42,7 @@ export function projectVoiceRoster(project,ledger={}){
    const c=characters.get(speaker.key);if(c){if(!c.speakingSceneIds.includes(scene.sceneId))c.speakingSceneIds.push(scene.sceneId);if(!c.quote){c.quote=speaker.quote;c.quoteSceneId=scene.sceneId;}}
   }
  }
- return {read,total:episodes.length,complete:episodes.length>0&&read===episodes.length,characters:[...characters.values()].map(c=>({...c,major:c.episodes.length>=3})).sort((a,b)=>b.episodes.length-a.episodes.length||a.name.localeCompare(b.name))};
+ return {read,total:episodes.length,identityError:inspection.error,complete:!inspection.error&&episodes.length>0&&read===episodes.length,characters:[...characters.values()].map(c=>({...c,major:c.episodes.length>=3})).sort((a,b)=>b.episodes.length-a.episodes.length||a.name.localeCompare(b.name))};
 }
 export function setVoiceCandidate(profile={},audio,settings={}){
  if(!audio?.id||!(audio.filePath||audio.url))throw Error('样音文件无效');

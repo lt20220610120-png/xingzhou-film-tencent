@@ -34,15 +34,23 @@ export function saveBindingVersion(saved,snapshot,decisions){
  versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot,decisions,createdAt:versions[id]?.createdAt||new Date().toISOString()};
  return {...saved,enabled:true,snapshot,decisions,versions,selectedVersionId:id};
 }
-export function promptExportImages(snapshot,decisions){
+export function promptExportImages(snapshot,decisions,{includeAudio=false}={}){
  const images=new Map();
  for(const entry of snapshot.entries){
   const compiled=compileEntryBinding(snapshot,entry,decisions[entry.id]);
   for(const ref of compiled.references){
+   if(ref.kind==='video'||ref.kind==='audio'&&!includeAudio)continue;
+   if(ref.kind==='audio'){
+    const key='audio:'+ref.id,audio=images.get(key)||{...ref,assetName:ref.characterName||ref.name||'人物音色',episodes:[],sceneIds:[],promptIds:[]};
+    audio.episodes=[...new Set([...audio.episodes,entry.episode])];audio.sceneIds=[...new Set([...audio.sceneIds,entry.sceneId])];audio.promptIds.push(entry.label);images.set(key,audio);continue;
+   }
    const card=snapshot.cards.find(row=>row.assetId===ref.assetId),source=card?.images.find(row=>row.id===ref.imageId);
    const key=`${ref.assetId}:${ref.imageId}`,image=images.get(key)||{...source,projectId:snapshot.projectId,assetId:ref.assetId,assetName:ref.name,episodes:[],sceneIds:[],promptIds:[]};
    image.episodes=[...new Set([...image.episodes,entry.episode])];image.sceneIds=[...new Set([...image.sceneIds,entry.sceneId])];image.promptIds.push(entry.label);images.set(key,image);
   }
  }
  return [...images.values()];
+}
+export function sceneVoiceExports(snapshot){
+ return (snapshot?.voiceCards||[]).filter(c=>c.sceneIds?.length).map(c=>({...c.reference,kind:'audio',assetName:c.name+'音色',episodes:[...new Set(c.sceneIds.map(id=>Number(id.split('-')[0])))],sceneIds:[...c.sceneIds]}));
 }

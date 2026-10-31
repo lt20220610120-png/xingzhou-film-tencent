@@ -1,3 +1,4 @@
+import {projectVoiceCards} from '../../core/characterVoices.js';
 import ProjectVoices from './ProjectVoices.jsx';
 import PromptPublicationProgress from './PromptPublicationProgress.jsx';
 import {publishedReviewProject} from '../../core/publishedReviewProject.js';
@@ -5,7 +6,7 @@ import {notifyBindingSaved} from './useScenePromptLinks.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
 import {assetPromptUsage} from '../../core/promptAssetUsage.js';
 import {loadFreshBinding} from '../../core/promptArtBinding.js';
-import {bindingVersionOptions,selectBindingVersion,promptExportImages} from '../../core/promptBindingVersions.js';
+import {bindingVersionOptions,selectBindingVersion,promptExportImages,sceneVoiceExports} from '../../core/promptBindingVersions.js';
 import {retainAssetOrder} from '../../core/stableAssetOrder.js';
 import {assetRevisionJobs} from '../../core/assetRevisionJobs.js';
 import ProjectCompositionControl from './ProjectCompositionControl.jsx';
@@ -731,6 +732,9 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const [exportError, setExportError] = useState('');
   const [exportChoiceOpen, setExportChoiceOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportAudioChoice,setExportAudioChoice]=useState(null);
+  const askExport=run=>{setExportChoiceOpen(false);setExportAudioChoice({run});};
+  const exportWithVoices=async(images,folder,layout)=>askExport(async includeAudio=>{try{let rows=images;if(includeAudio){const store=getArtReviewStore({api,projectId:project.id,accountId});await store.load(project,assets);rows=[...images,...sceneVoiceExports({voiceCards:projectVoiceCards(project,store.snapshot())})];}await exportImages(rows,folder,layout);}catch(error){setExportError(error.message);}});
   const [exportBinding,setExportBinding]=useState(null),[exportVersion,setExportVersion]=useState(''),[exportBindingError,setExportBindingError]=useState('');
   useEffect(()=>{
     let alive=true;if(!exportChoiceOpen)return;
@@ -742,12 +746,12 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
     }).catch(error=>alive&&setExportBindingError(error.message));
     return()=>{alive=false;};
   },[exportChoiceOpen,project.id,accountId]);
-  const exportPromptVersion=async()=>{
+  const exportPromptVersion=async(includeAudio=false)=>{
     try{
       const fresh=await loadFreshBinding({api,projectId:project.id,accountId,localSources:state.directorProjects,versionId:exportVersion,allowUnbound:true});
-      const images=promptExportImages(fresh.snapshot,fresh.decisions);
+      const images=promptExportImages(fresh.snapshot,fresh.decisions,{includeAudio});
       await exportImages(images,`${project.name}-${bindingVersionOptions(fresh.currentSnapshot,fresh.saved).find(row=>row.id===exportVersion)?.label||'提示词'}-按提示词美术图片`,'prompt');
-    }catch(error){setExportBindingError(error.message);}
+    }catch(error){setExportError(error.message);}
   };
 
   const [analysisError, setAnalysisError] = useState('');
@@ -863,12 +867,13 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
               {exportBinding&&<label>提示词版本<select aria-label="导出提示词版本" value={exportVersion} onChange={event=>setExportVersion(event.target.value)}>{bindingVersionOptions(exportBinding.currentSnapshot,exportBinding.saved).map(row=><option key={row.id} value={row.id}>{row.label}{row.current?' · 最新':''}</option>)}</select></label>}
               <div className="modal-actions collab-art-export-options">
                 <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button>
-                <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按集美术图片`,'episode')}>按集整理导出</button>
-                <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-按场景美术图片`,'scene')}>按场景整理导出</button>
-                {exportBinding&&<button className="secondary collab-art-export-option" disabled={exporting} onClick={exportPromptVersion}>按具体提示词导出</button>}
+                <button className="secondary collab-art-export-option" onClick={()=>exportWithVoices(projectImages,`${project.name}-按集美术素材`,'episode')}>按集整理导出</button>
+                <button className="secondary collab-art-export-option" onClick={()=>exportWithVoices(projectImages,`${project.name}-按场景美术素材`,'scene')}>按场景整理导出</button>
+                {exportBinding&&<button className="secondary collab-art-export-option" disabled={exporting} onClick={()=>askExport(exportPromptVersion)}>按具体提示词导出</button>}
               </div>
             </div>
           </div>,document.body)}
+        {exportAudioChoice&&createPortal(<div className="veil"><div className="modal" role="dialog" aria-modal="true" aria-label="选择是否导出对应音频"><header><h2>是否同时导出对应人物音频？</h2><button className="ghost" aria-label="取消导出" onClick={()=>setExportAudioChoice(null)}><X size={18}/></button></header><p>按当前导出方式整理已确认并关联的人物音色。</p><div className="modal-actions"><button className="secondary" onClick={()=>{const run=exportAudioChoice.run;setExportAudioChoice(null);run(false);}}>仅导出图片</button><button className="primary" onClick={()=>{const run=exportAudioChoice.run;setExportAudioChoice(null);run(true);}}>图片和对应音频一起导出</button></div></div></div>,document.body)}
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}
         {analysisJob?.error && <div className="collab-error">{analysisJob.error}</div>}

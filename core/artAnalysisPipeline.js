@@ -1,4 +1,5 @@
 import {runArtReviewAnalysis,fillArtReviewDetails} from './artReviewRunner.js';
+import {ensureEpisodeVoices} from './voiceAnalysisRunner.js';
 import {applyArtReviewCandidate,decodeReviewJson,reviewRoster,isReviewCurrent,needsArtReviewDetails} from './artReview.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 import {summarizeArtReview} from './artReviewPersistence.js';
@@ -143,6 +144,10 @@ export async function runArtAnalysisPipeline(args){
     }catch(error){if(error.artCheckpointFailure){job.cancelled=true;job.pipelineFailure=error.message;throw error;}if(!job.cancelled)errors.push(error.message);}
     finally{job.activeEpisodes=job.activeEpisodes.filter(n=>n!==number);onProgress?.();}
    });
+  }
+  if(!job.cancelled&&!args.detailsOnly&&!args.focusItem){
+   try{await ensureEpisodeVoices({episode,store,api,profile,job,onProgress});}
+   catch(error){if(error.artCheckpointFailure)throw error;if(!job.cancelled){await store.update(number,r=>({...r,voiceError:error.message}));errors.push(`第 ${number} 集对白读取：${error.message}`);}}
   }
   // Even if reading stopped just after saving an inventory, its downstream owns
   // that saved checkpoint. A later explicit stop of distribution still wins.

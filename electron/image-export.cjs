@@ -2,7 +2,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 
 const safe=value=>String(value||'图片').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,100);
-const imageExt=image=>{const ext=path.extname(String(image?.filename||'')).toLowerCase();return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png';};
+const imageExt=image=>{const ext=path.extname(String(image?.filename||image?.filePath||'')).toLowerCase();if(image.kind==='audio')return ['.wav','.mp3','.m4a','.aac','.ogg','.flac'].includes(ext)?ext:'.wav';return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png';};
 function episodeFolders(image){
  const values=(image.episodes?.length?image.episodes:[image.first_episode]).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0);
  return [...new Set(values)].sort((a,b)=>a-b).map(n=>`第${n}集`);

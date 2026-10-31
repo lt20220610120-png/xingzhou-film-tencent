@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from './promptBindingVersions.js';
+import {bindingVersionOptions,selectBindingVersion,saveBindingVersion,promptExportImages} from './promptBindingVersions.js';
 import {proposeEntryBinding,entryBindingSignature} from './promptArtBinding.js';
 import {bookSharedReferences,mergeEpisodeMedia} from './promptBook.js';
 test('prompt-scoped imports never leak into siblings and override broad image pools',()=>{
@@ -9,6 +9,12 @@ test('prompt-scoped imports never leak into siblings and override broad image po
  assert.deepEqual(bookSharedReferences(book,{episode:1,scene:1,label:'1-1-2'}).map(r=>r.id),['shared','voice','scene']);
 });
 const fixture=()=>({projectId:'p',name:'剧',cards:[{uid:'c',category:'character',name:'小明',description:'青年',detailStatus:'',sceneIds:['1-1'],publishedSceneIds:[],images:[],assetId:null}],entries:[{id:'a',label:'1-1-1',sceneId:'1-1',episode:1,scene:1,prompt:'【基础信息】\n人物：小明',sceneReady:true}],issues:[]});
+test('voice references never enter prompt image export',()=>{
+ const snapshot=fixture();snapshot.cards=[];snapshot.entries[0].prompt='【基础信息】\n人物：无\n场景：无\n道具：无\n【对白】\n小明：回来。';snapshot.voiceCards=[{uid:'v',name:'小明',sceneIds:['1-1'],reference:{id:'voice:v',kind:'audio',filePath:'D:/a.wav'}}];
+ const decision={...proposeEntryBinding(snapshot,snapshot.entries[0]),confirmed:true,speakers:[{voiceUid:'v',kind:'dialogue',evidence:'小明：回来。'}]};
+ assert.deepEqual(promptExportImages(snapshot,{a:decision}),[]);
+ const media=promptExportImages(snapshot,{a:decision},{includeAudio:true});assert.equal(media.length,1);assert.equal(media[0].kind,'audio');assert.deepEqual(media[0].promptIds,['1-1-1']);
+});
 test('新旧提示词集合隔离分发，选旧版使用当前卡片且不改变整场清单',()=>{
  const first=fixture(),decision={...proposeEntryBinding(first,first.entries[0]),confirmed:true};
  let saved=saveBindingVersion(null,first,{a:decision});

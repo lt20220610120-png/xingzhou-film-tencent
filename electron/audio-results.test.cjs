@@ -1,5 +1,11 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs/promises');const os=require('node:os');const path=require('node:path');
 const {createAudioResultStore}=require('./audio-results.cjs');
+test('retained character sample survives result clear and concurrent records are preserved',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-retain-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'语音生成');await fs.mkdir(dir);
+ const store=createAudioResultStore({dataDir:root,resultsDir:()=>dir});
+ await Promise.all(['a','b','c'].map(async name=>{const filePath=path.join(dir,name+'.wav');await fs.writeFile(filePath,name);await store.record({filePath});}));
+ assert.equal((await store.list()).length,3);const saved=await store.retain((await store.list())[0].id);await store.clear();assert.equal((await fs.stat(saved.filePath)).isFile(),true);
+});
 test('audio result store lists, saves, deletes one and clears all managed files',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-audio-results-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'语音生成');await fs.mkdir(dir);
  const store=createAudioResultStore({dataDir:root,resultsDir:()=>dir});

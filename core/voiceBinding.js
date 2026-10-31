@@ -9,7 +9,7 @@ export function applyVoiceBinding(snapshot,entry,decision,speakers){
  const seen=new Set();const selected=speakers.map(s=>{
   const card=cards.find(c=>c.uid===s.voiceUid);if(!card||seen.has(s.voiceUid))throw Error('AI 音色不属于本场或重复');seen.add(s.voiceUid);
   if(typeof s.evidence!=='string'||!s.evidence.trim()||!entry.prompt.includes(s.evidence))throw Error('音色关联缺少逐字原文依据');
-  if(s.kind!=='dialogue'||/(?:旁白|画外音|心声|内心独白|\bOS\b|\bVO\b)/i.test(s.evidence))throw Error('音色关联只允许正常对白');
+  if(s.kind!=='dialogue'||/(?:旁白|画外音|心声|内心独白|\bOS\b|\bVO\b)/i.test(s.evidence.split(/[：:]/)[0]))throw Error('音色关联只允许正常对白');
   return {voiceUid:s.voiceUid,evidence:s.evidence,kind:'dialogue'};
  });return {...decision,speakers:selected};
 }

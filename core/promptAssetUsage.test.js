@@ -5,6 +5,9 @@ import {entryBindingSignature} from './promptArtBinding.js';
 test('project without director prompts associates confirmed timbre by scene without copying other scenes',()=>{
  const binding={snapshot:{entries:[],voiceCards:[{uid:'v',name:'张三',sceneIds:['1-1'],reference:{id:'voice:a',kind:'audio',filePath:'D:/a.wav'}},{uid:'w',name:'李四',sceneIds:['1-2'],reference:{id:'voice:b',kind:'audio',filePath:'D:/b.wav'}}]}};
  const r=storyboardPromptValue(binding,{label:'1-1-1'},{prompt:'张三：你好。',references:[]},'u');assert.deepEqual(r.references.map(r=>r.id),['voice:a']);assert.match(r.prompt,/张三.*@audio1/);
+ binding.snapshot.voiceCards=[];
+ const cleared=storyboardPromptValue(binding,{label:'1-1-1'},{...r,references:[...r.references,{id:'manual',kind:'audio'}]},'u');
+ assert.deepEqual(cleared.references.map(r=>r.id),['manual']);assert.equal(cleared.prompt,'张三：你好。');
 });
 
 function fixture(){

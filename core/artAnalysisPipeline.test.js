@@ -64,6 +64,7 @@ test('episode inventory, independent scenes and ready-scene prompts overlap; reo
  let ledger={episodes:{}},binding=null;const events=[],inventory2=gate(),scene2=gate(),promptStarted=gate();
  const api={artReviewLoadLocal:async()=>ledger,artReviewSaveLocal:async({data})=>{ledger=structuredClone(data)},analysisLoad:async()=>null,promptArtStatus:async()=>({enabled:true}),promptArtLoad:async()=>structuredClone(binding),promptArtSave:async p=>{assert.equal(p.baseRevision,binding?.revision||0);binding={...structuredClone(p.data),revision:(binding?.revision||0)+1};return structuredClone(binding)},aiChat:async p=>{
   const text=p.messages.map(m=>m.content).join('');
+  if(p.messages[0].content.includes('你是剧本场记')){const data=JSON.parse(p.messages[1].content);return JSON.stringify({scenes:data.scenes.map(s=>({sceneId:s.sceneId,speakers:[]}))});}
   if(p.messages[0].content.includes('影视场景清单分发助手')){const data=JSON.parse(p.messages[1].content);events.push('prompt:'+data.label);if(data.label==='1-1-1')promptStarted.resolve();return JSON.stringify({assignments:data.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidence:'旺财',reason:'基础设定明确旺财'})),missing:[]})}
   if(p.messages[0].content.includes('并发场景关联')){const data=JSON.parse(p.messages[1].content);events.push('scene:'+data.sceneId);if(data.sceneId==='1-2')await scene2.promise;return JSON.stringify({scenes:[{sceneId:data.sceneId,assets:[{category:'character',name:'【旺财-狗】'}]}]})}
   const n=Number(text.match(/当前输出只包含第(\d+)集/)?.[1]);events.push('inventory:'+n);if(n===2)await inventory2.promise;

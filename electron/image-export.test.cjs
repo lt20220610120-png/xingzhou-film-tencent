@@ -1,6 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 const {exportImagesToFolder}=require('./image-export.cjs');
 const {importEpisodeMedia}=require('./episode-media-import.cjs');
+for(const layout of ['episode','scene','prompt'])test(`${layout} export preserves audio bytes and extension alongside pictures`,async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'xz-audio-export-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ await exportImagesToFolder({dir,layout,images:[{kind:'audio',filePath:'D:/voice.wav',assetName:'小林音色',episodes:[1],sceneIds:['1-1'],promptIds:['1-1-1']}],fetchImage:async()=>Buffer.from('audio')});
+ const files=await fs.readdir(dir,{recursive:true});const file=files.find(f=>f.endsWith('.wav'));assert.ok(file);assert.equal((await fs.readFile(path.join(dir,file))).toString(),'audio');assert.ok(!files.some(f=>f.endsWith('.png')));
+});
 test('prompt export round trips shared images into each prompt without leaking into its siblings',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-prompt-roundtrip-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const dir=path.join(root,'export');

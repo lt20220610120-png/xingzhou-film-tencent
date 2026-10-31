@@ -18,6 +18,7 @@ test('mixed folder association compiles only chosen audio and keeps unused audio
  const out=compileEntryBinding(s,e,{...chosen,confirmed:true});assert.deepEqual(out.references.map(r=>r.id),['i','a']);assert.equal(book.sceneMedia['1-1'].length,3);
 });
 test('voices require explicit model decision, valid scene identity and exact evidence',()=>{
+ const quote='小王：你能听到我的心声？';assert.equal(v.applyVoiceBinding(snapshot,{...entry,prompt:quote},{},[{voiceUid:'v2',evidence:quote,kind:'dialogue'}]).speakers.length,1);
  assert.throws(()=>v.applyVoiceBinding(snapshot,entry,{},undefined),/讲话/);
  assert.throws(()=>v.applyVoiceBinding(snapshot,entry,{},[{voiceUid:'v2',evidence:'不存在',kind:'dialogue'}]),/原文/);
  const other={...snapshot,voiceCards:snapshot.voiceCards.map(v=>({...v,sceneIds:['2-1']}))};assert.throws(()=>v.applyVoiceBinding(other,entry,{},[{voiceUid:'v2',evidence:'小王：快进来！',kind:'dialogue'}]),/音色/);
