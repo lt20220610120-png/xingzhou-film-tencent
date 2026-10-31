@@ -243,6 +243,7 @@ ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
 ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun,doubaoRun,chatgptRun}));
+ipcMain.handle('audio-generate',async(event,payload)=>require('./audio-provider.cjs').generateSpeech({...payload,destDir:path.join(mediaDir(),'语音生成'),signal:event.securitySignal},{fetchFn:(url,options)=>net.fetch(url,options)}));
 ipcMain.handle('app-version',()=>app.getVersion());
 ipcMain.handle('check-update',async()=>{const {manifest,source}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
 let downloadedInstaller=null,activeDownload=null;

@@ -149,6 +149,7 @@ module.exports = function configurePackagedSmoke(app) {
         const image=await win.webContents.executeJavaScript(`new Promise(resolve=>{const img=new Image();img.onload=()=>resolve({loaded:true,width:img.naturalWidth});img.onerror=()=>resolve({loaded:false});img.src=${JSON.stringify(files[0])};})`);
         report.localMedia={results,image};
         report.videoPreview=await require('./video-preview-smoke.cjs')(win,mediaDir);
+        report.audioPreview=await require('./audio-preview-smoke.cjs')(win,mediaDir);
         report.workBuddy.bridge = await win.webContents.executeJavaScript('typeof window.xingzhou?.workBuddyOpen === "function" && typeof window.xingzhou?.onWorkBuddyState === "function"');
         report.artReview = await win.webContents.executeJavaScript(`(async () => {
           const api = window.xingzhou;

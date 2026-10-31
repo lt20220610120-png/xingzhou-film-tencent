@@ -16,6 +16,16 @@ test('未登录时可本地编辑保存，但不允许联网生成',async()=>{
  assert.deepEqual(await f.handlers.get('save-state')(f.event(),{content:'离线草稿'}),{content:'离线草稿'});
  await assert.rejects(()=>f.handlers.get('ai-chat')(f.event(),{prompt:'test',account:{id:'forged'}}),/登录/);assert.equal(calls,0);
 });
+test('语音生成遵从账号和资料迁移门禁，退出会中止在途语音',async()=>{
+ const denied=fixture();denied.guard.handle('audio-generate',()=>assert.fail('must not generate'));
+ await assert.rejects(denied.handlers.get('audio-generate')(denied.event(),{}),/登录/);
+ const f=fixture({token:()=> 'valid',session:async()=>({id:'u'})});let begin;
+ const begun=new Promise(resolve=>begin=resolve);
+ f.guard.handle('audio-generate',event=>new Promise((resolve,reject)=>{begin();event.securitySignal.addEventListener('abort',()=>reject(Error('audio aborted')),{once:true});}));
+ f.guard.handle('auth-logout',()=>true);
+ const running=f.handlers.get('audio-generate')(f.event(),{endpoint:'http://127.0.0.1:7891/v1'});
+ const rejected=assert.rejects(running,/audio aborted/);await begun;await f.handlers.get('auth-logout')(f.event());await rejected;
+});
 test('有效账号允许生成，退出使在途请求收到中止信号，旧验证结果不能启动新请求',async()=>{
  let token='valid',resolveSession;const service={token:()=>token,session:async()=>({id:'u',banned:false})};const f=fixture(service);
  let begin;const begun=new Promise(resolve=>begin=resolve);

@@ -1,6 +1,7 @@
 const { pathToFileURL } = require('node:url');
 const identityChanges = new Set(['auth-login', 'auth-register', 'auth-logout', 'auth-recover', 'auth-unlock-role']);
 const onlineChannels = new Set(['ai-chat', 'test-ai-connection', 'discover-models', 'generation-submit', 'generation-refresh', 'media-generate-image', 'media-generate-video', 'media-retry-image-download', 'collab-generate-asset-image', 'collab-generate-video']);
+onlineChannels.add('audio-generate');
 for(const c of ['like-status','like-pairing','like-bind','like-open-project'])onlineChannels.add(c);
 for(const channel of ['project-video-export','production-connect','production-chat','production-audit','production-work','production-archive','production-post'])onlineChannels.add(channel);
 const stringChannels = new Set(['open-external', 'check-update', 'media-import-file', 'media-import-files']);

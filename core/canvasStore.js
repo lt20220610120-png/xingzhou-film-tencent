@@ -153,6 +153,7 @@ export const addMediaProfile = (state, profile) => {
     endpoint: profile.endpoint || '',
     apiKey: profile.apiKey || '',
     model: profile.model || '',
+    ...(profile.kind==='audio'?{requiresApiKey:profile.requiresApiKey??true,voice:profile.voice||'default',instructions:profile.instructions||'',language:profile.language||'Chinese'}:{}),
     ...(profile.provider?{provider:profile.provider}:{}),
     ...(profile.libtvOwnerKey?{libtvOwnerKey:profile.libtvOwnerKey}:{}),
     videoProtocol:profile.videoProtocol|| (profile.kind==='video'&&isFeituoEndpoint(profile.endpoint)?'feituo':'auto'),

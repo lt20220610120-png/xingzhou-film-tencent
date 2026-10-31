@@ -1,6 +1,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const {proofMessage}=require('../cloud-backend/shared/software-license.cjs');
 const PAID=new Set(['ai-chat','test-ai-connection','generation-submit','media-generate-image','media-generate-video','collab-generate-asset-image','collab-generate-video']);
+PAID.add('audio-generate');
 function createLicenseClient({directory,safeStorage,call,token,version,onChange=()=>{}}){
  let key,activation='',epoch=0,last={status:'unchecked',allowed:false},checked=0,exemptToken='',routedToken=null,kind='unknown';
  const keyFile=path.join(directory,'software-device-key.json');

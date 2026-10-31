@@ -1,0 +1,23 @@
+const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('node:assert/strict'),fs=require('node:fs');
+(async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),reports=[];
+fs.mkdirSync('output/playwright',{recursive:true});
+try{for(const width of [1280,1700,2232]){
+ const page=await browser.newPage({viewport:{width,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:5841/scripts/fixtures/audio-ui.html',{waitUntil:'networkidle'});
+ const css=fs.readdirSync('dist/assets').find(n=>n.endsWith('.css'));await page.addStyleTag({path:'dist/assets/'+css});
+ await page.getByRole('button',{name:/语音模型配置/}).click();await page.getByRole('button',{name:'添加接口',exact:true}).first().click();
+ await page.getByRole('button',{name:'填入本地 Qwen3-TTS 配置',exact:true}).click();
+ assert(await page.getByRole('checkbox',{name:'本地或自部署服务无需密钥'}).isChecked());
+ await page.getByRole('button',{name:'保存配置',exact:true}).click();await page.getByRole('region',{name:'语音生成工作台'}).waitFor();
+ const profile=await page.evaluate(()=>audioQA.state.mediaProfiles[0]);assert.equal(profile.requiresApiKey,false);assert.equal(profile.language,'Chinese');assert(profile.instructions);
+ await page.getByRole('textbox',{name:'配音文本',exact:true}).fill('这是一次界面验收。');await page.getByRole('textbox',{name:'音色与表演描述',exact:true}).fill('成年男性，声音低沉，坚定自然。');await page.getByRole('combobox',{name:'配音语言',exact:true}).selectOption('English');
+ await page.getByRole('button',{name:'生成语音',exact:true}).click();await page.locator('audio').waitFor();
+ const p=await page.evaluate(()=>audioQA.calls[0]);assert.equal(p.input,'这是一次界面验收。');assert.equal(p.language,'English');assert.equal(p.instructions,'成年男性，声音低沉，坚定自然。');
+ await page.getByRole('button',{name:'导出 WAV',exact:true}).click();await page.getByRole('status').getByText('已导出语音文件').waitFor();assert.equal(await page.evaluate(()=>audioQA.exports.length),1);
+ await page.evaluate(()=>audioQA.fail=true);await page.getByRole('button',{name:'生成语音',exact:true}).click();await page.getByRole('alert').getByText(/请先启动本地模型/).waitFor();assert.equal(await page.evaluate(()=>audioQA.calls.length),2);
+ await page.evaluate(()=>{audioQA.fail=false;audioQA.delay=true;});await page.getByRole('button',{name:'生成语音',exact:true}).click();assert(await page.getByRole('button',{name:'正在生成，请等待…'}).isDisabled());
+ await page.getByRole('button',{name:/文本模型/}).click();await page.evaluate(()=>audioQA.finish());await page.getByRole('button',{name:/语音模型配置/}).click();assert.equal(await page.locator('audio').count(),0,'late result from unmounted workbench');
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'horizontal overflow');assert.deepEqual(errors,[]);
+ await page.screenshot({path:`output/playwright/audio-${width}.png`,fullPage:true});reports.push({width,passed:true,requests:await page.evaluate(()=>audioQA.calls.length)});await page.close();
+}fs.writeFileSync('output/audio-ui-verification.json',JSON.stringify(reports,null,2));console.log(JSON.stringify(reports));}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

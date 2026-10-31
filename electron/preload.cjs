@@ -1,5 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
+ audioGenerate:payload=>ipcRenderer.invoke('audio-generate',payload),
   licenseCheck:()=>ipcRenderer.invoke('license-check'),
   licenseRoute:payload=>ipcRenderer.invoke('license-route',payload),
  licensePrepare:p=>ipcRenderer.invoke('license-prepare',p),
