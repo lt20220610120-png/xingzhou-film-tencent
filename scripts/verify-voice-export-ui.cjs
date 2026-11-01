@@ -47,7 +47,7 @@ let browser,page;const errors=[],report={checks:[],realApiCalls:0};
  },{oldDescription});
 
  await page.goto(base,{waitUntil:'domcontentloaded'});
- await page.evaluate(()=>{__artqa.assets=[{...__artqa.seedDogAsset,images:[{id:'i',url:'data:image/png;base64,AA=='}]}];__artqa.ledger={episodes:Object.fromEntries(__artqa.project.episodes.map(e=>[e.episodeNumber,{sourceContent:e.content,scenes:[{id:e.episodeNumber+'-1',source:e.content,items:[{category:'character',name:'【杰伊-日常】',description:'青年男性'}],removed:[]}],voiceAnalysis:{sourceContent:e.content,scenes:[{sceneId:e.episodeNumber+'-1',speakers:[{key:'杰伊',name:'杰伊',quote:'回来。'}]}]}}])),voiceProfiles:{杰伊:{confirmed:{id:'voice',filePath:'D:/voice.wav',kind:'audio'}}}};window.xingzhou.collabExportImages=async p=>{window.__exported=p;};});
+ await page.evaluate(()=>{__artqa.assets=[{...__artqa.seedDogAsset,name:'【杰伊-日常】',description:'身份与依据：32岁男性，司机，沉稳朴素。短黑发，灰色短袖，牛仔裤。',images:[{id:'i',url:'data:image/png;base64,AA=='}]}];__artqa.ledger={episodes:Object.fromEntries(__artqa.project.episodes.map(e=>[e.episodeNumber,{sourceContent:e.content,scenes:[{id:e.episodeNumber+'-1',source:e.content,items:[{category:'character',name:'【杰伊-日常】',description:'青年男性'}],removed:[]}],voiceAnalysis:{sourceContent:e.content,scenes:[{sceneId:e.episodeNumber+'-1',speakers:[{key:'杰伊',name:'杰伊',quote:'回来。'}]}]}}])),voiceProfiles:{杰伊:{confirmed:{id:'voice',filePath:'D:/voice.wav',kind:'audio'}}}};window.xingzhou.collabExportImages=async p=>{window.__exported=p;};});
  await page.getByRole('button',{name:'项目协作',exact:true}).click();
  await page.locator('.collab-rail').getByRole('button',{name:'美术',exact:true}).click();
  for(const [label,layout] of [['按集整理导出','episode'],['按场景整理导出','scene']]){
@@ -55,6 +55,18 @@ let browser,page;const errors=[],report={checks:[],realApiCalls:0};
   await page.getByRole('dialog',{name:'选择是否导出对应音频'}).waitFor();await page.getByRole('button',{name:'图片和对应音频一起导出',exact:true}).click();await page.waitForFunction(()=>!!window.__exported);
   const payload=await page.evaluate(()=>{const p=window.__exported;window.__exported=null;return p;});assert.equal(payload.layout,layout);assert(payload.images.some(r=>r.kind==='audio'));report.checks.push(label+': audio included');
  }
- for(const width of [1280,1700,2232]){await page.setViewportSize({width,height:1100});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
+ await page.evaluate(()=>{window.xingzhou.mediaImportFiles=async()=>[{filePath:'D:/isolated/reference.png',name:'本地参考'}];});
+ await page.locator('.collab-episode-card').first().click();
+ await page.locator('.art-workbench').getByLabel('人物构图模式',{exact:true}).first().selectOption('single');
+ for(const width of [2560,2232,1700,1280,1000,2232]){
+  await page.setViewportSize({width,height:1100});await page.waitForTimeout(120);
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'art horizontal overflow '+width);
+  const card=page.locator('.art-workbench-row').first();
+  const reference=await card.locator('.asset-reference-controls').evaluate(e=>{const r=[...e.children].map(n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,h:b.height};});return r;});
+  if(reference.length===2){assert(Math.abs(reference[0].y-reference[1].y)<2,JSON.stringify(reference));assert(reference[1].x>=reference[0].x+reference[0].w,'ref controls overlap');}
+  const toolbar=await card.locator('.art-prompt-toolbar').evaluate(e=>[...e.children].map(n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};}));
+  if(width>=2232){assert(Math.abs(toolbar[0].y-toolbar[1].y)<3,'art modes should share a row '+JSON.stringify(toolbar));assert(Math.abs(toolbar[0].y+toolbar[0].h/2-toolbar[2].y-toolbar[2].h/2)<3,'art actions baseline '+JSON.stringify(toolbar));}
+  await page.screenshot({path:`output/playwright/art-controls-optional-voice-${width}.png`,fullPage:true});report.checks.push({width,reference,toolbar});
+ }
  assert.deepEqual(errors,[]);console.log(JSON.stringify(report));await browser.close();
 })().catch(async e=>{console.error(e);if(browser)await browser.close();process.exitCode=1;});

@@ -1,8 +1,11 @@
 const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');const assert=require('node:assert/strict'),fs=require('node:fs');
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),report=[];try{for(const width of [1280,1700,2232]){
  const page=await browser.newPage({viewport:{width,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:'+(process.env.VOICE_REVIEW_PORT||'5843')+'/scripts/fixtures/voice-review-ui.html',{waitUntil:'networkidle'});
+ const css=fs.readdirSync('dist/assets').find(n=>n.endsWith('.css'));await page.addStyleTag({path:'dist/assets/'+css});
  const card=name=>page.locator('.project-voice-card').filter({has:page.getByRole('heading',{name,exact:true})});
  await page.getByRole('region',{name:'音色核实'}).waitFor();assert.equal(await page.locator('.project-voice-card').count(),3);
+  const aligned=await page.locator('.voice-reading-actions').evaluate(e=>[...e.querySelectorAll('select,button')].map(n=>n.getBoundingClientRect().bottom));if(width>=1280)assert(Math.max(...aligned)-Math.min(...aligned)<2,'voice header baselines '+JSON.stringify(aligned));
+ const cardAligned=await page.locator('.voice-model-actions').first().evaluate(e=>[...e.querySelectorAll('select,button')].map(n=>n.getBoundingClientRect().bottom));if(width>=1700)assert(Math.max(...cardAligned)-Math.min(...cardAligned)<2,'voice model baselines '+JSON.stringify(cardAligned));
  await page.getByRole('button',{name:'未采用音色',exact:true}).click();assert.equal(await page.locator('.project-voice-card').count(),1);assert.equal(await card('小王').count(),1);
  await page.getByRole('button',{name:'未生成音色',exact:true}).click();assert.equal(await card('小林').count(),1);
  assert.equal(await card('小林').getByLabel('小林音色描述').inputValue(),'');await card('小林').getByRole('button',{name:'生成语音',exact:true}).click();await page.waitForFunction(()=>voiceQA.ledger.voiceProfiles.小林?.candidates?.length===1);

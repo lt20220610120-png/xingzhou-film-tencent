@@ -2,7 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createProductionController,completeEpisode,imageFailureKind,productionDefaults,productionIssues,VOICE_AUTOMATION_RULE} from './productionFurnace.js';
 test('automation defaults include an explicit first-sample voice policy',()=>{const c=productionDefaults();assert.equal(c.voiceModelId,'');assert.match(VOICE_AUTOMATION_RULE,/第一条成功生成/);assert.match(VOICE_AUTOMATION_RULE,/年龄阶段/);});
-test('automatic stage order puts character voices between prompts and art',async()=>{const order=[],c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>order.push('prompts'),voices:async()=>order.push('voices'),art:async()=>order.push('art'),images:async()=>order.push('images'),videos:async({run})=>{order.push('videos');run.episodes=[{number:1,stage:'done'}]}}});const run=await c.create('p',{...productionDefaults(),mode:'auto'});await c.start(run.id);assert.deepEqual(order,['prompts','voices','art','images','videos']);assert.equal(run.stages.voices.status,'done');});
+test('automatic stage order puts enabled character voices between prompts and art',async()=>{const order=[],c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>order.push('prompts'),voices:async()=>order.push('voices'),art:async()=>order.push('art'),images:async()=>order.push('images'),videos:async({run})=>{order.push('videos');run.episodes=[{number:1,stage:'done'}]}}});const run=await c.create('p',{...productionDefaults(),mode:'auto',voiceEnabled:true});await c.start(run.id);assert.deepEqual(order,['prompts','voices','art','images','videos']);assert.equal(run.stages.voices.status,'done');});
+
+test('optional voices default off, never run or block old tasks and clear obsolete voice errors',async()=>{
+ assert.equal(productionDefaults().voiceEnabled,false);
+ const called=[],c=createProductionController({load:async()=>[],save:async()=>{},adapters:{monitor:async()=>({voices:false}),voices:async()=>{called.push('voice');throw Error('模型不存在');},videos:async({run})=>{run.episodes=[{stage:'done'}];}}});
+ const run=await c.create('p',{mode:'auto'});run.stageErrors={voices:'旧版未选语音模型'};run.voiceWarnings=['旧错误'];await c.start(run.id);
+ assert.deepEqual(called,[]);assert.equal(run.status,'done');assert.equal(run.stages.voices.skipped,true);assert.deepEqual(run.voiceWarnings,[]);
+ assert(!productionIssues(productionDefaults()).some(s=>/音色/.test(s)));
+});
+
+test('voice policy can switch during runtime, clears obsolete blockers and preserves submitted identity',async()=>{
+ const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{validateVoicePolicy:async()=>{}}}),run=await c.create('p',{...productionDefaults(),voiceEnabled:true,voiceModelId:'voice',voiceCompletionProfileId:'text',voiceDistributionProfileId:'text'});
+ run.status='running';run.items=[{id:'clip',jobId:'keep',status:'submitted'}];run.stageErrors={voices:'模型被删除',images:'保留'};run.stages.voices={status:'partial'};
+ await c.updateVoicePolicy(run.id,{voiceEnabled:false,voiceConcurrency:128,projectId:'wrong'});
+ assert.equal(run.config.voiceEnabled,false);assert.equal(run.config.voiceConcurrency,128);assert.equal(run.stages.voices.skipped,true);assert.equal(run.stageErrors.voices,undefined);assert.equal(run.stageErrors.images,'保留');assert.equal(run.items[0].jobId,'keep');assert.equal(run.projectId,'p');
+ await c.updateVoicePolicy(run.id,{voiceEnabled:true});assert.equal(run.stages.voices.status,'pending');assert.equal(run.config.voiceEnabled,true);
+ await assert.rejects(c.updateVoicePolicy(run.id,{voiceConcurrency:0}),/并发/);
+ await c.updateVoicePolicy(run.id,{voiceEnabled:false,voiceConcurrency:''});assert.equal(run.config.voiceEnabled,false);assert.equal(run.config.voiceConcurrency,1);
+});
 
 test('episode readiness requires every expected distinct clip and verified output',()=>{
  const clip={id:'a',status:'downloaded',outputFile:'a.mp4',sha256:'sha'};

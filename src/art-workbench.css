@@ -1,4 +1,16 @@
 /* Asset workbench: one complete production row per asset. */
+.art-workbench .collab-asset-desc{container-type:inline-size}
+.art-workbench .art-prompt-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 18px;padding:4px 0}
+.art-workbench .art-prompt-toolbar>.art-prompt-mode{flex:0 1 auto;margin:0;min-width:0}
+.art-workbench .art-prompt-toolbar .art-composition-select{flex-direction:row}
+.art-workbench .art-prompt-toolbar .art-prompt-mode small{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.art-workbench .art-prompt-toolbar>.collab-asset-actions{display:flex;gap:8px;align-items:center;margin:0 0 0 auto;flex:none}
+.art-workbench .art-prompt-toolbar>.collab-asset-actions button{height:34px;min-height:34px;padding:6px 10px;font-size:12px;white-space:nowrap}
+.art-workbench .asset-reference-controls{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center;min-width:0}
+.art-workbench .asset-reference-controls>.collab-ref-picker{grid-column:auto;display:flex;align-items:center;gap:4px;min-width:0;width:100%;height:34px;margin:0}
+.art-workbench .asset-reference-controls>.collab-ref-picker select{width:100%;min-width:0;flex:1;height:34px;margin:0;padding:4px 6px;text-overflow:ellipsis}
+.art-workbench .asset-reference-controls>.asset-local-reference-button{grid-column:auto;width:100%;min-width:0;height:34px;min-height:34px;margin:0;padding:4px 6px;font-size:12px;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:4px;border:1px solid #d9e0ee;border-radius:6px;background:#fff;color:#667591}
+@container(max-width:720px){.art-workbench .art-prompt-toolbar{gap:10px}.art-workbench .art-prompt-toolbar .art-prompt-mode small{display:none}.art-workbench .art-prompt-toolbar>.collab-asset-actions{margin-left:0}.art-workbench .art-prompt-toolbar .art-composition-select select{max-width:190px}}
 .art-workbench .art-prompt-settings { margin: 2px 0 4px; border-top: 1px solid #dae0f0; padding-top: 7px; font-size:13px; }
 .art-workbench .art-prompt-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .art-workbench .art-prompt-mode b { font-size:13px; color: #455071; }

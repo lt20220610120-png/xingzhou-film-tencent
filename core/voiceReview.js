@@ -13,23 +13,25 @@ export function voiceGenerationRequest(character,profile,selected){
  if(instructions.length>2000)throw Error(`${character.name}：人物介绍与音色描述合计过长，请精简至2000字符以内`);
  return {...selected,input:settings.quote,instructions,language:settings.language};
 }
-export async function generateCharacterVoice({character,store,api,selected,job={}}){
+export async function generateCharacterVoice({character,store,api,selected,job={},keepResult=()=>false}){
  if(!selected)throw Error('请选择语音模型');if(job.cancelled)return;
  const profile=store.snapshot().voiceProfiles?.[character.key]||{},request=voiceGenerationRequest(character,profile,selected);
- const result=await api.audioGenerate(request);if(job.cancelled)return;
- await store.setVoiceProfile(character.key,p=>job.cancelled?p:setVoiceCandidate(p,{...result,name:character.name+'音色',sourceResultId:result.id},voiceGenerationSettings(character,profile,selected)));
+ const result=await api.audioGenerate(request);if(job.cancelled&&!keepResult())return;
+ await store.setVoiceProfile(character.key,p=>job.cancelled&&!keepResult()?p:setVoiceCandidate(p,{...result,name:character.name+'音色',sourceResultId:result.id},voiceGenerationSettings(character,profile,selected)));
 }
 export async function adoptCharacterVoice({character,store,api,id,job={}}){
  const profile=store.snapshot().voiceProfiles?.[character.key],candidate=profile?.candidates?.find(c=>c.id===id);if(!candidate)throw Error('请选择已有样音');
  const retained=candidate.sourceResultId&&!candidate.retained?await api.audioResultRetain({id:candidate.sourceResultId}):null;if(job.cancelled)return;
  await store.setVoiceProfile(character.key,p=>job.cancelled?p:confirmVoiceCandidate(retained?{...p,candidates:p.candidates.map(c=>c.id===id?{...c,filePath:retained.filePath,retained:true}:c)}:p,id));
 }
-export async function runVoiceBatch({characters,getProfile,mode,generate,adopt,job={},onProgress=()=>{}}){
- let done=0,skipped=0;const errors=[];
- for(const c of characters){if(job.cancelled)break;const p=getProfile(c.key)||{};
-  if(mode==='generate'&&(p.confirmed||p.candidates?.length)||mode==='adopt'&&(p.confirmed||!p.candidates?.length)){skipped++;continue;}
-  onProgress(c);try{await(mode==='adopt'?adopt(c,p.candidates.at(-1).id):generate(c));if(!job.cancelled)done++;}catch(e){errors.push(`${c.name}：${e.message}`);}
- }
+export async function runVoiceBatch({characters,getProfile,mode,generate,adopt,concurrency=1,job={},onProgress=()=>{}}){
+ if(!Number.isSafeInteger(Number(concurrency))||Number(concurrency)<1)throw Error('音色并发数必须是正整数');
+ let done=0,skipped=0,cursor=0;const errors=[];
+ const worker=async()=>{while(!job.cancelled&&cursor<characters.length){const c=characters[cursor++],p=getProfile(c.key)||{};
+  if(mode==='generate'&&(p.confirmed||p.candidates?.length)||mode==='prepare'&&p.confirmed||mode==='adopt'&&(p.confirmed||!p.candidates?.length)){skipped++;continue;}
+  onProgress(c);try{await(mode==='adopt'?adopt(c,p.candidates[0].id):generate(c));if(!job.cancelled)done++;}catch(e){if(!job.cancelled)errors.push(`${c.name}：${e.message}`);}
+ }};
+ await Promise.all(Array.from({length:Math.min(Number(concurrency),characters.length)},worker));
  return {done,skipped,errors};
 }
 export async function completeVoiceCard({character,store,api,model,project,job={}}){

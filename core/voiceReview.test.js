@@ -26,3 +26,14 @@ test('batch skips existing samples and confirmation, continues individual failur
  const result=await runVoiceBatch({characters:['a','b','c'].map(key=>({key,name:key})),getProfile:k=>profiles[k],mode:'generate',job:{},generate:async c=>{calls.push(c.key);if(c.key==='b')throw Error('失败');}});
  assert.deepEqual(calls,['b','c']);assert.equal(result.errors.length,1);assert.equal(result.done,1);
 });
+
+test('voice batch overlaps up to requested concurrency, preserves all outcomes and chooses first sample',async()=>{
+ let active=0,peak=0;const adopted=[];
+ const result=await runVoiceBatch({characters:Array.from({length:6},(_,i)=>({key:String(i),name:'人物'+i})),getProfile:()=>({}),mode:'generate',concurrency:3,generate:async c=>{active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,8));active--;if(c.key==='1')throw Error('one failure');}});
+ assert.equal(peak,3);assert.equal(result.done,5);assert.equal(result.errors.length,1);
+ await runVoiceBatch({characters:[{key:'a'}],getProfile:()=>({candidates:[{id:'first'},{id:'last'}]}),mode:'adopt',adopt:async(c,id)=>adopted.push(id)});assert.deepEqual(adopted,['first']);
+});
+
+test('cancelled concurrent batch does not dispatch remaining cards',async()=>{
+ const job={},calls=[];await runVoiceBatch({characters:[1,2,3,4,5].map(key=>({key,name:String(key)})),getProfile:()=>({}),mode:'generate',concurrency:2,job,generate:async c=>{calls.push(c.key);job.cancelled=true;}});assert(calls.length<=2);assert(!calls.includes(3));
+});

@@ -6,7 +6,7 @@ import {isFundingError,productionRecoveryGoals,productionRecoveryFingerprint} fr
 import {supplementPromptMissingReferences} from '../../core/promptMissingSupplement.js';
 import {resolveProductionProject,productionProjectCandidates} from '../../core/productionProject.js';
 import {productionArtMonitor} from '../../core/productionMonitor.js';
-import {productionCoverage,productionExpectedPrompts,completeEpisode,productionVideoIssues,VOICE_AUTOMATION_RULE} from '../../core/productionFurnace.js';
+import {productionCoverage,productionExpectedPrompts,completeEpisode,productionVideoIssues,VOICE_AUTOMATION_RULE,voiceAutomationEnabled,voicePolicyIssues} from '../../core/productionFurnace.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
@@ -24,7 +24,7 @@ import {createDirectorSync} from '../../core/cloudTraffic.js';
 import {bindingHash,sceneInventoryCards} from '../../core/promptArtBinding.js';
 import {readProjectVoices} from '../../core/voiceAnalysisRunner.js';
 import {projectVoiceRoster} from '../../core/characterVoices.js';
-import {completeVoiceCard,generateCharacterVoice,adoptCharacterVoice} from '../../core/voiceReview.js';
+import {completeVoiceCard,generateCharacterVoice,adoptCharacterVoice,runVoiceBatch} from '../../core/voiceReview.js';
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const json=text=>JSON.parse(String(text).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));
 export function productionArtResumePlan(project,ledger,binding){
@@ -33,6 +33,7 @@ export function productionArtResumePlan(project,ledger,binding){
 export function createProductionAdapters({api,getState,setState,getQuick,getAccount}){
  const activeJobs=new Map(),syncDirector=createDirectorSync();
  const project=run=>{const p=getState().directorProjects?.find(p=>p.id===run.projectId);if(!p)throw Error('导演项目不存在');return p;};
+ const voiceModelFor=c=>mediaModelChoices(getState(),'audio').find(m=>m.id===c.voiceModelId)||generationMediaProfiles(getState(),'audio').find(m=>m.id===c.voiceModelId);
  const profile=id=>{const p=getState().apiProfiles.find(p=>p.id===id);if(!p)throw Error('所选模型配置不存在');return p;};
  async function audit(ctx,payload){ctx.guard();const key=bindingHash(payload);ctx.run.audits||={};if(ctx.run.audits[key]?.approved)return;const result=json(await api.productionAudit({runId:ctx.run.id,payload}));ctx.guard();ctx.run.audits[key]={at:Date.now(),...result};await ctx.checkpoint();if(result.approved!==true)throw Error('制作 Agent 待核对：'+(result.reason||'检查未通过'));}
  async function collab(ctx){
@@ -60,7 +61,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   while(result.status==='running'){await wait(5000);ctx.guard();result=await api.productionPostStatus({runId:ctx.run.id,episode:ep.number,stage});}
   if(result.status!=='done')throw Error(result.error||'后期尚未完成');return result.result;
  }
- async function work(ctx,task,messages){ctx.guard();if(!api.productionWork)throw Error('Agent 工作组件尚未加载，请升级并重新打开软件');const rules='\n【行舟影视自动化人物音色流程】\n你是接入行舟影视自动化制作的 Agent。你必须把人物音色作为剧本与提示词之后、美术之前的独立阶段执行。'+VOICE_AUTOMATION_RULE+(ctx.run.config.workflowRules?'\n管理员确认的制作规则：'+ctx.run.config.workflowRules:'');const enriched=messages.map((m,i)=>i===0&&m.role==='system'?{...m,content:m.content+rules}:m);const result=await api.productionWork({runId:ctx.run.id,task,messages:enriched});ctx.guard();return result;}
+ async function work(ctx,task,messages){ctx.guard();if(!api.productionWork)throw Error('Agent 工作组件尚未加载，请升级并重新打开软件');const rules='\n【行舟影视自动化人物音色流程】\n你是接入行舟影视自动化制作的 Agent。'+(voiceAutomationEnabled(ctx.run.config)?'音色开关已开启，按配置的并发数执行人物音色阶段。'+VOICE_AUTOMATION_RULE:'音色开关已关闭，跳过音色生成和补全，不要求选择语音模型，不以缺少音色阻塞美术或视频，不擅自开启音色。已有人工采用音色和其他成果保留。')+(ctx.run.config.workflowRules?'\n管理员确认的制作规则：'+ctx.run.config.workflowRules:'');const enriched=messages.map((m,i)=>i===0&&m.role==='system'?{...m,content:m.content+rules}:m);const result=await api.productionWork({runId:ctx.run.id,task,messages:enriched});ctx.guard();return result;}
  async function publishReady(ctx,state){
   const {store,p}=state,targets=state.monitor.episodes.filter(e=>!e.changed).flatMap(e=>e.scenes.filter(s=>!s.published).map(s=>({number:e.number,id:s.id}))),byEpisode=new Map();
   for(const target of targets){const scene=store.snapshot().episodes[target.number]?.scenes.find(s=>s.id===target.id);if(!scene?.items.length||scene.items.some(needsArtReviewDetails))continue;if(!byEpisode.has(target.number))byEpisode.set(target.number,[]);byEpisode.get(target.number).push(target.id);}
@@ -85,10 +86,11 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     await ctx.checkpoint();
    }
    const coverage=productionCoverage(project(ctx.run)),scenes=coverage.flatMap(e=>e.scenes),promptDone=scenes.length>0&&scenes.every(s=>s.count>0);
-   const {monitor}=await readArt(ctx,true);
+   const {monitor,store:voiceStore,p:voiceProject}=await readArt(ctx,true);
    ctx.run.monitor={...ctx.run.monitor,prompts:{episodes:coverage.length,scenes:scenes.length,complete:scenes.filter(s=>s.count>0).length,count:scenes.reduce((n,s)=>n+s.count,0)}};
    await ctx.log?.(`批量监测完成：提示词 ${scenes.filter(s=>s.count).length}/${scenes.length} 场，清单已发布 ${monitor.summary.published}/${monitor.summary.scenes} 场，已有图片 ${monitor.summary.images}/${monitor.summary.assets}；只接续缺项，不重做已完成成果。`);
-   const voiceDone=Boolean(ctx.run.voiceAutomation&&!ctx.run.voiceWarnings?.length);
+   const voiceRoster=voiceStore&&voiceAutomationEnabled(ctx.run.config)?projectVoiceRoster(voiceProject,voiceStore.snapshot()):null;
+   const voiceDone=!voiceAutomationEnabled(ctx.run.config)||Boolean(ctx.run.voiceAutomation?.completed&&!ctx.run.voiceWarnings?.length&&voiceRoster?.complete&&voiceRoster.characters.filter(x=>x.manual||x.major).every(x=>voiceStore.snapshot().voiceProfiles?.[x.key]?.confirmed));
    return {prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitor.summary.images===monitor.summary.assets};
   },
   async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source.id);const id=run.collabProjectId||run.config.collabProjectId||candidates[0]?.id;
@@ -97,7 +99,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   },
   async chat(run,{text,model,history}){const context=await this.inspect(run);const reply=await api.productionChat({runId:run.id,text,model,history,context});return {...reply,context};},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
-  async validate(ctx){await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
+  async validate(ctx){await this.validateVoicePolicy(ctx.run.config);await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
   async validateVideoPolicy(config){const issues=productionVideoIssues(config,getState());if(issues.length)throw Error(issues.join('；'));},
   async prompts(ctx){
    const {run}=ctx,c=run.config;ctx.guard();let p=project(run);run.name=p.name;await ctx.checkpoint();
@@ -115,18 +117,30 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    const missing=coverage.flatMap(e=>e.scenes).filter(s=>!s.count);if(missing.length)throw Error(`仍缺少提示词：${missing.map(s=>s.label).join('、')}`);
    await ctx.notice('提示词已补齐，保留现有内容，不重复做整本审核');
   },
+  async validateVoicePolicy(c){if(!voiceAutomationEnabled(c))return;const issues=voicePolicyIssues(c);if(issues.length)throw Error(issues.join('；'));profile(c.voiceCompletionProfileId);profile(c.voiceDistributionProfileId);if(!voiceModelFor(c))throw Error('人物音色模型已不存在');},
   async voices(ctx){
-   const {run}=ctx,c=run.config,p=await collab(ctx),assets=await api.collabListAssets({projectId:p.id}),store=getArtReviewStore({api,projectId:p.id,accountId:getAccount().id});await store.load(p,assets);ctx.guard();
-   const completion=profile(c.voiceCompletionProfileId),distribution=profile(c.voiceDistributionProfileId),voiceModel=generationMediaProfiles(getState(),'audio').find(m=>m.id===c.voiceModelId);if(!voiceModel)throw Error('人物音色模型已不存在');
-   await ctx.notice('读取人物正常对白并补齐音色前置信息');await readProjectVoices({project:p,store,api,profile:completion,job:{cancelled:false,taskIds:[]},onProgress:()=>{}});
-   const roster=projectVoiceRoster(p,store.snapshot()),characters=roster.characters.filter(x=>x.manual||x.major),errors=[];run.voiceAutomation={modelId:voiceModel.id,completionProfileId:completion.id,distributionProfileId:distribution.id,policy:'每个人物生成第一条后自动采用'};
-   for(const character of characters){ctx.guard();const current=store.snapshot().voiceProfiles?.[character.key]||{};try{
-    await completeVoiceCard({character,store,api,model:completion,project:p,job:{cancelled:false,taskIds:[]}}).catch(error=>{if(!current.draft?.quote)throw error;});
-    const latest=store.snapshot().voiceProfiles?.[character.key]||{};if(latest.confirmed||latest.candidates?.length)continue;
-    await generateCharacterVoice({character,store,api,selected:voiceModel,job:{cancelled:false,taskIds:[]}});const candidate=store.snapshot().voiceProfiles?.[character.key]?.candidates?.[0];if(candidate)await adoptCharacterVoice({character,store,api,id:candidate.id,job:{cancelled:false,taskIds:[]}});
-    await ctx.log?.(`自动采用 ${character.name} 的第一条生成音色（分发模型：${distribution.name||distribution.id}）。`,'success');
-   }catch(error){errors.push(`${character.name}：${error.message}`);await ctx.log?.(`人物音色 ${character.name} 暂未完成：${error.message}`,'warning');}}
-   if(errors.length){run.voiceWarnings=errors;return {partial:true};}run.voiceWarnings=[];ctx.artSnapshot=null;return {partial:false};
+   if(!voiceAutomationEnabled(ctx.run.config))return {skipped:true};
+   const {run}=ctx,c=run.config,completion=profile(c.voiceCompletionProfileId),distribution=profile(c.voiceDistributionProfileId),voiceModel=voiceModelFor(c);if(!voiceModel)throw Error('人物音色模型已不存在');
+   run.voiceAutomation={completed:false};const voiceAccountId=getAccount().id;const keepResult=()=>{try{return getAccount().id===voiceAccountId;}catch{return false;}};
+   const job={taskIds:[],stopped:false,get cancelled(){return this.stopped||run.status!=='running'||!voiceAutomationEnabled(run.config);},set cancelled(value){this.stopped=value;}};activeJobs.set(run.id,job);
+   try{
+    const p=await collab(ctx),assets=await api.collabListAssets({projectId:p.id}),store=getArtReviewStore({api,projectId:p.id,accountId:getAccount().id});await store.load(p,assets);ctx.guard();
+    const missing=listCollabEpisodes(p.episodes).filter(ep=>store.snapshot().episodes?.[ep.episodeNumber]?.sourceContent!==ep.content||!store.snapshot().episodes?.[ep.episodeNumber]?.scenes?.length);
+    if(missing.length&&!job.cancelled){await ctx.notice('先读取缺失剧本信息，再准备人物音色');await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:completion,existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:false,targetEpisodeNumbers:missing.map(e=>e.episodeNumber),preserveExisting:true,job});}
+    if(job.cancelled)return {skipped:true};
+    await ctx.notice('读取人物正常对白并补齐音色前置信息');await readProjectVoices({project:p,store,api,profile:completion,job,onProgress:()=>{}});
+    const characters=projectVoiceRoster(p,store.snapshot()).characters.filter(x=>x.manual||x.major);
+    run.voiceAutomation={completed:false,modelId:voiceModel.id,completionProfileId:completion.id,distributionProfileId:distribution.id,concurrency:Number(c.voiceConcurrency||1),policy:'每个人物生成第一条后自动采用'};
+    const result=await runVoiceBatch({characters,getProfile:key=>store.snapshot().voiceProfiles?.[key],mode:'prepare',concurrency:c.voiceConcurrency??1,job,generate:async character=>{
+     ctx.guard();if(job.cancelled)return;
+     let latest=store.snapshot().voiceProfiles?.[character.key]||{};
+     if(!latest.candidates?.length){await completeVoiceCard({character,store,api,model:completion,project:p,job});if(job.cancelled)return;await generateCharacterVoice({character,store,api,selected:voiceModel,job,keepResult});}
+     if(job.cancelled)return;latest=store.snapshot().voiceProfiles?.[character.key]||{};
+     const candidate=latest.candidates?.[0];if(!candidate)throw Error('语音生成未返回可用样音');await adoptCharacterVoice({character,store,api,id:candidate.id,job});
+     if(!job.cancelled)await ctx.log?.(`自动采用 ${character.name} 的第一条生成音色（分发模型：${distribution.name||distribution.id}）。`,'success');
+    }});
+    run.voiceAutomation.completed=!job.cancelled&&result.errors.length===0;run.voiceWarnings=job.cancelled?[]:result.errors;ctx.artSnapshot=null;return {partial:!job.cancelled&&result.errors.length>0};
+   }finally{if(activeJobs.get(run.id)===job)activeJobs.delete(run.id);}
   },
   async art(ctx){
    const {run}=ctx,c=run.config;let {p,assets,monitor}=await readArt(ctx);ctx.guard();

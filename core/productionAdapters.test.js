@@ -16,6 +16,34 @@ function fixture(){
  return {adapter,ctx,run,state,jobs,events,api,ledger};
 }
 
+test('disabled automation voice adapter makes zero model or collaboration calls',async()=>{
+ const f=fixture();f.api.collabGetProject=async()=>{throw Error('must not load voices');};
+ assert.deepEqual(await f.adapter.voices(f.ctx),{skipped:true});
+});
+
+test('voice stage resolves model choice IDs, overlaps configured work and resumes first existing candidate',async()=>{
+ const f=fixture();f.state.apiProfiles=[{id:'text',model:'mock'}];f.state.mediaProfiles.push({id:'audio',kind:'audio',model:'Qwen-VoiceDesign'});
+ Object.assign(f.run.config,{mode:'auto',voiceEnabled:true,voiceConcurrency:2,voiceModelId:JSON.stringify(['audio','Qwen-VoiceDesign']),voiceCompletionProfileId:'text',voiceDistributionProfileId:'text'});
+ f.api.collabListProjects=async()=>[{id:'collab',director_project_id:'director'}];
+ for(const ep of f.state.directorProjects[0].episodes)f.ledger.episodes[ep.episodeNumber].voiceAnalysis={schema:2,prepared:true,sourceContent:ep.content,scenes:[{sceneId:ep.episodeNumber+'-1',appearances:[],speakers:[]}]};
+ f.ledger.voiceProfiles=Object.fromEntries(['a','b','c'].map(key=>[key,{manual:{name:key,characterName:key,sceneIds:['1-1'],quote:'走吧。'},...(key==='a'?{candidates:[{id:'first',url:'data:audio/wav;base64,UklGRg=='},{id:'later',url:'data:audio/wav;base64,UklGRg=='}]}:{})}]));
+ let live=0,peak=0,generated=0;f.api.audioGenerate=async request=>{assert.equal(request.model,'Qwen-VoiceDesign');live++;peak=Math.max(peak,live);await new Promise(r=>setTimeout(r,10));live--;generated++;return {id:'s'+generated,url:'data:audio/wav;base64,UklGRg=='};};f.api.audioResultRetain=async({id})=>({filePath:'D:/retained/'+id+'.wav'});f.api.artReviewSaveLocal=async({data})=>{Object.assign(f.ledger,structuredClone(data));};
+ const result=await f.adapter.voices(f.ctx);assert.equal(result.partial,false);assert.equal(generated,2);assert.equal(peak,2);assert.equal(f.ledger.voiceProfiles.a.confirmed.id,'first');assert(f.ledger.voiceProfiles.b.confirmed);assert(f.ledger.voiceProfiles.c.confirmed);
+ await f.adapter.voices(f.ctx);assert.equal(generated,2,'confirmed voices must never regenerate');
+});
+
+test('pausing mid-voice batch never marks incomplete voices complete and retains completed samples for resume',async()=>{
+ const f=fixture();f.state.apiProfiles=[{id:'text',model:'mock'}];f.state.mediaProfiles.push({id:'audio',kind:'audio',model:'Qwen-VoiceDesign'});
+ Object.assign(f.run.config,{mode:'auto',voiceEnabled:true,voiceConcurrency:1,voiceModelId:JSON.stringify(['audio','Qwen-VoiceDesign']),voiceCompletionProfileId:'text',voiceDistributionProfileId:'text'});
+ f.api.collabListProjects=async()=>[{id:'collab',director_project_id:'director'}];
+ for(const ep of f.state.directorProjects[0].episodes)f.ledger.episodes[ep.episodeNumber].voiceAnalysis={schema:2,prepared:true,sourceContent:ep.content,scenes:[{sceneId:ep.episodeNumber+'-1',appearances:[],speakers:[]}]};
+ f.ledger.voiceProfiles=Object.fromEntries(['a','b','c'].map(key=>[key,{manual:{name:key,characterName:key,sceneIds:['1-1'],quote:'走吧。'}}]));
+ let generated=0;f.api.audioGenerate=async()=>{generated++;if(generated===1){f.run.status='paused';await f.adapter.pause(f.run);}return {id:'s'+generated,url:'data:audio/wav;base64,UklGRg=='};};f.api.audioResultRetain=async({id})=>({filePath:'D:/retained/'+id+'.wav'});f.api.artReviewSaveLocal=async({data})=>{Object.assign(f.ledger,structuredClone(data));};
+ await f.adapter.voices(f.ctx);f.run.status='running';const checked=await f.adapter.monitor(f.ctx);assert.equal(checked.voices,false,'unfinished cards must remain pending');
+ assert.equal(f.ledger.voiceProfiles.a.candidates.length,1,'the in-flight result is retained after pause');
+ await f.adapter.voices(f.ctx);assert.equal(generated,3,'resume adopts first completed result without generating it again');assert(['a','b','c'].every(k=>f.ledger.voiceProfiles[k].confirmed));
+});
+
 test('video failure uses configured primary/fallback attempts, never redoes successful clips',async()=>{const f=fixture();f.run.config.endStage='archive';f.run.config.videoAttempts=2;f.run.config.videoFallbackEnabled=true;f.run.config.fallbackVideoAttempts=2;f.run.config.fallbackVideoModel=JSON.stringify(['backup','b']);f.state.mediaProfiles.push({id:'backup',name:'备用',kind:'video',model:'b',capabilities:{maxImages:8,durations:[30],ratios:['9:16'],resolutions:['480p']}});const seen=[];f.api.generationSubmit=async input=>{seen.push([input.shotLabel,input.profileId]);const job={...input,id:crypto.randomUUID(),status:input.profileId==='backup'?'success':'failed',error:input.profileId==='backup'?'':'generation failed'};f.jobs.push(job);return job;};await f.adapter.videos(f.ctx);assert.equal(f.run.items.filter(i=>i.status==='downloaded').length,4);assert.deepEqual(seen.filter(i=>i[0]==='1-1-1').map(i=>i[1]),['video','video','backup']);const count=seen.length;await f.adapter.videos(f.ctx);assert.equal(seen.length,count);});
 test('semi mode invokes Agent per clip and hands off only complete episodes in numeric order',async()=>{
  const f=fixture();await f.adapter.videos(f.ctx);assert.equal(f.run.name,'验收剧');assert.equal(f.run.items.length,4);assert(f.run.episodes.every(e=>e.stage==='done'));

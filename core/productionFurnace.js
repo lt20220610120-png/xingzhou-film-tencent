@@ -15,7 +15,14 @@ export function productionVideoIssues(c,state){
 }
 export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['voices','人物音色'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐集超分'],['edit','剪辑成片']];
 export const VOICE_AUTOMATION_RULE='人物音色阶段：先读取每集正常对白和人物身份/年龄阶段/剧本依据，完成缺项后按人物卡调用所选音色模型。自动化不试听，不等待人工挑选；每个人物采用第一条成功生成的音色，并将该音色按人物和年龄阶段关联到对应场景、提示词和后续视频参考。只发送实际讲话人物的音色，不把旁白、画外音、心声或其他年龄阶段音色混入。';
-export function productionDefaults(){return {mode:'auto',style:'真人电影级',ratio:'9:16',maxDuration:32,promptProfileId:'',promptSkillId:'',voiceModelId:'',voiceCompletionProfileId:'',voiceDistributionProfileId:'',analysisProfileId:'',artStyle:'AI真人',composition:'portrait-four',imageModel:'',fallbackImageModel:'',imageAttempts:2,imageConcurrency:2,imageRatio:'16:9',videoModel:'',videoDuration:30,videoResolution:'480p',videoConcurrency:2,videoAttempts:2,videoFallbackEnabled:false,fallbackVideoModel:'',fallbackVideoAttempts:2,agentPath:'',agentProtocol:'codex',agentModel:'',agentEffort:'high',topazPath:'',upscaleFactor:2,openFilmPath:'',editAgentPath:'',editAgentProtocol:'codex',editModel:'',editPreset:'default',editMarket:'domestic',tailFrameMode:'default',tailFramePath:'',editInstruction:'',musicFolder:'',soundFolder:'',voiceFolder:'',outputRoot:'',endStage:'edit',humanConfirmed:false};}
+export const voiceAutomationEnabled=c=>c?.voiceEnabled===true;
+export function voicePolicyIssues(c){return voiceAutomationEnabled(c)?[
+ ...(!c.voiceModelId?['请选择人物音色模型']:[]),
+ ...(!c.voiceCompletionProfileId?['请选择音色前置信息补充模型']:[]),
+ ...(!c.voiceDistributionProfileId?['请选择音色分发模型']:[]),
+ ...(!Number.isSafeInteger(Number(c.voiceConcurrency??1))||Number(c.voiceConcurrency??1)<1?['音色并发数必须是正整数']:[])
+ ]:[];}
+export function productionDefaults(){return {mode:'auto',style:'真人电影级',ratio:'9:16',maxDuration:32,promptProfileId:'',promptSkillId:'',voiceEnabled:false,voiceConcurrency:1,voiceModelId:'',voiceCompletionProfileId:'',voiceDistributionProfileId:'',analysisProfileId:'',artStyle:'AI真人',composition:'portrait-four',imageModel:'',fallbackImageModel:'',imageAttempts:2,imageConcurrency:2,imageRatio:'16:9',videoModel:'',videoDuration:30,videoResolution:'480p',videoConcurrency:2,videoAttempts:2,videoFallbackEnabled:false,fallbackVideoModel:'',fallbackVideoAttempts:2,agentPath:'',agentProtocol:'codex',agentModel:'',agentEffort:'high',topazPath:'',upscaleFactor:2,openFilmPath:'',editAgentPath:'',editAgentProtocol:'codex',editModel:'',editPreset:'default',editMarket:'domestic',tailFrameMode:'default',tailFramePath:'',editInstruction:'',musicFolder:'',soundFolder:'',voiceFolder:'',outputRoot:'',endStage:'edit',humanConfirmed:false};}
 export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={}){
  const issues=[];if(!project?.episodes?.some(e=>e.kind!=='setting'))issues.push('请上传剧本或选择导演项目');
  if(!c.outputRoot)issues.push('请选择项目输出目录');
@@ -23,13 +30,14 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
  if(c.mode==='auto'){
   if(!profiles.some(p=>p.id===c.promptProfileId))issues.push('请选择提示词模型');
   if(!skills.some(s=>s.id===c.promptSkillId))issues.push('请选择导演提示词 Skill');
-  if(!profiles.some(p=>p.id===c.voiceCompletionProfileId))issues.push('请选择音色前置信息补充模型');
-  if(!profiles.some(p=>p.id===c.voiceDistributionProfileId))issues.push('请选择音色分发模型');
-  if(!c.voiceModelId)issues.push('请选择人物音色模型');
+
   if(!profiles.some(p=>p.id===c.analysisProfileId))issues.push('请选择美术分析模型');
   if(!models.some(m=>m.id===c.imageModel))issues.push('请选择生图主模型');
   if(!models.some(m=>m.id===c.fallbackImageModel))issues.push('请选择生图备用模型');
  }
+  if(voiceAutomationEnabled(c)&&!profiles.some(p=>p.id===c.voiceCompletionProfileId))issues.push('请选择音色前置信息补充模型');
+  if(voiceAutomationEnabled(c)&&!profiles.some(p=>p.id===c.voiceDistributionProfileId))issues.push('请选择音色分发模型');
+ issues.push(...voicePolicyIssues(c));
  if(c.mode==='semi'&&!c.humanConfirmed)issues.push('请确认提示词与图片关联已经人工核对');
  if(!c.videoModel)issues.push('请选择视频渠道与模型');
  if(![2,4].includes(Number(c.upscaleFactor)))issues.push('超分倍率请选择 2 倍或 4 倍');
@@ -82,11 +90,11 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
     }catch(error){guard(run);await log(`监测暂未完成：${error.message}；保留原成果，按原任务凭据接续。`,'warning');}
    }
    for(const stage of ['prompts','voices','art','images']){
-    guard(run);if(run.stages[stage]?.status==='done'||run.config.mode==='semi')continue;if(typeof adapters[stage]!=='function'){run.stages[stage]={status:'done',skipped:true};await persist(run);continue;}
+    guard(run);if(stage==='voices'&&!voiceAutomationEnabled(run.config)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];await persist(run);continue;}if(run.stages[stage]?.status==='done'||run.config.mode==='semi'&&stage!=='voices')continue;if(typeof adapters[stage]!=='function'){run.stages[stage]={status:'done',skipped:true};await persist(run);continue;}
      run.stages[stage]={status:'running'};await log(`开始执行：${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}`);
      let result;
      try{result=await adapters[stage](ctx);if(run.stageErrors)delete run.stageErrors[stage];}catch(error){if(run.status!=='running')throw error;run.stageErrors={...(run.stageErrors||{}),[stage]:error.message};await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}出现问题：${error.message}；保留当前结果并继续后续阶段。`,'error');result={partial:true};}
-     guard(run);run.stages[stage]={status:result?.partial?'partial':'done'};await persist(run);
+     guard(run);if(stage==='voices'&&!voiceAutomationEnabled(run.config)){result={partial:false};run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];}else run.stages[stage]={status:result?.partial?'partial':'done'};await persist(run);
      if(stage==='prompts')delete ctx.artSnapshot;
      await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}${result?.partial?'存在待处理项，已继续后续阶段':'已完成'}。`,result?.partial?'warning':'success');
    }
@@ -110,6 +118,17 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
   async refresh(id){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id))throw Error('运行时自动监测，请暂停并等待当前操作结束后刷新');if(!adapters.monitor)return;active.set(id,true);try{const result=await adapters.monitor({run,readOnly:true,guard:()=>{},checkpoint:()=>persist(run),log:async()=>{}});if(run.status==='done'&&(Object.values(result).some(v=>v===false)||run.monitor?.files?.invalidItems?.length||run.monitor?.files?.invalidEpisodes?.length)){run.status='attention';run.message='监测发现缺项，已保留原成果，点击继续接续';}await persist(run);return result;}catch(error){if(run.status==='done'){run.status='attention';run.message='监测暂未完成，已保留成果，请重试检查';await persist(run);}throw error;}finally{active.delete(id);}},
   async bindProject(id,projectId){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束再切换项目');if(run.items.length||run.videoSourceSignature)throw Error('任务已有视频提交记录，保留原项目，请创建新流程改选');await adapters.selectCollab(run,projectId);if(active.has(id)||run.status==='running'||run.items.length||run.videoSourceSignature)throw Error('任务状态已改变，请暂停后重试');run.collabProjectId=projectId;run.config.collabProjectId=projectId;delete run.stages.art;delete run.stages.images;await persist(run);},
   async saveRule(id,text){const run=runs.find(r=>r.id===id);if(!run||!String(text||'').trim()||text.length>8000)throw Error('请填写要保存的流程规则');run.config.workflowRules=String(text).trim();await persist(run);},
+  async updateVoicePolicy(id,value){
+   const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(run.status==='done')throw Error('任务已完成，请新建任务启用音色');
+   const patch=Object.fromEntries(['voiceEnabled','voiceConcurrency','voiceModelId','voiceCompletionProfileId','voiceDistributionProfileId'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]));
+   if(Object.hasOwn(patch,'voiceEnabled')&&typeof patch.voiceEnabled!=='boolean')throw Error('音色开关无效');
+   if(Object.hasOwn(patch,'voiceConcurrency')&&(!Number.isSafeInteger(Number(patch.voiceConcurrency))||Number(patch.voiceConcurrency)<1)){if((patch.voiceEnabled??run.config.voiceEnabled)===true)throw Error('音色并发数必须是正整数');patch.voiceConcurrency=1;}
+   const next={...run.config,...patch},issues=voicePolicyIssues(next);if(issues.length)throw Error(issues.join('；'));await adapters.validateVoicePolicy?.(next);
+   const changed=JSON.stringify(next)!==JSON.stringify(run.config);run.config=next;
+   if(voiceAutomationEnabled(next)&&changed){delete run.voiceAutomation;run.stages.voices={status:'pending'};if(run.status==='running'){run.status='paused';await adapters.pause?.(run);}run.message='音色已启用；点击继续，先补跑音色再接续原任务';}
+   if(!voiceAutomationEnabled(next)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];run.message='音色已关闭，跳过音色生成；已有成果保留';}
+   await persist(run);
+  },
   async updateVideoPolicy(id,value){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束');const patch=Object.fromEntries(['videoAttempts','videoFallbackEnabled','fallbackVideoModel','fallbackVideoAttempts','videoFallbacks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,structuredClone(value[k])])),next={...run.config,...patch};const issues=videoPolicyIssues(next);if(issues.length)throw Error(issues.join('；'));await adapters.validateVideoPolicy?.(next);if(active.has(id)||run.status==='running')throw Error('任务正在运行，请先暂停');run.config=next;delete run.recovery?.nextAgentAt;run.message='视频失败接续策略已保存；已提交原任务继续监测，点击继续仅处理缺项';await persist(run);},
   async chat(id,{text,model}){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('Agent 正在回复，请稍候');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');chatting.add(id);
    const add=async(role,message)=>{run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role,text:message}].slice(-200);await persist(run);};
