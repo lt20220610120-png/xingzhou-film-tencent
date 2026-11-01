@@ -17,6 +17,7 @@ import {planProductionReferenceSelection,selectProductionReferences} from '../..
 import {workflowInput} from '../../core/adminWorkflow.js';
 import {produceImages} from '../../core/productionImages.js';
 import {runProductionVideoTask} from '../../core/productionVideoTask.js';
+import {videoAttemptChoices} from '../../core/productionVideoPolicy.js';
 import {assetHasImages} from '../../core/assetImages.js';
 import {mediaModelChoices} from '../../core/modelChoices.js';
 import {generationMediaProfiles} from '../../core/canvasStore.js';
@@ -183,24 +184,34 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
       ep.stage='edit-queued';await ctx.checkpoint();const task=editTail.catch(()=>{}).then(async()=>{ctx.guard();ep.stage='edit';await ctx.checkpoint();ep.result=await checkPost(ctx,ep,'edit');ep.stage='done';await ctx.checkpoint();});editTail=task;await task;
      }catch(e){ep.stage='attention';ep.error=e.message;await ctx.checkpoint();}})();postJobs.set(ep.number,job);
    }};
-   await postReady();const tasks=await api.generationList({includeArchived:true});
+   await postReady();const tasks=await api.generationList({includeArchived:true}),videoModels=mediaModelChoices(getState(),'video'),choices=videoAttemptChoices(c,videoModels),capacity=new Map();
+   // A slot lasts through submission, polling and download. Each ordered policy
+   // entry owns its limit, so fallback work can speed up or slow down safely.
+   const acquire=async(selected,job)=>{
+    const choice=selected||choices.find(m=>m.videoPolicyKey===job.workflowVideoPolicyKey)||choices.find(m=>m.profileId===job.profileId&&m.model===job.model)||choices[0],key=choice.videoPolicyKey,limit=Number(choice.videoConfig.videoConcurrency);
+    if(!Number.isInteger(limit)||limit<1||limit>8)throw Error('视频并发数量应在 1–8 之间');
+    if(!capacity.has(key))capacity.set(key,{active:0,waiting:[]});const slots=capacity.get(key);
+    while(slots.active>=limit){await new Promise(resolve=>slots.waiting.push(resolve));ctx.guard();}
+    ctx.guard();slots.active++;let released=false;return ()=>{if(released)return;released=true;slots.active--;for(const resume of slots.waiting.splice(0))resume();};
+   };
    const worker=async()=>{while(cursor<run.items.length){ctx.guard();const item=run.items[cursor++];if(item.status==='downloaded')continue;const entry=book.entries.find(e=>e.id===item.id);if(!entry){item.status='blocked';item.error='来源提示词已变化';continue;}
     try{
-     await runProductionVideoTask({ctx,item,tasks,models:mediaModelChoices(getState(),'video'),wait,
+     await runProductionVideoTask({ctx,item,tasks,models:videoModels,wait,acquire,
       submit:async selected=>{
        checkSource();const selectedProfile=generationMediaProfiles(getState(),'video').find(m=>m.id===selected.profileId);
-       const settings={profileId:selected.profileId,model:selected.model,duration:Number(c.videoDuration),ratio:c.ratio,resolution:c.videoResolution,allowReferenceSelection:true};
-       const source={...book,drafts:{...book.drafts,[entry.id]:{...book.drafts[entry.id],duration:Number(c.videoDuration)}}},input=workflowInput(source,entry,settings,selectedProfile);ctx.guard();
+       const parameters=selected.videoConfig,settings={profileId:selected.profileId,model:selected.model,duration:Number(parameters.videoDuration),ratio:parameters.ratio,resolution:parameters.videoResolution,allowReferenceSelection:true};
+       const source={...book,drafts:{...book.drafts,[entry.id]:{...book.drafts[entry.id],duration:Number(parameters.videoDuration)}}},input=workflowInput(source,entry,settings,selectedProfile);ctx.guard();
        await planProductionReferenceSelection({ctx,input,entry:{...entry,id:item.id},work:(task,messages)=>work(ctx,task,messages)});
        const outbound=selectProductionReferences(input);await audit(ctx,{stage:'提交前素材检查',label:entry.label,prompt:outbound.prompt,references:outbound.referenceVerification.selected,rule:'核对本条人物、场景、道具及引用；只做检查，不能修改人工选择'});
-       ctx.guard();item.status='submitting';await ctx.checkpoint();const result=await api.generationSubmit({...input,projectId:p.id,episode:entry.episode,scene:entry.sceneId||entry.label.split('-').slice(0,2).join('-'),shotId:entry.sourcePromptId||entry.id,shotLabel:entry.label,workflowRunId:run.id,workflowItemId:item.id});
+       ctx.guard();item.status='submitting';await ctx.checkpoint();const result=await api.generationSubmit({...input,projectId:p.id,episode:entry.episode,scene:entry.sceneId||entry.label.split('-').slice(0,2).join('-'),shotId:entry.sourcePromptId||entry.id,shotLabel:entry.label,workflowRunId:run.id,workflowItemId:item.id,workflowVideoPolicyKey:selected.videoPolicyKey});
        item.referenceVerification=result.referenceVerification||outbound.referenceVerification;await ctx.log?.('发送引用验收：'+item.label+'，'+item.referenceVerification.selected.length+' 张参考图逐项对应 @；舍弃 '+item.referenceVerification.omitted.length+' 张低权重参考图。');return result;
       },
       refresh:async job=>{const original=generationMediaProfiles(getState(),'video').find(m=>m.id===job.profileId)||videoProfile;return api.generationRefresh({id:job.id,apiKey:original.apiKey,endpoint:original.endpoint});},
       archive:job=>api.productionArchive({runId:run.id,jobId:job.id,label:item.label,episode:item.episode}),onReady:postReady});
     }catch(error){if(run.status!=='running')throw error;if(isFundingError(error)){ctx.videoBudget=error.message;item.status='failed';}else if(/前置引用核验失败，尚未提交生成/.test(error.message))item.status='blocked';else if(item.status==='submitting')item.status='uncertain';else if(!['failed','uncertain','retry-exhausted','success'].includes(item.status))item.status='blocked';item.error=error.message;await ctx.checkpoint();}
    }};
-   await Promise.all(Array.from({length:Number(c.videoConcurrency)},worker));await postReady();await Promise.all(postJobs.values());
+   const workers=Math.min(run.items.length,choices.reduce((sum,m)=>sum+Math.max(1,Math.min(8,Number(m.videoConfig.videoConcurrency)||1)),0));
+   await Promise.all(Array.from({length:workers},worker));await postReady();await Promise.all(postJobs.values());
   },
   async recover(ctx){
    const {run}=ctx;ctx.guard();const goals=productionRecoveryGoals(run),fingerprint=productionRecoveryFingerprint(goals,run.config),old=run.recovery||{},same=old.fingerprint===fingerprint;

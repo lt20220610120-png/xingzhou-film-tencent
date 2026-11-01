@@ -11,7 +11,7 @@ export function productionVideoIssues(c,state){
  if(caps.durations?.length&&!caps.durations.includes(duration)||caps.durationByResolution?.[c.videoResolution]?.length&&!caps.durationByResolution[c.videoResolution].includes(duration))issues.push('视频时长不在所选模型/分辨率的支持范围');
  if(caps.ratios?.length&&!caps.ratios.includes(c.ratio))issues.push('视频画幅不在所选模型的支持范围');
  if(caps.resolutions?.length&&!caps.resolutions.includes(c.videoResolution))issues.push('视频分辨率不在所选模型的支持范围');
- return [...issues,...videoPolicyIssues(c,value=>productionVideoIssues(value,state))];
+ return [...issues,...videoPolicyIssues(c,value=>productionVideoIssues(value,state),id=>{try{const [profileId,modelId]=JSON.parse(id),profile=generationMediaProfiles(state,'video').find(p=>p.id===profileId);return normalizeCapabilities(profile&&profileModels(profile,'video').find(m=>m.id===modelId));}catch{return {};}})];
 }
 export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['voices','人物音色'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐集超分'],['edit','剪辑成片']];
 export const VOICE_AUTOMATION_RULE='人物音色阶段：先读取每集正常对白和人物身份/年龄阶段/剧本依据，完成缺项后按人物卡调用所选音色模型。自动化不试听，不等待人工挑选；每个人物采用第一条成功生成的音色，并将该音色按人物和年龄阶段关联到对应场景、提示词和后续视频参考。只发送实际讲话人物的音色，不把旁白、画外音、心声或其他年龄阶段音色混入。';

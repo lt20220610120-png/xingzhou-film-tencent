@@ -1,7 +1,21 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {nextVideoAttempt,videoPolicyIssues} from './productionVideoPolicy.js';
+import {productionDefaults,productionVideoIssues} from './productionFurnace.js';
 const c={videoModel:'primary',videoAttempts:2,videoFallbackEnabled:true,fallbackVideoModel:'backup',fallbackVideoAttempts:2};
 const failure=(id,model,error='generation failed')=>({id,status:'failed',profileId:model,model:'v',error});
+test('backup preflight uses its own parameters and resolves missing legacy values to supported choices',()=>{
+ const state={mediaProfiles:[{id:'main',kind:'video',model:'a',capabilities:{durations:[30],ratios:['9:16'],resolutions:['720p']}},{id:'backup',kind:'video',model:'b',capabilities:{durations:[5,10],durationByResolution:{'1080p':[5]},ratios:['16:9'],resolutions:['1080p']}}]},modelId=JSON.stringify(['backup','b']),config={...productionDefaults(),videoModel:JSON.stringify(['main','a']),videoResolution:'720p',videoFallbacks:[{modelId,attempts:2,ratio:'16:9',videoDuration:5,videoResolution:'1080p',videoConcurrency:3}]};
+ assert.deepEqual(productionVideoIssues(config,state),[]);
+ assert.deepEqual(productionVideoIssues({...config,videoFallbacks:[{modelId,attempts:2}]},state),[]);
+ assert.match(productionVideoIssues({...config,videoFallbacks:[{...config.videoFallbacks[0],videoResolution:'720p'}]},state).join(),/备用.*分辨率/);
+ assert.match(productionVideoIssues({...config,videoFallbacks:[{...config.videoFallbacks[0],videoDuration:10}]},state).join(),/备用.*时长/);
+ assert.match(productionVideoIssues({...config,videoFallbacks:[{...config.videoFallbacks[0],videoConcurrency:0}]},state).join(),/备用.*并发/);
+});
+test('attempt selection carries the exact policy entry parameters even when a model repeats',()=>{
+ const models=[{id:'primary',profileId:'primary',model:'v'},{id:'backup',profileId:'backup',model:'v'}],config={...c,videoAttempts:1,videoFallbacks:[{id:'first',modelId:'backup',attempts:1,ratio:'16:9',videoDuration:5,videoResolution:'1080p',videoConcurrency:1},{id:'second',modelId:'backup',attempts:2,ratio:'1:1',videoDuration:10,videoResolution:'720p',videoConcurrency:3}]};
+ const first=nextVideoAttempt(config,[failure('1','primary')],models);assert.equal(first.videoConfig.videoResolution,'1080p');assert.equal(first.videoConfig.videoConcurrency,1);
+ const second=nextVideoAttempt(config,[failure('1','primary'),failure('2','backup')],models);assert.equal(second.videoConfig.ratio,'1:1');assert.equal(second.videoConfig.videoDuration,10);assert.notEqual(first.videoPolicyKey,second.videoPolicyKey);
+});
 test('primary twice then explicit fallback twice, limits persist across restart and unknown never retries',()=>{
  const models=[{id:'primary',profileId:'primary',model:'v'},{id:'backup',profileId:'backup',model:'v'}];
  assert.equal(nextVideoAttempt(c,[],models).id,'primary');assert.equal(nextVideoAttempt(c,[failure('1','primary')],models).id,'primary');const two=[failure('1','primary'),failure('2','primary')];assert.equal(nextVideoAttempt(c,two,models).id,'backup');assert.equal(nextVideoAttempt(c,[...two,failure('3','backup')],models).id,'backup');assert.equal(nextVideoAttempt(c,[...two,failure('3','backup'),failure('4','backup')],models),null);

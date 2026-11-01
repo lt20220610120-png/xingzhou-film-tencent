@@ -63,3 +63,9 @@ export async function completeVoiceCard({character,store,api,model,project,job={
  await store.setVoiceProfile(character.key,p=>{if(job.cancelled||JSON.stringify(p)!==JSON.stringify(before))return p;const draft={...p.draft};if(!settings.quote)draft.quote=data.quote;if(!draft.language)draft.language=data.language||settings.language;return {...p,draft,preparationEvidence:data.evidence||character.evidence};});
  }finally{job.taskIds=job.taskIds.filter(id=>id!==taskId);}
 }
+export async function removeCharacterVoice({character,store,api,id}){
+ const profile=store.snapshot().voiceProfiles?.[character.key],candidate=profile?.candidates?.find(sample=>sample.id===id);
+ if(!candidate)throw Error('样音已不存在');
+ if(candidate.sourceResultId)await api.audioResultDelete?.({id:candidate.sourceResultId});
+ await store.setVoiceProfile(character.key,current=>({...current,candidates:(current.candidates||[]).filter(sample=>sample.id!==id),...(current.confirmed?.id===id?{confirmed:undefined}:{})}));
+}

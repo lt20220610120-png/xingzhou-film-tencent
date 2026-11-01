@@ -54,10 +54,11 @@ const fakeSpawn = () => {
   return child;
 };
 
-function fixtureProcessWaitCommand({ pid, startedAt, createdAt }, executable) {
+function fixtureProcessWaitCommand({ pid, startedAt, createdAt }, executable, alternateExecutables = []) {
   assert.ok(Number.isInteger(pid) && pid > 0);
   assert.ok(Number.isSafeInteger(startedAt) && Number.isSafeInteger(createdAt) && startedAt <= createdAt);
-  const expected = executable.replaceAll("'", "''");
+  const executableMatch = [executable, ...alternateExecutables]
+    .map(file => `$command.Contains('${file.replaceAll("'", "''")}')`).join(' -or ');
   return [
     "$ErrorActionPreference='Stop';",
     `$record=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if(-not $record){exit};`,
@@ -66,7 +67,7 @@ function fixtureProcessWaitCommand({ pid, startedAt, createdAt }, executable) {
     // Creation time outside the captured spawn interval proves it is another
     // instance: leave it alone, without even obtaining a waitable handle.
     `if($created -lt ${startedAt} -or $created -gt ${createdAt}){exit};`,
-    `$command=[string]$record.CommandLine; if(-not $command.Contains('${expected}') -or $command -notmatch '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)' -or $command -notmatch '(?:^|\\s)server\\.main:app(?:\\s|$)'){throw 'Fixture process identity mismatch'};`,
+    `$command=[string]$record.CommandLine; if(-not (${executableMatch}) -or $command -notmatch '(?:^|\\s)-m\\s+uvicorn(?:\\s|$)' -or $command -notmatch '(?:^|\\s)server\\.main:app(?:\\s|$)'){throw 'Fixture process identity mismatch'};`,
     `$owned=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if(-not $owned){exit};`,
     // Pin the process handle, then recheck its start time. This also closes the
     // PID-reuse race between the CIM lookup and Get-Process. WaitForExit now
@@ -321,6 +322,11 @@ test('Windows manager has no console and keeps writing logs after its launching 
   const report = path.join(root, 'console.json');
   const launchReport = path.join(root, 'spawned-process.json');
   beforeCleanup(async () => {
+    const venvConfig = fs.readFileSync(path.join(root, '.venv/pyvenv.cfg'), 'utf8');
+    const home = venvConfig.match(/^home\s*=\s*(.+)$/m)?.[1].trim();
+    // Some venv launchers start the base interpreter as a child instead of
+    // replacing their own process. Both exact executables belong to this fixture.
+    const alternateExecutables = home ? [path.join(home, 'pythonw.exe')] : [];
     const records = new Map();
     // The self-report has an exact OS creation time. Prefer it when a launcher
     // and the stand-in share a PID; otherwise check both recorded instances.
@@ -331,7 +337,7 @@ test('Windows manager has no console and keeps writing logs after its launching 
     for (const record of records.values()) {
       // Never enumerate, stop, or wait for the user's installed WorkBuddy.
       await promisify(run)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-        fixtureProcessWaitCommand(record, path.join(root, '.venv/Scripts/pythonw.exe'))],
+        fixtureProcessWaitCommand(record, path.join(root, '.venv/Scripts/pythonw.exe'), alternateExecutables)],
         { windowsHide: true, timeout: 8000 });
     }
   });

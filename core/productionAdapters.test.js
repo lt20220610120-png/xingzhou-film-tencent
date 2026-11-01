@@ -45,6 +45,18 @@ test('pausing mid-voice batch never marks incomplete voices complete and retains
 });
 
 test('video failure uses configured primary/fallback attempts, never redoes successful clips',async()=>{const f=fixture();f.run.config.endStage='archive';f.run.config.videoAttempts=2;f.run.config.videoFallbackEnabled=true;f.run.config.fallbackVideoAttempts=2;f.run.config.fallbackVideoModel=JSON.stringify(['backup','b']);f.state.mediaProfiles.push({id:'backup',name:'备用',kind:'video',model:'b',capabilities:{maxImages:8,durations:[30],ratios:['9:16'],resolutions:['480p']}});const seen=[];f.api.generationSubmit=async input=>{seen.push([input.shotLabel,input.profileId]);const job={...input,id:crypto.randomUUID(),status:input.profileId==='backup'?'success':'failed',error:input.profileId==='backup'?'':'generation failed'};f.jobs.push(job);return job;};await f.adapter.videos(f.ctx);assert.equal(f.run.items.filter(i=>i.status==='downloaded').length,4);assert.deepEqual(seen.filter(i=>i[0]==='1-1-1').map(i=>i[1]),['video','video','backup']);const count=seen.length;await f.adapter.videos(f.ctx);assert.equal(seen.length,count);});
+test('actual fallback submissions use independent parameters and concurrency in either direction',async()=>{
+ for(const [mainLimit,backupLimit] of [[3,1],[1,3]]){
+  const f=fixture();Object.assign(f.run.config,{endStage:'archive',videoAttempts:1,videoResolution:'720p',videoConcurrency:mainLimit,videoFallbacks:[{id:'backup-step',modelId:JSON.stringify(['backup','b']),attempts:1,ratio:'16:9',videoDuration:5,videoResolution:'1080p',videoConcurrency:backupLimit}]});
+  f.state.mediaProfiles[0].capabilities.resolutions=['720p'];f.state.mediaProfiles.push({id:'backup',kind:'video',model:'b',capabilities:{maxImages:8,durations:[5],ratios:['16:9'],resolutions:['1080p']}});
+  const live={video:0,backup:0},peak={video:0,backup:0},sent=[];
+  f.api.generationSubmit=async input=>{sent.push(input);const key=input.profileId;live[key]++;peak[key]=Math.max(peak[key],live[key]);await new Promise(r=>setTimeout(r,key==='backup'?50:5));live[key]--;const job={...input,id:crypto.randomUUID(),status:key==='backup'?'success':'failed',error:key==='backup'?'':'generation failed'};f.jobs.push(job);return job;};
+  await f.adapter.videos(f.ctx);assert.equal(f.run.items.filter(i=>i.status==='downloaded').length,4);
+  assert.equal(peak.video,mainLimit);assert.equal(peak.backup,backupLimit);
+  for(const input of sent.filter(p=>p.profileId==='backup')){assert.equal(input.ratio,'16:9');assert.equal(input.duration,5);assert.equal(input.resolution,'1080p');assert.equal(input.workflowVideoPolicyKey,'fallback:backup-step');}
+  for(const input of sent.filter(p=>p.profileId==='video')){assert.equal(input.ratio,'9:16');assert.equal(input.duration,30);assert.equal(input.resolution,'720p');}
+ }
+});
 test('semi mode invokes Agent per clip and hands off only complete episodes in numeric order',async()=>{
  const f=fixture();await f.adapter.videos(f.ctx);assert.equal(f.run.name,'验收剧');assert.equal(f.run.items.length,4);assert(f.run.episodes.every(e=>e.stage==='done'));
  assert.equal(f.events.filter(e=>e.startsWith('audit:')).length,4);

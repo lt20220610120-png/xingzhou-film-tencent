@@ -1,6 +1,15 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {projectVoiceRoster,projectVoiceCards,validateEpisodeVoices} from './characterVoices.js';
-import {voiceGenerationSettings,voiceGenerationRequest,runVoiceBatch,completeVoiceCard} from './voiceReview.js';
+import {voiceGenerationSettings,voiceGenerationRequest,runVoiceBatch,completeVoiceCard,removeCharacterVoice} from './voiceReview.js';
+
+test('deleting a voice sample removes it from the card and clears an adopted reference',async()=>{
+ let profile={candidates:[{id:'local-upload',url:'upload.wav'},{id:'generated',sourceResultId:'result-1',filePath:'generated.wav'}],confirmed:{id:'generated',filePath:'generated.wav'}};
+ const deleted=[];const store={snapshot:()=>({voiceProfiles:{character:profile}}),setVoiceProfile:async(key,update)=>{profile=update(profile);}};
+ await removeCharacterVoice({character:{key:'character'},store,api:{audioResultDelete:async({id})=>deleted.push(id)},id:'generated'});
+ assert.deepEqual(deleted,['result-1']);assert.deepEqual(profile.candidates.map(sample=>sample.id),['local-upload']);assert.equal(profile.confirmed,undefined);
+ await removeCharacterVoice({character:{key:'character'},store,api:{audioResultDelete:async()=>assert.fail('uploaded audio has no generated result')},id:'local-upload'});
+ assert.equal(profile.candidates.length,0);
+});
 test('blank optional voice description still sends identity and evidence to TTS without speaking it',()=>{
  const c={name:'小林',characterName:'小林',description:'32岁司机，沉稳朴素',ageStage:'default',quote:'回家。',evidence:'小林：回家。'};
  const r=voiceGenerationRequest(c,{draft:{instructions:''}},{model:'Qwen-VoiceDesign'});assert.equal(r.input,'回家。');assert.match(r.instructions,/32岁司机/);assert.match(r.instructions,/小林：回家。/);assert.doesNotMatch(r.instructions,/声音设计与表演/);
