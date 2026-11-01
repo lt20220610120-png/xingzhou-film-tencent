@@ -25,4 +25,6 @@
 - 官网：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.105.exe
 - GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.105/Xingzhou-Film-Tencent-Setup-2.8.105.exe
 - 本机：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.105/Xingzhou-Film-Tencent-Setup-2.8.105.exe
-- 公开清单及本机安装：发布后补充实测结果。
+- 实现提交：0ed3369。发布进程退出0；官网和两仓库公开latest.json均为2.8.105，大小/哈希与本地一致，原始清单Ed25519签名3/3通过。官网安装包Range206/65536字节与本地完全相同，GitHub资产digest/大小一致。
+- 本机D盘可执行文件版本2.8.105.0，与已通过运行时验证的win-unpacked目录128个文件逐一比对无差异；桌面“行舟影视”快捷方式保持指向D盘。静默安装进程返回-1073740771，未把该退出码报告为0；安装后exe、app.asar及全目录字节一致性已单独验证。保留现有窗口工作状态，没有强制关闭用户进程；旧窗口需重启显示新版本。
+- 原始记录：output/release-2.8.105-public-verification.json、output/install-2.8.105-verification.json、output/release-2.8.105-publish.log。
