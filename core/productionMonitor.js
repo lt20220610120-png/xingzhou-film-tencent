@@ -6,7 +6,7 @@ import {assetHasImages} from './assetImages.js';
 
 /** One bulk snapshot, no model calls or per-scene I/O. Publication is an
  * acknowledged scene signature, not a workflow step label or card count. */
-export function productionArtMonitor(project,ledger,binding,assets=[],previous){
+export function productionArtMonitor(project,ledger,binding,assets=[],previous,options={}){
  const entries=binding?.snapshot?.entries||[],decisions=binding?.decisions||{},rows=[];
  for(const ep of listCollabEpisodes(project.episodes)){
   const record=ledger?.episodes?.[ep.episodeNumber],current=isReviewCurrent(record,ep);
@@ -16,10 +16,10 @@ export function productionArtMonitor(project,ledger,binding,assets=[],previous){
   const expected=sourceReviewScenes(ep);
   const scenes=expected.map(source=>{
    const savedScene=record?.scenes?.find(s=>s.id===source.id),scene=savedScene||source;
-   const prompts=entries.filter(e=>e.sceneId===scene.id),bound=prompts.filter(e=>hasProductionAssociation(binding.snapshot,e,decisions[e.id]));
+   const prompts=entries.filter(e=>e.sceneId===scene.id),bound=prompts.filter(e=>hasProductionAssociation(binding.snapshot,e,decisions[e.id],options));
    const stale=bound.filter(e=>decisions[e.id].signature!==entryBindingSignature(binding.snapshot,e));
    const published=Boolean(savedScene&&current&&record.published?.[scene.id]?.signature===reviewSceneSignature(scene));
-   const mapped=Boolean(scene.mappingReady||scene.items?.length),associated=bound.length>0;
+   const mapped=Boolean(scene.mappingReady||scene.items?.length),associated=prompts.length>0&&bound.length===prompts.length;
    const signature=bindingHash([scene.source,reviewSceneSignature(scene),prompts.map(e=>[e.id,e.prompt,decisions[e.id]]),published]);
    const prior=previous?.episodes?.find(e=>e.number===ep.episodeNumber)?.scenes?.find(s=>s.id===scene.id);
    const details=(scene.items||[]).filter(needsArtReviewDetails).length;

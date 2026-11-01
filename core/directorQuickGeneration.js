@@ -448,10 +448,19 @@ export function createQuickGenerationController({getContext,executeText,executeS
       if(disposed||!isQuickRunActive(run)||(versions.get(run.id)||0)!==initialVersion)return clone(run);
       return schedule(run);
     },
-    async resume(runId){
+    async resume(runId,{profileId,restoreOutput=false}={}){
       let run=runs.get(runId);if(!run){run=await checkpoints.load({runId});if(!run)throw error('找不到生成进度');if(run.kind==='manual-scene'||run.kind==='batch')throw error('这是人工分段或整本任务，请从整本任务继续','STALE');runs.set(runId,run);}
+      if(profileId&&profileId!==run.snapshot.profileId){
+       if(isQuickRunActive(run)||executions.has(runId))throw error('当前场景正在生成','BUSY');
+       const context=await getContext({...run.snapshot,profileId});
+       if(context?.accountId!==run.snapshot.accountId||context.profile?.id!==profileId||context.permissions?.canGenerate===false)throw error('账号或生成权限已变化','STALE');
+       const next=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds});
+       if(['sourceHash','settingsHash','skillHash'].some(k=>next[k]!==run.snapshot[k]))throw error('原文或设定已变化，保留已有成果','STALE');
+       run.profileTransitions=[...(run.profileTransitions||[]),{from:run.snapshot.profileHash,to:next.profileHash,fromProfileId:run.snapshot.profileId,toProfileId:next.profileId,at:Date.now()}];
+       run.snapshot={...run.snapshot,profileId:next.profileId,profileHash:next.profileHash};await persist(run);
+      }
       run.checks||={audited:false,ranges:{}};run.checks.ranges||={};run.auditRepairIndexes||=[];run.auditRepairAttempts||={};run.auditWarnings||=[];run.segmentQualityFailures||={};
-      if(run.phase==='completed')return clone(run);
+      if(run.phase==='completed'){if(!restoreOutput)return clone(run);const committed=await commitRun(clone(run));if(!committed?.applied)throw error(committed?.conflict||'已完成提示词无法恢复','STALE');return clone(run);}
       run.pauseRequested=false;
       // A user-requested continuation gets a new bounded repair round. Keep
       // accepted paid drafts and fixed IDs; never loop automatically forever.

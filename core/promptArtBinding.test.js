@@ -125,3 +125,10 @@ test('分发保存不要求逐条确认，但整场发布和有效图片仍是�
  const unpublished=saveDistribution(snapshot,entry,{...ready,signature:entryBindingSignature(snapshot,entry)});
  assert.throws(()=>compileEntryBinding(snapshot,entry,unpublished),/尚未核实发布/);
 });
+
+test('disabled workflow voices allow current image bindings without a speakers list and omit audio',()=>{
+ const {snapshot,decisions}=fixture();snapshot.voiceCards=[{uid:'voice',name:'甲',sceneIds:[snapshot.entries[0].sceneId],reference:{id:'audio',filePath:'voice.wav'}}];
+ const entry=snapshot.entries[0],decision=decisions[entry.id];decision.signature=entryBindingSignature(snapshot,entry);delete decision.speakers;
+ assert.throws(()=>compileEntryBinding(snapshot,entry,decision),/讲话人物/);
+ const compiled=compileEntryBinding(snapshot,entry,decision,{voiceEnabled:false});assert(compiled.references.every(r=>r.kind!=='audio'));
+});

@@ -14,7 +14,7 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
  const stamp=bindingHash([chain.map(({id,policyKey,attempts,imageConcurrency,imageRatio})=>({id,policyKey,attempts,imageConcurrency,imageRatio})),c.composition,c.artStyle]);
  ctx.imageSlots||=new Map();
  const withSlot=async(model,fn)=>{const key=model.policyKey;while((ctx.imageSlots.get(key)||0)>=Number(model.imageConcurrency)){ctx.guard();await delay(20);}ctx.guard();ctx.imageSlots.set(key,(ctx.imageSlots.get(key)||0)+1);try{return await fn();}finally{ctx.imageSlots.set(key,ctx.imageSlots.get(key)-1);}};
- const plan=planArtImageBatch(assets,{readRecovery:id=>readAssetImageRecovery(p.id,id)});
+ const plan=planArtImageBatch(assets,{readRecovery:id=>readAssetImageRecovery(p.id,id),categoryOrder:true});
  const result=await runArtImageBatch(plan,{concurrency:Math.max(...chain.map(m=>Number(m.imageConcurrency))),isStopped:()=>run.status!=='running',onProgress:v=>{run.imageProgress=v;},generate:async asset=>{
   ctx.guard();const item=run.imageItems[asset.id]||{attempts:0};run.imageItems[asset.id]=item;
   if(['submitting','uncertain'].includes(item.status)&&!readAssetImageRecovery(p.id,asset.id))throw Error(`${asset.name} 上次提交结果不明，Agent 正在等待原任务凭据；未重复生图`);
@@ -43,7 +43,7 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
     return requestAssetImage(api,p.id,asset.id,{...model,profileId:model.profileId,model:model.model,prompt,size:model.imageRatio||c.imageRatio,references:ref?autoReferences(`@${ref.name}`,[ref]):[]});
    });if(generated.skipBudget)continue;ctx.guard();
     if(!generated?.filePath)throw Error('生图接口没有返回图片文件');const attached=await api.collabAttachGeneratedAssetImage({projectId:p.id,assetId:asset.id,episode:asset.first_episode||0,filePath:generated.filePath});ctx.guard();if(!attached?.url)throw Error('图片已生成但未保存到项目');
-    clearAssetImageRecovery(p.id,asset.id);item.status='done';item.error='';assets=await api.collabListAssets({projectId:p.id});if(run.monitor?.art){run.monitor.art.summary.images=assets.filter(assetHasImages).length;run.monitor.art.summary.assets=assets.length;run.monitor.checkedAt=Date.now();}await ctx.log?.(`图片完成：${asset.name}`,'success');await ctx.checkpoint();return attached;
+    clearAssetImageRecovery(p.id,asset.id);item.status='done';item.error='';assets=await api.collabListAssets({projectId:p.id});if(run.monitor?.art){run.monitor.art.summary.images=assets.filter(assetHasImages).length;run.monitor.art.summary.assets=assets.length;run.monitor.checkedAt=Date.now();}await ctx.log?.(`图片完成：${asset.name}`,'success');await ctx.checkpoint();ctx.notifyMaterials?.();return attached;
    }catch(error){
     if(!dispatched&&!pending){if(reserved){item.attempts--;item.policyAttempts[model.policyKey]--;delete item.activeModel;delete item.activePolicy;}item.status='queued';await ctx.checkpoint();ctx.guard();throw error;}
     ctx.guard();const recovery=readAssetImageRecovery(p.id,asset.id);item.error=error.message;

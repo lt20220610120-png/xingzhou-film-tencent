@@ -2,7 +2,7 @@ import {bindingProblems,entryBindingSignature,cardInEntry,bindingHash} from './p
 
 export const isFundingError=error=>/insufficient[_ -](?:quota|balance|credits?)|not enough (?:quota|credits?|points)|quota.*(?:insufficient|exhausted)|credit balance.*(?:low|insufficient)|余额不足|额度不足|积分.*不足|欠费|充值|余额.*不足|FT请求失败[（(]402[）)]/i.test(String(error?.message||error||''));
 export const productionRecoveryFingerprint=(goals,config={})=>bindingHash([goals.map(g=>[g.kind,g.target,String(g.error||'').replace(/\(?request[ _-]?id\s*[:=]\s*[^\s)]+\)?/ig,'request-id').replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/ig,'id').replace(/\d{4}-\d\d-\d\d[T ][\d:.Z+-]+/g,'time')]),config.imageModel,config.fallbackImageModel,config.videoModel]);
-export function acceptProductionBinding(snapshot,entry,decision,approval){
+export function acceptProductionBinding(snapshot,entry,decision,approval,options={}){
  if(approval?.id!==entry.id||approval.approved!==true||!approval.reason?.trim()||!Array.isArray(decision?.needs))throw Error('Agent 未确认已有关联可继续使用');
  const needs=decision.needs.map(need=>{
   if(!need.manualReference&&need.end>need.start&&entry.prompt.slice(need.start,need.end)!==need.text)throw Error('旧关联原文锚点已变化，不能直接恢复');
@@ -15,7 +15,7 @@ export function acceptProductionBinding(snapshot,entry,decision,approval){
   return {...need,imageId:valid?need.imageId:card.images.length===1?card.images[0].id:null};
  });
  const next={...decision,needs,signature:entryBindingSignature(snapshot,entry),issue:'',confirmed:true,recoveryEvidence:approval.reason};
- const problems=bindingProblems(snapshot,entry,next);if(problems.length)throw Error(problems.join('；'));return next;
+ const problems=bindingProblems(snapshot,entry,next,options);if(problems.length)throw Error(problems.join('；'));return next;
 }
 export function productionRecoveryGoals(run){
  const goals=[];

@@ -139,3 +139,11 @@ test('a valid short nonfinal clip is advisory at final storage too, never a reas
  const result=commitQuickSceneRun(state,run,{partial:true});assert.equal(result.applied,true,result.conflict);
  assert.equal(result.state.directorProjects[0].episodes[1].prompts.length,2);
 });
+
+test('a configured fallback continues the same immutable plan and preserves paid prompt identity',async()=>{
+ const f=await fixture(),partial={...f.run,checks:{audited:false},segmentDrafts:{seg1:f.run.segmentDrafts.seg1}},first=commitQuickSceneRun(f.state,partial,{partial:true});assert(first.applied);
+ const backup={...f.context.profile,id:'backup',model:'backup-model'},snapshot=await createSceneSnapshot({...f.context,profile:backup});first.state.apiProfiles.push(backup);
+ const resumed={...f.run,snapshot,profileTransitions:[{from:f.run.snapshot.profileHash,to:snapshot.profileHash}]};
+ const done=commitQuickSceneRun(first.state,resumed);assert.equal(done.applied,true,done.conflict);assert.deepEqual(done.state.directorProjects[0].episodes[1].quickScenePlans[0],f.run.plan);assert.equal(done.state.directorProjects[0].episodes[1].prompts[0].id,'prompt1');
+ const forged=commitQuickSceneRun(first.state,{...resumed,profileTransitions:[]});assert.equal(forged.applied,false);
+});

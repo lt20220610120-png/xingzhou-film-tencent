@@ -113,7 +113,8 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   catch(error){return fail(state,error.message);}
   if(!snapshotFields.every(key=>snapshot[key]===latest[key]))return fail(state,'场景原文、项目设定、Skill 或模型已变化，请重新生成');
   if(!partial && run.checks?.audited!==true)return fail(state,'全场审核尚未完成，结果继续保留为草稿');
-  if(['sourceHash','settingsHash','skillHash','profileHash','sceneLabel','maxDurationSeconds','rulesVersion'].some(key=>plan[key]!==snapshot[key]))return fail(state,'分段计划与生成快照不匹配');
+  if(['sourceHash','settingsHash','skillHash','sceneLabel','maxDurationSeconds','rulesVersion'].some(key=>plan[key]!==snapshot[key]))return fail(state,'分段计划与生成快照不匹配');
+  if(plan.profileHash!==snapshot.profileHash&&!run.profileTransitions?.some(step=>step?.from===plan.profileHash&&step?.to===snapshot.profileHash))return fail(state,'分段计划与生成模型不匹配');
   if(typeof plan.sourceText!=='string' || typeof plan.sceneHeader!=='string')return fail(state,'分段原文带不完整');
   const tape=buildSceneSourceTape(snapshot.sourceSnapshot);
   if(plan.sourceText!==tape.sourceText || plan.sceneHeader!==tape.sceneHeader)return fail(state,'分段正文与固定原文不匹配，不能发布改写后的计划');
@@ -143,7 +144,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     id:ids[i],label:run.segmentDrafts[segment.id].prompt.label,content:run.segmentDrafts[segment.id].prompt.content,
     sourceText:[preamble,plan.sceneHeader,plan.sourceText.slice(segment.sourceStart,segment.sourceEnd)].filter(Boolean).join('\n\n'),
     skillId:snapshot.skillId,skillName:state.skills.find(s=>s.id===snapshot.skillId)?.name || '',profileId:snapshot.profileId,
-    generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
+    generationComplete:run.segmentDrafts[segment.id].generationComplete!==false,generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
     ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),

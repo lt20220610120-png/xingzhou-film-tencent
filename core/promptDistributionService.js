@@ -52,7 +52,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],notice,paused,...modelQueue.status()}),
   resume(){paused=false;emit();},
   async stop(){paused=true;generation++;modelQueue.notify();const ids=[...tasks.values()].filter(t=>!t.manual).flatMap(t=>t.taskIds);await Promise.allSettled(ids.map(taskId=>api.cancelAiTask?.({taskId})));emit();},
-  run(entryId,{profile,manual=false,versionId,job={}}={}){
+  run(entryId,{profile,manual=false,versionId,job={},voiceEnabled=true}={}){
    const sceneId=entrySceneId(entryId);
    if(maintenance.has(sceneId))return Promise.reject(Error('本场正在补充，请完成后再分发'));
    if(tasks.has(entryId))return tasks.get(entryId).promise;
@@ -83,11 +83,11 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      const seeded=currentEntryBinding(state.snapshot,entry,state.decisions[entryId]);
      const seed={...seeded,needs:state.decisions[entryId]?.signature===seeded.signature?state.decisions[entryId].needs:seeded.needs.filter(n=>n.locked),issue:''};
      notice=`${manual?'重新':'自动'}分发 ${entry.label}`;emit();
-     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId)),call:messages=>{
+     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId),{voiceEnabled}),call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
       const cardCount=state.snapshot.entries.find(e=>e.id===entryId)?sceneCards(state.snapshot,state.snapshot.entries.find(e=>e.id===entryId)).length:0;
       return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,isStopped:stopped});
-     },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw,sceneSource(state.ctx,entry.sceneId))});
+     },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw,sceneSource(state.ctx,entry.sceneId),{voiceEnabled})});
      if(stopped())throw Error('任务已停止');
      await mutate(selectedId,latest=>{
       if(stopped())throw Error('任务已停止');
@@ -97,7 +97,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
       if(bindingHash(latest.decisions[entryId]||null)!==decisionToken)throw Error('分发期间关联已被人工修改，已保留最新选择');
       if(latest.saved.sceneDistributionAttempts?.[claimKey]?.owner!==owner)throw Error('本条分发任务已变化');
       const rebased={...result,signature:currentEntryBinding(latest.snapshot,current).signature};
-      const decisions={...latest.decisions,[entryId]:saveDistribution(latest.snapshot,current,rebased)};
+      const decisions={...latest.decisions,[entryId]:saveDistribution(latest.snapshot,current,rebased,{voiceEnabled})};
       return {...saveBindingVersion(latest.saved,latest.snapshot,decisions),sceneDistributionAttempts:{...latest.saved.sceneDistributionAttempts,[claimKey]:{stamp,status:'done',label:entry.label}}};
      });
      notice=`已分发 ${entry.label}`;return result;

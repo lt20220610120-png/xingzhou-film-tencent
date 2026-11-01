@@ -1,3 +1,4 @@
+import {productionCoverage} from './productionFurnace.js';
 import {parseDirectorScenes} from './scriptImport.js';
 import {createSceneSnapshot,directorSceneInput} from './directorQuickStore.js';
 import {manualSceneTasks} from './directorManualGeneration.js';
@@ -17,7 +18,7 @@ const concurrencyOf=value=>{
 
 export async function createDirectorBatchPlan({accountId,project,skill,profile,maxDurationSeconds,existingPolicy='missing-only',concurrency='all',segmentationMode='auto'}){
  if(!['auto','manual'].includes(segmentationMode))throw fault('分段方式无效');
- if(!['missing-only','append-all'].includes(existingPolicy))throw fault('已有结果处理方式无效');
+ if(!['missing-only','incomplete-only','append-all'].includes(existingPolicy))throw fault('已有结果处理方式无效');
  concurrency=concurrencyOf(concurrency);
  if(!project||project.cloudLocked||project.cloudConflict||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false)throw fault('当前项目不能生成提示词');
  const targets=[];
@@ -27,7 +28,7 @@ export async function createDirectorBatchPlan({accountId,project,skill,profile,m
    const source=directorSceneInput(project,episode,scene.label);
    const snapshot=await createSceneSnapshot({accountId,project,episode,sceneLabel:scene.label,inputText:source,skill,profile,maxDurationSeconds});
    const existing=(episode.prompts||[]).filter(p=>String(p.label||'').startsWith(`${scene.label}-`));
-   const skip=!source?.trim()||existingPolicy==='missing-only'&&existing.length>0;
+   const skip=!source?.trim()||(existingPolicy==='missing-only'&&existing.length>0||existingPolicy==='incomplete-only'&&productionCoverage(project).find(e=>e.id===episode.id)?.scenes.find(s=>s.label===scene.label)?.complete);
    const manualCount=segmentationMode==='manual'&&!skip?manualSceneTasks(source,scene.label).length:0;
    targets.push({episodeId:episode.id,episodeNumber:index+1,episodeTitle:episode.title||`第${index+1}集`,sceneLabel:scene.label,manualCount,
     fingerprint:Object.fromEntries(fingerprintFields.map(key=>[key,snapshot[key]])),existingCount:existing.length,

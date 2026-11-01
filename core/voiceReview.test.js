@@ -1,3 +1,4 @@
+import {prepareAutomaticVoice} from './voiceReview.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {projectVoiceRoster,projectVoiceCards,validateEpisodeVoices} from './characterVoices.js';
 import {voiceGenerationSettings,voiceGenerationRequest,runVoiceBatch,completeVoiceCard,removeCharacterVoice} from './voiceReview.js';
@@ -78,4 +79,11 @@ test('evidence extraction refuses another speaker, stale sources and offscreen s
   const store={snapshot:()=>({episodes:{1:{sourceContent:content,scenes:[{id:'1-1',source:content}]}},voiceProfiles:{李大川:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
   await assert.rejects(completeVoiceCard({character:c,store,api:{},project:{episodes:[{episodeNumber:1,content}]}}),/请选择信息补全模型/);assert.equal(profile.draft.quote,'');
  }
+});
+
+test('automatic voices retain a short sample, extend its text and adopt the first sample over three seconds',async()=>{
+ let profile={draft:{quote:'走吧。大家都在等我们，别让他们太着急了。'}};const content='1-1 日 内\n甲：走吧。',character={key:'a',name:'甲',quote:'走吧。',sceneIds:['1-1']};
+ const store={snapshot:()=>({episodes:{1:{sourceContent:content,scenes:[{id:'1-1',source:content}]}},voiceProfiles:{a:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
+ let calls=0;await prepareAutomaticVoice({character,store,project:{episodes:[{episodeNumber:1,content}]},selected:{id:'voice'},model:{id:'text'},api:{audioGenerate:async()=>({id:'a'+(++calls),url:'sample.wav',duration:calls===1?2.5:4}),audioResultRetain:async()=>({filePath:'kept.wav'}),aiChat:async()=>JSON.stringify({quote:profile.draft.quote,sampleQuote:profile.draft.quote+'我们现在就一起出发吧。',language:'Chinese'})}});
+ assert.equal(calls,2);assert.equal(profile.candidates.length,2);assert.equal(profile.confirmed.id,'a2');
 });

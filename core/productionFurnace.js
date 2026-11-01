@@ -14,7 +14,7 @@ export function productionVideoIssues(c,state){
  if(caps.resolutions?.length&&!caps.resolutions.includes(c.videoResolution))issues.push('视频分辨率不在所选模型的支持范围');
  return [...issues,...videoPolicyIssues(c,value=>productionVideoIssues(value,state),id=>{try{const [profileId,modelId]=JSON.parse(id),profile=generationMediaProfiles(state,'video').find(p=>p.id===profileId);return normalizeCapabilities(profile&&profileModels(profile,'video').find(m=>m.id===modelId));}catch{return {};}})];
 }
-export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['information','信息读取'],['voices','人物音色'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐集超分'],['edit','剪辑成片']];
+export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['information','信息读取'],['voices','人物音色'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐片超分'],['edit','剪辑成片']];
 export const VOICE_AUTOMATION_RULE='人物音色阶段：先读取每集正常对白和人物身份/年龄阶段/剧本依据，完成缺项后按人物卡调用所选音色模型。自动化不试听，不等待人工挑选；每个人物采用第一条成功生成的音色，并将该音色按人物和年龄阶段关联到对应场景、提示词和后续视频参考。只发送实际讲话人物的音色，不把旁白、画外音、心声或其他年龄阶段音色混入。';
 export const voiceAutomationEnabled=c=>c?.voiceEnabled===true;
 export function voicePolicyIssues(c){return voiceAutomationEnabled(c)?[
@@ -28,7 +28,7 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
  const issues=[];if(!project?.episodes?.some(e=>e.kind!=='setting'))issues.push('请上传剧本或选择导演项目');
  if(!c.outputRoot)issues.push('请选择项目输出目录');
  if(!c.agentPath||!c.agentModel)issues.push('请连接制作 Agent 并选择模型');
- if(c.mode==='auto'){
+ if(c.mode==='auto'||c.mode==='semi'){
   if(!profiles.some(p=>p.id===c.promptProfileId))issues.push('请选择提示词模型');
   if(!skills.some(s=>s.id===c.promptSkillId))issues.push('请选择导演提示词 Skill');
 
@@ -39,7 +39,6 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
   if(voiceAutomationEnabled(c)&&!profiles.some(p=>p.id===c.voiceCompletionProfileId))issues.push('请选择音色前置信息补充模型');
   if(voiceAutomationEnabled(c)&&!profiles.some(p=>p.id===c.voiceDistributionProfileId))issues.push('请选择音色分发模型');
  issues.push(...voicePolicyIssues(c));
- if(c.mode==='semi'&&!c.humanConfirmed)issues.push('请确认提示词与图片关联已经人工核对');
  if(!c.videoModel)issues.push('请选择视频渠道与模型');
  if(![2,4].includes(Number(c.upscaleFactor)))issues.push('超分倍率请选择 2 倍或 4 倍');
  if(c.endStage!=='archive'&&!c.topazPath)issues.push('请选择 Topaz 软件');
@@ -52,12 +51,22 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
 }
 export function productionCoverage(project){
  const episodes=(project?.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传');
- return episodes.map((ep,i)=>{const number=inferDirectorEpisodeNumber(ep,i+1),scenes=parseDirectorScenes(ep.content||'',number);return {id:ep.id,number,scenes:scenes.map(s=>({label:s.label,count:(ep.prompts||[]).filter(p=>String(p.label||'').startsWith(s.label+'-')&&p.content?.trim()).length})),prompts:(ep.prompts||[]).filter(p=>p.content?.trim()).length};});
+ return episodes.map((ep,i)=>{const number=inferDirectorEpisodeNumber(ep,i+1),scenes=parseDirectorScenes(ep.content||'',number);return {id:ep.id,number,scenes:scenes.map(scene=>{
+  const all=(ep.prompts||[]).filter(p=>String(p.label||'').startsWith(scene.label+'-'));
+  const plan=(ep.quickScenePlans||[]).find(p=>p.id===ep.activeQuickScenePlanIds?.[scene.label]);
+  const latest=all.filter(p=>p.generationRunId).at(-1)?.generationRunId;
+  const current=plan?all.filter(p=>p.segmentationPlanId===plan.id):latest?all.filter(p=>p.generationRunId===latest):all;
+  const labels=plan?.segments?.length?plan.segments.map((p,i)=>scene.label+'-'+(p.index||i+1)):Array.from({length:Math.max(1,...current.map(p=>Number(p.label.split('-').at(-1))||0))},(_,i)=>scene.label+'-'+(i+1));
+  const missingLabels=labels.filter(label=>!current.some(p=>p.label===label&&p.content?.trim()&&p.generationComplete!==false));
+  const count=current.filter(p=>p.content?.trim()&&p.generationComplete!==false).length;
+  return {label:scene.label,count,expected:labels.length,missingLabels,complete:missingLabels.length===0&&count===labels.length};
+ }),prompts:(ep.prompts||[]).filter(p=>p.content?.trim()).length};});
 }
 export function productionExpectedPrompts(project){
- const prompts=(project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传').flatMap(e=>e.prompts||[]),latest=new Map();
- for(const p of prompts)if(p.generationRunId)latest.set(String(p.label).split('-').slice(0,2).join('-'),p.generationRunId);
- return prompts.filter(p=>{const scene=String(p.label).split('-').slice(0,2).join('-');return !latest.has(scene)||latest.get(scene)===p.generationRunId;});
+ return (project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传').flatMap(ep=>{
+  const latest=new Map();for(const p of ep.prompts||[])if(p.generationRunId)latest.set(String(p.label).split('-').slice(0,2).join('-'),p.generationRunId);
+  return (ep.prompts||[]).filter(p=>{const scene=String(p.label).split('-').slice(0,2).join('-'),plan=ep.activeQuickScenePlanIds?.[scene];return plan?p.segmentationPlanId===plan:!latest.has(scene)||latest.get(scene)===p.generationRunId;});
+ });
 }
 export function imageFailureKind(error,pending){
  if(pending||/超时|timeout|network|socket|ECONN|提交.*不明/i.test(error?.message||error))return 'uncertain';
@@ -90,8 +99,9 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
     }if(facts.art)run.artWarnings=[];if(facts.images)run.imageErrors=[];await persist(run);
     }catch(error){guard(run);await log(`监测暂未完成：${error.message}；保留原成果，按原任务凭据接续。`,'warning');}
    }
-   for(const stage of ['prompts','information','voices','art','images']){
-    guard(run);if(stage==='voices'&&!voiceAutomationEnabled(run.config)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];await persist(run);continue;}if(run.stages[stage]?.status==='done'||run.config.mode==='semi'&&stage!=='voices')continue;if(typeof adapters[stage]!=='function'){run.stages[stage]={status:'done',skipped:true};await persist(run);continue;}
+   for(const stage of ['prompts','information','voices','art']){
+    if(['information','voices','art'].includes(stage)&&run.stages.prompts?.status==='partial'||['voices','art'].includes(stage)&&run.stages.information?.status==='partial'||stage==='art'&&voiceAutomationEnabled(run.config)&&run.stages.voices?.status==='partial')break;
+    guard(run);if(stage==='voices'&&!voiceAutomationEnabled(run.config)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];await persist(run);continue;}if(run.stages[stage]?.status==='done')continue;if(typeof adapters[stage]!=='function'){run.stages[stage]={status:'done',skipped:true};await persist(run);continue;}
      run.stages[stage]={status:'running'};await log(`开始执行：${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}`);
      let result;
      try{result=await adapters[stage](ctx);if(run.stageErrors)delete run.stageErrors[stage];}catch(error){if(run.status!=='running')throw error;run.stageErrors={...(run.stageErrors||{}),[stage]:error.message};await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}出现问题：${error.message}；保留当前结果并继续后续阶段。`,'error');result={partial:true};}
@@ -99,7 +109,16 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
      if(stage==='prompts')delete ctx.artSnapshot;
      await log(`${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}${result?.partial?'存在待处理项，已继续后续阶段':'已完成'}。`,result?.partial?'warning':'success');
    }
-   guard(run);try{await adapters.videos(ctx);if(run.stageErrors)delete run.stageErrors.videos;}catch(error){guard(run);if(!adapters.recover)throw error;run.stageErrors={...run.stageErrors,videos:error.message};await log('视频前置目标待修复：'+error.message,'warning');}
+   guard(run);
+   let imageJob=Promise.resolve();ctx.materialRevision=0;ctx.imagesPending=false;
+   ctx.notifyMaterials=()=>{ctx.materialRevision++;ctx.materialWake?.();};
+   ctx.waitForMaterials=revision=>new Promise(resolve=>{if(!ctx.imagesPending||ctx.materialRevision!==revision)return resolve();const timer=setTimeout(done,1000);function done(){clearTimeout(timer);if(ctx.materialWake===done)delete ctx.materialWake;resolve();}ctx.materialWake=done;});
+   const upstreamReady=!['prompts','information',...(voiceAutomationEnabled(run.config)?['voices']:[])].some(k=>run.stages[k]?.status==='partial')&&!run.stageErrors?.validation;
+   if(upstreamReady&&run.stages.images?.status!=='done'&&adapters.images){
+    ctx.imagesPending=true;run.stages.images={status:'running'};
+    imageJob=(async()=>{try{const result=await adapters.images(ctx);run.stages.images={status:result?.partial?'partial':'done'};delete run.stageErrors?.images;}catch(error){run.stages.images={status:'partial'};run.stageErrors={...run.stageErrors,images:error.message};}finally{ctx.imagesPending=false;ctx.notifyMaterials();await persist(run);}})();
+   }
+   guard(run);try{if(upstreamReady)await adapters.videos(ctx);if(run.stageErrors)delete run.stageErrors.videos;}catch(error){guard(run);if(!adapters.recover)throw error;run.stageErrors={...run.stageErrors,videos:error.message};await log('视频前置目标待修复：'+error.message,'warning');}finally{await imageJob;}
    guard(run);run.status=run.episodes.length&&run.episodes.every(e=>e.stage==='done')&&!Object.values(run.stages).some(s=>s.status==='partial')&&!Object.keys(run.stageErrors||{}).length?'done':'attention';
     if(run.status==='done'||!adapters.recover){run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);break;}
     run.status='running';guard(run);let recovery;try{recovery=await adapters.recover(ctx);}catch(error){guard(run);await log('Agent 修复暂未完成，保留目标并稍后重试：'+error.message,'warning');recovery={retry:true,delay:60000};}

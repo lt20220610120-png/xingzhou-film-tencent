@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createProductionController,completeEpisode,imageFailureKind,productionDefaults,productionIssues,VOICE_AUTOMATION_RULE} from './productionFurnace.js';
+import {createProductionController,completeEpisode,imageFailureKind,productionDefaults,productionIssues,productionCoverage,VOICE_AUTOMATION_RULE} from './productionFurnace.js';
 test('automation defaults include an explicit first-sample voice policy',()=>{const c=productionDefaults();assert.equal(c.voiceModelId,'');assert.match(VOICE_AUTOMATION_RULE,/第一条成功生成/);assert.match(VOICE_AUTOMATION_RULE,/年龄阶段/);});
 
 test('information reading executes before voices and still runs when voices are disabled',async()=>{
@@ -55,9 +55,9 @@ test('pause/resume and restart trust bulk evidence and never rerun completed ups
  let c=make();await c.restore();const run=await c.create('p',productionDefaults());await c.start(run.id);await c.pause(run.id);await c.start(run.id);c=make();await c.restore();await c.refresh(run.id);await c.start(run.id);assert.deepEqual(calls,['monitor','video','monitor','video','readonly','monitor','video']);
 });
 test('inspection locks start/rebind and missing output reopens a completed run for recovery',async()=>{let release,entered;const pending=new Promise(r=>release=r),ready=new Promise(r=>entered=r);let videos=0;const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{monitor:async({run})=>{entered();await pending;run.monitor={files:{invalidItems:['lost'],invalidEpisodes:[]}};return {prompts:true,art:true,images:true};},videos:async()=>{videos++;},selectCollab:async()=>{}}});const run=await c.create('p',productionDefaults());run.status='done';const refresh=c.refresh(run.id);await ready;await c.start(run.id);await assert.rejects(c.bindProject(run.id,'x'),/暂停/);assert.equal(videos,0);release();await refresh;assert.equal(run.status,'attention');await c.start(run.id);assert.equal(videos,1);});
-test('stage problems are logged and later stages still run',async()=>{
+test('incomplete prompts stop dependent stages without losing durable errors',async()=>{
  const saved=[];let later=0;const controller=createProductionController({load:async()=>[],save:async r=>saved.push(structuredClone(r)),adapters:{prompts:async()=>{throw Error('已有提示词无需重复审核');},art:async({notice})=>{await notice('清单部分关联，继续使用已发布结果');return {partial:true};},images:async()=>{later++;return {partial:true};},videos:async({run})=>{run.episodes=[{number:1,stage:'done'}];}}});
- await controller.restore();const run=await controller.create('p',productionDefaults());await controller.start(run.id);assert.equal(later,1);assert.equal(run.stages.prompts.status,'partial');assert.equal(run.stages.images.status,'partial');assert(run.logs.some(log=>log.text.includes('已有提示词无需重复审核')));assert(run.logs.some(log=>log.text.includes('继续使用已发布结果')));
+ await controller.restore();const run=await controller.create('p',productionDefaults());await controller.start(run.id);assert.equal(later,0);assert.equal(run.stages.prompts.status,'partial');assert.equal(run.stages.images,undefined);assert(run.logs.some(log=>log.text.includes('已有提示词无需重复审核')));assert(!run.logs.some(log=>log.text.includes('继续使用已发布结果')));
 });
 test('failed read-only inspection does not lock a completed run against recovery',async()=>{const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{monitor:async()=>{throw Error('目录不可用');}}});const run=await c.create('p',productionDefaults());run.status='done';await assert.rejects(c.refresh(run.id),/目录不可用/);assert.equal(run.status,'attention');});
 test('restore pauses interrupted work; duplicate start cannot submit twice',async()=>{
@@ -82,4 +82,15 @@ test('Agent conversation records actual actions, preserves task state and reject
 test('chat cannot change projects after paid submissions and failed action remains visible',async()=>{
  const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async()=>({reply:'尝试改选',action:'select_collab',projectId:'other'}),selectCollab:async()=>{throw Error('不应执行');}}});const run=await c.create('p',productionDefaults());run.items=[{id:'submitted'}];
  await assert.rejects(c.chat(run.id,{text:'切换',model:'m'}),/已有视频提交记录/);assert.match(run.conversation.at(-1).text,/指令未完成/);assert.equal(run.collabProjectId,undefined);
+});
+
+
+test('coverage requires every active planned segment, including a missing tail',()=>{
+ const ep={id:'e',content:'1-1 客厅 日 内\n甲说话。',activeQuickScenePlanIds:{'1-1':'plan'},quickScenePlans:[{id:'plan',sceneLabel:'1-1',segments:[{id:'a',index:1},{id:'b',index:2},{id:'c',index:3}]}],prompts:[{label:'1-1-1',content:'已完成',segmentationPlanId:'plan',segmentId:'a'}]};
+ const scene=productionCoverage({episodes:[ep]})[0].scenes[0];assert.equal(scene.complete,false);assert.deepEqual(scene.missingLabels,['1-1-2','1-1-3']);
+});
+test('semi mode resumes missing upstream work and streams videos while images are still working',async()=>{
+ const events=[];let release;const images=new Promise(r=>release=r);
+ const controller=createProductionController({load:async()=>[],save:async()=>{},adapters:{monitor:async()=>({prompts:true,information:false,art:false,images:false}),prompts:async()=>events.push('redo-prompts'),information:async()=>events.push('information'),art:async()=>events.push('art'),images:async()=>{events.push('images-start');await images;events.push('images-done');},videos:async({run})=>{events.push('video');release();run.episodes=[{stage:'done'}];}}});
+ const run=await controller.create('p',{...productionDefaults(),mode:'semi'});await controller.start(run.id);assert.deepEqual(events,['information','art','images-start','video','images-done']);assert.equal(run.status,'done');
 });

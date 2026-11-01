@@ -425,7 +425,7 @@ async function submitGeneration(event,p){
    const {validateImportedSubmission}=await import('../core/importedArtBinding.js');
    compiled=validateImportedSubmission(promptArtStore().load({accountId,projectId:p.bindingProjectId}),p,accountId);
 
-  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,localSources:readJson(directorProjectsFile(),[])||[]});
+  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,bindingOptions:p.workflowRunId?await productionHost.bindingOptions({runId:p.workflowRunId,projectId:p.bindingProjectId}):{},localSources:readJson(directorProjectsFile(),[])||[]});
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');

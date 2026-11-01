@@ -2,13 +2,13 @@ import {withStorageWork} from './storageWork.js';
 import {assetHasImages} from './assetImages.js';
 import {assetReferencePeers,characterBaselineAsset} from './collabStore.js';
 
-export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()=>null,includeGenerated=false}={}){
+export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()=>null,includeGenerated=false,categoryOrder=false}={}){
  const unique=[...new Map(assets.filter(a=>['character','scene','prop'].includes(a.category)).map(a=>[a.id,a])).values()];
- return unique.filter(a=>includeGenerated||!assetHasImages(a)).sort((a,b)=>(a.first_episode||Infinity)-(b.first_episode||Infinity)).map(asset=>{
+ return unique.filter(a=>includeGenerated||!assetHasImages(a)).sort((a,b)=>(categoryOrder?['character','scene','prop'].indexOf(a.category)-['character','scene','prop'].indexOf(b.category):0)||(a.first_episode||Infinity)-(b.first_episode||Infinity)).map(asset=>{
   const selected=readReference(asset.id),recovery=readRecovery(asset.id);
   const peers=assetReferencePeers(asset,unique);
   const base=selected?peers.find(a=>a.id===selected):asset.category==='character'?characterBaselineAsset(asset,unique):asset.category==='scene'?peers[0]:null;
-  return {asset,dependency:!recovery&&selected!==''&&base&&base.id!==asset.id&&!assetHasImages(base)?base.id:null};
+  return {asset,...(categoryOrder?{categoryOrder:true}:{}),dependency:!recovery&&selected!==''&&base&&base.id!==asset.id&&!assetHasImages(base)?base.id:null};
  });
 }
 
@@ -24,7 +24,8 @@ async function runArtImageBatchImpl(jobs,{concurrency=2,generate,isStopped=()=>f
  const pending=[...jobs],results=new Map();
  const report=()=>onProgress({total:jobs.length,completed:results.size,failed:[...results.values()].filter(r=>r.status==='rejected').length});
  while(pending.length&&!isStopped()){
-  const ready=pending.filter(j=>!j.dependency||results.has(j.dependency));
+  const category=pending.some(j=>j.categoryOrder)?pending[0].asset.category:null;
+  const ready=pending.filter(j=>(!category||j.asset.category===category)&&(!j.dependency||results.has(j.dependency)));
   if(!ready.length){for(const job of pending)results.set(job.asset.id,{status:'rejected',reason:new Error('请先生成或选择人物基准参考图；当前参考基准未完成'),asset:job.asset});pending.length=0;report();break;}
   ready.forEach(j=>pending.splice(pending.indexOf(j),1));
   let cursor=0;
