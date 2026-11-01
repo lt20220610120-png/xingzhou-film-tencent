@@ -243,7 +243,8 @@ ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
 ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun,doubaoRun,chatgptRun}));
-ipcMain.handle('audio-generate',async(event,payload)=>{const result=await require('./audio-provider.cjs').generateSpeech({...payload,destDir:path.join(mediaDir(),'语音生成'),signal:event.securitySignal},{fetchFn:(url,options)=>net.fetch(url,options)});return audioResults().record({...result,text:payload.input,instructions:payload.instructions,language:payload.language,model:payload.model,saved:false});});
+const ensureAudioReady=require('./audio-service-ready.cjs').createAudioServiceReady({fetchFn:(url,options)=>net.fetch(url,options)});
+ipcMain.handle('audio-generate',async(event,payload)=>{await ensureAudioReady({...payload,signal:event.securitySignal});const result=await require('./audio-provider.cjs').generateSpeech({...payload,destDir:path.join(mediaDir(),'语音生成'),signal:event.securitySignal},{fetchFn:(url,options)=>net.fetch(url,options)});return audioResults().record({...result,text:payload.input,instructions:payload.instructions,language:payload.language,model:payload.model,saved:false});});
 ipcMain.handle('audio-results-list',()=>audioResults().list());
 ipcMain.handle('audio-result-save',(_,payload)=>audioResults().save(String(payload?.id||'')));
 ipcMain.handle('audio-result-retain',(_,payload)=>audioResults().retain(String(payload?.id||'')));

@@ -2,6 +2,20 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {projectVoiceRoster,projectVoiceCards,validateEpisodeVoices} from './characterVoices.js';
 import {voiceGenerationSettings,voiceGenerationRequest,runVoiceBatch,completeVoiceCard,removeCharacterVoice} from './voiceReview.js';
 
+test('one-click completion expands short existing quote with model and keeps original evidence separate',async()=>{
+ const evidence='李大川：别在这儿趴窝呀！',content='1-1 日 外\n'+evidence,character={key:'a',name:'李大川',quote:'别在这儿趴窝呀！',evidence,sceneIds:['1-1']};let profile={draft:{instructions:'用户音色'}};let calls=0;
+ const store={snapshot:()=>({episodes:{1:{sourceContent:content,scenes:[{id:'1-1',source:content}]}},voiceProfiles:{a:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
+ const api={aiChat:async request=>{calls++;assert.match(request.messages[0].content,/3.*5/);return JSON.stringify({quote:character.quote,evidence,sampleQuote:character.quote+'我怎么这么倒霉，偏偏赶上这个时候。',language:'Chinese'});}};
+ await completeVoiceCard({character,store,api,model:{id:'text'},project:{episodes:[{episodeNumber:1,content}]}});
+ assert(profile.draft.quote.startsWith(character.quote));assert(profile.draft.quote.length>character.quote.length);assert.equal(profile.preparationEvidence,evidence);assert.equal(profile.sampleExpansion.originalQuote,character.quote);assert.equal(profile.draft.instructions,'用户音色');
+ await completeVoiceCard({character,store,api,model:{id:'text'},project:{episodes:[{episodeNumber:1,content}]}});assert.equal(calls,1);
+});
+test('late short-sample expansion cannot overwrite a manual edit',async()=>{
+ const character={key:'a',name:'甲',quote:'走吧。',sceneIds:['1-1']},content='1-1 日 内\n甲：走吧。';let profile={draft:{quote:'走吧。'}};
+ const store={snapshot:()=>({episodes:{1:{sourceContent:content,scenes:[{id:'1-1',source:content}]}},voiceProfiles:{a:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
+ await completeVoiceCard({character,store,api:{aiChat:async()=>{profile.draft.quote='人工刚刚填写的新句子';return JSON.stringify({sampleQuote:'走吧。大家还等着我们，别让他们太着急了。'});}},model:{id:'t'},project:{episodes:[{episodeNumber:1,content}]}});assert.equal(profile.draft.quote,'人工刚刚填写的新句子');
+});
+
 test('deleting a voice sample removes it from the card and clears an adopted reference',async()=>{
  let profile={candidates:[{id:'local-upload',url:'upload.wav'},{id:'generated',sourceResultId:'result-1',filePath:'generated.wav'}],confirmed:{id:'generated',filePath:'generated.wav'}};
  const deleted=[];const store={snapshot:()=>({voiceProfiles:{character:profile}}),setVoiceProfile:async(key,update)=>{profile=update(profile);}};
@@ -17,8 +31,8 @@ test('blank optional voice description still sends identity and evidence to TTS 
 test('manual completion reads character identity and fills authentic dialogue, never optional description',async()=>{
  const ep={episodeNumber:1,content:'1-1 日 内\n小林：回家。'},c={key:'m',name:'小林',characterName:'小林',description:'司机',quote:'',sceneIds:['1-1']};let profile={manual:{name:'小林'},draft:{instructions:''}};
  const store={snapshot:()=>({episodes:{1:{sourceContent:ep.content,scenes:[{id:'1-1',source:ep.content}]}},voiceProfiles:{m:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
- const api={aiChat:async p=>{assert.match(p.messages[1].content,/司机/);return JSON.stringify({quote:'回家。',evidence:'小林：回家。',instructions:'不该填入',language:'Chinese'});}};
- await completeVoiceCard({character:c,store,api,model:{id:'q'},project:{episodes:[ep]}});assert.equal(profile.draft.quote,'回家。');assert.equal(profile.draft.instructions,'');
+ const api={aiChat:async p=>{assert.match(p.messages[1].content,/司机/);return JSON.stringify({quote:'回家。',sampleQuote:'回家。大家都在等我们，早点回去让他们放心。',evidence:'小林：回家。',instructions:'不该填入',language:'Chinese'});}};
+ await completeVoiceCard({character:c,store,api,model:{id:'q'},project:{episodes:[ep]}});assert(profile.draft.quote.startsWith('回家。'));assert.equal(profile.draft.instructions,'');
 });
 test('age stages use separate cards and only the matching scene receives its sample',()=>{
  const episodes=[1,2,3].map(n=>({episodeNumber:n,content:`${n}-1 日 内\n小林（幼年）：回家。\n${n}-2 日 内\n小林：回来。`}));const ledger={episodes:{},voiceProfiles:{小林:{confirmed:{id:'a',filePath:'a.wav'}},'小林::child':{confirmed:{id:'b',filePath:'b.wav'}}}};

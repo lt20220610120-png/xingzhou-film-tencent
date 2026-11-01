@@ -3,7 +3,7 @@ import {mediaSource} from '../../core/generationReferences.js';
 import './audio-workbench.css';
 
 export const AUDIO_LANGUAGES=[['Chinese','中文'],['English','英语'],['Auto','自动'],['Japanese','日语'],['Korean','韩语'],['German','德语'],['French','法语'],['Russian','俄语'],['Portuguese','葡萄牙语'],['Spanish','西班牙语'],['Italian','意大利语']];
-export const LOCAL_QWEN_PROFILE={name:'本地 Qwen3-TTS 1.7B · Voice Design',provider:'custom',endpoint:'http://127.0.0.1:7891/v1',model:'Qwen3-TTS-12Hz-1.7B-VoiceDesign',apiKey:'',requiresApiKey:false,language:'Chinese',voice:'default',instructions:'成年女性，声线温暖清晰，普通话标准，语气自然，适合短剧对白。'};
+export const LOCAL_QWEN_PROFILE={name:'本地 Qwen3-TTS 1.7B · Voice Design',provider:'custom',endpoint:'http://127.0.0.1:7891/v1',model:'Qwen3-TTS-12Hz-1.7B-VoiceDesign',apiKey:'',serviceHealthUrl:'',serviceStartUrl:'',requiresApiKey:false,language:'Chinese',voice:'default',instructions:'成年女性，声线温暖清晰，普通话标准，语气自然，适合短剧对白。'};
 
 export function AudioWorkbench({profile}){
  const [input,setInput]=useState('你好，欢迎来到行舟影视。这是本地语音模型生成的声音。');

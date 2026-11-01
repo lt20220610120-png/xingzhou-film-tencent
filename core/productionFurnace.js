@@ -1,3 +1,4 @@
+import {modelPolicyIssues} from './productionModelPolicy.js';
 import {parseDirectorScenes,inferDirectorEpisodeNumber} from './scriptImport.js';
 import {profileModels} from './videoCatalog.js';
 import {generationMediaProfiles} from './canvasStore.js';
@@ -13,7 +14,7 @@ export function productionVideoIssues(c,state){
  if(caps.resolutions?.length&&!caps.resolutions.includes(c.videoResolution))issues.push('视频分辨率不在所选模型的支持范围');
  return [...issues,...videoPolicyIssues(c,value=>productionVideoIssues(value,state),id=>{try{const [profileId,modelId]=JSON.parse(id),profile=generationMediaProfiles(state,'video').find(p=>p.id===profileId);return normalizeCapabilities(profile&&profileModels(profile,'video').find(m=>m.id===modelId));}catch{return {};}})];
 }
-export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['voices','人物音色'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐集超分'],['edit','剪辑成片']];
+export const PRODUCTION_STAGES=[['prompts','剧本与提示词'],['information','信息读取'],['voices','人物音色'],['art','美术清单与关联'],['images','美术图片'],['videos','视频生成与归档'],['upscale','逐集超分'],['edit','剪辑成片']];
 export const VOICE_AUTOMATION_RULE='人物音色阶段：先读取每集正常对白和人物身份/年龄阶段/剧本依据，完成缺项后按人物卡调用所选音色模型。自动化不试听，不等待人工挑选；每个人物采用第一条成功生成的音色，并将该音色按人物和年龄阶段关联到对应场景、提示词和后续视频参考。只发送实际讲话人物的音色，不把旁白、画外音、心声或其他年龄阶段音色混入。';
 export const voiceAutomationEnabled=c=>c?.voiceEnabled===true;
 export function voicePolicyIssues(c){return voiceAutomationEnabled(c)?[
@@ -22,7 +23,7 @@ export function voicePolicyIssues(c){return voiceAutomationEnabled(c)?[
  ...(!c.voiceDistributionProfileId?['请选择音色分发模型']:[]),
  ...(!Number.isSafeInteger(Number(c.voiceConcurrency??1))||Number(c.voiceConcurrency??1)<1?['音色并发数必须是正整数']:[])
  ]:[];}
-export function productionDefaults(){return {mode:'auto',style:'真人电影级',ratio:'9:16',maxDuration:32,promptProfileId:'',promptSkillId:'',voiceEnabled:false,voiceConcurrency:1,voiceModelId:'',voiceCompletionProfileId:'',voiceDistributionProfileId:'',analysisProfileId:'',artStyle:'AI真人',composition:'portrait-four',imageModel:'',fallbackImageModel:'',imageAttempts:2,imageConcurrency:2,imageRatio:'16:9',videoModel:'',videoDuration:30,videoResolution:'480p',videoConcurrency:2,videoAttempts:2,videoFallbackEnabled:false,fallbackVideoModel:'',fallbackVideoAttempts:2,agentPath:'',agentProtocol:'codex',agentModel:'',agentEffort:'high',topazPath:'',upscaleFactor:2,openFilmPath:'',editAgentPath:'',editAgentProtocol:'codex',editModel:'',editPreset:'default',editMarket:'domestic',tailFrameMode:'default',tailFramePath:'',editInstruction:'',musicFolder:'',soundFolder:'',voiceFolder:'',outputRoot:'',endStage:'edit',humanConfirmed:false};}
+export function productionDefaults(){return {mode:'auto',style:'真人电影级',ratio:'9:16',maxDuration:32,promptProfileId:'',promptAttempts:2,promptFallbacks:[],promptSkillId:'',voiceEnabled:false,voiceConcurrency:1,voiceModelId:'',voiceCompletionProfileId:'',voiceDistributionProfileId:'',analysisProfileId:'',artStyle:'AI真人',composition:'portrait-four',imageModel:'',fallbackImageModel:'',imageAttempts:2,imageConcurrency:2,imageRatio:'16:9',videoModel:'',videoDuration:30,videoResolution:'480p',videoConcurrency:2,videoAttempts:2,videoFallbackEnabled:false,fallbackVideoModel:'',fallbackVideoAttempts:2,agentPath:'',agentProtocol:'codex',agentModel:'',agentEffort:'high',topazPath:'',upscaleFactor:2,openFilmPath:'',editAgentPath:'',editAgentProtocol:'codex',editModel:'',editPreset:'default',editMarket:'domestic',tailFrameMode:'default',tailFramePath:'',editInstruction:'',musicFolder:'',soundFolder:'',voiceFolder:'',outputRoot:'',endStage:'edit',humanConfirmed:false};}
 export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={}){
  const issues=[];if(!project?.episodes?.some(e=>e.kind!=='setting'))issues.push('请上传剧本或选择导演项目');
  if(!c.outputRoot)issues.push('请选择项目输出目录');
@@ -33,7 +34,7 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
 
   if(!profiles.some(p=>p.id===c.analysisProfileId))issues.push('请选择美术分析模型');
   if(!models.some(m=>m.id===c.imageModel))issues.push('请选择生图主模型');
-  if(!models.some(m=>m.id===c.fallbackImageModel))issues.push('请选择生图备用模型');
+  issues.push(...modelPolicyIssues(c,'prompt',profiles),...modelPolicyIssues(c,'image',models));
  }
   if(voiceAutomationEnabled(c)&&!profiles.some(p=>p.id===c.voiceCompletionProfileId))issues.push('请选择音色前置信息补充模型');
   if(voiceAutomationEnabled(c)&&!profiles.some(p=>p.id===c.voiceDistributionProfileId))issues.push('请选择音色分发模型');
@@ -83,13 +84,13 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    let recoveryRound=0;while(true){
    try{await adapters.validate?.(ctx);guard(run);if(run.stageErrors)delete run.stageErrors.validation;}catch(error){guard(run);if(!adapters.recover)throw error;run.stageErrors={...run.stageErrors,validation:error.message};await log('前置目标待修复：'+error.message,'warning');}
    if(adapters.monitor){
-    try{const facts=await adapters.monitor(ctx);guard(run);for(const key of ['prompts','voices','art','images'])if(typeof facts[key]==='boolean'){
+    try{const facts=await adapters.monitor(ctx);guard(run);for(const key of ['prompts','information','voices','art','images'])if(typeof facts[key]==='boolean'){
      run.stages[key]={status:facts[key]?'done':'pending',detectedAt:Date.now()};
      if(facts[key]&&run.stageErrors)delete run.stageErrors[key];
     }if(facts.art)run.artWarnings=[];if(facts.images)run.imageErrors=[];await persist(run);
     }catch(error){guard(run);await log(`监测暂未完成：${error.message}；保留原成果，按原任务凭据接续。`,'warning');}
    }
-   for(const stage of ['prompts','voices','art','images']){
+   for(const stage of ['prompts','information','voices','art','images']){
     guard(run);if(stage==='voices'&&!voiceAutomationEnabled(run.config)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];await persist(run);continue;}if(run.stages[stage]?.status==='done'||run.config.mode==='semi'&&stage!=='voices')continue;if(typeof adapters[stage]!=='function'){run.stages[stage]={status:'done',skipped:true};await persist(run);continue;}
      run.stages[stage]={status:'running'};await log(`开始执行：${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}`);
      let result;

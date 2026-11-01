@@ -62,7 +62,7 @@ async function generateSpeech(config,{fetchFn=globalThis.fetch,timeoutMs=600000}
   return {filePath,mime:'audio/wav',duration,bytes:bytes.length};
  }catch(error){
   if(controller.signal.aborted)throw controller.signal.reason;
-  if(/fetch failed|ECONNREFUSED|network|ENOTFOUND/i.test(String(error?.message)+' '+String(error?.cause?.code)))throw Error('无法连接语音服务，请先启动本地模型并检查接口地址；未自动重试');
+  if(/fetch failed|ECONNREFUSED|ERR_CONNECTION_REFUSED|network|ENOTFOUND/i.test(String(error?.message)+' '+String(error?.cause?.code)))throw Error('语音服务连接中断，请检查模型服务与接口地址；本次生成未重复提交，再次生成会重新检查并启动服务');
   throw error;
  }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
 }

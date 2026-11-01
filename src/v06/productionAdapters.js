@@ -1,5 +1,6 @@
+import {runPromptModelChain,modelPolicyRows} from '../../core/productionModelPolicy.js';
 import {listCollabEpisodes} from '../../core/collabEpisodes.js';
-import {sourceReviewScenes,editArtReview,isSceneVerified,needsArtReviewDetails} from '../../core/artReview.js';
+import {sourceReviewScenes,editArtReview,isSceneVerified,needsArtReviewDetails,reviewRoster,decodeArtReviewOutput} from '../../core/artReview.js';
 import {fillArtReviewDetails} from '../../core/artReviewRunner.js';
 import {repairProductionBindings} from '../../core/productionBindingRepair.js';
 import {isFundingError,productionRecoveryGoals,productionRecoveryFingerprint} from '../../core/productionRecovery.js';
@@ -30,6 +31,13 @@ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const json=text=>JSON.parse(String(text).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));
 export function productionArtResumePlan(project,ledger,binding){
  const m=productionArtMonitor(project,ledger,binding);return {inventory:m.inventory,mapOnly:[...new Set([...m.mapping,...m.episodes.filter(e=>!e.complete&&!e.changed&&e.inventory).map(e=>e.number)])]};
+}
+export function missingInformationEpisodes(project,ledger){
+ return listCollabEpisodes(project.episodes).filter(ep=>{
+  const record=ledger.episodes?.[ep.episodeNumber];if(record?.sourceContent!==ep.content)return true;
+  const inventoryReady=reviewRoster(record).length>0||decodeArtReviewOutput(record.inventory,ep.episodeNumber).complete;
+  return !inventoryReady||sourceReviewScenes(ep).some(source=>!record.scenes?.some(s=>s.id===source.id&&s.source===source.source&&(s.mappingReady||s.items?.length)));
+ });
 }
 export function createProductionAdapters({api,getState,setState,getQuick,getAccount}){
  const activeJobs=new Map(),syncDirector=createDirectorSync();
@@ -92,7 +100,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    await ctx.log?.(`批量监测完成：提示词 ${scenes.filter(s=>s.count).length}/${scenes.length} 场，清单已发布 ${monitor.summary.published}/${monitor.summary.scenes} 场，已有图片 ${monitor.summary.images}/${monitor.summary.assets}；只接续缺项，不重做已完成成果。`);
    const voiceRoster=voiceStore&&voiceAutomationEnabled(ctx.run.config)?projectVoiceRoster(voiceProject,voiceStore.snapshot()):null;
    const voiceDone=!voiceAutomationEnabled(ctx.run.config)||Boolean(ctx.run.voiceAutomation?.completed&&!ctx.run.voiceWarnings?.length&&voiceRoster?.complete&&voiceRoster.characters.filter(x=>x.manual||x.major).every(x=>voiceStore.snapshot().voiceProfiles?.[x.key]?.confirmed));
-   return {prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitor.summary.images===monitor.summary.assets};
+   return {information:Boolean(voiceStore)&&missingInformationEpisodes(voiceProject,voiceStore.snapshot()).length===0&&projectVoiceRoster(voiceProject,voiceStore.snapshot()).complete,prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitor.summary.images===monitor.summary.assets};
   },
   async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source.id);const id=run.collabProjectId||run.config.collabProjectId||candidates[0]?.id;
    let assets=[],cloud;if(id&&candidates.some(p=>p.id===id)){cloud=await api.collabGetProject({projectId:id});assets=await api.collabListAssets({projectId:id});}
@@ -107,27 +115,40 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    const existingCoverage=productionCoverage(p),existingMissing=existingCoverage.flatMap(e=>e.scenes).filter(s=>!s.count);
    if(!existingMissing.length){run.promptConfigured=true;run.coverage=existingCoverage;run.reusedExisting={...(run.reusedExisting||{}),prompts:true};await ctx.notice('已发现完整提示词，直接复用，不重新生成、不重复审核');return;}
    if(!run.promptConfigured){setState(s=>({...s,directorProjects:s.directorProjects.map(v=>v.id===p.id?{...v,style:c.style,aspectRatio:c.ratio}:v)}));run.promptConfigured=true;await getQuick().saveLocal();await ctx.checkpoint();}
-   for(let attempt=0;attempt<2;attempt++){
-    ctx.guard();p=project(run);const missing=productionCoverage(p).flatMap(e=>e.scenes).filter(s=>!s.count);
-    if(!missing.length)break;await ctx.notice(`生成整本提示词 · 待补 ${missing.length} 场`);
-    const skill=getState().skills.find(s=>s.id===c.promptSkillId);if(!skill)throw Error('提示词 Skill 不存在');
-    const plan=await getQuick().previewBatch({project:p,skill,profile:profile(c.promptProfileId),maxDurationSeconds:Number(c.maxDuration),concurrency:4,existingPolicy:'missing-only',segmentationMode:'auto'});
+   await runPromptModelChain({ctx,profiles:getState().apiProfiles,remaining:()=>productionCoverage(project(run)).flatMap(e=>e.scenes).filter(s=>!s.count),generate:async selected=>{
+    ctx.guard();p=project(run);const skill=getState().skills.find(s=>s.id===c.promptSkillId);if(!skill)throw Error('提示词 Skill 不存在');
+    const plan=await getQuick().previewBatch({project:p,skill,profile:selected,maxDurationSeconds:Number(c.maxDuration),concurrency:4,existingPolicy:'missing-only',segmentationMode:'auto'});
     run.directorBatchId=plan.id;await ctx.checkpoint();await getQuick().startBatch(plan);
-   }
+   }});
    const coverage=productionCoverage(project(run));run.coverage=coverage;await ctx.checkpoint();
    const missing=coverage.flatMap(e=>e.scenes).filter(s=>!s.count);if(missing.length)throw Error(`仍缺少提示词：${missing.map(s=>s.label).join('、')}`);
    await ctx.notice('提示词已补齐，保留现有内容，不重复做整本审核');
   },
+  async information(ctx){
+   const {run}=ctx,c=run.config;let p=await collab(ctx);const assets=await api.collabListAssets({projectId:p.id});
+   if(!assets.length&&api.collabUpdateProject){p=await api.collabUpdateProject({projectId:p.id,updates:{style:c.artStyle}});p=await api.collabUpdateProject({projectId:p.id,scope:'art-image-settings',updates:{image_composition:c.composition}});ctx.collabSnapshot=null;}
+   const store=getArtReviewStore({api,projectId:p.id,accountId:getAccount().id});await store.load(p,assets);
+   const readingProfile=profile(c.analysisProfileId),job={cancelled:false,taskIds:[]};activeJobs.set(run.id,job);
+   try{
+    const missing=missingInformationEpisodes(p,store.snapshot());
+    if(missing.length){await ctx.notice('信息读取：美术清单、人物身份与关联场景');const analysis=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:readingProfile,existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:false,targetEpisodeNumbers:missing.map(e=>e.episodeNumber),preserveExisting:true,job});if(analysis.errors?.length)throw Error(analysis.errors.join('；'));if(!job.cancelled&&missingInformationEpisodes(p,store.snapshot()).length)throw Error('美术清单或人物场景关联尚未读取完整，保留当前信息后继续补缺');}
+    if(job.cancelled)return {partial:true};
+    const result=await readProjectVoices({project:p,store,api,profile:readingProfile,job});ctx.artSnapshot=null;
+    if(result.errors.length)throw Error(result.errors.join('；'));
+    await ctx.notice('人物身份、关联场景和正常对白已读取；继续人物音色');
+   }finally{if(activeJobs.get(run.id)===job)activeJobs.delete(run.id);}
+  },
   async validateVoicePolicy(c){if(!voiceAutomationEnabled(c))return;const issues=voicePolicyIssues(c);if(issues.length)throw Error(issues.join('；'));profile(c.voiceCompletionProfileId);profile(c.voiceDistributionProfileId);if(!voiceModelFor(c))throw Error('人物音色模型已不存在');},
   async voices(ctx){
    if(!voiceAutomationEnabled(ctx.run.config))return {skipped:true};
+   if(ctx.run.stageErrors?.information)throw Error('信息读取尚未完成：'+ctx.run.stageErrors.information);
    const {run}=ctx,c=run.config,completion=profile(c.voiceCompletionProfileId),distribution=profile(c.voiceDistributionProfileId),voiceModel=voiceModelFor(c);if(!voiceModel)throw Error('人物音色模型已不存在');
    run.voiceAutomation={completed:false};const voiceAccountId=getAccount().id;const keepResult=()=>{try{return getAccount().id===voiceAccountId;}catch{return false;}};
    const job={taskIds:[],stopped:false,get cancelled(){return this.stopped||run.status!=='running'||!voiceAutomationEnabled(run.config);},set cancelled(value){this.stopped=value;}};activeJobs.set(run.id,job);
    try{
     const p=await collab(ctx),assets=await api.collabListAssets({projectId:p.id}),store=getArtReviewStore({api,projectId:p.id,accountId:getAccount().id});await store.load(p,assets);ctx.guard();
-    const missing=listCollabEpisodes(p.episodes).filter(ep=>store.snapshot().episodes?.[ep.episodeNumber]?.sourceContent!==ep.content||!store.snapshot().episodes?.[ep.episodeNumber]?.scenes?.length);
-    if(missing.length&&!job.cancelled){await ctx.notice('先读取缺失剧本信息，再准备人物音色');await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:completion,existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:false,targetEpisodeNumbers:missing.map(e=>e.episodeNumber),preserveExisting:true,job});}
+    const missing=missingInformationEpisodes(p,store.snapshot());
+    if(missing.length&&!job.cancelled){await ctx.notice('先读取缺失剧本信息，再准备人物音色');const analysis=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:completion,existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:false,targetEpisodeNumbers:missing.map(e=>e.episodeNumber),preserveExisting:true,job});if(analysis.errors?.length)throw Error(analysis.errors.join('；'));if(!job.cancelled&&missingInformationEpisodes(p,store.snapshot()).length)throw Error('人物身份或关联场景尚未读取完整，请继续信息读取');}
     if(job.cancelled)return {skipped:true};
     await ctx.notice('读取人物正常对白并补齐音色前置信息');const reading=await readProjectVoices({project:p,store,api,profile:completion,job,onProgress:()=>{}});
     const characters=projectVoiceRoster(p,store.snapshot()).characters.filter(x=>x.manual||x.major);
@@ -166,7 +187,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     run.artWarnings=[...new Set(run.artWarnings)];await ctx.checkpoint();return {partial:!after.monitor.episodes.every(e=>e.complete)};
    }finally{activeJobs.delete(run.id);}
   },
-  async images(ctx){const {run}=ctx,c=run.config,p=await collab(ctx),assets=await api.collabListAssets({projectId:p.id}),choices=mediaModelChoices(getState(),'image'),primary=choices.find(m=>m.id===c.imageModel),fallback=choices.find(m=>m.id===c.fallbackImageModel);if(!primary||!fallback)throw Error('生图主备模型已变化');await ctx.notice('已读取协作项目「'+p.name+'」的 '+assets.length+' 张资产卡片，复用已有图片并处理未完成项。');return produceImages({ctx,api,project:p,assets,primary,fallback,work:(task,messages)=>work(ctx,task,messages)});},
+  async images(ctx){const {run}=ctx,c=run.config,p=await collab(ctx),assets=await api.collabListAssets({projectId:p.id}),choices=mediaModelChoices(getState(),'image'),policies=modelPolicyRows(c,'image').map(row=>{const model=choices.find(m=>m.id===row.modelId);if(!model)throw Error('生图主备模型已变化');return {...model,...row};});await ctx.notice('已读取协作项目「'+p.name+'」的 '+assets.length+' 张资产卡片，复用已有图片并处理未完成项。');return produceImages({ctx,api,project:p,assets,policies,work:(task,messages)=>work(ctx,task,messages)});},
   async videos(ctx){
    if(ctx.run.outputVerificationFailed)throw Error('原片文件验收未完成，请检查输出目录后继续；原任务与成果均保留');
    const {run}=ctx,c=run.config,p=await collab(ctx),fresh=await loadFreshBinding({api,projectId:p.id,accountId:getAccount().id,localSources:getState().directorProjects}),book=linkedPromptBook(fresh.snapshot,fresh.decisions,getAccount().id);

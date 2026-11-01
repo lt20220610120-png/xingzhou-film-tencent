@@ -11,10 +11,17 @@ function fixture(){
  const snapshot=bindingSnapshot(project,ledger,assets),decisions=Object.fromEntries(snapshot.entries.map(e=>[e.id,{...proposeEntryBinding(snapshot,e),confirmed:true}]));
  const state={directorProjects:[{...project,id:'director'}],mediaProfiles:[{id:'video',name:'渠道',kind:'video',model:'v',capabilities:{maxImages:8,durations:[30],ratios:['9:16'],resolutions:['480p']}}]},jobs=[],events=[];
  const run={id:crypto.randomUUID(),projectId:'director',collabProjectId:'collab',status:'running',config:{...productionDefaults(),mode:'semi',videoModel:JSON.stringify(['video','v']),endStage:'edit'},items:[],episodes:[]};
- const api={collabGetProject:async()=>project,promptArtLoad:async()=>({enabled:true,snapshot,decisions}),collabListAssets:async()=>assets,artReviewLoadLocal:async()=>ledger,generationList:async()=>jobs,productionAudit:async p=>{events.push('audit:'+p.payload.label);return '{"approved":true}';},generationSubmit:async input=>{events.push('submit:'+input.shotLabel);const job={...input,id:crypto.randomUUID(),status:'success'};jobs.push(job);return job;},productionArchive:async p=>{events.push('archive:'+p.label);return {outputFile:p.label+'.mp4',sha256:'hash'};},productionPostStatus:async p=>{events.push(p.stage+':'+p.episode);return {status:'done',result:{file:'film.mp4'}};}};
+ const api={aiChat:async request=>{const data=JSON.parse(request.messages[1].content),quote=data.existing?.quote||'走吧。';return JSON.stringify({quote,sampleQuote:quote+'大家都在等我们，别让他们等得太着急了。',language:'Chinese'});},collabGetProject:async()=>project,promptArtLoad:async()=>({enabled:true,snapshot,decisions}),collabListAssets:async()=>assets,artReviewLoadLocal:async()=>ledger,generationList:async()=>jobs,productionAudit:async p=>{events.push('audit:'+p.payload.label);return '{"approved":true}';},generationSubmit:async input=>{events.push('submit:'+input.shotLabel);const job={...input,id:crypto.randomUUID(),status:'success'};jobs.push(job);return job;},productionArchive:async p=>{events.push('archive:'+p.label);return {outputFile:p.label+'.mp4',sha256:'hash'};},productionPostStatus:async p=>{events.push(p.stage+':'+p.episode);return {status:'done',result:{file:'film.mp4'}};}};
  const accountId=crypto.randomUUID(),adapter=createProductionAdapters({api,getState:()=>state,getAccount:()=>({id:accountId}),setState:()=>{},getQuick:()=>({})}),ctx={run,guard:()=>{if(run.status!=='running')throw Error('paused');},checkpoint:async()=>{},notice:async()=>{}};
  return {adapter,ctx,run,state,jobs,events,api,ledger};
 }
+
+test('new projects with automatically created empty scene containers must read art inventory before voices',async()=>{
+ const f=fixture();f.state.apiProfiles=[{id:'text',model:'mock'}];f.run.config.analysisProfileId='text';f.run.config.mode='auto';f.api.collabListProjects=async()=>[{id:'collab',director_project_id:'director'}];
+ f.ledger.episodes=Object.fromEntries(f.state.directorProjects[0].episodes.map(ep=>[ep.episodeNumber,newArtReview(ep)]));f.api.artReviewSaveLocal=async()=>{};
+ let artCalls=0;f.api.aiChat=async request=>{if(request.messages[0].content.includes('语音读取：'))return JSON.stringify({scenes:[{sceneId:JSON.parse(request.messages[1].content).episodeNumber+'-1',appearances:[],speakers:[]}]});artCalls++;throw Error('must-read-inventory');};
+ await assert.rejects(f.adapter.information(f.ctx),/must-read-inventory/);assert(artCalls>0);
+});
 
 test('disabled automation voice adapter makes zero model or collaboration calls',async()=>{
  const f=fixture();f.api.collabGetProject=async()=>{throw Error('must not load voices');};

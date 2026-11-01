@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createProductionController,completeEpisode,imageFailureKind,productionDefaults,productionIssues,VOICE_AUTOMATION_RULE} from './productionFurnace.js';
 test('automation defaults include an explicit first-sample voice policy',()=>{const c=productionDefaults();assert.equal(c.voiceModelId,'');assert.match(VOICE_AUTOMATION_RULE,/第一条成功生成/);assert.match(VOICE_AUTOMATION_RULE,/年龄阶段/);});
+
+test('information reading executes before voices and still runs when voices are disabled',async()=>{
+ for(const voiceEnabled of [true,false]){const order=[],controller=createProductionController({load:async()=>[],save:async()=>{},adapters:{information:async()=>order.push('information'),voices:async()=>order.push('voices'),art:async()=>order.push('art'),videos:async({run})=>{run.episodes=[{stage:'done'}];}}});const run=await controller.create('p',{...productionDefaults(),voiceEnabled});await controller.start(run.id);assert.deepEqual(order,voiceEnabled?['information','voices','art']:['information','art']);}
+});
 test('automatic stage order puts enabled character voices between prompts and art',async()=>{const order=[],c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>order.push('prompts'),voices:async()=>order.push('voices'),art:async()=>order.push('art'),images:async()=>order.push('images'),videos:async({run})=>{order.push('videos');run.episodes=[{number:1,stage:'done'}]}}});const run=await c.create('p',{...productionDefaults(),mode:'auto',voiceEnabled:true});await c.start(run.id);assert.deepEqual(order,['prompts','voices','art','images','videos']);assert.equal(run.stages.voices.status,'done');});
 
 test('optional voices default off, never run or block old tasks and clear obsolete voice errors',async()=>{

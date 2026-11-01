@@ -3,6 +3,15 @@ import {createPortal} from 'react-dom';
 import {Bot, Check, ChevronDown, FileVideo, FolderOpen, Monitor, Search, X} from 'lucide-react';
 import {ProductionAgentStatus} from './ProductionAgentStatus.jsx';
 
+export function InlineChoiceField({label,value,options=[],onChange,disabled=false,placeholder='点击选择'}){
+ const [open,setOpen]=useState(false),[query,setQuery]=useState(''),root=useRef(null),trigger=useRef(null),listId=useId();
+ const choices=options.map(o=>typeof o==='string'?{id:o,name:o}:o),selected=choices.find(o=>String(o.id)===String(value));
+ useEffect(()=>{if(!open)return;const outside=e=>{if(!root.current?.contains(e.target))setOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[open]);
+ const close=()=>{setOpen(false);trigger.current?.focus();};
+ const filtered=choices.filter(o=>`${o.name} ${o.id}`.toLowerCase().includes(query.toLowerCase()));
+ return <div ref={root} className="furnace-field furnace-inline-field" onKeyDown={e=>{if(e.key==='Escape'&&open){e.preventDefault();e.stopPropagation();close();}if(open&&['ArrowDown','ArrowUp'].includes(e.key)){const buttons=[...root.current.querySelectorAll('[role=option]')];if(buttons.length){e.preventDefault();const index=buttons.indexOf(document.activeElement);buttons[(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}}}}><span className="furnace-label">{label}</span><button ref={trigger} type="button" className="furnace-choice" aria-label={label} aria-haspopup="listbox" aria-controls={listId} aria-expanded={open} disabled={disabled} title={selected?.name||''} onClick={()=>{setQuery('');setOpen(v=>!v);}}><span>{selected?.name||(value?'原选择暂不可用，请重新选择':placeholder)}</span><ChevronDown size={16}/></button>{open&&!disabled&&<div className="furnace-inline-picker"><input autoFocus type="search" aria-label={`搜索${label}`} placeholder="搜索名称…" value={query} onChange={e=>setQuery(e.target.value)}/><div id={listId} role="listbox" aria-label={`${label}选项`} className="furnace-inline-options">{filtered.map(o=><button type="button" role="option" aria-selected={String(o.id)===String(value)} key={o.id} onClick={()=>{onChange(o.id);close();}}><span>{o.name}</span>{String(o.id)===String(value)&&<Check size={16}/>}</button>)}{!filtered.length&&<p>暂无匹配选项</p>}</div></div>}</div>;
+}
+
 // Native modal supplies focus containment, Escape and focus restoration.
 export function ChoiceField({label, value, options = [], onChange, disabled = false, placeholder = '点击选择', hint}) {
  const [open, setOpen] = useState(false), [query, setQuery] = useState('');
