@@ -20,4 +20,19 @@
 - 本机实际服务关闭后自动冷启动：24456毫秒就绪，真实WAV生成成功。随后测试续写句“别在这儿趴窝呀，我怎么这么倒霉，今天还怎么回家呢？”返回4.00秒/192044字节WAV。记录output/local-voice-cold-2.8.108.json和output/local-voice-target-2.8.108.json。不同语速的真实样音可能略超目标，不用补静音伪造时长。
 - 独立只读代码复核发现的排队暂停、额度熔断、新项目空清单和云健康兼容问题，均已新增失败回归后修复。额外覆盖持久化检查点期间暂停，未实际提交项回滚次数。
 
-最终提交前npm test：2645/2645通过，0失败；生产构建通过。随后增加实际生图主并发1/备用3的请求峰值验证并通过，最终发布命令会再次运行全量。安装包运行时和公开发布核验数据在发布完成后补录。
+最终发布检查npm test：2646/2646通过，0失败；生产构建通过。包含实际生图主并发1/备用3的请求峰值验证。
+
+首次发布检查中原有update-resume本机HTTP测试及Windows浏览器窗口测试出现间歇失败；分别复跑6/6通过，再次全量2646/2646通过。未通过时未上传安装包。Electron自动解压重命名及NSIS临时输出曾遇Windows文件占用，沿用已验证的electron-runtime-43.2.0并清理本次未完成安装包后重打包成功，未改业务代码绕过验收。
+
+## 安装包
+
+- 实现提交：693fb13。
+- 文件：release/2.8.108/Xingzhou-Film-Tencent-Setup-2.8.108.exe。
+- 大小：103964233字节；SHA256 a74b2074c1b4918176a0e8ceb7a0ed7951785c0cc1c9076f864cee31044ac8c4。
+- 安装包运行验收：qa/packaged-smoke-2.8.108-1793537064386/report.json，success:true，errors:[]，版本2.8.108；账号许可门禁、媒体播放/导出、IPC与各模块通过。
+- GitHub Release v2.8.108及官网镜像已发布；官网安装包Range返回206，总长度103964233，GitHub资产digest与本地SHA256一致。
+- 官网公开latest.json和两个GitHub仓库main分支latest.json（通过公开Contents API读取）完全一致，三份Ed25519签名验证通过。发布后GitHub raw CDN曾仍缓存2.8.107，未把缓存值当作已核对新版；仓库main原文件及软件实际优先更新源已分别核验。
+- 使用客户端实际createUpdateFetch/fetchUpdateManifest核验，优先https://106.55.41.128/api/updates/latest.json返回2.8.108并通过签名校验；软件内可发现更新。证据output/release-2.8.108-public.json及output/inapp-update-2.8.108.json。
+- 官网下载：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.108.exe
+- GitHub下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.108/Xingzhou-Film-Tencent-Setup-2.8.108.exe
+- 用户正在运行的D盘2.8.107客户端未被本轮强制关闭或替换。安装2.8.108后重启软件生效。
