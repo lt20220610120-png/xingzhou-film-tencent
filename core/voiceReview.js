@@ -1,10 +1,10 @@
 import {inspectCollabEpisodes} from './collabEpisodes.js';
-import {setVoiceCandidate,confirmVoiceCandidate,projectVoiceRoster} from './characterVoices.js';
+import {setVoiceCandidate,confirmVoiceCandidate,projectVoiceRoster,nonDialogueVoiceLabel} from './characterVoices.js';
 import {requestArtModel} from './artModelQueue.js';
 export const requiresVoiceDescription=profile=>profile?.requiresVoiceDescription===true||/voice.?design/i.test(profile?.model||'');
 export function voiceGenerationSettings(character,profile={},selected={}){
  const draft=profile.draft||{};
- return {profileId:draft.profileId||selected.id||'',model:selected.model||'',quote:draft.quote??character.quote??'',instructions:draft.instructions??character.instructions??'',language:draft.language||character.language||'Chinese'};
+ return {profileId:draft.profileId||selected.id||'',model:selected.model||'',quote:String(draft.quote||'').trim()?draft.quote:character.quote||'',instructions:draft.instructions??character.instructions??'',language:draft.language||character.language||'Chinese'};
 }
 export function voiceGenerationRequest(character,profile,selected){
  const settings=voiceGenerationSettings(character,profile,selected);
@@ -35,9 +35,23 @@ export async function runVoiceBatch({characters,getProfile,mode,generate,adopt,c
  return {done,skipped,errors};
 }
 export async function completeVoiceCard({character,store,api,model,project,job={}}){
- if(!model)throw Error('请选择信息补全模型');const before=structuredClone(store.snapshot().voiceProfiles?.[character.key]||{}),settings=voiceGenerationSettings(character,before);
+ const before=structuredClone(store.snapshot().voiceProfiles?.[character.key]||{}),settings=voiceGenerationSettings(character,before);
  if(settings.quote&&settings.language)return;
- const sources=inspectCollabEpisodes(project.episodes).episodes.flatMap(ep=>{const record=store.snapshot().episodes?.[ep.episodeNumber];return record?.sourceContent===ep.content?(record.scenes||[]).filter(s=>character.sceneIds.includes(s.id)).map(s=>({sceneId:s.id,source:s.source})):[];});
+ const scope=character.speakingSceneIds?.length?character.speakingSceneIds:character.sceneIds||[];
+ const sources=inspectCollabEpisodes(project.episodes).episodes.flatMap(ep=>{const record=store.snapshot().episodes?.[ep.episodeNumber];return record?.sourceContent===ep.content?(record.scenes||[]).filter(s=>scope.includes(s.id)).map(s=>({sceneId:s.id,source:s.source})):[];});
+ // Stored evidence is useful only while it remains verbatim in this card's current scenes.
+ for(const value of [before.preparationEvidence,character.evidence]){
+  const evidence=String(value||'').trim();if(!evidence||!sources.some(s=>s.source.includes(evidence)))continue;
+  const match=evidence.match(/^([^\n：:]+)[：:]\s*([^\n]+)$/);if(!match)continue;
+  const speaker=match[1].replace(/\s*[（(][^）)]*[）)]\s*/g,'').trim();
+  if(speaker!==(character.characterName||character.name)||nonDialogueVoiceLabel.test(match[1]))continue;
+  let quote=match[2].trim();const closing={'“':'”','「':'」','『':'』','"':'"'}[quote[0]];
+  if(closing){if(!quote.endsWith(closing))continue;quote=quote.slice(1,-1).trim();}
+  if(!quote)continue;
+  await store.setVoiceProfile(character.key,p=>job.cancelled||JSON.stringify(p)!==JSON.stringify(before)?p:{...p,draft:{...p.draft,quote,language:settings.language},preparationEvidence:evidence});
+  return;
+ }
+ if(!model)throw Error('请选择信息补全模型');
  if(!sources.length)throw Error('请先选择关联场景并完成信息读取');
  const taskId=crypto.randomUUID();job.taskIds||=[];job.taskIds.push(taskId);
  try{
@@ -45,7 +59,7 @@ export async function completeVoiceCard({character,store,api,model,project,job={
  if(job.cancelled)return;if(response?.ok===false)throw Error(response.error||'补全失败');
  const raw=typeof response==='string'?response:response.output,data=JSON.parse(raw.replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));
  if(!settings.quote&&(!data.quote||!data.evidence||!data.evidence.includes(data.quote)||!data.evidence.includes(character.characterName||character.name)||!sources.some(s=>s.source.includes(data.evidence))))throw Error(data.reason||'未找到此人物的正常对白，请人工填写');
- if(!settings.quote&&/(旁白|画外音|心声|\bOS\b|\bVO\b)/i.test(String(data.evidence).split(/[：:]/)[0]))throw Error('补全结果不是正常对白');
+ if(!settings.quote&&nonDialogueVoiceLabel.test(String(data.evidence).split(/[：:]/)[0]))throw Error('补全结果不是正常对白');
  await store.setVoiceProfile(character.key,p=>{if(job.cancelled||JSON.stringify(p)!==JSON.stringify(before))return p;const draft={...p.draft};if(!settings.quote)draft.quote=data.quote;if(!draft.language)draft.language=data.language||settings.language;return {...p,draft,preparationEvidence:data.evidence||character.evidence};});
  }finally{job.taskIds=job.taskIds.filter(id=>id!==taskId);}
 }

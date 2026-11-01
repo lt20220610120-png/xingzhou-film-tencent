@@ -37,3 +37,22 @@ test('voice batch overlaps up to requested concurrency, preserves all outcomes a
 test('cancelled concurrent batch does not dispatch remaining cards',async()=>{
  const job={},calls=[];await runVoiceBatch({characters:[1,2,3,4,5].map(key=>({key,name:String(key)})),getProfile:()=>({}),mode:'generate',concurrency:2,job,generate:async c=>{calls.push(c.key);job.cancelled=true;}});assert(calls.length<=2);assert(!calls.includes(3));
 });
+test('empty saved draft cannot hide an already read genuine quote; nonempty manual quote still wins',()=>{
+ const c={name:'小林',quote:'回家。',language:'Chinese'};
+ assert.equal(voiceGenerationSettings(c,{draft:{quote:''}}).quote,'回家。');
+ assert.equal(voiceGenerationSettings(c,{draft:{quote:'  '}}).quote,'回家。');
+ assert.equal(voiceGenerationSettings(c,{draft:{quote:'用户填写'}}).quote,'用户填写');
+});
+test('existing exact normal dialogue evidence fills the quote without calling a model',async()=>{
+ const evidence='李大川（焦急）： “别在这儿趴窝啊！”',content='1-1 日 外\n'+evidence,c={key:'李大川',name:'李大川',characterName:'李大川',quote:'',evidence,sceneIds:['1-1'],speakingSceneIds:['1-1']};let profile={draft:{quote:'',instructions:'用户特殊音色'}};
+ const store={snapshot:()=>({episodes:{1:{sourceContent:content,scenes:[{id:'1-1',source:content}]}},voiceProfiles:{李大川:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
+ await completeVoiceCard({character:c,store,api:{aiChat:()=>{throw Error('已有依据不应调用模型');}},project:{episodes:[{episodeNumber:1,content}]}});
+ assert.equal(profile.draft.quote,'别在这儿趴窝啊！');assert.equal(profile.draft.instructions,'用户特殊音色');
+});
+test('evidence extraction refuses another speaker, stale sources and offscreen speech',async()=>{
+ for(const evidence of ['周凯： “别走！”','李大川（心声）： “别走！”','李大川（VO）： “别走！”','李大川（电话画外声）： “别走！”','李大川（V.O.）： “别走！”','李大川（O.S.）： “别走！”']){
+  const content='1-1 日 外\n'+evidence,c={key:'李大川',name:'李大川',characterName:'李大川',quote:'',evidence,sceneIds:['1-1']};let profile={draft:{quote:''}};
+  const store={snapshot:()=>({episodes:{1:{sourceContent:content,scenes:[{id:'1-1',source:content}]}},voiceProfiles:{李大川:profile}}),setVoiceProfile:async(k,fn)=>{profile=fn(profile);}};
+  await assert.rejects(completeVoiceCard({character:c,store,api:{},project:{episodes:[{episodeNumber:1,content}]}}),/请选择信息补全模型/);assert.equal(profile.draft.quote,'');
+ }
+});

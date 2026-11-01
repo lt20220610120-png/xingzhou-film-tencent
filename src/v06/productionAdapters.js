@@ -128,7 +128,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     const missing=listCollabEpisodes(p.episodes).filter(ep=>store.snapshot().episodes?.[ep.episodeNumber]?.sourceContent!==ep.content||!store.snapshot().episodes?.[ep.episodeNumber]?.scenes?.length);
     if(missing.length&&!job.cancelled){await ctx.notice('先读取缺失剧本信息，再准备人物音色');await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:completion,existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:false,targetEpisodeNumbers:missing.map(e=>e.episodeNumber),preserveExisting:true,job});}
     if(job.cancelled)return {skipped:true};
-    await ctx.notice('读取人物正常对白并补齐音色前置信息');await readProjectVoices({project:p,store,api,profile:completion,job,onProgress:()=>{}});
+    await ctx.notice('读取人物正常对白并补齐音色前置信息');const reading=await readProjectVoices({project:p,store,api,profile:completion,job,onProgress:()=>{}});
     const characters=projectVoiceRoster(p,store.snapshot()).characters.filter(x=>x.manual||x.major);
     run.voiceAutomation={completed:false,modelId:voiceModel.id,completionProfileId:completion.id,distributionProfileId:distribution.id,concurrency:Number(c.voiceConcurrency||1),policy:'每个人物生成第一条后自动采用'};
     const result=await runVoiceBatch({characters,getProfile:key=>store.snapshot().voiceProfiles?.[key],mode:'prepare',concurrency:c.voiceConcurrency??1,job,generate:async character=>{
@@ -139,7 +139,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
      const candidate=latest.candidates?.[0];if(!candidate)throw Error('语音生成未返回可用样音');await adoptCharacterVoice({character,store,api,id:candidate.id,job});
      if(!job.cancelled)await ctx.log?.(`自动采用 ${character.name} 的第一条生成音色（分发模型：${distribution.name||distribution.id}）。`,'success');
     }});
-    run.voiceAutomation.completed=!job.cancelled&&result.errors.length===0;run.voiceWarnings=job.cancelled?[]:result.errors;ctx.artSnapshot=null;return {partial:!job.cancelled&&result.errors.length>0};
+    const errors=[...(reading?.errors||[]),...result.errors];run.voiceAutomation.completed=!job.cancelled&&errors.length===0;run.voiceWarnings=job.cancelled?[]:errors;ctx.artSnapshot=null;return {partial:!job.cancelled&&errors.length>0};
    }finally{if(activeJobs.get(run.id)===job)activeJobs.delete(run.id);}
   },
   async art(ctx){

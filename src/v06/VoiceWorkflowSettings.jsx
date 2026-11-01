@@ -14,7 +14,7 @@ export function VoiceWorkflowSettings({config,onChange,state,disabled=false}){
    <ChoiceField label="音色分发模型" value={config.voiceDistributionProfileId} options={texts} disabled={disabled||!enabled} onChange={voiceDistributionProfileId=>onChange({voiceDistributionProfileId})}/>
    <label>音色生成并发数<input aria-label="音色生成并发数" type="number" min="1" step="1" value={config.voiceConcurrency??1} onChange={e=>onChange({voiceConcurrency:e.target.value===''?'':Number(e.target.value)})}/></label>
   </fieldset>
-  {localQwen&&<p className="furnace-local-voice-capacity">本机 Qwen 当前部署实测：有效生成并发 1；同时提交 2 条时额外请求返回忙碌。可更换模型后自行设置并发数。</p>}
+  {localQwen&&<p className="furnace-local-voice-capacity">本机 Qwen 已升级批量服务：短对白实测支持 6 路，超过 80 字符时自动按 3 路分批。并发数可按模型自行设置。</p>}
  </section>;
 }
 

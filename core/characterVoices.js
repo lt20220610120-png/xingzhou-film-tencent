@@ -6,7 +6,7 @@ export const isVoiceEligibleCharacter=item=>{
  const text=String(item?.name||'')+' '+String(item?.description||'');
  return !/(群像|群演|群组|人群|群众|群体|众人|围观者群|工作人员群|自媒体主播群)/.test(text);
 };
-const nonDialogue=/(?:旁白|画外音|心声|内心独白|独白旁述|\b(?:OS|VO|V\.O\.|O\.S\.)\b)/i;
+export const nonDialogueVoiceLabel=/(?:旁白|画外[音声]|心声|内心独白|独白旁述|(?:^|[^a-z])(?:OS|VO|V\s*\.\s*O\.?|O\s*\.\s*S\.?)(?=$|[^a-z]))/i;
 export const voiceStageLabels={default:'',child:'年幼',adult:'成年',elder:'老年'};
 export const voiceIdentity=(name,stage='default')=>characterVoiceKey(name)+(stage==='child'||stage==='elder'?'::'+stage:'');
 export const VOICE_READING_RULE='语音读取：逐场识别正常对白，排除旁白、画外音、电话画外声、心声/OS/VO，不把出镜或提及当成讲话。群像/群演/群众等群体卡片不建立统一音色，但单人和会说话的生物保留。每个说话人保留一句完整原话quote及含姓名和对白的连续逐字evidence，kind固定dialogue。name使用真实人物名，去除服装/年龄后缀。另返回appearances记录本场可见人物身份及ageStage。ageStage只用default/child/adult/elder：仅原文明示幼年、少年、童年、未成年或老年阶段时拆分，普通人物用default，服装/情绪变化不拆音色。拆阶段须给ageEvidence逐字引句，不能凭服装推年龄。每位说话人填写language（Chinese/English等），音色描述instructions为用户选填项，不自动补写。人物身份与介绍在生成时直接指导基础音色。不得虚构对白。每场都返回speakers、appearances数组，无正常对白为[]。';
@@ -34,7 +34,7 @@ export function validateEpisodeVoices(episode,scenes,data){
    if(item.kind!=='dialogue')throw Error('对白类型缺失或无效');
    const name=characterVoiceKey(item.name),quote=String(item.quote||'').trim(),evidence=String(item.evidence||'').trim();
    if(!name||!quote||!evidence||!scene.source.includes(evidence)||!evidence.includes(quote)||!evidence.includes(name))throw Error('对白缺少人物及逐字原文依据');
-   if(nonDialogue.test(evidence.slice(0,evidence.indexOf(quote))))continue;
+   if(nonDialogueVoiceLabel.test(evidence.slice(0,evidence.indexOf(quote))))continue;
    const appearancesForName=appearances.filter(a=>a.name===name),knownStages=[...new Set(appearancesForName.map(a=>a.ageStage))];if(item.ageStage&&knownStages.length===1&&knownStages[0]!==item.ageStage)throw Error('讲话人物年龄阶段与本场人物依据不一致');const resolved=item.ageStage?item:knownStages.length===1?{...item,ageStage:knownStages[0],ageEvidence:appearancesForName[0].ageEvidence}:item;const ageStage=stageOf(resolved,scene),key=voiceIdentity(name,ageStage),instructions='',language=String(item.language||'').trim();
    if(!speakers.some(s=>s.key===key))speakers.push({key,name,ageStage,ageEvidence:item.ageEvidence||'',quote,evidence,kind:'dialogue',instructions,language,stageReady:Boolean(item.ageStage||knownStages.length===1)});
   }
