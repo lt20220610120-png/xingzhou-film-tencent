@@ -26,7 +26,7 @@ async function runArtImageBatchImpl(jobs,{concurrency=2,generate,isStopped=()=>f
  while(pending.length&&!isStopped()){
   const category=pending.some(j=>j.categoryOrder)?pending[0].asset.category:null;
   const ready=pending.filter(j=>(!category||j.asset.category===category)&&(!j.dependency||results.has(j.dependency)));
-  if(!ready.length){for(const job of pending)results.set(job.asset.id,{status:'rejected',reason:new Error('请先生成或选择人物基准参考图；当前参考基准未完成'),asset:job.asset});pending.length=0;report();break;}
+  if(!ready.length){const stranded=pending.filter(j=>!category||j.asset.category===category);for(const job of stranded){results.set(job.asset.id,{status:'rejected',reason:new Error('请先生成或选择人物基准参考图；当前参考基准未完成'),asset:job.asset});pending.splice(pending.indexOf(job),1);}report();continue;}
   ready.forEach(j=>pending.splice(pending.indexOf(j),1));
   let cursor=0;
   await Promise.all(Array.from({length:Math.min(concurrency,ready.length)},async()=>{

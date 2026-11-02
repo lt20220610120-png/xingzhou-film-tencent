@@ -14,23 +14,24 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
  const stamp=bindingHash([chain.map(({id,policyKey,attempts,imageConcurrency,imageRatio})=>({id,policyKey,attempts,imageConcurrency,imageRatio})),c.composition,c.artStyle]);
  ctx.imageSlots||=new Map();
  const withSlot=async(model,fn)=>{const key=model.policyKey;while((ctx.imageSlots.get(key)||0)>=Number(model.imageConcurrency)){ctx.guard();await delay(20);}ctx.guard();ctx.imageSlots.set(key,(ctx.imageSlots.get(key)||0)+1);try{return await fn();}finally{ctx.imageSlots.set(key,ctx.imageSlots.get(key)-1);}};
+ const skipImage=async(asset,item,reason)=>{item.status='skipped';item.skipReason=reason;item.skippedAt=Date.now();await ctx.log?.(`跳过缺失参考图：${asset.name}；${reason}。视频保留文字描述，使用其他可用素材。`,'warning');await ctx.checkpoint();ctx.notifyMaterials?.();return {skipped:true};};
  const plan=planArtImageBatch(assets,{readRecovery:id=>readAssetImageRecovery(p.id,id),categoryOrder:true});
- const result=await runArtImageBatch(plan,{concurrency:Math.max(...chain.map(m=>Number(m.imageConcurrency))),isStopped:()=>run.status!=='running',onProgress:v=>{run.imageProgress=v;},generate:async asset=>{
+ const result=await runArtImageBatch(plan.filter(({asset})=>run.imageItems[asset.id]?.status!=='skipped'),{concurrency:Math.max(...chain.map(m=>Number(m.imageConcurrency))),isStopped:()=>run.status!=='running',onProgress:v=>{run.imageProgress=v;},generate:async asset=>{
   ctx.guard();const item=run.imageItems[asset.id]||{attempts:0};run.imageItems[asset.id]=item;
   if(['submitting','uncertain'].includes(item.status)&&!readAssetImageRecovery(p.id,asset.id))throw Error(`${asset.name} 上次提交结果不明，Agent 正在等待原任务凭据；未重复生图`);
   if(!reset.has(asset.id)&&(isFundingError(item.error)||item.configuration&&item.configuration!==stamp)){reset.add(asset.id);item.attempts=0;item.modelAttempts={};item.policyAttempts={};item.status='queued';item.error='';}item.configuration=stamp;
   item.policyAttempts||=Object.fromEntries(chain.map((m,i)=>[m.policyKey,Math.max(0,Math.min(Number(m.attempts),(item.attempts||0)-chain.slice(0,i).reduce((n,v)=>n+Number(v.attempts),0)))]));
-  const ref=resolveAssetReference(asset,assets),issue=!ref&&characterAppearanceIssue(asset,assets);if(issue)throw Error(issue);
+  const ref=resolveAssetReference(asset,assets),issue=!ref&&characterAppearanceIssue(asset,assets);if(issue)return skipImage(asset,item,issue);
   const limit=chain.reduce((n,m)=>n+Number(m.attempts),0);
   let prompt=item.promptOverride||buildComposedImagePrompt(asset,ref,c.artStyle,c.composition,p);
   const usable=chain.filter(m=>!budgets.has(m.id)),exhausted=usable.length>0&&usable.every(m=>(item.policyAttempts[m.policyKey]||0)>=Number(m.attempts));
   if((item.attempts>=limit||exhausted)&&!readAssetImageRecovery(p.id,asset.id)){
    const repairKey=bindingHash([stamp,asset.name,prompt,item.error]);
-   if(work&&(item.repairCount||0)<3&&item.lastRepairKey!==repairKey){ctx.guard();await ctx.log?.(`Agent 目标：修复「${asset.name}」生成失败的提示词，保持主体、年龄、画风与构图。`);item.lastRepairKey=repairKey;item.repairCount=(item.repairCount||0)+1;await ctx.checkpoint();
-    const raw=await work('image-prompt',[{role:'system',content:'修复这张影视美术图片的生成描述。保留主体、年龄/物种、人物身份、服饰和用户画风构图；只能修正文法、矛盾、缺细节和格式，不通过删除真实敏感事实或改年龄规避内容限制。不要新增剧情。只返回JSON {"assetName":"原名称","prompt":"完整修订提示词","reason":"具体修复点"}。若原文无法在约束内改善则prompt返回原文并说明。'}, {role:'user',content:JSON.stringify({assetName:asset.name,category:asset.category,prompt,error:item.error,style:c.artStyle,composition:c.composition})}]);ctx.guard();const value=JSON.parse(String(raw).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));
-    if(value.assetName!==asset.name||typeof value.prompt!=='string'||!value.prompt.trim()||value.prompt.length>24000||!value.reason?.trim()||value.prompt===prompt)throw Error('Agent 未返回可验证的新提示词，保留原描述继续等待修复');
+   if(work&&(item.repairCount||0)<1&&item.lastRepairKey!==repairKey){ctx.guard();await ctx.log?.(`Agent 目标：修复「${asset.name}」生成失败的提示词，保持主体、年龄、画风与构图。`);item.lastRepairKey=repairKey;item.repairCount=(item.repairCount||0)+1;await ctx.checkpoint();
+    let raw;try{raw=await work('image-prompt',[{role:'system',content:'修复这张影视美术图片的生成描述。保留主体、年龄/物种、人物身份、服饰和用户画风构图；只能修正文法、矛盾、缺细节和格式，不通过删除真实敏感事实或改年龄规避内容限制。不要新增剧情。只返回JSON {"assetName":"原名称","prompt":"完整修订提示词","reason":"具体修复点"}。若原文无法在约束内改善则prompt返回原文并说明。'}, {role:'user',content:JSON.stringify({assetName:asset.name,category:asset.category,prompt,error:item.error,style:c.artStyle,composition:c.composition})}]);}catch(error){ctx.guard();return skipImage(asset,item,'修复失败：'+error.message);}ctx.guard();let value;try{value=JSON.parse(String(raw).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));}catch{return skipImage(asset,item,'修复结果格式无效');}
+    if(value.assetName!==asset.name||typeof value.prompt!=='string'||!value.prompt.trim()||value.prompt.length>24000||!value.reason?.trim()||value.prompt===prompt)return skipImage(asset,item,'修复未提供可用的新描述');
     item.promptOverride=value.prompt;item.promptRepair={reason:value.reason,at:Date.now(),originalHash:bindingHash(prompt)};item.attempts=0;item.policyAttempts={};prompt=value.prompt;await ctx.checkpoint();
-   }else throw Error(item.error||`${asset.name} 正在等待新的修复策略`);
+   }else return skipImage(asset,item,item.error||'主备模型和一次修复均未成功');
   }
   while(item.attempts<limit||readAssetImageRecovery(p.id,asset.id)){
    ctx.guard();const pending=readAssetImageRecovery(p.id,asset.id),models=chain;
@@ -51,10 +52,13 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
     const kind=imageFailureKind(error,recovery);item.status=kind;await ctx.checkpoint();
     if(recovery?.taskId){await delay(5000);continue;}
     if(kind==='uncertain')throw error;
-    if(item.attempts>=limit)throw error;await delay(kind==='rate-limit'?5000:1500);
+    if(item.attempts>=limit){if(item.repairCount>=1)return skipImage(asset,item,error.message);throw error;}await delay(kind==='rate-limit'?5000:1500);
    }
   }throw Error(item.error||`${asset.name} 待 Agent 修复后接续`);
  }});
- run.imageErrors=result.results.filter(r=>r.status==='rejected').map(r=>({id:r.asset.id,name:r.asset.name,error:r.reason.message}));
- await ctx.log?.(`美术图片：复用 ${before} 张，新完成 ${result.results.filter(r=>r.status==='fulfilled').length} 项，待接续 ${run.imageErrors.length} 项。${run.imageErrors.length?'原因：'+[...new Set(run.imageErrors.map(i=>isFundingError(i.error)?'生图渠道余额不足':i.error))].slice(0,4).join('；'):''}`);await ctx.checkpoint();return {partial:run.imageErrors.length>0||result.remaining>0};
+ for(const r of result.results)if(r.status==='rejected'&&/参考基准|基准参考/.test(r.reason.message))await skipImage(r.asset,run.imageItems[r.asset.id]||={attempts:0},r.reason.message);
+ run.imageSkips=Object.entries(run.imageItems).filter(([,i])=>i.status==='skipped').map(([id,i])=>({id,reason:i.skipReason}));
+ run.imageErrors=result.results.filter(r=>r.status==='rejected'&&run.imageItems[r.asset.id]?.status!=='skipped').map(r=>({id:r.asset.id,name:r.asset.name,error:r.reason.message}));
+ if(work&&run.status==='running'&&run.imageErrors.some(e=>{const i=run.imageItems[e.id];return i&&i.attempts>=chain.reduce((n,m)=>n+Number(m.attempts),0)&&(i.repairCount||0)<1&&!isFundingError(e.error)&&!['uncertain','submitting','budget'].includes(i.status)&&!readAssetImageRecovery(p.id,e.id);})){return produceImages({ctx,api,project:p,assets,primary,fallback,policies,work,delay});}
+ await ctx.log?.(`美术图片：复用 ${before} 张，新完成 ${result.results.filter(r=>r.status==='fulfilled'&&!r.value?.skipped).length} 项，已跳过 ${run.imageSkips.length} 项，待接续 ${run.imageErrors.length} 项。${run.imageErrors.length?'原因：'+[...new Set(run.imageErrors.map(i=>isFundingError(i.error)?'生图渠道余额不足':i.error))].slice(0,4).join('；'):''}`);await ctx.checkpoint();return {partial:run.imageErrors.length>0||result.remaining>0};
 }

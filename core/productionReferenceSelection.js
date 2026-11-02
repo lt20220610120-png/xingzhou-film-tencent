@@ -27,6 +27,11 @@ export async function planProductionReferenceSelection({ctx,input,entry,work}){
  if(memo?.key===key&&!memo.failed){input.workflowReferenceSelection=memo;return;}
  if(memo?.key===key&&memo.failed&&memo.nextAt>Date.now())throw Error('本条选图目标处于退避等待，将自动重新接续');
  const attempts=memo?.key===key?(memo.attempts||0)+1:1;run.referencePlans[entry.id]={key,failed:true,attempts,nextAt:Date.now()+Math.min(900000,15000*2**Math.min(attempts,6))};await ctx.checkpoint();
+ const images=input.references.filter(r=>r.kind==='image'),priority=images.filter(r=>r.category==='character'||r.category==='scene'),limit=productionImageLimit(input.modelCapabilities,input.references);
+ if(priority.length<=limit&&images.every(r=>['character','scene','prop'].includes(r.category))){
+  const selected=[...priority,...images.filter(r=>r.category==='prop')].slice(0,limit);const plan={selectedReferenceIds:selected.map(r=>r.id),reason:'程序按固定权重保留全部人物和场景，道具使用剩余名额'};
+  selectProductionReferences({...input,workflowReferenceSelection:plan});run.referencePlans[entry.id]={...plan,key,attempts};input.workflowReferenceSelection=plan;await ctx.checkpoint();return;
+ }
  try{ctx.guard();await ctx.log?.(`Agent 目标：${entry.label} 在固定模型限额内选图，优先人物和场景，道具权重最低。`);
   const raw=await work('reference-plan',[{role:'system',content:'视频模型已经由用户选定，不允许切换模型。按本条提示词实际出场选择参考图：人物和场景优先，道具权重最低。人物与场景总数在限额内时必须全部保留，道具仅使用剩余名额；人物场景已经超限时不选道具，并按当前镜头重要性挑选主要人物与主场景。不删除剧本道具文字，只舍弃相应参考图。只返回JSON {"selectedReferenceIds":["本条实际参考图id"],"reason":"逐项取舍依据"}。id唯一且不超过imageLimit。'}, {role:'user',content:JSON.stringify({label:entry.label,prompt:input.prompt,imageLimit:productionImageLimit(input.modelCapabilities,input.references),references:input.references.map(({id,name,category})=>({id,name,category}))})}]);
   ctx.guard();const plan=JSON.parse(String(raw).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));selectProductionReferences({...input,workflowReferenceSelection:plan});run.referencePlans[entry.id]={...plan,key,attempts};input.workflowReferenceSelection=plan;await ctx.checkpoint();

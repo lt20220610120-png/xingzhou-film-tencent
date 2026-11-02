@@ -19,18 +19,19 @@ function createGenerationManagers(options={}) {
 }
 function createGenerationJobs(dir,options={}) {
   const file = path.join(dir, 'generation-jobs.json');
+  const {readJobs,atomic}=require('./generation-job-storage.cjs');
   // 2.8.32's local-URL guard ran before the paid POST but its catch called it
   // uncertain. Correct only that exact legacy case, never a real remote task.
   if(fs.existsSync(file)){
-    const rows=JSON.parse(fs.readFileSync(file,'utf8'));let changed=false;
+    const rows=readJobs(file);let changed=false;
     const repaired=rows.map(job=>{let niney=false;try{niney=new URL(job.endpoint).hostname==='9yapi.shop';}catch{}
       if(fnko.isFnkoEndpoint(job.endpoint)&&job.status==='uncertain'&&!job.jobId&&!job.url&&/^FT请求失败[（(]402[）)]/.test(String(job.error))){changed=true;return {...job,status:'failed',submissionAttempted:false,warning:'上游明确余额拒绝，未创建生成任务；充值后可继续。'};}
       if(niney&&job.status==='uncertain'&&!job.jobId&&!job.url&&String(job.error).includes('9Y 视频只接受公网 HTTPS 素材地址')&&job.references?.some(r=>r.filePath&&!/^https:\/\//i.test(r.url||''))){changed=true;return {...job,status:'failed',submissionAttempted:false,error:'参考素材尚未完成上传，生成请求未发出；可复用此条目后重新生成。'};}return job;
     });
-    if(changed){fs.writeFileSync(file+'.tmp',JSON.stringify(repaired));fs.renameSync(file+'.tmp',file);}
+    if(changed){atomic(file,repaired);}
   }
-  const read = () => { if (!fs.existsSync(file)) return []; return JSON.parse(fs.readFileSync(file,'utf8')); };
-  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(rows)); fs.renameSync(file+'.tmp',file); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
+  const read = () => { if (!fs.existsSync(file)) return []; return readJobs(file); };
+  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); atomic(file,rows); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
   const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
@@ -85,7 +86,7 @@ function createGenerationJobs(dir,options={}) {
           if (error.code !== 'ENOENT') throw error;
         }
       }
-       fs.writeFileSync(file + '.tmp', JSON.stringify(remaining)); fs.renameSync(file + '.tmp', file);
+       atomic(file,remaining);
       } catch (error) {
         for (const item of backups) {
           if (!fs.existsSync(item.target)) {

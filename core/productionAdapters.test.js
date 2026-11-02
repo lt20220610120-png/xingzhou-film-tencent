@@ -127,3 +127,9 @@ test('a slow active video does not block a new ready prompt in a free slot',{tim
  f.api.generationSubmit=async input=>{if(input.shotLabel==='1-1-1')await slow;if(input.shotLabel==='1-1-2'){room.images=images;f.ctx.materialRevision++;f.ctx.imagesPending=false;}if(input.shotLabel==='2-1-1')release();return submit(input);};
  await f.adapter.videos(f.ctx);assert.equal(f.jobs.length,4);assert(f.events.indexOf('submit:2-1-1')<f.events.indexOf('submit:1-1-1'));
 });
+
+test('permanently skipped image no longer blocks video; remaining image references are sent',async()=>{
+ const f=fixture(),assets=await f.api.collabListAssets();assets.find(a=>a.id==='person').images=[];f.run.imageItems={person:{status:'skipped',skipReason:'failed after repair'}};f.run.config.endStage='archive';
+ const submit=f.api.generationSubmit;f.api.generationSubmit=async input=>{assert(!input.references.some(r=>r.assetId==='person'));assert(input.references.some(r=>r.assetId==='room'));assert.match(input.prompt,/未附参考图说明/);return submit(input);};
+ await f.adapter.videos(f.ctx);assert(f.run.items.every(i=>i.status==='downloaded'));assert(f.run.episodes.every(e=>e.stage==='done'));
+});

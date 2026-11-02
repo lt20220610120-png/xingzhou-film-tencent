@@ -32,3 +32,13 @@ test('actual image requests respect independent primary and fallback concurrency
  f.api.mediaGenerateImage=async request=>{const key=request.model;live[key]++;peak[key]=Math.max(peak[key],live[key]);await new Promise(r=>setTimeout(r,key==='primary'?1:20));live[key]--;if(key==='primary')throw Error('model unavailable');return {filePath:'fixture.png'};};
  const result=await produceImages(f);assert.equal(result.partial,false);assert.equal(peak.primary,1);assert.equal(peak.fallback,3);
 });
+
+test('image policy exhausts main and backup, repairs once, then durably skips and never loops',async()=>{
+ const f=setup(1);let repairs=0;f.api.mediaGenerateImage=async m=>{f.calls.push(m.model);throw Error('内容违规');};f.work=async()=>{repairs++;return JSON.stringify({assetName:f.assets[0].name,prompt:'修正格式后的透明玻璃杯描述',reason:'清除重复矛盾'});};
+ let r=await produceImages(f);assert.equal(r.partial,false);assert.deepEqual(f.calls,['primary','fallback','primary','fallback']);assert.equal(repairs,1);assert.equal(f.ctx.run.imageItems.a0.status,'skipped');assert.equal(f.ctx.run.imageErrors.length,0);
+ f.ctx.run=JSON.parse(JSON.stringify(f.ctx.run));r=await produceImages(f);assert.equal(r.partial,false);assert.equal(f.calls.length,4);assert.equal(repairs,1);
+});
+
+test('a skipped baseline only blocks its dependent variant, never independent scene or prop jobs',async()=>{
+ const f=setup(0);f.assets.push({id:'base',name:'【林舟-日常服】',category:'character',first_episode:1,images:[]},{id:'variant',name:'【林舟-西服】',category:'character',first_episode:2,images:[]},{id:'room',name:'【客厅】',category:'scene',images:[]});f.ctx.run.imageItems.base={status:'skipped'};await produceImages(f);assert(f.assets.find(a=>a.id==='room').images.length);assert.notEqual(f.ctx.run.imageItems.room.status,'skipped');
+});
