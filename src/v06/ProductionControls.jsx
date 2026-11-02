@@ -48,19 +48,19 @@ export function PathField({label, value, kind='folder', onPick, onClear, disable
  </div></div>;
 }
 
-export function AgentCard({editing, config, connection, busy, onChange, onPick, onConnect, onDiscover, onReuse}) {
+export function AgentCard({editing, config, connection, busy, onChange, onPick, onConnect, onDiscover, onReuse, agents=[], onHelp}) {
  const pathKey=editing?'editAgentPath':'agentPath', protocolKey=editing?'editAgentProtocol':'agentProtocol', modelKey=editing?'editModel':'agentModel';
  const matches=connection?.path===config[pathKey]&&connection?.protocol===config[protocolKey];
  const connected=matches&&connection?.connected===true;
  const error=matches?connection?.error:'';
  return <div className="furnace-agent-card">
   <div className="furnace-agent-heading"><span className="furnace-agent-icon"><Bot size={24}/></span><div><h4>{editing?'剪辑智能体':'制作智能体'}</h4><p>{editing?'按你的剪辑指令逐集制作':'负责检查、关联与制作调度'}</p></div><span className={`furnace-status ${connected?'connected':error?'failed':''}`}>{connected?'已连接':connection?.pending&&matches?'连接中':error?'连接失败':'待连接'}</span></div>
-  <div className="furnace-agent-types">{[{id:'codex',name:'Codex'},{id:'acp',name:'其他 Agent · ACP'}].map(o=><button type="button" key={o.id} disabled={busy} aria-pressed={config[protocolKey]===o.id} onClick={()=>{if(config[protocolKey]!==o.id)onChange({[protocolKey]:o.id,[pathKey]:'',[modelKey]:''});}}>{o.name}{config[protocolKey]===o.id&&<Check size={16}/>}</button>)}</div>
+  <div className="furnace-agent-catalog" aria-label="可接入的智能体">{[{id:'codex',name:'Codex',transport:'App Server'},{id:'hermes',name:'Hermes',transport:'ACP + MCP'},{id:'cursor',name:'Cursor',transport:'ACP + MCP'},{id:'claude',name:'Claude Code',transport:'ACP + MCP'},{id:'acp',name:'其他 Agent · ACP',transport:'自定义连接组件'}].map(base=>{const item={...base,...agents.find(a=>a.id===base.id)},selected=config[protocolKey]===item.id;return <div className={`furnace-agent-option ${selected?'selected':''}`} key={item.id}><button type="button" aria-label={item.name} disabled={busy} aria-pressed={selected} onClick={()=>{if(!selected)onChange({[protocolKey]:item.id,[pathKey]:item.path||'',[modelKey]:''});}}><span className="furnace-agent-letter">{item.name[0]}</span><span><b>{item.name}</b><small>{selected&&connected?'已连接':item.path?'已发现连接组件':item.status==='desktop-only'?'已发现桌面应用，需安装连接组件':item.id==='acp'?'选择支持 ACP 的可执行组件':'未找到连接组件'} · {item.transport}</small></span>{selected&&<Check size={16}/>}</button>{item.id!=='acp'&&<button type="button" className="furnace-agent-help" disabled={busy} onClick={()=>onHelp?.(item.id)}>{item.path?'接入说明':'安装说明'}</button>}</div>;})}</div>
   <div className="furnace-agent-body"><PathField label={editing?'剪辑 Agent 连接组件':'制作 Agent 连接组件'} kind="file" value={config[pathKey]} disabled={busy} onPick={onPick}/>
-   <div className="furnace-agent-actions"><button type="button" disabled={busy||config[protocolKey]!=='codex'} onClick={onDiscover}>自动查找 Codex</button>{editing&&<button type="button" disabled={busy||!config.agentPath} onClick={onReuse}>沿用制作智能体</button>}<button type="button" className="primary" disabled={busy||!config[pathKey]} onClick={onConnect}>{connection?.pending?'正在连接…':connected?'重新检查':'连接智能体'}</button></div>
+   <div className="furnace-agent-actions"><button type="button" disabled={busy} onClick={onDiscover}>扫描本机智能体</button>{editing&&<button type="button" disabled={busy||!config.agentPath} onClick={onReuse}>沿用制作智能体</button>}<button type="button" className="primary" disabled={busy||!config[pathKey]} onClick={onConnect}>{connection?.pending?'正在连接…':connected?'重新检查':'连接智能体'}</button></div>
    {error&&<p className="furnace-inline-error" role="alert">{error}</p>}
    <ProductionAgentStatus connection={connected?connection:null}/>
-   <ChoiceField label={editing?'剪辑 Agent 模型':'制作 Agent 模型'} value={config[modelKey]} options={connected?connection.models||[]:[]} disabled={busy||!connected} onChange={v=>onChange({[modelKey]:v})} placeholder={connected?'点击选择模型':'连接后选择模型'} hint={connected&&!connection.models?.length?'此连接未返回模型列表，请检查连接组件。':config[protocolKey]==='codex'?'使用本机 Codex 的登录状态，无需填写密钥。':'仅支持提供 ACP 协议的连接组件。'}/>
+   <ChoiceField label={editing?'剪辑 Agent 模型':'制作 Agent 模型'} value={config[modelKey]} options={connected?connection.models||[]:[]} disabled={busy||!connected} onChange={v=>onChange({[modelKey]:v})} placeholder={connected?'点击选择模型':'连接后选择模型'} hint={connected&&!connection.models?.length?'此连接未返回模型列表，请检查连接组件。':config[protocolKey]==='codex'?'使用本机 Codex 登录状态。':'使用所选智能体已有配置；通过 ACP 连接和会话 MCP 调用行舟后台。'}/>
   </div>
  </div>;
 }
