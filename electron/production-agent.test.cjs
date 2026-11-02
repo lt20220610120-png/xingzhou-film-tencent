@@ -1,12 +1,12 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {EventEmitter}=require('node:events');
 const {createAgentClient}=require('./production-agent.cjs');
-function harness({ephemeral=true,rejectThread=false}={}){
+function harness({ephemeral=true,rejectThread=false,useTool=false,toolName='xingzhou_task'}={}){
  const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();const calls=[];let spawnOptions;
  const emit=value=>child.stdout.emit('data',Buffer.from(JSON.stringify(value)+'\n'));
- child.stdin={write:line=>{const m=JSON.parse(line);calls.push(m);if(m.id===undefined)return;
+ child.stdin={write:line=>{const m=JSON.parse(line);calls.push(m);if(m.id===700){queueMicrotask(()=>{emit({method:'item/agentMessage/delta',params:{threadId:'test-owned',delta:'工具已完成'}});emit({method:'turn/completed',params:{threadId:'test-owned',turn:{status:'completed'}}});});return;}if(m.id===undefined)return;
   const result=m.method==='account/read'?{account:{type:'chatgpt'}}:m.method==='model/list'?{data:[{id:'model'}]}:m.method==='thread/start'?{thread:{id:'test-owned',ephemeral}}:{};
-  queueMicrotask(()=>{if(rejectThread&&m.method==='thread/start')return emit({id:m.id,error:{message:'unsupported ephemeral'}});emit({id:m.id,result});if(m.method==='turn/start'){emit({method:'item/agentMessage/delta',params:{threadId:'test-owned',delta:'完成'}});emit({method:'turn/completed',params:{threadId:'test-owned',turn:{status:'completed'}}});}});
+  queueMicrotask(()=>{if(rejectThread&&m.method==='thread/start')return emit({id:m.id,error:{message:'unsupported ephemeral'}});emit({id:m.id,result});if(m.method==='turn/start'){if(useTool){emit({id:700,method:'item/tool/call',params:{threadId:'test-owned',turnId:'turn',callId:'call',tool:toolName,arguments:{action:'inspect'}}});return;}emit({method:'item/agentMessage/delta',params:{threadId:'test-owned',delta:'完成'}});emit({method:'turn/completed',params:{threadId:'test-owned',turn:{status:'completed'}}});}});
  }};child.kill=()=>child.emit('exit');
  const client=createAgentClient({executable:process.execPath,cwd:process.cwd(),spawnProcess:(exe,args,options)=>{spawnOptions={exe,args,...options};return child;}});
  return {client,calls,options:()=>spawnOptions};
@@ -22,3 +22,5 @@ test('an Agent that ignores ephemeral must not receive project prompts in a pers
 test('unsupported ephemeral session never falls back to persistent thread creation',async()=>{
  const h=harness({rejectThread:true});try{await h.client.connect();await assert.rejects(h.client.run({model:'model',prompt:'不应重发'}),/ephemeral/);assert.equal(h.calls.filter(m=>m.method==='thread/start').length,1);assert.equal(h.calls.filter(m=>m.method==='turn/start').length,0);}finally{h.client.close();}
 });
+
+test('Codex can call the actual injected backend tool and receives its real result',async()=>{const h=harness({useTool:true});try{await h.client.connect();let invoked=0;const tools=require('./production-agent-tools.cjs').productionAgentTools;const text=await h.client.run({model:'model',prompt:'读取当前任务',tools,callTool:async(name,args)=>{invoked++;assert.equal(name,'xingzhou_task');assert.equal(args.action,'inspect');return {actual:true,episodes:3};}});assert.equal(text,'工具已完成');assert.equal(invoked,1);assert.equal(h.calls.find(m=>m.method==='thread/start').params.dynamicTools.length,2);const reply=h.calls.find(m=>m.id===700);assert.equal(reply.result.success,true);assert.equal(JSON.parse(reply.result.contentItems[0].text).episodes,3);}finally{h.client.close();}});
