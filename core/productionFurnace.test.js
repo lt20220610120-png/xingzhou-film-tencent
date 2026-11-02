@@ -125,3 +125,5 @@ test('saving settings excludes start until the durable write finishes',async()=>
 });
 
 test('failed conversational turn releases dispatch hold and clears visible chat activity',async()=>{const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async()=>{throw Error('连接断开');}}});const run=await c.create('p',productionDefaults());await assert.rejects(c.chat(run.id,{text:'读状态'}),/连接断开/);assert.equal(run.dispatchHold,false);assert.equal(run.chatActive,false);});
+
+test('provider message items retain commentary and final reply as distinct messages',async()=>{let c;const adapters={chat:async run=>{await c.chatDelta(run.id,'正在核对',undefined,{itemId:'commentary'});await c.chatDelta(run.id,'已核对完成',undefined,{itemId:'final'});return{reply:'正在核对已核对完成',action:'none'};}};c=createProductionController({load:async()=>[],save:async()=>{},adapters});const run=await c.create('p',productionDefaults());await c.chat(run.id,{text:'检查项目'});assert.deepEqual(run.conversation.filter(m=>m.role==='assistant').map(m=>m.text),['正在核对','已核对完成']);});

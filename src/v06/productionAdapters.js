@@ -1,3 +1,4 @@
+import {agentDataPage} from '../../core/productionAgentData.js';
 import {episodeAllowed} from '../../core/productionExecutionScope.js';
 import {runPromptModelChain,modelPolicyRows} from '../../core/productionModelPolicy.js';
 import {listCollabEpisodes} from '../../core/collabEpisodes.js';
@@ -104,7 +105,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   },
   async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source.id);const id=run.collabProjectId||run.config.collabProjectId||candidates[0]?.id;
    let assets=[],cloud;if(id&&candidates.some(p=>p.id===id)){cloud=await api.collabGetProject({projectId:id});assets=await api.collabListAssets({projectId:id});}
-   return {config:run.config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
+   const config=Object.fromEntries(Object.entries(run.config).filter(([key])=>key!=='scriptText'&&!/api.?key|token|secret|password|authorization/i.test(key)));return {config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
   },
   steering:true,
   async chat(run,{text,model,history,onDelta,steer}){return api.productionChat({runId:run.id,text,model,history,steer});},
@@ -113,12 +114,12 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   async agentProjectTool(run,args){
    const ctx={run,guard:()=>{},checkpoint:async()=>{},log:async()=>{},readOnly:true},state=await readArt(ctx,true),projectId=state.p.id;
    if(!projectId)throw Error('当前任务尚未绑定协作项目');
-   if(args.operation==='project')return state.p;
-   if(args.operation==='assets')return state.assets;
-   if(args.operation==='bindings')return {snapshot:state.binding.snapshot,decisions:state.binding.decisions};
+   if(args.operation==='project')return agentDataPage(state.p,args);
+   if(args.operation==='assets')return agentDataPage(state.assets,args);
+   if(args.operation==='bindings')return agentDataPage({snapshot:state.binding.snapshot,decisions:state.binding.decisions},args);
    const tasks=(await api.generationList({includeArchived:true})).filter(j=>j.projectId===projectId);
    const redact=value=>JSON.parse(JSON.stringify(value,(key,v)=>/apiKey|token|secret|authorization/i.test(key)?undefined:v));
-   if(args.operation==='generations')return redact(tasks);
+   if(args.operation==='generations')return agentDataPage(redact(tasks),args);
    const job=tasks.find(j=>j.id===args.jobId);
    if(args.operation==='refresh'){if(!job)throw Error('原任务不属于当前项目');const original=generationMediaProfiles(getState(),job.kind||'video').find(p=>p.id===job.profileId);return redact(await api.generationRefresh({id:job.id,endpoint:original?.endpoint,apiKey:original?.apiKey}));}
    if(args.operation==='archive'){const item=run.items.find(i=>i.id===args.itemId&&i.jobId===args.jobId);if(!item||!job||job.status!=='success')throw Error('必须是当前制作条目已成功的原任务');const result=await api.productionArchive({runId:run.id,jobId:job.id,label:item.label,episode:item.episode});Object.assign(item,result,{status:'downloaded',error:''});return result;}

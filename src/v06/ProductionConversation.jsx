@@ -11,8 +11,14 @@ export function readableConversationText(value){
  const legacyTool=text.match(/^工具已执行：xingzhou_(?:task|project) \/ ([^；]+)/);
  if(legacyTool)return toolSummaries[legacyTool[1]]||'已完成制作操作并核对回执。';
  text=text.replace(/\\r\\n|\\n/g,'\n').replace(/\\t/g,'\t');
- return text.replace(/Agent 回包过大/g,'Agent 返回内容过长，请缩小本次处理范围后重试。').replace(/Selected model is at capacity\. Please try a different model\./g,'当前模型繁忙，请稍后重试或切换模型。');
+ return text.replace(/Agent 回包过大/g,'旧版接收连接已中断；升级后可接续原任务。').replace(/Selected model is at capacity\. Please try a different model\./g,'当前模型繁忙，请稍后重试或切换模型。');
 }
+
+
+export function conversationRows(events){const rows=[];for(const event of events){if(!event.text?.trim())continue;const step=event.role==='system'||event.role==='log';if(step){let group=rows.at(-1);if(group?.kind!=='steps'){group={kind:'steps',id:'steps-'+event.id,events:[]};rows.push(group);}group.events.push(event);}else rows.push(event);}return rows;}
+const operationNames={project:'读取项目与剧本',assets:'读取美术素材',bindings:'核对提示词关联',generations:'读取视频任务',refresh:'查询原任务',archive:'归档原片',post_status:'检查后期凭据',inspect:'读取制作状态',continue:'接续制作',pause:'暂停派发',set_scope:'调整本次范围',clear_scope:'恢复默认范围'};
+function ReplyText({text}){return <div className="agent-reply-text">{readableConversationText(text).split(/(```[\s\S]*?```)/g).map((part,i)=>part.startsWith('```')?<pre key={i}><code>{part.replace(/^```[^\n]*\n?/,'').replace(/```$/,'')}</code></pre>:<div key={i}>{part.split('\n').map((line,n)=><div className={/^#{1,4} /.test(line)?'agent-reply-heading':''} key={n}>{line.replace(/^#{1,4} /,'').split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((chunk,k)=>chunk.startsWith('**')?<strong key={k}>{chunk.slice(2,-2)}</strong>:chunk.startsWith('`')?<code key={k}>{chunk.slice(1,-1)}</code>:chunk)}{!line&&<br/>}</div>)}</div>)}</div>;}
+function StepGroup({row}){const failures=row.events.filter(e=>/未完成|失败|错误/.test(e.text));return <details className="agent-step-group"><summary>{failures.length?'⚠':'›'} 执行过程 · {row.events.length} 个步骤{failures.length?' · '+failures.length+' 项提示':''}</summary><div>{row.events.map(e=><details className="agent-step" key={e.id}><summary><span>{operationNames[e.operation]||readableConversationText(e.text)}</span><time>{new Date(e.at).toLocaleTimeString('zh-CN',{hour12:false})}</time></summary><p>{readableConversationText(e.text)}</p>{e.tool&&<small>{e.tool} / {e.operation}</small>}{e.args&&<><b>调用参数</b><pre>{e.args}</pre></>}{e.result&&<><b>返回结果</b><pre>{e.result}</pre></>}</details>)}</div></details>;}
 
 export function ProductionConversation({run,production,api,onSaveDefault}){
  const [text,setText]=useState(''),[busy,setBusy]=useState(false),[models,setModels]=useState([]),[error,setError]=useState(''),[candidates,setCandidates]=useState([]),[rule,setRule]=useState(run.config.workflowRules||''),[notice,setNotice]=useState('');
@@ -32,7 +38,7 @@ export function ProductionConversation({run,production,api,onSaveDefault}){
   <div className="furnace-chat-controls"><ChoiceField label="接续协作项目" value={run.collabProjectId||run.config.collabProjectId||''} options={candidates.length?candidates.map(p=>({id:p.id,name:p.name+' · '+p.id.slice(0,8)})):(run.collabProjectId?[{id:run.collabProjectId,name:'当前协作项目 · '+run.collabProjectId.slice(0,8)}]:[])} placeholder="自动识别，未开启时自动创建" disabled={busy||run.status==='running'} onChange={v=>act(async()=>{await production.bindProject(run.id,v);setNotice('协作项目已更换，点击继续或发送接续指令。');})}/></div>
   <div ref={pane} role="log" aria-label="工作日志与对话消息" aria-live="polite" className="furnace-conversation-messages" onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<65;}}>
    {!events.length&&<p className="furnace-chat-empty">可以询问当前进度，或发送“读取已有协作项目，继续补齐图片”等指令。</p>}
-   {events.map(e=><article key={e.id} className={`furnace-chat-message ${e.role} ${e.kind||''}`}><div>{(e.role==='system'||e.role==='log')&&<CheckCircle2 size={15}/>}<b>{e.role==='user'?'我':e.role==='assistant'?'Agent':e.role==='system'?'执行结果':'工作日志'}</b><time>{new Date(e.at).toLocaleTimeString('zh-CN',{hour12:false})}</time></div><p>{readableConversationText(e.text)}</p></article>)}
+   {conversationRows(events).map(e=>e.kind==='steps'?<StepGroup key={e.id} row={e}/>:<article key={e.id} className={`furnace-chat-message ${e.role}`}><div><b>{e.role==='user'?'我':'Agent'}</b><time>{new Date(e.at).toLocaleTimeString('zh-CN',{hour12:false})}</time></div><ReplyText text={e.text}/></article>)}
    {busy&&<p className="furnace-chat-thinking"><LoaderCircle size={16}/>Agent 正在处理，可继续发送调整指令…</p>}
   </div>
   {error&&<p role="alert" className="furnace-chat-error">{error}</p>}{notice&&<p className="furnace-chat-notice">{notice}</p>}
