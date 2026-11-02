@@ -126,7 +126,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    if(args.operation==='post_status')return api.productionPostStatus({runId:run.id,episode:args.episode,stage:args.stage});
    throw Error('未知项目工具操作');
   },
-  async validateAgentModel(run,model){const conn=await api.productionConnect({path:run.config.agentPath,protocol:run.config.agentProtocol});if(!conn.models?.some(m=>m.id===model))throw Error('所选模型不在本机 Agent 的模型列表中');},
+  async validateAgentModel(run,model,effort){const conn=await api.productionConnect({path:run.config.agentPath,protocol:run.config.agentProtocol});const selected=conn.models?.find(m=>m.id===model);if(!selected)throw Error('所选模型不在本机 Agent 的模型列表中');if(effort&&!selected.efforts?.includes(effort))throw Error('当前模型未提供此推理强度');return selected;},
   async validateSettings(config,run){const errors=productionIssues(config,{project:project(run),models:mediaModelChoices(getState(),'image'),profiles:getState().apiProfiles,skills:getState().skills});errors.push(...productionVideoIssues(config,getState()));if(errors.length)throw Error(errors.join('；'));await this.validateVoicePolicy(config);},
   async validate(ctx){await this.validateVoicePolicy(ctx.run.config);await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
   async validateVideoPolicy(config){const issues=productionVideoIssues(config,getState());if(issues.length)throw Error(issues.join('；'));},
