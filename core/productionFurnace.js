@@ -134,7 +134,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
  const controller={
   get loadError(){return loadError;},
   snapshot:()=>runs,
-  async restore(){if(ready)return;try{runs=await load();for(const run of runs){if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
+  async restore(){if(ready)return;try{runs=await load();for(const run of runs){if(!run.operatorInstructions&&run.conversation?.some(m=>m.role==='user')){run.operatorInstructions=run.conversation.filter(m=>m.role==='user').map(({id,at,text})=>({id,at,text}));for(const message of run.operatorInstructions){if(/恢复全剧|取消集数限制|继续后续集数/.test(message.text)){delete run.executionScope;continue;}const scope=readExecutionDirective(message.text);if(scope)run.executionScope=scope;}if(run.executionScope)for(const ep of run.episodes)if(run.executionScope.episodes.includes(ep.number))ep.stage='waiting';await persist(run);}if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
   async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],logs:[],createdAt:Date.now()};runs.unshift(run);await persist(run);return run;},
   async createOrResume(projectId,config){
    // A settings change is a continuation. Keep paid task IDs, reference plans
