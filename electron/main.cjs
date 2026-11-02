@@ -394,7 +394,7 @@ function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
 const audioResults=()=>require('./audio-results.cjs').createAudioResultStore({dataDir:getDataDir(),resultsDir:()=>path.join(mediaDir(),'语音生成')});
 const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
 const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>accessService.readSession()});
-const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
+const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),beforeDispatch:input=>productionHost.assertSubmission(input),libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
 const jobs=()=>generationManagers(mediaDir());
 async function manageGenerationReferences(action,payload={}){
  const session=readCloudSession();if(!session?.token||!session.account?.id)throw Error('请先登录行舟账号');

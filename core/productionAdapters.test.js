@@ -133,3 +133,5 @@ test('permanently skipped image no longer blocks video; remaining image referenc
  const submit=f.api.generationSubmit;f.api.generationSubmit=async input=>{assert(!input.references.some(r=>r.assetId==='person'));assert(input.references.some(r=>r.assetId==='room'));assert.match(input.prompt,/未附参考图说明/);return submit(input);};
  await f.adapter.videos(f.ctx);assert(f.run.items.every(i=>i.status==='downloaded'));assert(f.run.episodes.every(e=>e.stage==='done'));
 });
+
+test('episode scope submits only target episode and still completes its post production',async()=>{const f=fixture();f.run.executionScope={episodes:[1],until:'edit',pauseAfter:true};await f.adapter.videos(f.ctx);assert(f.events.filter(e=>e.startsWith('submit:')).every(e=>e.startsWith('submit:1-')));assert.equal(f.events.filter(e=>e.startsWith('submit:')).length,2);assert.equal(f.run.episodes.find(e=>e.number===1).stage,'done');assert.notEqual(f.run.episodes.find(e=>e.number===2).stage,'done');});

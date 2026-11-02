@@ -104,7 +104,7 @@ function createGenerationJobs(dir,options={}) {
       return result;
     },
     async submit(input) {
-      await options.beforeSubmit?.();
+      await options.beforeSubmit?.();const dispatchGuard=async()=>{try{await options.beforeDispatch?.(input);}catch(e){e.beforeSubmission=true;throw e;}};
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
       for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
@@ -113,7 +113,7 @@ function createGenerationJobs(dir,options={}) {
       if(input.provider==='likeai'){
         const service=typeof options.likeService==='function'?options.likeService():options.likeService;
         if(!service)throw Error('Like连接组件尚未就绪');save(job);
-        try{const result=await service.submit({...input,id:job.id});let saved=save({...job,likeJobId:job.id,likeCanvasUrl:result.canvasUrl,jobId:result.taskId||result.id,nodeId:result.nodeId,status:result.status==='failed'?'failed':result.status==='uncertain'?'uncertain':'submitted',warning:result.message||'',nextPollAt:Date.now()+15000});
+        try{const result=await (async()=>{if(options.beforeDispatch)await dispatchGuard();return service.submit({...input,id:job.id});})();let saved=save({...job,likeJobId:job.id,likeCanvasUrl:result.canvasUrl,jobId:result.taskId||result.id,nodeId:result.nodeId,status:result.status==='failed'?'failed':result.status==='uncertain'?'uncertain':'submitted',warning:result.message||'',nextPollAt:Date.now()+15000});
           if(result.status==='success'){saved=save({...saved,status:'downloading'});try{return save({...saved,...await service.download(saved,dir),status:'success',warning:''});}catch(e){return save({...saved,warning:e.message});}}return saved;
         }catch(e){save({...job,likeJobId:job.id,likeCanvasUrl:e.likeCanvasUrl,status:e.beforeSubmission?'failed':'uncertain',submissionAttempted:!e.beforeSubmission,error:e.message});throw e;}
       }
@@ -121,12 +121,12 @@ function createGenerationJobs(dir,options={}) {
         if(!libtv())throw Error('LibTV 连接器尚未就绪，请先连接账号');
         save(job);
         let task;
-        try{task=save({...job,...await libtv().prepare(accountId,{...input,id:job.id}),status:'submitted',libtvRunStarted:true});}
+        try{if(options.beforeDispatch)await dispatchGuard();task=save({...job,...await libtv().prepare(accountId,{...input,id:job.id}),status:'submitted',libtvRunStarted:true});}
         catch(e){save({...job,status:'failed',error:e.message});throw e;}
         const work=(async()=>{
-          try{const result=await libtv().run(accountId,task,{signal});if(libtvFailed(result)){save({...task,status:'failed',error:'LibTV 官方任务失败，请在原画布核对'});return;}
+          try{if(options.beforeDispatch)await dispatchGuard();const result=await libtv().run(accountId,task,{signal});if(libtvFailed(result)){save({...task,status:'failed',error:'LibTV 官方任务失败，请在原画布核对'});return;}
             task=save({...task,status:'downloading'});try{save({...task,...await libtv().download(accountId,task,dir),status:'success',warning:''});}catch(e){save({...task,warning:e.message});}
-          }catch(e){save({...task,status:'submitted',warning:e.message+'；请刷新或打开原画布核对，不会自动重新生成'});}
+          }catch(e){if(e.beforeSubmission){save({...task,status:'failed',submissionAttempted:false,error:e.message});return;}save({...task,status:'submitted',warning:e.message+'；请刷新或打开原画布核对，不会自动重新生成'});}
         })();
         libtvRunning.set(job.id,work);work.finally(()=>libtvRunning.delete(job.id)).catch(()=>{});
         return task;
@@ -146,7 +146,7 @@ function createGenerationJobs(dir,options={}) {
         save(job);
         try{
           let prepared=input;try{await provider.preflight(input,{allowLocal:!!options.prepareVideoReferences});if(options.prepareVideoReferences)prepared=await options.prepareVideoReferences({...input,referenceTaskId:job.id});await provider.preflight(prepared);}catch(e){const detail=String(e.message||'素材准备失败').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);save({...job,status:'failed',submissionAttempted:false,error:detail});throw Object.assign(new Error(detail),{beforeSubmission:true});}
-          const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
+          if(options.beforeDispatch)await dispatchGuard();const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
           if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
         }catch(e){if(e.beforeSubmission){if(read().find(r=>r.id===job.id)?.status!=='failed')save({...job,status:'failed',submissionAttempted:false,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});throw e;}const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
       }
@@ -155,7 +155,7 @@ function createGenerationJobs(dir,options={}) {
         client.validate(input);
         save(job);
         try {
-          const result = await client.submit(input);
+          if(options.beforeDispatch)await dispatchGuard();const result = await client.submit(input);
           const saved=save({...job, jobId:result.jobId, status:input.kind==='image'?'downloading':'submitted', urls:result.resultUrls, costYuan:result.costYuan, normalizedPrompt:result.normalizedPrompt, referenceMappings:result.referenceMappings});
           if(input.kind==='image') {
             if(!result.resultUrls?.length) throw new Error('未返回图片结果地址');
@@ -164,11 +164,11 @@ function createGenerationJobs(dir,options={}) {
           }
           return saved;
         }
-        catch (error) { const existing=read().find(r=>r.id===job.id); if(existing?.jobId){save({...existing,warning:error.message});return existing;} save({...job,status:'uncertain',error:`提交未确认：${error.message}。请先核对飞拓任务日志，避免重复扣费。`}); throw error; }
+        catch (error) { if(error.beforeSubmission){save({...job,status:'failed',submissionAttempted:false,error:error.message});throw error;}const existing=read().find(r=>r.id===job.id); if(existing?.jobId){save({...existing,warning:error.message});return existing;} save({...job,status:'uncertain',error:`提交未确认：${error.message}。请先核对飞拓任务日志，避免重复扣费。`}); throw error; }
       }
       save(job);
       try {
-        const filePath = await (input.kind === 'image' ? generateImage : generateVideo)({...input,destDir:dir});
+        if(options.beforeDispatch)await dispatchGuard();const filePath = await (input.kind === 'image' ? generateImage : generateVideo)({...input,destDir:dir});
         return save({...job,status:'success',filePath});
       } catch(error) { if(error.downloadReceiptId)return save({...job,status:'downloading',downloadReceiptId:error.downloadReceiptId,error:error.message}); save({...job,status:'failed',error:error.message}); throw error; }
     },

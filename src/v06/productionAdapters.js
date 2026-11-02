@@ -1,3 +1,4 @@
+import {episodeAllowed} from '../../core/productionExecutionScope.js';
 import {runPromptModelChain,modelPolicyRows} from '../../core/productionModelPolicy.js';
 import {listCollabEpisodes} from '../../core/collabEpisodes.js';
 import {sourceReviewScenes,editArtReview,isSceneVerified,needsArtReviewDetails,reviewRoster,decodeArtReviewOutput} from '../../core/artReview.js';
@@ -107,6 +108,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   },
   async chat(run,{text,model,history}){const context=await this.inspect(run);const reply=await api.productionChat({runId:run.id,text,model,history,context});return {...reply,context};},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
+  async validateAgentModel(run,model){const conn=await api.productionConnect({path:run.config.agentPath,protocol:run.config.agentProtocol});if(!conn.models?.some(m=>m.id===model))throw Error('所选模型不在本机 Agent 的模型列表中');},
   async validateSettings(config,run){const errors=productionIssues(config,{project:project(run),models:mediaModelChoices(getState(),'image'),profiles:getState().apiProfiles,skills:getState().skills});errors.push(...productionVideoIssues(config,getState()));if(errors.length)throw Error(errors.join('；'));await this.validateVoicePolicy(config);},
   async validate(ctx){await this.validateVoicePolicy(ctx.run.config);await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
   async validateVideoPolicy(config){const issues=productionVideoIssues(config,getState());if(issues.length)throw Error(issues.join('；'));},
@@ -205,13 +207,13 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    if(JSON.stringify(run.items.map(i=>i.id).sort())!==JSON.stringify(book.entries.map(e=>e.id).sort()))throw Error('任务清单与提示词版本不一致');
    if(!run.episodes.length)run.episodes=[...new Set(run.items.map(i=>i.episode))].sort((a,b)=>a-b).map(number=>({number,stage:'waiting'}));await ctx.checkpoint();
    let editTail=Promise.resolve();const postJobs=new Map(),clipJobs=new Map();
-   const postReady=async()=>{checkSource();
-    if(c.endStage!=='archive')for(const item of run.items.filter(i=>i.status==='downloaded')){
+   const postReady=async()=>{checkSource();const endStage=run.executionScope?.until||c.endStage;
+    if(endStage!=='archive')for(const item of run.items.filter(i=>i.status==='downloaded'&&episodeAllowed(run,i.episode))){
      if(clipJobs.has(item.id))continue;
      const task=(async()=>{try{item.upscaleStatus='running';await ctx.checkpoint();item.upscaleResult=await checkPost(ctx,{number:item.episode},'upscale',item.id);item.upscaleStatus='done';delete item.upscaleError;}catch(error){item.upscaleStatus='failed';item.upscaleError=error.message;}await ctx.checkpoint();})();clipJobs.set(item.id,task);
     }
-    for(const ep of run.episodes){if(ep.stage==='done'||postJobs.has(ep.number))continue;const clips=run.items.filter(i=>i.episode===ep.number);if(!completeEpisode(book.entries.filter(e=>e.episode===ep.number).map(e=>e.id),clips))continue;
-    const job=(async()=>{try{if(c.endStage==='archive'){ep.stage='done';await ctx.checkpoint();return;}ep.stage='upscale';await ctx.checkpoint();await Promise.all(clips.map(i=>clipJobs.get(i.id)));if(clips.some(i=>i.upscaleStatus!=='done'))throw Error(clips.find(i=>i.upscaleError)?.upscaleError||'本集超分尚未齐全');await checkPost(ctx,ep,'upscale');ctx.guard();if(c.endStage==='upscale'){ep.stage='done';await ctx.checkpoint();return;}
+    for(const ep of run.episodes){if(!episodeAllowed(run,ep.number)||ep.stage==='done'||postJobs.has(ep.number))continue;const clips=run.items.filter(i=>i.episode===ep.number);if(!completeEpisode(book.entries.filter(e=>e.episode===ep.number).map(e=>e.id),clips))continue;
+    const job=(async()=>{try{if(endStage==='archive'){ep.stage='done';await ctx.checkpoint();return;}ep.stage='upscale';await ctx.checkpoint();await Promise.all(clips.map(i=>clipJobs.get(i.id)));if(clips.some(i=>i.upscaleStatus!=='done'))throw Error(clips.find(i=>i.upscaleError)?.upscaleError||'本集超分尚未齐全');await checkPost(ctx,ep,'upscale');ctx.guard();if(endStage==='upscale'){ep.stage='done';await ctx.checkpoint();return;}
       ep.stage='edit-queued';await ctx.checkpoint();const task=editTail.catch(()=>{}).then(async()=>{ctx.guard();ep.stage='edit';await ctx.checkpoint();ep.result=await checkPost(ctx,ep,'edit');ep.stage='done';await ctx.checkpoint();});editTail=task;await task;
      }catch(e){ep.stage='attention';ep.error=e.message;await ctx.checkpoint();}})();postJobs.set(ep.number,job);
    }};
@@ -227,19 +229,19 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    };
    const worker=async(item)=>{ctx.guard();if(item.status==='downloaded')return;const entry=book.entries.find(e=>e.id===item.id);if(!entry){item.status='blocked';item.error='来源提示词已变化';return;}
     try{
-     await runProductionVideoTask({ctx,item,tasks,models:videoModels,wait,acquire,
+     await runProductionVideoTask({ctx:{...ctx,guard:()=>{ctx.guard();if(!episodeAllowed(run,item.episode))throw Error('执行范围已调整，原任务保留后台监测');}},item,tasks,models:videoModels,wait,acquire,
       submit:async selected=>{
-       checkSource();const selectedProfile=generationMediaProfiles(getState(),'video').find(m=>m.id===selected.profileId);
+       checkSource();if(run.dispatchHold||!episodeAllowed(run,item.episode))throw Object.assign(Error('用户指令已限制新提交，保留原任务'),{beforeSubmission:true});const selectedProfile=generationMediaProfiles(getState(),'video').find(m=>m.id===selected.profileId);
        const parameters=selected.videoConfig,settings={profileId:selected.profileId,model:selected.model,duration:Number(parameters.videoDuration),ratio:parameters.ratio,resolution:parameters.videoResolution,allowReferenceSelection:true};
        const source={...book,drafts:{...book.drafts,[entry.id]:{...book.drafts[entry.id],duration:Number(parameters.videoDuration)}}},input=workflowInput(source,entry,settings,selectedProfile);ctx.guard();
        await planProductionReferenceSelection({ctx,input,entry:{...entry,id:item.id},work:(task,messages)=>work(ctx,task,messages)});
        const outbound=selectProductionReferences(input);
-       ctx.guard();item.status='submitting';await ctx.checkpoint();const result=await api.generationSubmit({...input,projectId:p.id,episode:entry.episode,scene:entry.sceneId||entry.label.split('-').slice(0,2).join('-'),shotId:entry.sourcePromptId||entry.id,shotLabel:entry.label,workflowRunId:run.id,workflowItemId:item.id,workflowVideoPolicyKey:selected.videoPolicyKey});
+       ctx.guard();if(run.dispatchHold||!episodeAllowed(run,item.episode))throw Object.assign(Error('用户指令已限制新提交'),{beforeSubmission:true});item.status='submitting';await ctx.checkpoint();const result=await api.generationSubmit({...input,projectId:p.id,episode:entry.episode,scene:entry.sceneId||entry.label.split('-').slice(0,2).join('-'),shotId:entry.sourcePromptId||entry.id,shotLabel:entry.label,workflowRunId:run.id,workflowItemId:item.id,workflowVideoPolicyKey:selected.videoPolicyKey});
        item.referenceVerification=result.referenceVerification||outbound.referenceVerification;await ctx.log?.('发送引用验收：'+item.label+'，'+item.referenceVerification.selected.length+' 张参考图逐项对应 @；舍弃 '+item.referenceVerification.omitted.length+' 张低权重参考图。');return result;
       },
       refresh:async job=>{const original=generationMediaProfiles(getState(),'video').find(m=>m.id===job.profileId)||videoProfile;return api.generationRefresh({id:job.id,apiKey:original.apiKey,endpoint:original.endpoint});},
       archive:job=>api.productionArchive({runId:run.id,jobId:job.id,label:item.label,episode:item.episode}),onReady:postReady});
-    }catch(error){if(run.status!=='running')throw error;if(isFundingError(error)){ctx.videoBudget=error.message;item.status='failed';}else if(/前置引用核验失败，尚未提交生成/.test(error.message))item.status='blocked';else if(item.status==='submitting')item.status='uncertain';else if(!['failed','uncertain','retry-exhausted','success'].includes(item.status))item.status='blocked';item.error=error.message;await ctx.checkpoint();}
+    }catch(error){if(!episodeAllowed(run,item.episode))return;if(run.status!=='running')throw error;if(isFundingError(error)){ctx.videoBudget=error.message;item.status='failed';}else if(/前置引用核验失败，尚未提交生成/.test(error.message))item.status='blocked';else if(item.status==='submitting')item.status='uncertain';else if(!['failed','uncertain','retry-exhausted','success'].includes(item.status))item.status='blocked';item.error=error.message;await ctx.checkpoint();}
    };
    const running=new Map(),attempted=new Map();let loadedRevision=-1;
    const workerLimit=choices.reduce((sum,m)=>sum+Math.max(1,Math.min(8,Number(m.videoConfig.videoConcurrency)||1)),0);
@@ -247,9 +249,10 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     ctx.guard();const revision=ctx.materialRevision||0;
     if(loadedRevision!==revision){if(loadedRevision!==-1||ctx.imagesPending||revision){const current=await loadFreshBinding({api,projectId:p.id,accountId:getAccount().id,localSources:getState().directorProjects});book=linkedPromptBook(current.snapshot,current.decisions,getAccount().id,{voiceEnabled:voiceAutomationEnabled(c),omittedAssetIds:Object.keys(run.imageItems||{}).filter(id=>run.imageItems[id].status==='skipped')});checkSource();}loadedRevision=revision;}
     const queue=run.items.filter(item=>{
-     if(item.status==='downloaded'||running.has(item.id)||attempted.get(item.id)===revision)return false;
+     if(!episodeAllowed(run,item.episode)||item.status==='downloaded'||running.has(item.id)||attempted.get(item.id)===revision)return false;
      // Preserve unknown paid submissions even if their references are unavailable.
      if(['uncertain','submitting'].includes(item.status)||item.jobId||tasks.some(j=>j.workflowRunId===run.id&&j.workflowItemId===item.id))return true;
+     if(run.dispatchHold||!episodeAllowed(run,item.episode))return false;
      const draft=book.drafts[item.id];if(draft?.referenceBindingMode==='confirmed')return true;
      item.status='blocked';item.error=draft?.bindingIssue||'等待本条素材关联和图片';return false;
     });
