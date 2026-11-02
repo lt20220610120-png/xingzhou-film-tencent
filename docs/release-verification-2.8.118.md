@@ -13,3 +13,4 @@ ProductionRunWorkspace统一状态栏和双栏布局，左侧标签页、独立�
 已公开发布：官方镜像脚本核验103989541字节，SHA256 d0a026032c62f71c1fa89bec2ea490261d71fddfff3592eba624699f97e4d919。
 官方安装包 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.118.exe 。本机release/2.8.118/Xingzhou-Film-Tencent-Setup-2.8.118.exe。
 未执行付费生产、未修改用户制作任务，未安装替换当前客户端。当前版本新增的是行舟自身的Agent界面；没有嵌入Codex/Hermes官方桌面窗口。
+公开三份latest.json均核验版本、安装包URL、大小、SHA256和Ed25519签名一致；GitHub uploaded资产size及官方sha256 digest与本地包一致。未以完整二次下载作为本轮证据。
