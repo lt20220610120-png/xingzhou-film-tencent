@@ -81,7 +81,7 @@ export const completeEpisode=(expected,clips)=>expected.length>0&&new Set(expect
 
 /** A view-independent coordinator. Every side effect gets a durable checkpoint first. */
 export function createProductionController({load,save,adapters,onChange=()=>{}}){
- let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Set(),updating=new Set();
+ let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Set(),streaming=new Map(),updating=new Set();
  const emit=()=>onChange(runs);
  let writes=Promise.resolve();
  const persist=async run=>{run.updatedAt=Date.now();const snapshot=structuredClone(run);const writing=writes.then(()=>save(snapshot));writes=writing.catch(()=>{});await writing;emit();};
@@ -134,7 +134,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
  const controller={
   get loadError(){return loadError;},
   snapshot:()=>runs,
-  async restore(){if(ready)return;try{runs=await load();for(const run of runs){if(run.executionScope&&!run.executionScope.sourceMessageId){delete run.executionScope;run.status='paused';run.message='旧版自动提取的范围已移除；按本次对话的新指令接续';await persist(run);}if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
+  async restore(){if(ready)return;try{runs=await load();for(const run of runs){run.chatActive=false;run.dispatchHold=false;if(run.executionScope&&!run.executionScope.sourceMessageId){delete run.executionScope;run.status='paused';run.message='旧版自动提取的范围已移除；按本次对话的新指令接续';await persist(run);}if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
   async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],logs:[],createdAt:Date.now()};runs.unshift(run);await persist(run);return run;},
   async createOrResume(projectId,config){
    // A settings change is a continuation. Keep paid task IDs, reference plans
@@ -186,7 +186,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    if(name==='xingzhou_project')result=await adapters.agentProjectTool(run,args);
    else if(name!=='xingzhou_task')throw Error('未知行舟工具');
    else if(args.action==='inspect')result=await adapters.inspect(run);
-   else if(args.action==='pause'){await controller.pause(id);result={status:run.status,message:'已停止新派发，原远端任务保留'};}
+   else if(args.action==='pause'){run.chatPaused=true;await controller.pause(id);result={status:run.status,message:'已停止新派发，原远端任务保留'};}
    else if(args.action==='continue'){run.dispatchHold=false;await persist(run);if(run.status!=='running')schedule();result={status:'accepted',message:'继续原任务，遵循当前用户安排'};}
    else if(args.action==='update_settings'){if(!args.settings||typeof args.settings!=='object')throw Error('请提供设置');await controller.updateSettings(id,args.settings);result={status:'saved',message:'当前任务设置已更新，原成果保留'};}
    else if(args.action==='run_stage'){if(!['prompts','information','voices','art','images','videos'].includes(args.stage))throw Error('工序无效');if(run.status==='running'||active.has(id))throw Error('先暂停当前派发并等待工序退出，再单独执行');run.dispatchHold=false;await persist(run);schedule(args.stage);result={status:'accepted',stage:args.stage,message:'工序已接收，读取后续状态核实结果'};}
@@ -202,19 +202,19 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool',text:message}].slice(-200);await persist(run);return result;
   },
   async updateAgentModel(id,model){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');await adapters.validateAgentModel?.(run,model);run.config.agentModel=model;await persist(run);return run;},
-  async chat(id,{text,model}){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('Agent 正在回复，请稍候');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');chatting.add(id);
+  async chat(id,{text,model}){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');const wasRunning=run.status==='running';const steer=chatting.has(id),activeStream=streaming.get(id);if(steer&&!adapters.steering)throw Error('Agent 正在回复，请稍候');if(!steer)chatting.add(id);
    const add=async(role,message)=>{run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role,text:message}].slice(-200);await persist(run);};
-   try{const history=(run.conversation||[]).slice(-16);run.operatorInstructions=[...(run.operatorInstructions||[]),{id:crypto.randomUUID(),at:Date.now(),text}].slice(-100);await add('user',text);    run.dispatchHold=true;await persist(run);const response=await adapters.chat(run,{text,model,history});let result='';if(response.action==='set_scope'){run.executionScope={...validateExecutionScope(response.scope),sourceMessageId:run.operatorInstructions.at(-1).id};for(const ep of run.episodes)if(run.executionScope.episodes.includes(ep.number))ep.stage='waiting';run.dispatchHold=false;await persist(run);result='执行范围已保存：第 '+run.executionScope.episodes.join('、')+' 集；后续新提交按范围拦截。';}else{if(response.action==='clear_scope'){for(const ep of run.episodes)if(run.executionScope?.episodes.includes(ep.number))ep.stage='waiting';delete run.executionScope;result='本次对话已解除临时限制，恢复默认工作流的未完成部分。';}run.dispatchHold=false;await persist(run);}await add('assistant',response.reply);
+   try{const history=(run.conversation||[]).slice(-16);const instruction={id:crypto.randomUUID(),at:Date.now(),text};run.operatorInstructions=[...(run.operatorInstructions||[]),instruction].slice(-100);await add('user',text);if(!steer){run.chatPaused=false;run.chatActive=true;run.dispatchHold=true;await persist(run);}
+    const draft=activeStream?.draft||{id:crypto.randomUUID(),at:Date.now(),role:'assistant',text:''};if(!activeStream){run.conversation=[...(run.conversation||[]),draft].slice(-200);streaming.set(id,{draft});await persist(run);}
+    const onDelta=async delta=>{draft.text+=String(delta||'');run.conversation=[...(run.conversation||[])].map(message=>message.id===draft.id?draft:message);await persist(run);};
+    const response=await adapters.chat(run,{text,model,history,steer,onDelta});if(steer)return response;let result='';if(response.reply&&draft.text!==response.reply){draft.text=response.reply;await persist(run);}if(response.action==='set_scope'){run.executionScope={...validateExecutionScope(response.scope),sourceMessageId:run.operatorInstructions.at(-1).id};for(const ep of run.episodes)if(run.executionScope.episodes.includes(ep.number))ep.stage='waiting';run.dispatchHold=false;await persist(run);result='执行范围已保存：第 '+run.executionScope.episodes.join('、')+' 集；后续新提交按范围拦截。';}else{if(response.action==='clear_scope'){for(const ep of run.episodes)if(run.executionScope?.episodes.includes(ep.number))ep.stage='waiting';delete run.executionScope;result='本次对话已解除临时限制，恢复默认工作流的未完成部分。';}run.dispatchHold=false;await persist(run);}
     if(response.action==='pause'){await controller.pause(id);result='已暂停新任务派发。';}
     else if(response.action==='select_collab'){await controller.bindProject(id,response.projectId);result=`已改用协作项目 ${response.projectId}，点击继续接续。`;}
-    else if(response.action==='refresh'||response.action==='continue'){
-     if(active.has(id))result='任务正在运行，指令已记录；可暂停后重新读取接续。';
-     else if(run.status==='done')result='任务已经完成，保留已完成结果。';
-     else{await add('system','已接受接续指令，重新读取现有项目并执行未完成阶段。');void controller.start(id).catch(()=>{});}
-    }
-    if(result)await add('system',result);return response;
-   }catch(error){await add('system',`指令未完成：${error.message}`);throw error;}finally{chatting.delete(id);}
+    else if(response.action==='refresh'||response.action==='continue'){if(active.has(id))result='任务正在运行，指令已记录；可暂停后重新读取接续。';else if(run.status==='done')result='任务已经完成，保留已完成结果。';else{await add('system','已接受接续指令，重新读取现有项目并执行未完成阶段。');void controller.start(id).catch(()=>{});}}
+    if(result)await add('system',result);if(wasRunning&&!run.chatPaused&&response.action==='none'&&run.status==='attention'){void (async()=>{while(active.has(id))await new Promise(resolve=>setTimeout(resolve,100));if(run.status==='attention'&&!run.chatPaused)await controller.start(id);})().catch(()=>{});}return response;
+   }catch(error){if(!steer){run.dispatchHold=false;await add('system',`指令未完成：${error.message}`);}throw error;}finally{if(!steer){chatting.delete(id);streaming.delete(id);run.chatActive=false;await persist(run);}}
   },
+  async chatDelta(id,delta,progress){const stream=streaming.get(id),run=runs.find(r=>r.id===id);if(!stream||!run)return;if(progress){run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool',text:progress}].slice(-200);await persist(run);return;}stream.draft.text+=String(delta||'');run.conversation=[...(run.conversation||[])].map(message=>message.id===stream.draft.id?stream.draft:message);await persist(run);},
   async pause(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)return;run.status='paused';run.message='已暂停派发新任务，已提交任务仍保留';await persist(run);await adapters.pause?.(run);},
   async pauseAll(){for(const run of runs)if(run.status==='running'){run.status='paused';await persist(run);await adapters.pause?.(run);}},
  };return controller;

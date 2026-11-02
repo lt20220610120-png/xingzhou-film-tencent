@@ -106,7 +106,8 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    let assets=[],cloud;if(id&&candidates.some(p=>p.id===id)){cloud=await api.collabGetProject({projectId:id});assets=await api.collabListAssets({projectId:id});}
    return {config:run.config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
   },
-  async chat(run,{text,model,history}){const context=await this.inspect(run);const reply=await api.productionChat({runId:run.id,text,model,history,context});return {...reply,context};},
+  steering:true,
+  async chat(run,{text,model,history,onDelta,steer}){return api.productionChat({runId:run.id,text,model,history,steer});},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
   async validateScope(run,scope){const numbers=listCollabEpisodes(project(run).episodes).map(e=>e.episodeNumber);if(scope.episodes.some(n=>!numbers.includes(n)))throw Error('指定集数不在当前项目中');},
   async agentProjectTool(run,args){

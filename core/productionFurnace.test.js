@@ -79,6 +79,12 @@ test('Agent conversation records actual actions, preserves task state and reject
  assert.equal(calls,1);assert.equal(run.status,'paused');assert.equal(run.items[0].id,'saved-job');assert.deepEqual(run.conversation.map(m=>m.role),['user','assistant','system']);assert.match(run.conversation.at(-1).text,/已暂停/);
  await c.saveRule(run.id,'复用已发布的清单');assert.equal(run.config.workflowRules,'复用已发布的清单');
 });
+
+test('Agent conversation persists streamed assistant text before the final response arrives',async()=>{
+ let release,delta;const pending=new Promise(r=>release=r),saved=[];
+ const c=createProductionController({load:async()=>[],save:async r=>saved.push(structuredClone(r)),adapters:{chat:async(run,{onDelta})=>{delta=onDelta;await onDelta('先');await pending;await onDelta('后');return{reply:'先后',action:'none'};}}});
+ const run=await c.create('p',productionDefaults());const request=c.chat(run.id,{text:'继续执行',model:'m'});for(let i=0;i<20&&!delta;i++)await new Promise(r=>setImmediate(r));assert.equal(run.conversation.at(-1).role,'assistant');assert.equal(run.conversation.at(-1).text,'先');release();await request;assert.equal(run.conversation.at(-1).text,'先后');assert(saved.some(snapshot=>snapshot.conversation?.some(message=>message.role==='assistant'&&message.text==='先')));
+});
 test('chat cannot change projects after paid submissions and failed action remains visible',async()=>{
  const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async()=>({reply:'尝试改选',action:'select_collab',projectId:'other'}),selectCollab:async()=>{throw Error('不应执行');}}});const run=await c.create('p',productionDefaults());run.items=[{id:'submitted'}];
  await assert.rejects(c.chat(run.id,{text:'切换',model:'m'}),/已有视频提交记录/);assert.match(run.conversation.at(-1).text,/指令未完成/);assert.equal(run.collabProjectId,undefined);
@@ -117,3 +123,5 @@ test('failed settings persistence and validation preserve old configuration and 
 test('saving settings excludes start until the durable write finishes',async()=>{
  let release,entered,block=false;const enteredPromise=new Promise(r=>entered=r),gate=new Promise(r=>release=r);const c=createProductionController({load:async()=>[],save:async()=>{if(block){entered();await gate;}},adapters:{videos:async()=>{}}});const run=await c.create('p',productionDefaults());block=true;const saving=c.updateSettings(run.id,{videoConcurrency:6});await enteredPromise;await assert.rejects(c.start(run.id),/设置正在保存/);release();await saving;assert.equal(run.config.videoConcurrency,6);assert.equal(run.status,'paused');
 });
+
+test('failed conversational turn releases dispatch hold and clears visible chat activity',async()=>{const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async()=>{throw Error('连接断开');}}});const run=await c.create('p',productionDefaults());await assert.rejects(c.chat(run.id,{text:'读状态'}),/连接断开/);assert.equal(run.dispatchHold,false);assert.equal(run.chatActive,false);});
