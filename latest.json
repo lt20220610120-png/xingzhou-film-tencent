@@ -1,12 +1,12 @@
 {
-  "version": "2.8.82",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.82/Xingzhou-Film-Tencent-Setup-2.8.82.exe",
-  "notes": "# 行舟影视 2.8.82\n\n- 修复提示词分发的模型输出截断。场景关联请求显式使用分析模式，DeepSeek 不再把输出预算消耗在隐藏推理上；逐场对应调用也统一使用分析模式。\n- 分发请求只发送【基础设定】的人物、场景、道具索引、本场卡片及少量实体用途提示，不再重复发送完整的整体视听、连续台词、画面内容和人物起止段落。模型只需返回实际使用的卡片，未返回卡片自动标记为本条未使用，显著缩短输入和输出。\n- 原文证据限制在【基础设定】范围内，避免把镜头或对白描述误当成身份依据。卡片身份仍以场景清单为准，人工锁定继续保留。\n- 输出预算按本场卡片数动态设置，并保留服务商允许的最小额度；结构化服务商错误直接显示，不重复发送已截断的付费请求。",
-  "sha256": "05cd433e686c5b3d5352694ca4b1d7cf459dc15a2fabb4864e2c780bcb47846a",
-  "size": 103852588,
-  "publishedAt": "2026-10-26T23:31:15.830878+00:00",
+  "version": "2.8.114",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.114/Xingzhou-Film-Tencent-Setup-2.8.114.exe",
+  "notes": "# 2.8.114\n\n- 制作/剪辑智能体设置改为接入列表：Codex、Hermes、Cursor、Claude Code与自定义ACP；显示组件发现、桌面应用待补组件、已连接状态，提供扫描、浏览与安装说明。\n- 本机Hermes通过hermes-acp连接，读取当前模型及模型列表；通过仅当前会话有效的本机MCP服务调用同一套行舟后台工具，复用Hermes已有登录与配置。\n- Cursor使用原生ACP CLI入口；Claude Code使用ACP连接组件与真实Node运行环境，缺组件时明确提示，不把发现桌面程序冒充可调用。\n- 非Codex账号信息缺省时仍保留运行模型选择；开工与运行模型同步。ACP剪辑仅允许当前工程目录内明确请求的文件编辑，终端及范围外操作不自动授权。\n\n验证：2679项测试、生产构建、三宽接入列表及运行页模型验证。真实本机Hermes连接成功、读取33模型、MCP只读工具实际调用1次并返回OK；0次付费视频生成。Cursor/Claude Code在本机未具备相应组件，未宣称真实连接验收通过。",
+  "sha256": "b1959ebe870279f625155f215113ae0c2218de5a032f375fbba701a0bdbf7848",
+  "size": 103977356,
+  "publishedAt": "2026-11-02T13:08:08.412232+00:00",
   "signature": {
     "algorithm": "Ed25519",
-    "value": "E5252sa4CZkQEJytxlBj/zwOwO9XspsjIIkECC4Z1oC9q/wyGql39VgaYJEGjdDMYKHAEPzuCppvMf1ngeWsCQ=="
+    "value": "nW5T3fQuJQkTSxTKdLUDxZ15CiIBgQtjpKKgaiwnqNrR534Eixq2Sf9sxQ84IPbGcXDUMB5PDHV3VpnmI/ewDQ=="
   }
 }
