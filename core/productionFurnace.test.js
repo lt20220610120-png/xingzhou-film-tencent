@@ -84,6 +84,13 @@ test('chat cannot change projects after paid submissions and failed action remai
  await assert.rejects(c.chat(run.id,{text:'切换',model:'m'}),/已有视频提交记录/);assert.match(run.conversation.at(-1).text,/指令未完成/);assert.equal(run.collabProjectId,undefined);
 });
 
+test('Agent tool receipts stay readable while the full result remains available to the Agent',async()=>{
+ let controller;
+ const adapters={inspect:async()=>({config:{agentPath:'C:/private/codex.exe'},episodes:60}),chat:async run=>{const result=await controller.agentTool(run.id,'xingzhou_task',{action:'inspect'});assert.equal(result.episodes,60);return{reply:'已读取当前任务。',action:'none'};}};
+ controller=createProductionController({load:async()=>[],save:async()=>{},adapters});const run=await controller.create('p',productionDefaults());await controller.chat(run.id,{text:'读取当前任务',model:'m'});
+ const receipt=run.conversation.find(message=>message.kind==='tool');assert.equal(receipt.text,'已读取当前任务、制作设置与进度。');assert.doesNotMatch(receipt.text,/config|agentPath|\{|\}/);
+});
+
 
 test('coverage requires every active planned segment, including a missing tail',()=>{
  const ep={id:'e',content:'1-1 客厅 日 内\n甲说话。',activeQuickScenePlanIds:{'1-1':'plan'},quickScenePlans:[{id:'plan',sceneLabel:'1-1',segments:[{id:'a',index:1},{id:'b',index:2},{id:'c',index:3}]}],prompts:[{label:'1-1-1',content:'已完成',segmentationPlanId:'plan',segmentId:'a'}]};

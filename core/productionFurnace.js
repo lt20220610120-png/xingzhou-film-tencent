@@ -195,7 +195,11 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
     for(const ep of run.episodes)if((previous?.episodes||[]).includes(ep.number)||(run.executionScope?.episodes||[]).includes(ep.number))ep.stage='waiting';
     run.dispatchHold=false;if(run.status==='done')run.status='paused';await persist(run);if(args.resume===true&&run.status!=='running')schedule();result={status:'saved',temporary:true,scope:run.executionScope||null,resumeRequested:args.resume===true};
    }else throw Error('未知制作动作');
-   run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role:'system',text:'工具已执行：'+name+' / '+(args.action||args.operation)+'；'+JSON.stringify(result).slice(0,1500)}].slice(-200);await persist(run);return result;
+   const operation=args.action||args.operation;
+   const summaries={inspect:'已读取当前任务、制作设置与进度。',pause:'已暂停新任务派发，已提交的远端任务继续保留。',continue:'已接受继续制作指令，将按当前任务状态接续。',update_settings:'已更新当前任务设置，已有成果继续保留。',run_stage:`已接收${{prompts:'提示词',information:'信息读取',voices:'人物音色',art:'美术资产',images:'图片生成',videos:'视频生成'}[args.stage]||'制作'}工序指令。`,set_scope:'已保存本次临时制作范围。',clear_scope:'已解除本次临时范围，恢复默认制作流程。'};
+   const fallback=name==='xingzhou_project'?'已读取并核对协作项目数据。':'已完成制作操作。';
+   const message=result?.message&&/[\u3400-\u9fff]/.test(result.message)?result.message:summaries[operation]||fallback;
+   run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool',text:message}].slice(-200);await persist(run);return result;
   },
   async updateAgentModel(id,model){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');await adapters.validateAgentModel?.(run,model);run.config.agentModel=model;await persist(run);return run;},
   async chat(id,{text,model}){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('Agent 正在回复，请稍候');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');chatting.add(id);
