@@ -26,3 +26,10 @@
 SHA256：`680684a5b6e841e7323223c13fd18497bd41a6880feee31fe01146ce70477410`。
 
 本机文件：`D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.115/Xingzhou-Film-Tencent-Setup-2.8.115.exe`。
+
+## 公开发布
+
+- 实现提交：`95b9baf`；源码已合并推送 main，公开清单提交：`6052702`。
+- GitHub 正式 Release 与安装包已发布；官网镜像：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.115.exe`。
+- 两个 GitHub 仓库 main 的 `latest.json` 均实际读取为 2.8.115，安装包地址、103965898 字节、SHA256 与 Ed25519 签名一致。
+- GitHub 公开安装包已完整下载复核，大小与 SHA256 均和本地安装包一致；发布脚本同时返回官网镜像大小与哈希核验通过。
