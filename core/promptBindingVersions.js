@@ -1,7 +1,20 @@
-import {bindingHash,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
+import {bindingHash,bindingProblems,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
 
 export const promptSetId=snapshot=>'v-'+bindingHash((snapshot.entries||[]).map(({id,label,prompt,sceneId})=>[id,label,prompt,sceneId]));
 const distributionStamp=(snapshot,entry)=>bindingHash([...(snapshot.voiceCards?.length?[snapshot.voiceCards.filter(c=>c.sceneIds.includes(entry.sceneId)).map(c=>[c.uid,c.reference.id])]:[]),entry.id,entry.prompt,entry.sceneId,snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus])]);
+// Each accepted decision carries its own semantic baseline. Saving another
+// entry must not replace the only evidence for this entry's valid association.
+const decisionIdentity=decision=>{const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
+const associationSource=(snapshot,entry,decision)=>{
+ const referenced=new Set((decision.needs||[]).map(n=>n.cardUid).filter(Boolean));
+ const cards=snapshot.cards.filter(c=>referenced.has(c.uid)).map(c=>[c.uid,c.category,c.name,c.description,c.detailStatus,c.sceneIds.includes(entry.sceneId)]).sort((a,b)=>a[0].localeCompare(b[0]));
+ const voices=(snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(entry.sceneId)).map(c=>[c.uid,c.name,c.reference.id]).sort((a,b)=>a[0].localeCompare(b[0]));
+ return bindingHash([snapshot.projectId,snapshot.directorProjectId,entry.id,entry.prompt,entry.sceneId,cards,voices]);
+};
+const withEvidence=(snapshot,entry,decision)=>{
+ if(!decision||decision.signature!==entryBindingSignature(snapshot,entry)||!decision.confirmed||bindingProblems(snapshot,entry,decision,{voiceEnabled:false}).length)return decision;
+ return {...decision,reuseEvidence:{source:associationSource(snapshot,entry,decision),decision:decisionIdentity(decision)}};
+};
 function archive(saved){
  const versions={...saved?.versions};
  if(saved?.snapshot?.entries?.length){const id=promptSetId(saved.snapshot);versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot:saved.snapshot,decisions:saved.decisions||{},createdAt:versions[id]?.createdAt||saved.updatedAt||new Date().toISOString()};}
@@ -20,17 +33,25 @@ export function selectBindingVersion(current,saved,id=promptSetId(current)){
  const decisions={...stored?.decisions};
  for(const entry of snapshot.entries){
   const decision=decisions[entry.id],oldEntry=stored?.snapshot.entries.find(row=>row.id===entry.id);
-  // Only hydrate images after a valid distribution. Text/card changes still require review.
-  if(!decision||!oldEntry||decision.signature!==entryBindingSignature(stored.snapshot,oldEntry)||distributionStamp(stored.snapshot,oldEntry)!==distributionStamp(snapshot,entry))continue;
-  decisions[entry.id]={...decision,signature:entryBindingSignature(snapshot,entry),needs:decision.needs.map(need=>{
+  // Image/publication changes need no model call. Reuse only a verified
+  // baseline, while genuine source, selected-card or manual-choice changes fail.
+  if(!decision||!oldEntry)continue;
+  const evidence=withEvidence(stored.snapshot,oldEntry,decision)?.reuseEvidence;
+  const reusable=evidence&&evidence.decision===decisionIdentity(decision)&&evidence.source===associationSource(snapshot,entry,decision);
+  const unchanged=decision.signature===entryBindingSignature(stored.snapshot,oldEntry)&&distributionStamp(stored.snapshot,oldEntry)===distributionStamp(snapshot,entry);
+  if(!reusable&&!unchanged)continue;
+  const hydrated={...decision,signature:entryBindingSignature(snapshot,entry),needs:decision.needs.map(need=>{
    const card=snapshot.cards.find(row=>row.uid===need.cardUid);
    return {...need,imageId:need.imageId||((card?.images.length===1)?card.images[0].id:null)};
   })};
+  // Missing/removed locked images remain errors; never substitute another image.
+  decisions[entry.id]=withEvidence(snapshot,entry,hydrated);
  }
  return {snapshot,decisions,versionId:id};
 }
 export function saveBindingVersion(saved,snapshot,decisions){
  const versions=archive(saved),id=promptSetId(snapshot);
+ decisions=Object.fromEntries(Object.entries(decisions).map(([key,value])=>{const entry=snapshot.entries.find(e=>e.id===key);return [key,entry?withEvidence(snapshot,entry,value):value];}));
  versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot,decisions,createdAt:versions[id]?.createdAt||new Date().toISOString()};
  return {...saved,enabled:true,snapshot,decisions,versions,selectedVersionId:id};
 }

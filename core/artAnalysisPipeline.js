@@ -42,10 +42,10 @@ export function getArtDistributionController(options){
    const stamp=sceneId+':'+JSON.stringify(scene.items.map(i=>[i.id,i.description,i.detailStatus]));if(scheduled.has(stamp))return;scheduled.add(stamp);
    const task=(async()=>{
     const state=await service.read();if(job.cancelled)return;
-    const entries=state.snapshot.entries.filter(e=>e.sceneId===sceneId&&(!settings.preserveExisting||!hasProductionAssociation(state.snapshot,e,state.decisions[e.id])));
-    const results=await Promise.allSettled(entries.map(entry=>service.run(entry.id,{profile,job})));
+    const entries=state.snapshot.entries.filter(e=>e.sceneId===sceneId&&(!settings.preserveExisting||!hasProductionAssociation(state.snapshot,e,state.decisions[e.id],{voiceEnabled:settings.voiceEnabled!==false})));
+    const results=await Promise.allSettled(entries.map(entry=>service.run(entry.id,{profile,job,voiceEnabled:settings.voiceEnabled!==false})));
     for(const result of results)if(result.status==='rejected'&&!job.cancelled)errors.push(`${sceneId} 提示词：${result.reason.message}`);
-    const checked=await service.read();for(const entry of checked.snapshot.entries.filter(e=>e.sceneId===sceneId))errors.push(...bindingProblems(checked.snapshot,entry,checked.decisions[entry.id]).map(problem=>`${entry.label}：${problem}`));
+    const checked=await service.read();for(const entry of checked.snapshot.entries.filter(e=>e.sceneId===sceneId))errors.push(...bindingProblems(checked.snapshot,entry,checked.decisions[entry.id],{voiceEnabled:settings.voiceEnabled!==false}).map(problem=>`${entry.label}：${problem}`));
    })();prompts.add(task);task.then(()=>prompts.delete(task),e=>{prompts.delete(task);errors.push(e.message)});
   };
   const launchReady=()=>{for(const scene of store.snapshot().episodes[episode.episodeNumber]?.scenes||[])launchPrompts(scene.id);emit();};

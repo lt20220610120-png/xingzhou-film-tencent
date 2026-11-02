@@ -94,3 +94,19 @@ test('semi mode resumes missing upstream work and streams videos while images ar
  const controller=createProductionController({load:async()=>[],save:async()=>{},adapters:{monitor:async()=>({prompts:true,information:false,art:false,images:false}),prompts:async()=>events.push('redo-prompts'),information:async()=>events.push('information'),art:async()=>events.push('art'),images:async()=>{events.push('images-start');await images;events.push('images-done');},videos:async({run})=>{events.push('video');release();run.episodes=[{stage:'done'}];}}});
  const run=await controller.create('p',{...productionDefaults(),mode:'semi'});await controller.start(run.id);assert.deepEqual(events,['information','art','images-start','video','images-done']);assert.equal(run.status,'done');
 });
+
+test('new setup for the same project resumes durable task identity after restart',async()=>{
+ let disk=[];const adapters={validateSettings:async()=>{}};const make=()=>createProductionController({load:async()=>structuredClone(disk),save:async r=>{disk=[structuredClone(r),...disk.filter(x=>x.id!==r.id)]},adapters});
+ let c=make();await c.restore();const old=await c.create('p',productionDefaults());old.collabProjectId='collab';old.items=[{id:'clip',jobId:'paid-job',status:'uncertain'}];old.referencePlans={clip:{verified:true}};old.episodes=[{number:1,stage:'waiting'}];await c.updateSettings(old.id,{videoConcurrency:4});
+ c=make();await c.restore();const resumed=await c.createOrResume('p',{...productionDefaults(),videoConcurrency:8});assert.equal(resumed.id,old.id);assert.equal(c.snapshot().length,1);assert.equal(resumed.items[0].jobId,'paid-job');assert.equal(resumed.items[0].status,'uncertain');assert.equal(resumed.collabProjectId,'collab');assert.equal(resumed.referencePlans.clip.verified,true);assert.equal(resumed.config.videoConcurrency,8);
+ resumed.status='running';await assert.rejects(c.createOrResume('p',productionDefaults()),/暂停/);assert.equal(c.snapshot().length,1);
+});
+test('failed settings persistence and validation preserve old configuration and output receipts',async()=>{
+ let fail=false;const c=createProductionController({load:async()=>[],save:async()=>{if(fail)throw Error('disk full')},adapters:{validateSettings:async v=>{if(v.videoConcurrency===0)throw Error('invalid')}}});const r=await c.create('p',productionDefaults());r.items=[{id:'clip',status:'downloaded',outputFile:'keep.mp4',sha256:'hash',upscaleStatus:'done'}];
+ await assert.rejects(c.updateSettings(r.id,{outputRoot:'another'}),/原输出目录/);await assert.rejects(c.updateSettings(r.id,{upscaleFactor:4}),/原倍率/);await assert.rejects(c.updateSettings(r.id,{videoConcurrency:0}),/invalid/);
+ fail=true;await assert.rejects(c.updateSettings(r.id,{videoConcurrency:9}),/disk full/);assert.equal(r.config.videoConcurrency,2);assert.equal(r.items[0].outputFile,'keep.mp4');
+});
+
+test('saving settings excludes start until the durable write finishes',async()=>{
+ let release,entered,block=false;const enteredPromise=new Promise(r=>entered=r),gate=new Promise(r=>release=r);const c=createProductionController({load:async()=>[],save:async()=>{if(block){entered();await gate;}},adapters:{videos:async()=>{}}});const run=await c.create('p',productionDefaults());block=true;const saving=c.updateSettings(run.id,{videoConcurrency:6});await enteredPromise;await assert.rejects(c.start(run.id),/设置正在保存/);release();await saving;assert.equal(run.config.videoConcurrency,6);assert.equal(run.status,'paused');
+});

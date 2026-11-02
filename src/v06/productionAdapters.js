@@ -7,7 +7,7 @@ import {isFundingError,productionRecoveryGoals,productionRecoveryFingerprint} fr
 import {supplementPromptMissingReferences} from '../../core/promptMissingSupplement.js';
 import {resolveProductionProject,productionProjectCandidates} from '../../core/productionProject.js';
 import {productionArtMonitor} from '../../core/productionMonitor.js';
-import {productionCoverage,productionExpectedPrompts,completeEpisode,productionVideoIssues,VOICE_AUTOMATION_RULE,voiceAutomationEnabled,voicePolicyIssues} from '../../core/productionFurnace.js';
+import {productionIssues,productionCoverage,productionExpectedPrompts,completeEpisode,productionVideoIssues,VOICE_AUTOMATION_RULE,voiceAutomationEnabled,voicePolicyIssues} from '../../core/productionFurnace.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
@@ -107,6 +107,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   },
   async chat(run,{text,model,history}){const context=await this.inspect(run);const reply=await api.productionChat({runId:run.id,text,model,history,context});return {...reply,context};},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
+  async validateSettings(config,run){const errors=productionIssues(config,{project:project(run),models:mediaModelChoices(getState(),'image'),profiles:getState().apiProfiles,skills:getState().skills});errors.push(...productionVideoIssues(config,getState()));if(errors.length)throw Error(errors.join('；'));await this.validateVoicePolicy(config);},
   async validate(ctx){await this.validateVoicePolicy(ctx.run.config);await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
   async validateVideoPolicy(config){const issues=productionVideoIssues(config,getState());if(issues.length)throw Error(issues.join('；'));},
   async prompts(ctx){
@@ -180,7 +181,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    try{await ctx.notice('连续分析清单、补齐描述并按提示词关联');
     const result={errors:[]};
     for(const [numbers,onlyMapping] of [[inventory,false],[mapOnly,true]]){if(!numbers.length)continue;try{
-     const partial=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:profile(c.analysisProfileId),existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:true,targetEpisodeNumbers:numbers,...(onlyMapping?{targetSceneIds:monitor.episodes.flatMap(e=>e.scenes.filter(s=>s.needsMapping).map(s=>s.id))}:{}),mapOnly:onlyMapping,preserveExisting:true,job,waitForRetry:async(ms,j)=>{ctx.guard();if(j.retryAttempt>=2)throw Error('清单分析两轮未完成，请检查模型或原文');await wait(Math.min(ms,5000));}});result.errors.push(...partial.errors||[]);
+     const partial=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:profile(c.analysisProfileId),existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:true,targetEpisodeNumbers:numbers,...(onlyMapping?{targetSceneIds:monitor.episodes.flatMap(e=>e.scenes.filter(s=>s.needsMapping).map(s=>s.id))}:{}),mapOnly:onlyMapping,preserveExisting:true,voiceEnabled:voiceAutomationEnabled(c),job,waitForRetry:async(ms,j)=>{ctx.guard();if(j.retryAttempt>=2)throw Error('清单分析两轮未完成，请检查模型或原文');await wait(Math.min(ms,5000));}});result.errors.push(...partial.errors||[]);
     }catch(error){ctx.guard();result.errors.push(error.message);await ctx.log?.(`未完成清单保留待处理：${error.message}；继续尝试发布就绪场景。`,'warning');}}ctx.guard();
     const state=await readArt(ctx,true),{store,service,binding}=state;
     run.artWarnings=[...result.errors,...state.monitor.warnings];

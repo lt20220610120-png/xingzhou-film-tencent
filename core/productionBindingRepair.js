@@ -6,7 +6,7 @@ import {runBindingRepair} from './importedArtBinding.js';
 /** The connected Agent validates old selections in compact batches. No stale
  * signature is trusted just because a previous workflow marked art complete. */
 export async function repairProductionBindings({service,work,profile,voiceEnabled=true,guard=()=>{},log=async()=>{}}){
- const initial=await service.read(),pending=initial.snapshot.entries.filter(e=>{const d=initial.decisions[e.id];return !d||d.origin==='rules'||bindingProblems(initial.snapshot,e,d,{voiceEnabled}).length>0;});
+ const initial=await service.read(),pending=initial.snapshot.entries.filter(e=>{const d=initial.decisions[e.id];return !d||d.origin==='rules'&&!d.confirmed||bindingProblems(initial.snapshot,e,d,{voiceEnabled}).length>0;});
  let restored=0,distributed=0,cursor=0;const failures=[];
  const worker=async()=>{while(cursor<pending.length){guard();const batch=pending.slice(cursor,cursor+=6),state=await service.read(),captured=new Map(batch.map(e=>[e.id,bindingHash(state.decisions[e.id]||null)]));
   const existing=batch.filter(e=>Array.isArray(state.decisions[e.id]?.needs)&&state.decisions[e.id].origin!=='rules'),redistribute=batch.filter(e=>!existing.some(v=>v.id===e.id));

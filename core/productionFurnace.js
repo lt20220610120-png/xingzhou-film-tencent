@@ -80,7 +80,7 @@ export const completeEpisode=(expected,clips)=>expected.length>0&&new Set(expect
 
 /** A view-independent coordinator. Every side effect gets a durable checkpoint first. */
 export function createProductionController({load,save,adapters,onChange=()=>{}}){
- let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Set();
+ let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Set(),updating=new Set();
  const emit=()=>onChange(runs);
  let writes=Promise.resolve();
  const persist=async run=>{run.updatedAt=Date.now();const snapshot=structuredClone(run);const writing=writes.then(()=>save(snapshot));writes=writing.catch(()=>{});await writing;emit();};
@@ -134,12 +134,38 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
   snapshot:()=>runs,
   async restore(){if(ready)return;try{runs=await load();for(const run of runs){if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
   async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],logs:[],createdAt:Date.now()};runs.unshift(run);await persist(run);return run;},
-  async start(id){const run=runs.find(r=>r.id===id);if(!run||active.has(id))return;if(run.status==='done')return;active.set(id,true);try{run.status='running';await persist(run);return await execute(run);}finally{active.delete(id);}},
-  async refresh(id){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id))throw Error('运行时自动监测，请暂停并等待当前操作结束后刷新');if(!adapters.monitor)return;active.set(id,true);try{const result=await adapters.monitor({run,readOnly:true,guard:()=>{},checkpoint:()=>persist(run),log:async()=>{}});if(run.status==='done'&&(Object.values(result).some(v=>v===false)||run.monitor?.files?.invalidItems?.length||run.monitor?.files?.invalidEpisodes?.length)){run.status='attention';run.message='监测发现缺项，已保留原成果，点击继续接续';}await persist(run);return result;}catch(error){if(run.status==='done'){run.status='attention';run.message='监测暂未完成，已保留成果，请重试检查';await persist(run);}throw error;}finally{active.delete(id);}},
-  async bindProject(id,projectId){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束再切换项目');if(run.items.length||run.videoSourceSignature)throw Error('任务已有视频提交记录，保留原项目，请创建新流程改选');await adapters.selectCollab(run,projectId);if(active.has(id)||run.status==='running'||run.items.length||run.videoSourceSignature)throw Error('任务状态已改变，请暂停后重试');run.collabProjectId=projectId;run.config.collabProjectId=projectId;delete run.stages.art;delete run.stages.images;await persist(run);},
-  async saveRule(id,text){const run=runs.find(r=>r.id===id);if(!run||!String(text||'').trim()||text.length>8000)throw Error('请填写要保存的流程规则');run.config.workflowRules=String(text).trim();await persist(run);},
+  async createOrResume(projectId,config){
+   // A settings change is a continuation. Keep paid task IDs, reference plans
+   // and output receipts under the original run instead of creating an empty run.
+   const candidates=runs.filter(r=>r.projectId===projectId&&r.status!=='done'&&(!config.collabProjectId||!r.collabProjectId||r.collabProjectId===config.collabProjectId));
+   if(candidates.some(r=>active.has(r.id)||r.status==='running'))throw Error('该项目已有正在运行的任务，请先暂停并等待当前操作结束，再修改设置');
+   const previous=candidates.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];
+   if(previous){await controller.updateSettings(previous.id,config);return previous;}
+   const prior=runs.filter(r=>r.projectId===projectId&&r.collabProjectId).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];
+   return controller.create(projectId,{...config,...(!config.collabProjectId&&prior?{collabProjectId:prior.collabProjectId}:{})});
+  },
+  async updateSettings(id,value){
+   if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');
+   const assertIdle=()=>{if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束');if(run.status==='done')throw Error('任务已完成，请选择新建任务');};assertIdle();
+   const keys=[...Object.keys(productionDefaults()),'imageFallbacks','videoFallbacks','workflowRules','scriptName','scriptText'];
+   const next={...run.config,...Object.fromEntries(keys.filter(k=>Object.hasOwn(value,k)).map(k=>[k,structuredClone(value[k])]))};
+   // Existing receipts are relative to this output root and enhancement factor.
+   if(run.items?.length&&next.outputRoot!==run.config.outputRoot)throw Error('本任务已有视频记录，请保留原输出目录；已有成果不会被移动或重新生成');
+   if(run.items?.some(i=>i.upscaleResult||i.upscaleStatus==='done')&&Number(next.upscaleFactor)!==Number(run.config.upscaleFactor))throw Error('本任务已有超分成果，请保留原倍率');
+   updating.add(id);try{await adapters.validateSettings?.(next,run);assertIdle();
+   const old=run.config,wasVoice=voiceAutomationEnabled(old);const updated=structuredClone(run);updated.config=next;
+   if(wasVoice!==voiceAutomationEnabled(next)){updated.stages.voices={status:voiceAutomationEnabled(next)?'pending':'done',...(!voiceAutomationEnabled(next)?{skipped:true}:{})};delete updated.stageErrors?.voices;updated.voiceWarnings=[];delete updated.voiceAutomation;}
+   if(old.endStage!==next.endStage)updated.episodes=updated.episodes.map(e=>({...e,stage:'waiting'}));
+   delete updated.recovery?.nextAgentAt;updated.status='paused';updated.message='设置已保存；沿用原任务、项目修复与生成记录，继续时只处理缺项';
+   // Publish the new configuration in memory only after its checkpoint succeeds.
+   await persist(updated);Object.assign(run,updated);emit();return run;}finally{updating.delete(id);}
+  },
+  async start(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run||active.has(id))return;if(run.status==='done')return;active.set(id,true);try{run.status='running';await persist(run);return await execute(run);}finally{active.delete(id);}},
+  async refresh(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id))throw Error('运行时自动监测，请暂停并等待当前操作结束后刷新');if(!adapters.monitor)return;active.set(id,true);try{const result=await adapters.monitor({run,readOnly:true,guard:()=>{},checkpoint:()=>persist(run),log:async()=>{}});if(run.status==='done'&&(Object.values(result).some(v=>v===false)||run.monitor?.files?.invalidItems?.length||run.monitor?.files?.invalidEpisodes?.length)){run.status='attention';run.message='监测发现缺项，已保留原成果，点击继续接续';}await persist(run);return result;}catch(error){if(run.status==='done'){run.status='attention';run.message='监测暂未完成，已保留成果，请重试检查';await persist(run);}throw error;}finally{active.delete(id);}},
+  async bindProject(id,projectId){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束再切换项目');if(run.items.length||run.videoSourceSignature)throw Error('任务已有视频提交记录，保留原项目，请创建新流程改选');await adapters.selectCollab(run,projectId);if(active.has(id)||run.status==='running'||run.items.length||run.videoSourceSignature)throw Error('任务状态已改变，请暂停后重试');run.collabProjectId=projectId;run.config.collabProjectId=projectId;delete run.stages.art;delete run.stages.images;await persist(run);},
+  async saveRule(id,text){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run||!String(text||'').trim()||text.length>8000)throw Error('请填写要保存的流程规则');run.config.workflowRules=String(text).trim();await persist(run);},
   async updateVoicePolicy(id,value){
-   const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(run.status==='done')throw Error('任务已完成，请新建任务启用音色');
+   if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(run.status==='done')throw Error('任务已完成，请新建任务启用音色');
    const patch=Object.fromEntries(['voiceEnabled','voiceConcurrency','voiceModelId','voiceCompletionProfileId','voiceDistributionProfileId'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]));
    if(Object.hasOwn(patch,'voiceEnabled')&&typeof patch.voiceEnabled!=='boolean')throw Error('音色开关无效');
    if(Object.hasOwn(patch,'voiceConcurrency')&&(!Number.isSafeInteger(Number(patch.voiceConcurrency))||Number(patch.voiceConcurrency)<1)){if((patch.voiceEnabled??run.config.voiceEnabled)===true)throw Error('音色并发数必须是正整数');patch.voiceConcurrency=1;}
@@ -149,8 +175,8 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    if(!voiceAutomationEnabled(next)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];run.message='音色已关闭，跳过音色生成；已有成果保留';}
    await persist(run);
   },
-  async updateVideoPolicy(id,value){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束');const patch=Object.fromEntries(['videoAttempts','videoFallbackEnabled','fallbackVideoModel','fallbackVideoAttempts','videoFallbacks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,structuredClone(value[k])])),next={...run.config,...patch};const issues=videoPolicyIssues(next);if(issues.length)throw Error(issues.join('；'));await adapters.validateVideoPolicy?.(next);if(active.has(id)||run.status==='running')throw Error('任务正在运行，请先暂停');run.config=next;delete run.recovery?.nextAgentAt;run.message='视频失败接续策略已保存；已提交原任务继续监测，点击继续仅处理缺项';await persist(run);},
-  async chat(id,{text,model}){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('Agent 正在回复，请稍候');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');chatting.add(id);
+  async updateVideoPolicy(id,value){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束');const patch=Object.fromEntries(['videoAttempts','videoFallbackEnabled','fallbackVideoModel','fallbackVideoAttempts','videoFallbacks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,structuredClone(value[k])])),next={...run.config,...patch};const issues=videoPolicyIssues(next);if(issues.length)throw Error(issues.join('；'));await adapters.validateVideoPolicy?.(next);if(active.has(id)||run.status==='running')throw Error('任务正在运行，请先暂停');run.config=next;delete run.recovery?.nextAgentAt;run.message='视频失败接续策略已保存；已提交原任务继续监测，点击继续仅处理缺项';await persist(run);},
+  async chat(id,{text,model}){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('Agent 正在回复，请稍候');if(!String(text||'').trim()||text.length>8000)throw Error('请输入 1—8000 字指令');chatting.add(id);
    const add=async(role,message)=>{run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role,text:message}].slice(-200);await persist(run);};
    try{const history=(run.conversation||[]).slice(-16);await add('user',text);const response=await adapters.chat(run,{text,model,history});await add('assistant',response.reply);let result='';
     if(response.action==='pause'){await controller.pause(id);result='已暂停新任务派发。';}
@@ -163,7 +189,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
     if(result)await add('system',result);return response;
    }catch(error){await add('system',`指令未完成：${error.message}`);throw error;}finally{chatting.delete(id);}
   },
-  async pause(id){const run=runs.find(r=>r.id===id);if(!run)return;run.status='paused';run.message='已暂停派发新任务，已提交任务仍保留';await persist(run);await adapters.pause?.(run);},
+  async pause(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)return;run.status='paused';run.message='已暂停派发新任务，已提交任务仍保留';await persist(run);await adapters.pause?.(run);},
   async pauseAll(){for(const run of runs)if(run.status==='running'){run.status='paused';await persist(run);await adapters.pause?.(run);}},
  };return controller;
 }

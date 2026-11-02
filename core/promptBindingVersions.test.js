@@ -34,3 +34,14 @@ test('确认用途后首次出图自动接上单图，改了卡片依据则仍�
  assert.equal(result.decisions.a.signature,entryBindingSignature(result.snapshot,result.snapshot.entries[0]));
  next.cards[0].description='老年';const changed=selectBindingVersion(next,saved);assert.notEqual(changed.decisions.a.signature,entryBindingSignature(changed.snapshot,changed.snapshot.entries[0]));
 });
+
+test('per-entry evidence survives another save, publication, images and unrelated added cards',()=>{
+ const first=fixture(),entry=first.entries[0];const accepted={...proposeEntryBinding(first,entry),origin:'manual',confirmed:true};let saved=saveBindingVersion(null,first,{a:accepted});
+ const next=structuredClone(first);next.cards.push({...next.cards[0],uid:'new',name:'另一个人'});next.cards[0].images=[{id:'image',url:'local.png'}];next.cards[0].publishedSceneIds=['1-1'];next.cards[0].assetId='asset';
+ let reopened=selectBindingVersion(next,JSON.parse(JSON.stringify(saved)));assert.equal(reopened.decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));assert.equal(reopened.decisions.a.needs[0].imageId,'image');
+ saved=saveBindingVersion(saved,reopened.snapshot,reopened.decisions);
+ const changed=structuredClone(next);changed.cards[0].description='不同身份';reopened=selectBindingVersion(changed,saved);assert.notEqual(reopened.decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+ // Another write cannot discard the original accepted baseline.
+ saved=saveBindingVersion(saved,reopened.snapshot,reopened.decisions);reopened=selectBindingVersion(next,JSON.parse(JSON.stringify(saved)));assert.equal(reopened.decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+ const edited=structuredClone(saved);edited.decisions.a.needs[0].reason='人工修改';edited.decisions.a.signature='manual-draft';assert.notEqual(selectBindingVersion(next,edited).decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+});

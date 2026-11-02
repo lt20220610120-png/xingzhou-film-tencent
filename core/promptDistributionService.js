@@ -1,4 +1,4 @@
-import {bindingSnapshot,bindingHash,currentEntryBinding,saveDistribution} from './promptArtBinding.js';
+import {bindingSnapshot,bindingHash,bindingProblems,currentEntryBinding,saveDistribution} from './promptArtBinding.js';
 import {selectBindingVersion,saveBindingVersion,promptSetId} from './promptBindingVersions.js';
 import {applySceneDistribution,sceneDistributionMessages,sceneDistributionStamp,sceneCards} from './scenePromptDistribution.js';
 import {isReviewCurrent,needsArtReviewDetails} from './artReview.js';
@@ -69,7 +69,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      selectedId=state.snapshot.versionId;stamp=sceneDistributionStamp(state.snapshot,entry,sceneSource(state.ctx,entry.sceneId));claimKey=selectedId+':'+entryId;
      const followedCurrent=selectedId===promptSetId(state.currentSnapshot);
      const previous=state.saved?.sceneDistributionAttempts?.[claimKey];
-     if(!manual&&previous?.stamp===stamp&&previous.status==='done'&&state.decisions[entryId]?.origin==='scene-inventory-ai')return state.decisions[entryId];
+     if(!manual&&previous?.stamp===stamp&&previous.status==='done'&&state.decisions[entryId]?.origin==='scene-inventory-ai'&&bindingProblems(state.snapshot,entry,state.decisions[entryId],{voiceEnabled}).length===0)return state.decisions[entryId];
      captured=state;owner=crypto.randomUUID();decisionToken=bindingHash(state.decisions[entryId]||null);
      await mutate(selectedId,latest=>{
       if(stopped())throw Error('任务已停止');
