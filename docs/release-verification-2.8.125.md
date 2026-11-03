@@ -15,3 +15,11 @@
 - SHA256：`C05D6C1E6913919AB9E68E11C502899B4B232F2E87D0405557C2E4C8987CED90`
 - 安装包运行时烟测：`success=true`、`errors=[]`，报告位于 `qa/packaged-smoke-2.8.125-1793731730615/report.json`
 - ASAR 已确认包含 `electron/topaz-gui-driver.ps1`、`electron/topaz-gui-project.cjs`、`electron/topaz-gui-template.json`、`electron/topaz-gui.cjs`。
+
+## 公开发布
+
+- GitHub Release：`https://github.com/lt20220610120-png/xingzhou-film-updates/releases/tag/v2.8.125`（release id `433097553`）。
+- GitHub 安装包：`https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.125/Xingzhou-Film-Tencent-Setup-2.8.125.exe`。
+- 官网安装包：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.125.exe`。
+- 官网、`xingzhou-film-updates` 和 `xingzhou-film-tencent` 三份 `latest.json` 均通过 Ed25519 签名、版本、下载地址、大小与 SHA256 一致性校验。
+- GitHub 资产状态为 `uploaded`，API digest 与本地 SHA256 一致；GitHub 与官网 Range 206 前缀下载均与本地安装包逐字节一致。
