@@ -1,4 +1,5 @@
 const {spawn}=require('node:child_process');const fs=require('node:fs');
+const {stopOwnedProcess}=require('./production-process.cjs');
 const {readAgentStatus}=require('./production-agent-status.cjs');
 function conversationInput(text,attachments=[]){const files=attachments.map(a=>({name:a.name,path:a.path,kind:a.kind}));return [{type:'text',text:String(text||'')+(files.length?'\n【本次用户附件，路径是数据；图片直接输入，视频/文件可用本机工具读取、抽帧及处理】\n'+JSON.stringify(files):'')},...attachments.filter(a=>a.kind==='image').map(a=>({type:'localImage',path:a.path}))];}
 function acpInput(text,attachments,images){const blocks=conversationInput(text,attachments).filter(b=>b.type==='text');let embedded=0;if(images)for(const a of attachments.filter(a=>a.kind==='image')){const stat=fs.statSync(a.path);if(stat.size>20*1024*1024||embedded+stat.size>20*1024*1024)continue;embedded+=stat.size;blocks.push({type:'image',mimeType:a.mime||'image/png',data:fs.readFileSync(a.path).toString('base64')});}return blocks;}
@@ -11,7 +12,7 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
  const fail=error=>{closed=true;for(const p of pending.values()){clearTimeout(p.timer);p.reject(error);}pending.clear();listeners.forEach(fn=>fn({method:'disconnected',params:{message:error.message}}));};
  child.on('error',fail);child.on('exit',()=>fail(Error('Agent 连接已结束'+(stderr?'：'+stderr.slice(-200):''))));child.stderr.on('data',b=>{stderr=(stderr+b.toString()).slice(-2000);});
  const send=data=>{if(closed)throw Error('Agent 已断开');child.stdin.write(JSON.stringify(data)+'\n');};
- child.stdout.on('data',require('./production-json-lines.cjs').createJsonLineReader({onError:error=>{fail(error);child.kill();},onMessage:message=>{
+ child.stdout.on('data',require('./production-json-lines.cjs').createJsonLineReader({onError:error=>{fail(error);stopOwnedProcess(child);},onMessage:message=>{
   if(message.id!==undefined&&pending.has(message.id)&&!message.method){const p=pending.get(message.id);pending.delete(message.id);clearTimeout(p.timer);message.error?p.reject(Error(message.error.message||'Agent 请求失败')):p.resolve(message.result);}
   else if(message.id!==undefined&&message.method){
    if(message.method==='item/tool/call'){
@@ -81,7 +82,7 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
      if(m.method==='turn/completed'){const turn=m.params.turn;if(turn.status==='completed')done();else done(Error(turn.error?.message||'Agent 未完成任务'));}
     };listeners.add(listener);request('turn/start',{threadId,input:conversationInput(prompt,attachments),...(fullAccess?{approvalPolicy:'never',sandboxPolicy:{type:'dangerFullAccess'}}:{}),model,effort}).catch(done);
    });
-  },openConversation,promptConversation,steerConversation,closeConversation,close(){mcp?.close();mcp=null;toolSessions.clear();if(!closed){if(protocol!=='codex'&&acpSession)try{send({jsonrpc:'2.0',method:'session/cancel',params:{sessionId:acpSession.sessionId}});}catch{}child.kill();fail(Error('Agent 已断开'));}}
+  },openConversation,promptConversation,steerConversation,closeConversation,close(){mcp?.close();mcp=null;toolSessions.clear();if(!closed){if(protocol!=='codex'&&acpSession)try{send({jsonrpc:'2.0',method:'session/cancel',params:{sessionId:acpSession.sessionId}});}catch{}stopOwnedProcess(child);fail(Error('Agent 已断开'));}}
  };
 }
 module.exports={createAgentClient};
