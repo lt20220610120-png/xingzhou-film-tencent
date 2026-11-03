@@ -1,0 +1,600 @@
+{
+  "projectInfo": {
+    "app": "Topaz Video",
+    "version": "1.1.2",
+    "date": "",
+    "firstCreated": "",
+    "timesLoaded": 0,
+    "projectName": "",
+    "previewPath": "",
+    "thumbnailPath": "",
+    "chosenProjectThumbnail": "",
+    "tempPath": "",
+    "projectPath": "",
+    "recover": true
+  },
+  "cloudManagerState": {},
+  "mainManagerState": {
+    "sourceUids": [
+      5
+    ],
+    "mainVideoUID": 5,
+    "selectedSourcesIndices": [
+      0
+    ],
+    "processQ": {
+      "queue": [],
+      "processing": []
+    },
+    "videos": {
+      "5": {
+        "video": {
+          "uid": 5,
+          "type": 0,
+          "videoPath": "",
+          "previewPath": "",
+          "previewPaths": [
+            "",
+            ""
+          ],
+          "outputPath": "",
+          "outputPaths": [
+            "",
+            ""
+          ],
+          "originalPath": "",
+          "position": 0,
+          "outputPosition": 0,
+          "playing": false,
+          "firstLoad": true,
+          "zoom": 0,
+          "fitZoomEnabled": true,
+          "timelineZoom": 1,
+          "viewMode": 1,
+          "fps": 24,
+          "resolution": {
+            "width": 256,
+            "height": 256
+          },
+          "duration": 1000,
+          "pan": {
+            "x": 0,
+            "y": 0
+          },
+          "previewRange": {
+            "x": 0,
+            "y": 958
+          },
+          "isTrimmed": false,
+          "trimRange": {
+            "x": 0,
+            "y": 958
+          },
+          "roi": {
+            "x": 0,
+            "y": 0,
+            "width": 256,
+            "height": 256,
+            "left": 0,
+            "right": 256,
+            "top": 0,
+            "bottom": 256
+          },
+          "aspectRatio": {
+            "width": -1,
+            "height": -1
+          },
+          "isCropped": false,
+          "videoInfo": {
+            "adjustedSize": {
+              "width": 256,
+              "height": 256
+            },
+            "adjustmentFactor": 1,
+            "audio": [],
+            "duration": 1000,
+            "fps": 24,
+            "framerate": 24,
+            "height": 256,
+            "isBlackAndWhite": false,
+            "isTelecined": false,
+            "length": 12288,
+            "originalColorPrimaries": 2,
+            "originalColorRange": 0,
+            "originalColorSpace": 2,
+            "originalColorTrc": 2,
+            "originalRotation": 3,
+            "originalSize": {
+              "width": 256,
+              "height": 256
+            },
+            "path": "",
+            "pixelFormat": "yuv420p",
+            "resolution": {
+              "width": 256,
+              "height": 256
+            },
+            "rotation": 3,
+            "sar": 1,
+            "size": {
+              "width": 256,
+              "height": 256
+            },
+            "start": 0,
+            "startTimeMs": 0,
+            "step": 512,
+            "subtitle": [],
+            "thumbnail": "",
+            "thumbnailDiskLocation": "",
+            "timebase": 0.00008138020833333333,
+            "timestep": 41.666666666666664,
+            "uid": "5",
+            "video": [],
+            "width": 256
+          },
+          "processStatus": {},
+          "noPreview": false,
+          "procInfo": {},
+          "cloudData": {},
+          "selectedView": 0,
+          "cpePaths": {},
+          "leftFilterState": {
+            "EnhancementFilter": {
+              "active": true,
+              "isSecondEnhancement": false,
+              "model": "prob-4",
+              "videoType": 1,
+              "auto": 0,
+              "fieldOrder": 0,
+              "compress": 0,
+              "detail": 0,
+              "sharpen": 0,
+              "denoise": 0,
+              "dehalo": 0,
+              "deblur": 0,
+              "addNoise": 0,
+              "recoverOriginalDetailValue": 20,
+              "oldRecoverOriginalDetailValue": 20,
+              "focusFixLevel": "Off"
+            },
+            "HDRFilter": {
+              "active": false,
+              "model": "hyp-1",
+              "videoType": 1,
+              "auto": 0,
+              "fieldOrder": 0,
+              "exposure": 0,
+              "saturation": 0,
+              "sdrInflectionPoint": 0.7,
+              "hdrOutputTRC": 0
+            },
+            "FrameInterpolationFilter": {
+              "active": false,
+              "model": "apo-8",
+              "factor": 1,
+              "duplicate": true,
+              "sceneSplitEnabled": false,
+              "duplicateThreshold": 10
+            },
+            "GrainFilter": {
+              "active": false,
+              "grainStrength": 0.5,
+              "grainSigma": 0.5,
+              "grainSize": 2,
+              "grainType": 0
+            },
+            "MotionDeblurFilter": {
+              "active": false,
+              "modelName": "thm-2",
+              "model": "thm-2"
+            },
+            "DenoiseFilter": {
+              "active": false,
+              "modelName": "nyxn-3",
+              "model": "nyxn-3",
+              "saveGrainExtraction": false
+            },
+            "StabilizationFilter": {
+              "model": "ref-2",
+              "active": false,
+              "smooth": 50,
+              "method": 1,
+              "rsc": false,
+              "reduceMotion": false,
+              "reduceMotionIteration": 2
+            },
+            "VideoSettingsFilter": {
+              "active": true,
+              "inputFps": 24,
+              "outputFps": "24.000",
+              "outSizeMethod": 1,
+              "width": "512",
+              "height": "512",
+              "scale": "200",
+              "cropToFit": false,
+              "outputPAR": 0,
+              "lockAspectRatio": true,
+              "customResolutionPriority": 0
+            },
+            "ExportFilter": {
+              "active": true,
+              "encoderId": "h264-main-win-nvidia",
+              "encoder": "H264",
+              "encoderProfile": "High",
+              "dynamicCompressionLevel": "High",
+              "videoBitrate": 24,
+              "audioMode": 0,
+              "audioCodec": "AAC",
+              "audioBitrate": 320,
+              "extension": "mp4",
+              "createOutputDir": true,
+              "keepFrameNumber": true,
+              "startFrameNumber": 0,
+              "lutFilepath": "",
+              "exportWithLivePreview": true,
+              "dynamicBitrateOn": true,
+              "includeAlphaChannelEnabled": false,
+              "includeAlphaChannelOn": false,
+              "keepOriginalFileNameForIS": false,
+              "appendModelNameForIS": false
+            },
+            "SecondEnhancementFilter": {
+              "active": false,
+              "isSecondEnhancement": true,
+              "model": "prob-4",
+              "videoType": 1,
+              "auto": 0,
+              "fieldOrder": 0,
+              "compress": 0,
+              "detail": 0,
+              "sharpen": 0,
+              "denoise": 0,
+              "dehalo": 0,
+              "deblur": 0,
+              "addNoise": 0,
+              "recoverOriginalDetailValue": 20,
+              "oldRecoverOriginalDetailValue": 20,
+              "focusFixLevel": "Off"
+            },
+            "SecondEnhancementEnabled": false,
+            "SecondEnhancementIntermediateResolution": 3,
+            "reimportAsSource": false
+          },
+          "rightFilterState": {
+            "EnhancementFilter": {
+              "active": false,
+              "isSecondEnhancement": false,
+              "model": "prob-4",
+              "videoType": 1,
+              "auto": 0,
+              "fieldOrder": 0,
+              "compress": 0,
+              "detail": 0,
+              "sharpen": 0,
+              "denoise": 0,
+              "dehalo": 0,
+              "deblur": 0,
+              "addNoise": 0,
+              "recoverOriginalDetailValue": 20,
+              "oldRecoverOriginalDetailValue": 20,
+              "focusFixLevel": "Off"
+            },
+            "HDRFilter": {
+              "active": false,
+              "model": "hyp-1",
+              "videoType": 1,
+              "auto": 0,
+              "fieldOrder": 0,
+              "exposure": 0,
+              "saturation": 0,
+              "sdrInflectionPoint": 0.7,
+              "hdrOutputTRC": 0
+            },
+            "FrameInterpolationFilter": {
+              "active": false,
+              "model": "apo-8",
+              "factor": 1,
+              "duplicate": true,
+              "sceneSplitEnabled": false,
+              "duplicateThreshold": 10
+            },
+            "GrainFilter": {
+              "active": false,
+              "grainStrength": 0.5,
+              "grainSigma": 0.5,
+              "grainSize": 2,
+              "grainType": 0
+            },
+            "MotionDeblurFilter": {
+              "active": false,
+              "modelName": "thm-2",
+              "model": "thm-2"
+            },
+            "DenoiseFilter": {
+              "active": false,
+              "modelName": "nyxn-3",
+              "model": "nyxn-3",
+              "saveGrainExtraction": false
+            },
+            "StabilizationFilter": {
+              "model": "ref-2",
+              "active": false,
+              "smooth": 50,
+              "method": 1,
+              "rsc": false,
+              "reduceMotion": false,
+              "reduceMotionIteration": 2
+            },
+            "VideoSettingsFilter": {
+              "active": true,
+              "inputFps": 24,
+              "outputFps": "24.000",
+              "outSizeMethod": 0,
+              "width": "256",
+              "height": "256",
+              "scale": "100",
+              "cropToFit": false,
+              "outputPAR": 0,
+              "lockAspectRatio": true,
+              "customResolutionPriority": 0
+            },
+            "ExportFilter": {
+              "active": true,
+              "encoderId": "h264-main-win-nvidia",
+              "encoder": "H264",
+              "encoderProfile": "High",
+              "dynamicCompressionLevel": "High",
+              "videoBitrate": 24,
+              "audioMode": 1,
+              "audioCodec": "AAC",
+              "audioBitrate": 320,
+              "extension": "mp4",
+              "createOutputDir": false,
+              "keepFrameNumber": false,
+              "startFrameNumber": 0,
+              "lutFilepath": "",
+              "exportWithLivePreview": true,
+              "dynamicBitrateOn": true,
+              "includeAlphaChannelEnabled": false,
+              "includeAlphaChannelOn": false,
+              "keepOriginalFileNameForIS": false,
+              "appendModelNameForIS": false
+            },
+            "SecondEnhancementFilter": {
+              "active": false,
+              "isSecondEnhancement": true,
+              "model": "prob-4",
+              "videoType": 1,
+              "auto": 0,
+              "fieldOrder": 0,
+              "compress": 0,
+              "detail": 0,
+              "sharpen": 0,
+              "denoise": 0,
+              "dehalo": 0,
+              "deblur": 0,
+              "addNoise": 0,
+              "recoverOriginalDetailValue": 20,
+              "oldRecoverOriginalDetailValue": 20,
+              "focusFixLevel": "Off"
+            },
+            "SecondEnhancementEnabled": false,
+            "SecondEnhancementIntermediateResolution": 3,
+            "reimportAsSource": false
+          }
+        },
+        "filters": {},
+        "presetView": {
+          "currentPresetName": "None"
+        },
+        "isImageSequence": false,
+        "videoPath": "",
+        "videoInfo": {
+          "adjustedSize": {
+            "width": 256,
+            "height": 256
+          },
+          "adjustmentFactor": 1,
+          "audio": [],
+          "duration": 1000,
+          "fps": 24,
+          "framerate": 24,
+          "height": 256,
+          "isBlackAndWhite": false,
+          "isTelecined": false,
+          "length": 12288,
+          "originalColorPrimaries": 2,
+          "originalColorRange": 0,
+          "originalColorSpace": 2,
+          "originalColorTrc": 2,
+          "originalRotation": 3,
+          "originalSize": {
+            "width": 256,
+            "height": 256
+          },
+          "path": "",
+          "pixelFormat": "yuv420p",
+          "resolution": {
+            "width": 256,
+            "height": 256
+          },
+          "rotation": 3,
+          "sar": 1,
+          "size": {
+            "width": 256,
+            "height": 256
+          },
+          "start": 0,
+          "startTimeMs": 0,
+          "step": 512,
+          "subtitle": [],
+          "thumbnail": "",
+          "thumbnailDiskLocation": "",
+          "timebase": 0.00008138020833333333,
+          "timestep": 41.666666666666664,
+          "uid": "5",
+          "video": [],
+          "width": 256
+        },
+        "type": 0,
+        "uid": 5,
+        "ts": 0,
+        "previews": [],
+        "exports": []
+      }
+    },
+    "leftTabState": {
+      "tabModelState": {
+        "5": [
+          -1,
+          162
+        ]
+      },
+      "selectedState": {
+        "5": 1
+      }
+    },
+    "rightTabState": {
+      "tabModelState": {
+        "5": []
+      },
+      "selectedState": {}
+    }
+  },
+  "tabState": {
+    "tabData": {
+      "162": {
+        "tabUid": 162,
+        "previewState": 0,
+        "previews": {},
+        "sourceUid": 5,
+        "filterState": {
+          "EnhancementFilter": {
+            "active": true,
+            "isSecondEnhancement": false,
+            "model": "prob-4",
+            "videoType": 1,
+            "auto": 0,
+            "fieldOrder": 0,
+            "compress": 0,
+            "detail": 0,
+            "sharpen": 0,
+            "denoise": 0,
+            "dehalo": 0,
+            "deblur": 0,
+            "addNoise": 0,
+            "recoverOriginalDetailValue": 20,
+            "oldRecoverOriginalDetailValue": 20,
+            "focusFixLevel": "Off"
+          },
+          "HDRFilter": {
+            "active": false,
+            "model": "hyp-1",
+            "videoType": 1,
+            "auto": 0,
+            "fieldOrder": 0,
+            "exposure": 0,
+            "saturation": 0,
+            "sdrInflectionPoint": 0.7,
+            "hdrOutputTRC": 0
+          },
+          "FrameInterpolationFilter": {
+            "active": false,
+            "model": "apo-8",
+            "factor": 1,
+            "duplicate": true,
+            "sceneSplitEnabled": false,
+            "duplicateThreshold": 10
+          },
+          "GrainFilter": {
+            "active": false,
+            "grainStrength": 0.5,
+            "grainSigma": 0.5,
+            "grainSize": 2,
+            "grainType": 0
+          },
+          "MotionDeblurFilter": {
+            "active": false,
+            "modelName": "thm-2",
+            "model": "thm-2"
+          },
+          "DenoiseFilter": {
+            "active": false,
+            "modelName": "nyxn-3",
+            "model": "nyxn-3",
+            "saveGrainExtraction": false
+          },
+          "StabilizationFilter": {
+            "model": "ref-2",
+            "active": false,
+            "smooth": 50,
+            "method": 1,
+            "rsc": false,
+            "reduceMotion": false,
+            "reduceMotionIteration": 2
+          },
+          "VideoSettingsFilter": {
+            "active": true,
+            "inputFps": 24,
+            "outputFps": "24.000",
+            "outSizeMethod": 1,
+            "width": "512",
+            "height": "512",
+            "scale": "200",
+            "cropToFit": false,
+            "outputPAR": 0,
+            "lockAspectRatio": true,
+            "customResolutionPriority": 0
+          },
+          "ExportFilter": {
+            "active": true,
+            "encoderId": "h264-main-win-nvidia",
+            "encoder": "H264",
+            "encoderProfile": "High",
+            "dynamicCompressionLevel": "High",
+            "videoBitrate": 24,
+            "audioMode": 0,
+            "audioCodec": "AAC",
+            "audioBitrate": 320,
+            "extension": "mp4",
+            "createOutputDir": true,
+            "keepFrameNumber": true,
+            "startFrameNumber": 0,
+            "lutFilepath": "",
+            "exportWithLivePreview": true,
+            "dynamicBitrateOn": true,
+            "includeAlphaChannelEnabled": false,
+            "includeAlphaChannelOn": false,
+            "keepOriginalFileNameForIS": false,
+            "appendModelNameForIS": false
+          },
+          "SecondEnhancementFilter": {
+            "active": false,
+            "isSecondEnhancement": true,
+            "model": "prob-4",
+            "videoType": 1,
+            "auto": 0,
+            "fieldOrder": 0,
+            "compress": 0,
+            "detail": 0,
+            "sharpen": 0,
+            "denoise": 0,
+            "dehalo": 0,
+            "deblur": 0,
+            "addNoise": 0,
+            "recoverOriginalDetailValue": 20,
+            "oldRecoverOriginalDetailValue": 20,
+            "focusFixLevel": "Off"
+          },
+          "SecondEnhancementEnabled": false,
+          "SecondEnhancementIntermediateResolution": 3,
+          "reimportAsSource": false
+        },
+        "type": 1,
+        "name": "未命名     "
+      }
+    },
+    "nextUid": 163,
+    "presetsToTabs": {}
+  }
+}
