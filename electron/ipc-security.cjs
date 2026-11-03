@@ -36,12 +36,12 @@ function safeExternalUrl(value) {
   return url.href;
 }
 function canvasPage(value){try{const url=new URL(value);return url.protocol==='xzapp:'&&url.hostname==='canvas'&&url.pathname==='/index.html';}catch{return false;}}
-function protectWindow(win, { entryFile,isDev,allowUrl,allowFrameUrl,openExternal }) {
+function protectWindow(win, { entryFile,isDev,allowUrl,allowFrameUrl,openExternal,projectPopup }) {
   const allowed=allowUrl || (url=>trustedPage(url,{entryFile,isDev}));
   win.webContents.on('will-navigate',(event,url)=>{if(!allowed(url))event.preventDefault();});
   win.webContents.on('will-redirect',(event,url)=>{if(!allowed(url))event.preventDefault();});
   win.webContents.on('will-frame-navigate',(event,legacyUrl,_isInPlace,legacyIsMainFrame)=>{const url=event.url||legacyUrl;const isMainFrame=event.isMainFrame??legacyIsMainFrame;const permitted=allowed(url)||(isMainFrame===false&&allowFrameUrl?.(url));if(!permitted)event.preventDefault();});
-  win.webContents.setWindowOpenHandler(({url})=>{try{const safe=safeExternalUrl(url);Promise.resolve(openExternal?.(safe)).catch(()=>{});}catch{}return {action:'deny'};});
+  win.webContents.setWindowOpenHandler(details=>{if(projectPopup?.consume(details))return {action:'allow',overrideBrowserWindowOptions:{width:1360,height:900,minWidth:940,minHeight:660,autoHideMenuBar:true,backgroundColor:'#f7f6fc',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}}};const {url}=details;try{const safe=safeExternalUrl(url);Promise.resolve(openExternal?.(safe)).catch(()=>{});}catch{}return {action:'deny'};});
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
 }
 function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,getLicenseClient=()=>null,onIdentityChange=()=>{},isStorageLocked=()=>false }) {

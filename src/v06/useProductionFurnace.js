@@ -9,8 +9,8 @@ export function useProductionFurnace({api,account,stateRef,setState,quickGenerat
   const controller=createProductionController({load:()=>{assert();return api.productionList();},save:run=>{assert();run.accountId=owner;return api.productionSave(run);},adapters,onChange:()=>render(n=>n+1)});
   holder.current={accountId:owner,controller};
  }
- useEffect(()=>{const control=holder.current?.controller;if(!account?.isAdmin||!api.onProductionAgentTool)return;return api.onProductionAgentTool(async request=>{try{const result=await control.agentTool(request.runId,request.name,request.args);await api.productionAgentToolResult({id:request.id,runId:request.runId,result});}catch(error){await api.productionAgentToolResult({id:request.id,runId:request.runId,error:error.message}).catch(()=>{});}});},[account?.id,account?.isAdmin]);
- useEffect(()=>{const control=holder.current?.controller;if(!account?.isAdmin||!api.onProductionChatDelta)return;return api.onProductionChatDelta(({runId,delta,progress,meta})=>{void control?.chatDelta(runId,delta,progress,meta);});},[account?.id,account?.isAdmin]);
+ useEffect(()=>{const control=holder.current?.controller;if(!account?.isAdmin||!api.onProductionAgentTool)return;return api.onProductionAgentTool(async request=>{try{const result=await control.agentTool(request.runId,request.name,request.args,request.turnId);await api.productionAgentToolResult({id:request.id,runId:request.runId,result});}catch(error){await api.productionAgentToolResult({id:request.id,runId:request.runId,error:error.message}).catch(()=>{});}});},[account?.id,account?.isAdmin]);
+ useEffect(()=>{const control=holder.current?.controller;if(!account?.isAdmin||!api.onProductionChatDelta)return;return api.onProductionChatDelta(({runId,delta,progress,meta,turnId})=>{void control?.chatDelta(runId,delta,progress,meta,turnId);});},[account?.id,account?.isAdmin]);
  useEffect(()=>{const control=holder.current?.controller;if(account?.isAdmin&&api.productionList)void control?.restore().catch(()=>{});return()=>{void control?.pauseAll().catch(()=>{});};},[account?.id,account?.isAdmin]);
  return account?.isAdmin?holder.current?.controller:null;
 }

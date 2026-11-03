@@ -152,3 +152,48 @@ test('actual production adapters complete a shallow priority then resume all epi
 
 
 test('a damaged local import restores from its source even with no remote job or generation references',async()=>{const f=fixture();f.run.config.endStage='archive';const assets=await f.api.collabListAssets();assets.forEach(a=>a.images=[]);f.run.items=f.state.directorProjects[0].episodes.flatMap(e=>e.prompts.map(p=>({id:'linked:collab:'+p.id,label:p.label,episode:e.episodeNumber,status:p.id==='p11'?'local-missing':'downloaded',outputFile:p.label+'.mp4',sha256:'original-hash',...(p.id==='p11'?{localImport:{sourcePath:'D:/fixture/original.mp4',sha256:'original-hash',needsRestore:true}}:{})})));let restored=0;f.api.productionImportVideo=async input=>{restored++;assert.equal(input.sourcePath,'D:/fixture/original.mp4');return{outputFile:'restored.mp4',sha256:'original-hash',localImport:{sourcePath:input.sourcePath,sha256:'original-hash'}};};await f.adapter.videos(f.ctx);assert.equal(restored,1);assert.equal(f.run.items[0].status,'downloaded');assert.equal(f.run.items[0].localImport.needsRestore,undefined);assert.equal(f.jobs.length,0);assert(f.run.episodes.every(e=>e.stage==='done'));});
+
+test('a user shortens the priority endpoint while upscale is running, so a queued edit waits for the default run', async () => {
+ const f = fixture();
+ f.run.executionScope = {episodes:[1], until:'edit'};
+ const original = f.api.productionPostStatus;
+ f.api.productionPostStatus = async input => {
+  if (f.run.planRevision !== 1 && input.stage === 'upscale' && !input.clipId) {
+   f.run.executionScope = {episodes:[1], until:'upscale'};
+   f.run.planRevision = 1;
+  }
+  return original(input);
+ };
+ await f.adapter.videos(f.ctx);
+ assert(!f.events.includes('edit:1'), 'an edit must not be launched past the new endpoint');
+ delete f.run.executionScope;
+ f.run.episodes.find(e=>e.number===1).stage='waiting';
+ await f.adapter.videos(f.ctx);
+ assert.equal(f.events.filter(e=>e==='edit:1').length,1);
+ assert.equal(f.events.filter(e=>e==='submit:1-1-1').length,1);
+});
+
+test('Topaz errors reach the configured recovery Agent while the same running pipeline keeps originals and automatically finishes after repair', async () => {
+ const f=fixture();f.run.stages={};
+ const original=f.api.productionPostStatus;
+ let repaired=false,decisions=0;
+ f.api.productionPostStatus=async input=>!repaired&&input.clipId?{status:'idle'}:original(input);
+ f.api.productionPost=async()=>({status:'failed',code:'TOPAZ_SETUP_REQUIRED',error:'请在 Topaz 中确认登录和 Proteus 模型'});
+ f.api.productionWork=async request=>{
+  assert.equal(request.task,'recovery-plan');
+  assert.match(JSON.stringify(request.messages),/Proteus/);
+  decisions++;return JSON.stringify({action:'wait_for_authorization',reason:'需确认本机登录'});
+ };
+ const c=createProductionController({load:async()=>[f.run],save:async()=>{},adapters:{
+  videos:ctx=>f.adapter.videos(ctx),recover:ctx=>f.adapter.recover(ctx),
+  waitForRecovery:async(delay,ctx)=>{
+   assert.equal(ctx.run.status,'running');assert.match(ctx.run.message,/登录/);
+   assert(delay>=60000);assert(ctx.run.items.every(i=>i.status==='downloaded'&&i.outputFile));
+   assert.equal(decisions,1);ctx.run.topazRecovery.nextAt=Date.now()-1;repaired=true;
+  }
+ }});
+ await c.restore();await c.start(f.run.id);
+ assert.equal(f.run.status,'done');assert.equal(decisions,1);
+ assert.equal(f.events.filter(e=>e.startsWith('submit:')).length,4);
+ assert.equal(f.events.filter(e=>e.startsWith('edit:')).length,2);
+});

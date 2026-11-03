@@ -107,8 +107,11 @@ function directorProjectsFile(dir=getDataDir()){ return path.join(directorProjec
 function storageInfo(){ const dir=getDataDir(); return {dataDir:dir,dataFile:dataFile(dir),directorProjectsDir:directorProjectsDir(dir),directorProjectsFile:directorProjectsFile(dir),engine:'JSON 本地资料库'}; }
 
 function appendStartupLog(message){try{fs.appendFileSync(path.join(app.getPath('userData'),'startup.log'),`${new Date().toISOString()} ${message}\n`,'utf8')}catch{}}
+const projectWindowTickets=require('./production-project-window.cjs').createProjectWindowTickets();
+ipcMain.handle('production-window-ticket',async()=>{await workflowAdmin();return projectWindowTickets.issue();});
 function secureMainWindow(win){
- protectWindow(win,{entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,allowFrameUrl:canvasPage,openExternal:url=>shell.openExternal(url)});
+ win.webContents.on('did-create-window',child=>{child.setMenu(null);protectWindow(child,{allowUrl:()=>false,openExternal:url=>shell.openExternal(url)});});
+ protectWindow(win,{projectPopup:projectWindowTickets,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,allowFrameUrl:canvasPage,openExternal:url=>shell.openExternal(url)});
  if(!isDev){win.setMenu(null);win.setMenuBarVisibility(false);}
 }
 process.on('uncaughtException',(error)=>appendStartupLog(`uncaughtException ${error?.stack||error}`));
@@ -493,7 +496,7 @@ const productionAwake=require('./production-awake.cjs').createProductionAwake(re
 productionHost=require('./production-host.cjs').createProductionHost({thumbnail:async file=>(await nativeImage.createThumbnailFromPath(file,{width:96,height:72})).toDataURL(),root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),onActivity:(id,running)=>productionAwake.set(id,running),dialog,shell});
 const productionToolBridge=require('./production-tool-bridge.cjs').createProductionToolBridge();
 ipcMain.handle('production-agent-tool-result',async(event,p)=>{await workflowAdmin();return productionToolBridge.respond(event.sender,p);});
-for(const action of ['list','save','choose','discover','agentHelp','preflight','connect','chat','attach','audit','work','verify','archive','importVideo','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(event,p)=>{await workflowAdmin();return productionHost[action](action==='chat'?{...p,onDelta:(delta,meta)=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,delta,meta});},onProgress:text=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,progress:text});},callTool:(name,args)=>productionToolBridge.request(event.sender,p.runId,name,args)}:p);});
+for(const action of ['list','save','choose','discover','agentHelp','preflight','connect','chat','attach','audit','work','verify','archive','importVideo','post','postStatus','open','stop','stopChat'])ipcMain.handle('production-'+action,async(event,p)=>{await workflowAdmin();return productionHost[action](action==='chat'?{...p,onDelta:(delta,meta)=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,turnId:p.turnId,delta,meta});},onProgress:text=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,turnId:p.turnId,progress:text});},callTool:(name,args)=>productionToolBridge.request(event.sender,p.runId,name,args,p.turnId)}:p);});
 
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});

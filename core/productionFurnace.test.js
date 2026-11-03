@@ -48,8 +48,17 @@ test('partial art/images stay resumable and cannot make the whole run complete',
  await controller.start(run.id);assert.equal(images,2);assert.equal(art,2);
 });
 test('autonomous recovery repairs a blocker and resumes until verified completion',async()=>{let passes=0,repairs=0;const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>{},art:async()=>{},images:async()=>{},videos:async({run})=>{passes++;run.episodes=[{number:1,stage:passes>1?'done':'waiting'}];},recover:async()=>{repairs++;return {retry:true,delay:0};},waitForRecovery:async()=>{}}});const run=await c.create('p',productionDefaults());await c.start(run.id);assert.equal(run.status,'done');assert.equal(passes,2);assert.equal(repairs,1);});
-test('funding wait is explicit and never presented as finished or generic attention',async()=>{const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>{},art:async()=>{},images:async()=>({partial:true}),videos:async()=>{},recover:async()=>({budget:true,reason:'主备生图渠道余额不足'})}});const run=await c.create('p',productionDefaults());await c.start(run.id);assert.equal(run.status,'waiting-budget');assert.match(run.message,/余额/);});
-test('old done episodes cannot mask a current video precondition failure',async()=>{let repairs=0;const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>{},art:async()=>{},images:async()=>{},videos:async({run})=>{run.episodes=[{number:1,stage:'done'}];throw Error('来源已变化');},recover:async()=>{repairs++;return {budget:true,reason:'fixture stop'};}}});const run=await c.create('p',productionDefaults());await c.start(run.id);assert.equal(repairs,1);assert.notEqual(run.status,'done');});
+test('insufficient funds keeps the scheduler alive with bounded retries; the user can stop before another submission',async()=>{
+ let attempts=0,delaySeen=0;
+ const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{
+  images:async()=>({partial:true}),videos:async()=>{attempts++;},
+  recover:async()=>({budget:true,reason:'主备生图渠道余额不足'}),
+  waitForRecovery:async(delay,ctx)=>{delaySeen=delay;assert.equal(ctx.run.status,'running');assert.match(ctx.run.message,/余额/);await c.pause(ctx.run.id);}
+ }});
+ const run=await c.create('p',productionDefaults());await c.start(run.id);
+ assert(delaySeen>=60000);assert.equal(attempts,1);assert.equal(run.status,'paused');
+});
+test('old done episodes cannot mask a current video precondition failure',async()=>{let repairs=0;const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{prompts:async()=>{},art:async()=>{},images:async()=>{},videos:async({run})=>{run.episodes=[{number:1,stage:'done'}];throw Error('来源已变化');},recover:async()=>{repairs++;return {budget:true,reason:'fixture stop'};},waitForRecovery:async(_delay,ctx)=>c.pause(ctx.run.id)}});const run=await c.create('p',productionDefaults());await c.start(run.id);assert.equal(repairs,1);assert.notEqual(run.status,'done');});
 test('pause/resume and restart trust bulk evidence and never rerun completed upstream stages',async()=>{
  const stored=[],calls=[];const make=()=>createProductionController({load:async()=>stored,save:async r=>{stored.splice(0,stored.length,structuredClone(r));},adapters:{monitor:async ctx=>{calls.push(ctx.readOnly?'readonly':'monitor');return {prompts:true,art:true,images:true};},prompts:async()=>calls.push('regenerate'),art:async()=>calls.push('republish'),images:async()=>calls.push('reimage'),videos:async()=>calls.push('video'),pause:async()=>{}}});
  let c=make();await c.restore();const run=await c.create('p',productionDefaults());await c.start(run.id);await c.pause(run.id);await c.start(run.id);c=make();await c.restore();await c.refresh(run.id);await c.start(run.id);assert.deepEqual(calls,['monitor','video','monitor','video','readonly','monitor','video']);
@@ -134,4 +143,23 @@ test('ACP instructions queue inside one workflow and stop cancels queued work',a
  const calls=[];let releaseFirst,releaseThird;const first=new Promise(resolve=>releaseFirst=resolve),third=new Promise(resolve=>releaseThird=resolve);const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async(run,{text})=>{calls.push(text);if(calls.length===1)await first;if(calls.length===3)await third;return{reply:'已处理 '+text,action:'none'};},pause:async()=>{}}});const run=await c.create('p',{...productionDefaults(),agentProtocol:'hermes'});
  const pending=c.chat(run.id,{text:'先完成第一集'});await new Promise(resolve=>setImmediate(resolve));const queued=await c.chat(run.id,{text:'第一集完成后继续全剧'});assert.equal(queued.queued,true);assert.equal(calls.length,1);releaseFirst();await pending;for(let i=0;i<30&&calls.length<2;i++)await new Promise(resolve=>setTimeout(resolve,1));assert.deepEqual(calls,['先完成第一集','第一集完成后继续全剧']);
  const active=c.chat(run.id,{text:'新安排'});await new Promise(resolve=>setImmediate(resolve));const stopped=await c.chat(run.id,{text:'不应执行的排队项'});assert.equal(stopped.queued,true);await c.pause(run.id);assert.deepEqual(run.pendingChats,[]);assert.equal(run.status,'paused');releaseThird();await active;assert.deepEqual(calls,['先完成第一集','第一集完成后继续全剧','新安排']);
+});
+
+test('composer stop cancels one turn and queued ACP instructions while the default workflow stays running',async()=>{
+ let finish,oldDelta,cancelled=0;
+ const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{
+  stopChat:async()=>{cancelled++;},chat:async(r,{text,onDelta})=>{
+   if(text==='new')return {reply:'fresh',action:'none'};
+   oldDelta=onDelta;return new Promise(resolve=>finish=resolve);
+  }
+ }});
+ const r=await c.create('project',{...productionDefaults(),agentProtocol:'acp'});r.status='running';
+ const pending=c.chat(r.id,{text:'old'});while(!finish)await new Promise(resolve=>setImmediate(resolve));
+ await c.chat(r.id,{text:'queued'});await c.stopChat(r.id);
+ assert.equal(r.status,'running');assert.equal(r.chatActive,false);assert.equal(cancelled,1);
+ assert.deepEqual(r.pendingChats,[]);await c.chat(r.id,{text:'new'});
+ await oldDelta('late delta');finish({reply:'late',action:'set_scope',scope:{episodes:[1],until:'edit'}});await pending;
+ assert(!r.executionScope);assert.deepEqual(r.operatorInstructions.map(i=>i.text),['new']);
+ assert.deepEqual(r.chatTurns.map(t=>t.status),['cancelled','finished']);
+ assert(!r.conversation.some(m=>m.text.includes('late')));
 });

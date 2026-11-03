@@ -39,11 +39,12 @@ async function topazEncoder(executable,run=execute){
  const args=name==='libx264'?['-c:v',name,'-crf','18']:name==='h264_nvenc'?['-c:v',name,'-cq','18']:['-c:v',name];
  return {name,args};
 }
+const topazSetupError=message=>Object.assign(Error(message),{code:'TOPAZ_SETUP_REQUIRED'});
 function productionSoftwareError(error){
  const message=String(error?.message||error),detail=String(error?.stderr||''),output=String(error?.stdout||''),diagnostic=`${message}\n${detail}\n${output}`;
- if(/parseAuth|auth\.tpz|login|licen[cs]e|授权|过期|expired|activation/i.test(diagnostic))return Error('Topaz AI 授权不可用或已过期。请在 Topaz 中登录或续期，再返回行舟影视点击继续；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
- if(/No filtered frames/i.test(diagnostic)&&[3221225477,-1073741819].includes(Number(error?.code)))return Error('Topaz AI 未产出画面，授权或模型组件可能不可用。请在 Topaz 中确认登录、授权和 Proteus 模型后重试；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
- if(/Model not found|No filtered frames/i.test(diagnostic))return Error('Topaz AI 超分模型或组件不可用。请在 Topaz 中修复 Proteus 模型后重试；未改用普通放大冒充 AI 超分。');
+ if(/parseAuth|auth\.tpz|login|licen[cs]e|授权|过期|expired|activation/i.test(diagnostic))return topazSetupError('Topaz AI 授权不可用或已过期。请在 Topaz 中登录或续期，行舟影视会自动复查；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
+ if(/No filtered frames/i.test(diagnostic)&&[3221225477,-1073741819].includes(Number(error?.code)))return topazSetupError('Topaz AI 未产出画面，授权或模型组件可能不可用。请在 Topaz 中确认登录、授权和 Proteus 模型，行舟影视会自动复查；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
+ if(/Model not found|No filtered frames/i.test(diagnostic))return topazSetupError('Topaz AI 超分模型或组件不可用。请在 Topaz 中修复 Proteus 模型，行舟影视会自动复查；未改用普通放大冒充 AI 超分。');
  return error instanceof Error?error:Error(message);
 }
 module.exports={discoverSoftware,topazComponents,openFilmComponents,checkTopaz,topazEncoder,productionSoftwareError,registeredLocations};

@@ -1,3 +1,7 @@
 export const episodeAllowed=(run,number)=>!run.executionScope?.episodes?.length||run.executionScope.episodes.includes(Number(number));
+export function postStageAllowed(run, episode, stage) {
+ const end = run.executionScope?.until || run.config.endStage || 'edit';
+ return episodeAllowed(run, episode) && end !== 'archive' && (stage === 'upscale' || end === 'edit');
+}
 export function validateExecutionScope(value){if(!value||!Array.isArray(value.episodes)||!value.episodes.length||value.episodes.length>500||value.episodes.some(n=>!Number.isSafeInteger(n)||n<1)||!['archive','upscale','edit'].includes(value.until))throw Error('执行范围无效');return {episodes:[...new Set(value.episodes)].sort((a,b)=>a-b),until:value.until,after:value.after==='pause'?'pause':'resume_default',pauseAfter:value.after==='pause'};}
 export const executionScopeDone=run=>Boolean(run.executionScope?.episodes?.length&&run.executionScope.episodes.every(n=>run.episodes.some(e=>e.number===n&&e.stage==='done')));

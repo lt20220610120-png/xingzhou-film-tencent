@@ -1,6 +1,6 @@
 import {productionAssignment} from '../../core/productionIdentity.js';
 import {agentDataPage} from '../../core/productionAgentData.js';
-import {episodeAllowed} from '../../core/productionExecutionScope.js';
+import {episodeAllowed,postStageAllowed} from '../../core/productionExecutionScope.js';
 import {runPromptModelChain,modelPolicyRows} from '../../core/productionModelPolicy.js';
 import {listCollabEpisodes} from '../../core/collabEpisodes.js';
 import {sourceReviewScenes,editArtReview,isSceneVerified,needsArtReviewDetails,reviewRoster,decodeArtReviewOutput} from '../../core/artReview.js';
@@ -67,12 +67,39 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   ctx.artSnapshot={p,assets,store,service,binding,monitor};await ctx.checkpoint();return ctx.artSnapshot;
  }
  async function checkPost(ctx,ep,stage,clipId){
+  const guardStage=()=>{
+   ctx.guard();
+   if(!postStageAllowed(ctx.run,ep.number,stage))throw Object.assign(Error('制作安排已调整，后续按最新范围接续'),{code:'POST_DEFERRED'});
+  };
+  guardStage();
   let result=await api.productionPostStatus({runId:ctx.run.id,episode:ep.number,stage,...(clipId?{clipId}:{})});
-  if(result.status==='idle')result=await api.productionPost({runId:ctx.run.id,episode:ep.number,stage,...(clipId?{clipId}:{}),clips:ctx.run.items.filter(i=>i.episode===ep.number)});
-  while(result.status==='running'){await wait(5000);ctx.guard();result=await api.productionPostStatus({runId:ctx.run.id,episode:ep.number,stage,...(clipId?{clipId}:{})});}
-  if(result.status!=='done')throw Error(result.error||'后期尚未完成');return result.result;
+  guardStage();
+  if(result.status==='idle'||result.status==='failed')result=await api.productionPost({runId:ctx.run.id,episode:ep.number,stage,...(clipId?{clipId}:{}),clips:ctx.run.items.filter(i=>i.episode===ep.number)});
+  while(result.status==='running'){await wait(5000);guardStage();result=await api.productionPostStatus({runId:ctx.run.id,episode:ep.number,stage,...(clipId?{clipId}:{})});}
+  if(result.status!=='done')throw Object.assign(Error(result.error||'后期尚未完成'),{code:result.code});return result.result;
  }
  async function work(ctx,task,messages){ctx.guard();if(!api.productionWork)throw Error('Agent 工作组件尚未加载，请升级并重新打开软件');const rules='\n【行舟影视自动化人物音色流程】\n你是接入行舟影视自动化制作的 Agent。'+(voiceAutomationEnabled(ctx.run.config)?'音色开关已开启，按配置的并发数执行人物音色阶段。'+VOICE_AUTOMATION_RULE:'音色开关已关闭，跳过音色生成和补全，不要求选择语音模型，不以缺少音色阻塞美术或视频，不擅自开启音色。已有人工采用音色和其他成果保留。')+(ctx.run.config.workflowRules?'\n管理员确认的制作规则：'+ctx.run.config.workflowRules:'');const enriched=messages.map((m,i)=>i===0&&m.role==='system'?{...m,content:m.content+rules}:m);const result=await api.productionWork({runId:ctx.run.id,task,messages:enriched});ctx.guard();return result;}
+ async function topazRecovery(ctx){
+  const {run}=ctx;
+  const failed=run.items.filter(i=>i.upscaleErrorCode==='TOPAZ_SETUP_REQUIRED'&&postStageAllowed(run,i.episode,'upscale'));
+  if(!failed.length){delete run.topazRecovery;return null;}
+  const prior=run.topazRecovery;
+  if(prior?.nextAt>Date.now())return {delay:prior.nextAt-Date.now(),reason:prior.reason};
+  let reason=failed[0].upscaleError,action='wait_for_authorization';
+  try{
+   const plan=json(await work(ctx,'recovery-plan',[
+    {role:'system',content:'你是当前项目的制作协作智能体。诊断真实 Topaz 失败并选择后续动作。retry_topaz 表示短退避后用原片重试同一 AI 超分；wait_for_authorization 表示提示用户处理外部登录/Proteus 组件并在后台低频复查。两者均维持自动化，只能使用已配置的 AI 超分，不能用普通放大代替。返回 JSON {"action":"retry_topaz 或 wait_for_authorization","reason":"用户可读的诊断及下一步"}。'},
+    {role:'user',content:JSON.stringify({previousAttempts:prior?.attempts||0,clips:failed.slice(0,12).map(i=>({episode:i.episode,label:i.label,error:i.upscaleError}))})}
+   ]));
+   if(!['retry_topaz','wait_for_authorization'].includes(plan.action)||typeof plan.reason!=='string'||!plan.reason.trim())throw Error('Agent 返回的后期动作无效');
+   action=plan.action;reason+=' '+plan.reason.slice(0,500);
+  }catch(error){ctx.guard();reason+=' Agent 诊断暂未完成：'+error.message;}
+  const attempts=(prior?.attempts||0)+1;
+  const delay=Math.min(300000,(action==='retry_topaz'?30000:60000)*2**Math.min(attempts-1,4));
+  reason+='；保留原片，约 '+Math.ceil(delay/1000)+' 秒后自动复查。';
+  run.topazRecovery={action,reason,attempts,nextAt:Date.now()+delay};
+  await ctx.log?.(reason,'warning');return {delay,reason};
+ }
  async function publishReady(ctx,state){
   const {store,p}=state,targets=state.monitor.episodes.filter(e=>!e.changed).flatMap(e=>e.scenes.filter(s=>!s.published).map(s=>({number:e.number,id:s.id}))),byEpisode=new Map();
   for(const target of targets){const scene=store.snapshot().episodes[target.number]?.scenes.find(s=>s.id===target.id);if(!scene?.items.length||scene.items.some(needsArtReviewDetails))continue;if(!byEpisode.has(target.number))byEpisode.set(target.number,[]);byEpisode.get(target.number).push(target.id);}
@@ -109,7 +136,8 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    const config=Object.fromEntries(Object.entries(run.config).filter(([key])=>key!=='scriptText'&&!/api.?key|token|secret|password|authorization/i.test(key)));return {assignment:productionAssignment(run),status:run.status,config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
   },
   steering:true,
-  async chat(run,{text,attachments,model,history,onDelta,steer}){return api.productionChat({runId:run.id,text,attachments,model,history,steer});},
+  async stopChat(run,turnId){await api.productionStopChat({runId:run.id,turnId});},
+  async chat(run,{text,attachments,model,history,onDelta,steer,turnId}){return api.productionChat({runId:run.id,text,attachments,model,history,steer,turnId});},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
   async validateScope(run,scope){const numbers=listCollabEpisodes(project(run).episodes).map(e=>e.episodeNumber);if(scope.episodes.some(n=>!numbers.includes(n)))throw Error('指定集数不在当前项目中');},
   async agentProjectTool(run,args){
@@ -229,13 +257,13 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    let editTail=Promise.resolve();const postJobs=new Map(),clipJobs=new Map();
    const postReady=async()=>{checkSource();const endStage=run.executionScope?.until||c.endStage;
     if(endStage!=='archive')for(const item of run.items.filter(i=>i.status==='downloaded'&&episodeAllowed(run,i.episode))){
-     if(clipJobs.has(item.id))continue;
-     const task=(async()=>{try{item.upscaleStatus='running';await ctx.checkpoint();item.upscaleResult=await checkPost(ctx,{number:item.episode},'upscale',item.id);item.upscaleStatus='done';delete item.upscaleError;}catch(error){item.upscaleStatus='failed';item.upscaleError=error.message;}await ctx.checkpoint();})();clipJobs.set(item.id,task);
+     if(clipJobs.has(item.id)||(item.upscaleErrorCode==='TOPAZ_SETUP_REQUIRED'&&run.topazRecovery?.nextAt>Date.now()))continue;
+     const task=(async()=>{try{item.upscaleStatus='running';await ctx.checkpoint();item.upscaleResult=await checkPost(ctx,{number:item.episode},'upscale',item.id);item.upscaleStatus='done';delete item.upscaleError;delete item.upscaleErrorCode;}catch(error){item.upscaleStatus=error.code==='POST_DEFERRED'?'waiting':'failed';item.upscaleError=error.message;item.upscaleErrorCode=error.code;}await ctx.checkpoint();})();clipJobs.set(item.id,task);
     }
     for(const ep of run.episodes){if(!episodeAllowed(run,ep.number)||ep.stage==='done'||postJobs.has(ep.number))continue;const clips=run.items.filter(i=>i.episode===ep.number);if(!completeEpisode(book.entries.filter(e=>e.episode===ep.number).map(e=>e.id),clips))continue;
-    const job=(async()=>{try{if(endStage==='archive'){ep.stage='done';await ctx.checkpoint();return;}ep.stage='upscale';await ctx.checkpoint();await Promise.all(clips.map(i=>clipJobs.get(i.id)));if(clips.some(i=>i.upscaleStatus!=='done'))throw Error(clips.find(i=>i.upscaleError)?.upscaleError||'本集超分尚未齐全');await checkPost(ctx,ep,'upscale');ctx.guard();if(endStage==='upscale'){ep.stage='done';await ctx.checkpoint();return;}
+    const job=(async()=>{try{if(endStage==='archive'){ep.stage='done';await ctx.checkpoint();return;}ep.stage='upscale';await ctx.checkpoint();await Promise.all(clips.map(i=>clipJobs.get(i.id)));if(clips.some(i=>i.upscaleStatus!=='done'))throw Error(clips.find(i=>i.upscaleError)?.upscaleError||'本集超分尚未齐全');await checkPost(ctx,ep,'upscale');ctx.guard();if(!episodeAllowed(run,ep.number)){ep.stage='waiting';await ctx.checkpoint();return;}if((run.executionScope?.until||c.endStage)!=='edit'){ep.stage='done';await ctx.checkpoint();return;}
       ep.stage='edit-queued';await ctx.checkpoint();const task=editTail.catch(()=>{}).then(async()=>{ctx.guard();ep.stage='edit';await ctx.checkpoint();ep.result=await checkPost(ctx,ep,'edit');ep.stage='done';await ctx.checkpoint();});editTail=task;await task;
-     }catch(e){ep.stage='attention';ep.error=e.message;await ctx.checkpoint();}})();postJobs.set(ep.number,job);
+     }catch(e){ep.stage=e.code==='POST_DEFERRED'?'waiting':'attention';ep.error=e.message;await ctx.checkpoint();}})();postJobs.set(ep.number,job);
    }};
    await postReady();const tasks=await api.generationList({includeArchived:true}),videoModels=mediaModelChoices(getState(),'video'),choices=videoAttemptChoices(c,videoModels),capacity=new Map();
    // A slot lasts through submission, polling and download. Each ordered policy
@@ -290,7 +318,11 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
 
   },
   async recover(ctx){
-   const {run}=ctx;ctx.guard();if(['prompts','information'].some(k=>run.stages[k]?.status==='partial'))return {retry:true,delay:30000};const goals=productionRecoveryGoals(run),fingerprint=productionRecoveryFingerprint(goals,run.config),old=run.recovery||{},same=old.fingerprint===fingerprint;
+   const {run}=ctx;ctx.guard();
+   const post=await topazRecovery(ctx),goals=productionRecoveryGoals(run);
+   if(post&&goals.every(g=>g.kind==='post'))return post;
+   if(['prompts','information'].some(k=>run.stages[k]?.status==='partial'))return {retry:true,delay:30000,reason:post?.reason};
+   const fingerprint=productionRecoveryFingerprint(goals,run.config),old=run.recovery||{},same=old.fingerprint===fingerprint;
    run.recovery={...old,fingerprint,attempts:same?(old.attempts||0)+1:1,goals:goals.map(g=>({...g,status:'pending'})),lastAt:Date.now()};await ctx.checkpoint();
    await ctx.log?.(`自主接续：${goals.length} 个未完成目标。先补清单/发布和关联，再继续图片、视频和后期；已完成成果保留。`);
    let state=await readArt(ctx,true),published=await publishReady(ctx,state),repaired={restored:0,distributed:0,failures:[]};
@@ -309,9 +341,10 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    }
    const fundingImages=(run.imageErrors||[]).filter(i=>isFundingError(i.error)),fundingVideo=(run.items||[]).filter(i=>isFundingError(i.error));
    const remaining=productionRecoveryGoals(run);run.recovery.goals=run.recovery.goals.map(g=>({...g,status:remaining.some(v=>v.kind===g.kind&&v.target===g.target)?'pending':'done'}));run.recovery.failures=repaired.failures;await ctx.checkpoint();
-   if(fundingImages.length||fundingVideo.length)return {budget:true,reason:`${fundingImages.length?`生图主备渠道余额不足（${fundingImages.length} 项等待）`:''}${fundingImages.length&&fundingVideo.length?'；':''}${fundingVideo.length?`视频渠道余额不足（${fundingVideo.length} 项等待）`:''}。已保存成果，充值或更换已授权渠道后点击继续。`};
+   if(fundingImages.length||fundingVideo.length)return {budget:true,reason:`${fundingImages.length?`生图主备渠道余额不足（${fundingImages.length} 项等待）`:''}${fundingImages.length&&fundingVideo.length?'；':''}${fundingVideo.length?`视频渠道余额不足（${fundingVideo.length} 项等待）`:''}。已保存成果，仅使用原有授权渠道，后台将定时复查。`};
    for(const key of ['art','images'])if(run.stages[key]?.status==='partial')run.stages[key]={status:'pending'};
-   return {retry:true,delay:published||repaired.restored||repaired.distributed?0:Math.min(300000,10000*2**Math.min(run.recovery.attempts,5))};
+   const delay=published||repaired.restored||repaired.distributed?0:Math.min(300000,10000*2**Math.min(run.recovery.attempts,5));
+   return {retry:true,delay:Math.min(delay,post?.delay??delay),reason:post?.reason};
   },
   async pause(run){await api.productionStop?.({runId:run.id});const job=activeJobs.get(run.id);if(job){job.cancelled=true;job.wakeRetry?.();await Promise.allSettled((job.taskIds||[]).map(taskId=>api.cancelAiTask({taskId})));if(run.collabProjectId)await getArtDistributionController({api,accountId:getAccount().id,projectId:run.collabProjectId}).stop();}if(run.directorBatchId)await getQuick().pauseBatch(run.directorBatchId).catch(()=>{});}
  };

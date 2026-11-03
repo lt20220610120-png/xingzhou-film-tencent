@@ -41,3 +41,53 @@ test('stopping a run rejects its active chat instead of leaving a second workflo
 test('attachments belong to the current run and thumbnail completion rechecks the active account',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-host-attachment-'));try{let owner='admin';const host=createProductionHost({root:()=>root,authorize:async()=>({id:owner,isAdmin:true}),thumbnail:async()=>{owner='other';return'data:image/png;base64,AA==';}});const id=crypto.randomUUID();await host.save({id,status:'paused',config:{mode:'auto',outputRoot:root},items:[]});const source=path.join(root,'photo.png');fs.writeFileSync(source,'fixture');await assert.rejects(host.attach({runId:id,paths:[source]}),/账号已变化/);await assert.rejects(host.attach({runId:id,paths:[source]}));}finally{fs.rmSync(root,{recursive:true,force:true});}});
 
 test('the composer model selection reaches the next native turn without opening a different conversation',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-selected-model-'));try{let opened=0;const used=[];const host=createProductionHost({root:()=>root,authorize:async()=>({id:'admin',isAdmin:true}),agentFactory:()=>({connect:async()=>({models:[{id:'a'},{id:'b'}]}),openConversation:async options=>{opened++;assert.equal(options.fullAccess,true);return{threadId:'thread'};},promptConversation:async(session,options)=>{used.push({model:options.model,effort:options.effort});return'完成';},close:()=>{}})});const id=crypto.randomUUID(),run={id,status:'paused',items:[],config:{mode:'auto',outputRoot:root,agentPath:'fixture.exe',agentProtocol:'codex',agentModel:'a',agentEffort:'low'}};await host.save(run);await host.chat({runId:id,text:'第一条',model:'a',callTool:async()=>({})});run.config.agentModel='b';run.config.agentEffort='high';await host.save(run);await host.chat({runId:id,text:'第二条',model:'b',callTool:async()=>({})});assert.equal(opened,1);assert.deepEqual(used,[{model:'a',effort:'low'},{model:'b',effort:'high'}]);await host.stop();}finally{fs.rmSync(root,{recursive:true,force:true});}});
+test('chat access changes reopen Codex and ACP with the saved policy',async()=>{
+ for(const protocol of ['codex','acp']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-chat-access-')),access=[];
+  const host=createProductionHost({root:()=>root,authorize:async()=>({id:'admin',isAdmin:true}),agentFactory:()=>({
+   connect:async()=>({models:[{id:'m'}]}),close(){},
+   openConversation:async options=>{access.push(options.fullAccess);return {threadId:'t'};},
+   promptConversation:async()=>'完成',run:async options=>{access.push(options.fullAccess);return '完成';}
+  })});
+  try{
+   const id=crypto.randomUUID(),run={id,status:'paused',items:[],config:{mode:'auto',outputRoot:root,agentPath:'fixture.exe',agentProtocol:protocol,agentModel:'m'}};
+   for(const mode of [undefined,'standard','full']){
+    run.config.chatAccess=mode;await host.save(run);await host.chat({runId:id,text:'检查项目'});
+   }
+   assert.deepEqual(access,[true,false,true],protocol);
+  }finally{await host.stop();fs.rmSync(root,{recursive:true,force:true});}
+ }
+});
+
+test('stopping one chat during connection leaves another project connecting and able to call its current tool',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-isolated-chat-'));const gates=[],clients=[];
+ try{
+  const activity=[];
+  const host=createProductionHost({root:()=>root,authorize:async()=>({id:'admin',isAdmin:true}),onActivity:(...v)=>activity.push(v),agentFactory:()=>{
+   const client={closed:0,connect:async()=>{await new Promise(r=>gates.push(r));return {models:[{id:'fixture'}]};},openConversation:async opts=>({threadId:'thread',call:opts.callTool}),promptConversation:async session=>session.call('xingzhou_task',{action:'inspect'}),close(){this.closed++;}};clients.push(client);return client;
+  }});
+  const a=crypto.randomUUID(),b=crypto.randomUUID();
+  for(const id of [a,b])await host.save({id,name:id,status:'running',items:[],config:{mode:'auto',outputRoot:root,agentProtocol:'codex',agentModel:'fixture'}});
+  const old=host.chat({runId:a,text:'stop',callTool:async()=>'old'});
+  const other=host.chat({runId:b,text:'keep',callTool:async()=>'first'});
+  while(gates.length<2)await new Promise(r=>setImmediate(r));
+  await host.stopChat({runId:a});assert.deepEqual(clients.map(c=>c.closed),[1,0]);assert(!activity.some(([,active])=>!active));
+  gates.forEach(release=>release());await assert.rejects(old,/失效|停止/);assert.equal((await other).reply,'first');
+  assert.equal((await host.chat({runId:b,text:'next',callTool:async()=>'second'})).reply,'second');
+  assert.equal(clients.length,2);await host.stop();
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+test('a resumed project cannot revive a worker still connecting from before stop',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-stop-epoch-'));let release,started;
+ const connecting=new Promise(r=>started=r),gate=new Promise(r=>release=r);let executions=0;
+ const host=createProductionHost({root:()=>root,authorize:async()=>({id:'admin',isAdmin:true}),agentFactory:()=>({
+  connect:async()=>{started();await gate;},close(){},run:async()=>{executions++;return '旧请求';}
+ })});
+ try{
+  const id=crypto.randomUUID(),run={id,status:'running',controlEpoch:0,items:[],config:{mode:'auto',agentPath:'fixture.exe',outputRoot:root}};
+  await host.save(run);const old=host.work({runId:id,task:'recovery-plan',messages:[]});await connecting;
+  await host.save({...run,status:'paused',controlEpoch:1});await host.stop({runId:id});
+  await host.save({...run,status:'running',controlEpoch:1});release();
+  await assert.rejects(old,/暂停|停止/);assert.equal(executions,0);
+ }finally{release();await host.stop();fs.rmSync(root,{recursive:true,force:true});}
+});

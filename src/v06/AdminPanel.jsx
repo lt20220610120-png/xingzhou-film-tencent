@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Ban, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Undo2, Clapperboard, PanelsTopLeft } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
+import {useProductionProjectWindows} from './ProductionProjectWindows.jsx';
 import {ProductionConsole} from './ProductionConsole.jsx';
 import {SoftwareLicenseAdmin} from './SoftwareLicense.jsx';
 import { WorkBuddyPanel } from './WorkBuddyPanel.jsx';
@@ -23,6 +24,7 @@ const readAdminTab = (accountId) => {
 
 export function AdminPanel({ account, active = true, state={}, setState, onNavigate,production }) {
   const api = window.xingzhou;
+  const projectWindows=useProductionProjectWindows({account,state,setState,production,api});
   const [tab, setTab] = useState(() => readAdminTab(account?.id));
   const [workBuddyVisited, setWorkBuddyVisited] = useState(() => readAdminTab(account?.id) === 'workbuddy');
   const [users, setUsers] = useState([]);
@@ -111,7 +113,8 @@ export function AdminPanel({ account, active = true, state={}, setState, onNavig
       {tab === 'users' && <button className="admin-refresh" onClick={refresh} disabled={loading}><RefreshCw size={16} /> {loading ? '刷新中…' : '刷新'}</button>}
       </header>
       {tab==='license'&&<SoftwareLicenseAdmin api={api}/>}
-      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><ProductionConsole account={account} state={state} setState={setState} api={api} production={production} onNavigate={onNavigate}/></div>}
+      {projectWindows.views}
+      {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><ProductionConsole account={account} state={state} setState={setState} api={api} production={production} onNavigate={onNavigate} onOpenProject={projectWindows.openProject}/></div>}
       {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}
       <div id="admin-users-panel" role="tabpanel" aria-labelledby="admin-users-tab" hidden={tab !== 'users'}>
       <p className="admin-data-note">用户与邀请码保存在云端。删除或停用账号后，对方将失去软件使用权限。</p>

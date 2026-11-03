@@ -82,11 +82,20 @@ export const completeEpisode=(expected,clips)=>expected.length>0&&new Set(expect
 
 /** A view-independent coordinator. Every side effect gets a durable checkpoint first. */
 export function createProductionController({load,save,adapters,onChange=()=>{}}){
- let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Set(),streaming=new Map(),updating=new Set(),scheduled=new Map();
+ let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Map(),streaming=new Map(),updating=new Set(),scheduled=new Map();
  const emit=()=>onChange(runs);
  let writes=Promise.resolve();
  const persist=async run=>{run.updatedAt=Date.now();const snapshot=structuredClone(run);const writing=writes.then(()=>save(snapshot));writes=writing.catch(()=>{});await writing;emit();};
  const guard=run=>{if(run.status!=='running')throw Error('工作流已暂停');};
+ function cancelTurn(run,announce=false){
+  const token=chatting.get(run.id);if(!token)return;
+  chatting.delete(run.id);streaming.delete(run.id);token.abort.abort();run.chatActive=false;
+  run.operatorInstructions=(run.operatorInstructions||[]).filter(i=>!token.instructions.has(i.id));
+  for(const m of run.conversation||[])if(m.turnId===token.id)m.cancelled=true;
+  const turn=run.chatTurns?.find(t=>t.id===token.id);if(turn){turn.status='cancelled';turn.endedAt=Date.now();}
+  run.pendingChats=[];run.dispatchHold=false;
+  if(announce)run.conversation.push({id:crypto.randomUUID(),at:Date.now(),role:'system',text:'当前对话指令已停止。'});
+ }
  async function execute(run){
    const log=async(text,kind='agent')=>{run.logs=[...(run.logs||[]),{id:crypto.randomUUID(),at:Date.now(),kind,text}].slice(-500);await persist(run);};
    const ctx={run,guard:()=>guard(run),checkpoint:()=>persist(run),log,notice:async text=>{run.message=text;await log(text);}};
@@ -124,12 +133,19 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    if((run.planRevision||0)!==iterationRevision&&!executionScopeDone(run)){await log('当前制作安排已更新，按新范围接续原工序。');continue;}
    guard(run);if(executionScopeDone(run)){const scope=run.executionScope;if(scope.after==='pause'){run.status='paused';run.message='指定集数已完成并验收，已按明确的完成后暂停安排停止';await log(run.message,'success');await persist(run);break;}const ranks={archive:0,upscale:1,edit:2};if(ranks[scope.until]<ranks[run.config.endStage])for(const ep of run.episodes)if(scope.episodes.includes(ep.number))ep.stage='waiting';run.arrangementHistory=[...(run.arrangementHistory||[]),{...scope,after:'resume_default',completedAt:Date.now()}].slice(-40);delete run.executionScope;run.planRevision=(run.planRevision||0)+1;run.message='优先安排已完成，自动恢复全剧默认制作流程';await log(run.message,'success');await persist(run);continue;}
    guard(run);run.status=run.episodes.length&&run.episodes.every(e=>e.stage==='done')&&!Object.values(run.stages).some(s=>s.status==='partial')&&!Object.keys(run.stageErrors||{}).length?'done':'attention';
-    if(run.status==='done'||!adapters.recover){run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);break;}
+   if(run.status==='done'||!adapters.recover){run.message=run.status==='done'?'全部分集已完成并核验输出':'其余可运行工作已结束，请处理提示的问题';await log(run.message,run.status==='done'?'success':'warning');await persist(run);break;}
     run.status='running';guard(run);let recovery;try{recovery=await adapters.recover(ctx);}catch(error){guard(run);await log('Agent 修复暂未完成，保留目标并稍后重试：'+error.message,'warning');recovery={retry:true,delay:60000};}
-    guard(run);if(recovery?.budget){run.status='waiting-budget';run.message=recovery.reason||'生成渠道余额不足，成果已保存，充值后点击继续';await log(run.message,'warning');await persist(run);break;}
-    recoveryRound++;const delay=recovery?.delay??Math.min(300000,5000*2**Math.min(recoveryRound,6));run.recovery={...run.recovery,round:recoveryRound,nextAt:Date.now()+delay};run.activity={state:'waiting-retry',phase:'等待下一轮自动接续',at:Date.now(),nextAt:Date.now()+delay};run.message=delay?'目标尚未完成，Agent 已安排下一轮接续':'修复已完成，正在验证并接续';await persist(run);
+    guard(run);recoveryRound++;
+    const backoff=Math.min(300000,5000*2**Math.min(recoveryRound,6));
+    const delay=recovery?.budget?Math.max(60000,backoff):recovery?.delay??backoff;
+    const reason=recovery?.reason||'';
+    const nextAt=Date.now()+delay;
+    run.recovery={...run.recovery,round:recoveryRound,nextAt};
+    run.activity={state:'waiting-retry',phase:reason||'等待下一轮自动接续',at:Date.now(),nextAt};
+    run.message=reason||(delay?'目标尚未完成，Agent 已安排下一轮接续':'修复已完成，正在验证并接续');
+    await persist(run);
     if(adapters.waitForRecovery)await adapters.waitForRecovery(delay,ctx);else {let remaining=delay;while(remaining>0){guard(run);if((run.planRevision||0)!==iterationRevision)break;const step=Math.min(1000,remaining);await new Promise(r=>setTimeout(r,step));remaining-=step;}}
-    guard(run);delete ctx.artSnapshot;delete ctx.collabSnapshot;
+    guard(run);delete ctx.videoBudget;delete ctx.artSnapshot;delete ctx.collabSnapshot;
    }
   }catch(e){if(run.status==='paused'){run.message='已暂停；完成成果和在途任务已保留，下次只接续缺项';await log(run.message,'info');}else{if(run.status==='running')run.status='attention';run.message=e.message;await log(`流程提示：${e.message}`,'error');}await persist(run);}
  }
@@ -180,10 +196,10 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    await persist(run);
   },
   async updateVideoPolicy(id,value){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(active.has(id)||run.status==='running')throw Error('请先暂停并等待当前操作结束');const patch=Object.fromEntries(['videoAttempts','videoFallbackEnabled','fallbackVideoModel','fallbackVideoAttempts','videoFallbacks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,structuredClone(value[k])])),next={...run.config,...patch};const issues=videoPolicyIssues(next);if(issues.length)throw Error(issues.join('；'));await adapters.validateVideoPolicy?.(next);if(active.has(id)||run.status==='running')throw Error('任务正在运行，请先暂停');run.config=next;delete run.recovery?.nextAgentAt;run.message='视频失败接续策略已保存；已提交原任务继续监测，点击继续仅处理缺项';await persist(run);},
-  async agentTool(id,name,args={}){
-   const run=runs.find(r=>r.id===id);if(!run||!chatting.has(id))throw Error('当前没有授权的Agent对话');
+  async agentTool(id,name,args={},turnId){
+   const run=runs.find(r=>r.id===id);const token=chatting.get(id);if(!run||!token||(turnId&&token.id!==turnId))throw Error('当前没有授权的Agent对话');
    if(!args||typeof args!=='object'||Array.isArray(args))throw Error('工具参数无效');
-   const schedule=()=>{const epoch=run.controlEpoch||0;if(scheduled.get(id)?.epoch===epoch)return;const request={epoch};scheduled.set(id,request);void(async()=>{while(active.has(id)){if((run.controlEpoch||0)!==epoch)return;await new Promise(r=>setTimeout(r,25));}if((run.controlEpoch||0)!==epoch||run.chatPaused||scheduled.get(id)!==request)return;scheduled.delete(id);await controller.start(id);})().catch(()=>{}).finally(()=>{if(scheduled.get(id)===request)scheduled.delete(id);});};
+   const schedule=()=>{const epoch=run.controlEpoch||0;if(scheduled.get(id)?.epoch===epoch)return;if(chatting.get(id)!==token)return;const request={epoch};scheduled.set(id,request);void(async()=>{while(active.has(id)){if((run.controlEpoch||0)!==epoch)return;await new Promise(r=>setTimeout(r,25));}if((run.controlEpoch||0)!==epoch||run.chatPaused||scheduled.get(id)!==request)return;scheduled.delete(id);await controller.start(id);})().catch(()=>{}).finally(()=>{if(scheduled.get(id)===request)scheduled.delete(id);});};
    let result;
    if(name==='xingzhou_project'){result=await adapters.agentProjectTool(run,args);if(args.operation==='import_video'&&result?.status==='imported'){const paused=run.status==='paused'||run.chatPaused;result={...result,requiresContinue:paused,message:paused?'本机原片已验收登记；制作已手动暂停，继续后接续超分和剪辑':'本机原片已验收登记，原自动流程继续接续超分和剪辑'};if(!paused&&!active.has(id)&&run.status!=='done')schedule();}}
    else if(name!=='xingzhou_task')throw Error('未知行舟工具');
@@ -193,7 +209,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    else if(args.action==='update_settings'){if(!args.settings||typeof args.settings!=='object')throw Error('请提供设置');await controller.updateSettings(id,args.settings);result={status:'saved',message:'当前任务设置已更新，原成果保留'};}
    else if(args.action==='run_stage'){if(!['prompts','information','voices','art','images','videos'].includes(args.stage))throw Error('工序无效');run.planRevision=(run.planRevision||0)+1;run.chatPaused=false;run.dispatchHold=false;delete run.recovery?.nextAgentAt;await persist(run);if(run.status!=='running')schedule();result={status:'accepted',stage:args.stage,message:'已接续原制作主循环，完成当前工序后继续默认流程'};}
    else if(['set_scope','clear_scope'].includes(args.action)){
-    const previous=run.executionScope;if(args.action==='set_scope'){const scope=validateExecutionScope({episodes:args.episodes,until:args.until||run.config.endStage,after:args.after});await adapters.validateScope?.(run,scope);run.executionScope={...scope,sourceMessageId:run.operatorInstructions.at(-1).id};}else delete run.executionScope;
+    const previous=run.executionScope;if(args.action==='set_scope'){const scope=validateExecutionScope({episodes:args.episodes,until:args.until||run.config.endStage,after:args.after});await adapters.validateScope?.(run,scope);if(chatting.get(id)!==token)throw Error('本轮对话已停止');run.executionScope={...scope,sourceMessageId:token.latestInstruction};}else delete run.executionScope;
     for(const ep of run.episodes)if((previous?.episodes||[]).includes(ep.number)||(run.executionScope?.episodes||[]).includes(ep.number))ep.stage='waiting';
     run.planRevision=(run.planRevision||0)+1;delete run.recovery?.nextAgentAt;run.dispatchHold=false;const resume=args.resume!==false;if(resume)run.chatPaused=false;if(run.status==='done')run.status='paused';run.message='制作安排已更新，继续按原流程补齐素材、生成、超分和剪辑';await persist(run);if(resume&&run.status!=='running')schedule();result={status:'saved',temporary:true,scope:run.executionScope||null,resumeRequested:resume,workflowStatus:run.status,nextAction:resume?'continue_pipeline':'keep_current_status'};
    }else throw Error('未知制作动作');
@@ -203,21 +219,73 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    const message=result?.message&&/[\u3400-\u9fff]/.test(result.message)?result.message:summaries[operation]||fallback;
    run.conversation=[...(run.conversation||[]),{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool',tool:name,operation,args:JSON.stringify(args).slice(0,2000),result:JSON.stringify(result,(k,v)=>/api.?key|token|secret|password|authorization/i.test(k)?undefined:v).slice(0,6000),text:message}].slice(-200);await persist(run);return result;
   },
+  async updateChatAccess(id,mode){
+   const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');
+   if(!['standard','full'].includes(mode))throw Error('无效的对话权限');
+   if(chatting.has(id)||updating.has(id))throw Error('请等待当前操作结束后切换权限');
+   updating.add(id);const previous=run.config.chatAccess;
+   try{run.config.chatAccess=mode;await persist(run);}
+   catch(error){run.config.chatAccess=previous;throw error;}
+   finally{updating.delete(id);}
+  },
   async updateAgentModel(id,model,effort){const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(chatting.has(id))throw Error('请等待当前回复结束后切换模型');const available=await adapters.validateAgentModel?.(run,model,effort);if(chatting.has(id)||updating.has(id))throw Error('任务状态已变化，请等待当前操作结束后切换模型');run.config.agentModel=model;if(effort)run.config.agentEffort=effort;else if(available?.defaultEffort)run.config.agentEffort=available.defaultEffort;await persist(run);return run;},
-  async chat(id,{text='',attachments=[],model}){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');if(!Array.isArray(attachments)||attachments.length>20)throw Error('每条消息最多20个附件');if((!String(text||'').trim()&&!attachments.length)||text.length>8000)throw Error('请输入 1—8000 字指令');if(chatting.has(id)&&run.config.agentProtocol!=='codex'){const instruction={id:crypto.randomUUID(),at:Date.now(),text};run.operatorInstructions=[...(run.operatorInstructions||[]),instruction].slice(-100);run.pendingChats=[...(run.pendingChats||[]),{...instruction,attachments,model}];run.conversation=[...(run.conversation||[]),{...instruction,role:'user',attachments,turnId:run.chatTurns?.findLast(t=>t.status==='running')?.id},{id:crypto.randomUUID(),at:Date.now(),role:'system',text:'新指令已加入当前工作流，将在本次回复结束后自动接续。'}].slice(-200);await persist(run);return {reply:'新指令已加入当前工作流，将在本次回复结束后自动接续。',action:'none',queued:true};}const wasRunning=run.status==='running';const steer=chatting.has(id),activeStream=streaming.get(id);if(steer&&!adapters.steering)throw Error('Agent 正在回复，请稍候');if(!steer)chatting.add(id);
+  async chat(id,{text='',attachments=[],model,id:queuedId}){
+   if(updating.has(id))throw Error('设置正在保存，请稍后继续');
+   const run=runs.find(r=>r.id===id);if(!run)throw Error('任务不存在');
+   if(!Array.isArray(attachments)||attachments.length>20)throw Error('每条消息最多20个附件');
+   if((!String(text||'').trim()&&!attachments.length)||text.length>8000)throw Error('请输入 1—8000 字指令');
+   const instruction={id:queuedId||crypto.randomUUID(),at:Date.now(),text};
+   const activeTurn=chatting.get(id),steer=Boolean(activeTurn),wasRunning=run.status==='running';
+   if(steer&&run.config.agentProtocol==='codex'&&!adapters.steering)throw Error('Agent 正在回复，请稍候');
+   const token=activeTurn||{id:instruction.id,instructions:new Set(),abort:new AbortController()};
+   token.instructions.add(instruction.id);
+   if(!queuedId)run.operatorInstructions=[...(run.operatorInstructions||[]),instruction].slice(-100);
+   const history=(run.conversation||[]).filter(m=>!m.cancelled).slice(-16);
+   const userMessage={...instruction,role:'user',attachments,turnId:token.id};
+   run.conversation=[...(run.conversation||[]).filter(m=>!queuedId||m.id!==queuedId),userMessage].slice(-200);
+   if(steer&&run.config.agentProtocol!=='codex'){
+    run.pendingChats=[...(run.pendingChats||[]),{...instruction,attachments,model}];
+    const reply='新指令已加入当前工作流，将在本次回复结束后自动接续。';
+    run.conversation.push({id:crypto.randomUUID(),at:Date.now(),role:'system',text:reply});
+    await persist(run);return {reply,action:'none',queued:true};
+   }
+   token.latestInstruction=instruction.id;
+   const current=()=>chatting.get(id)===token;
+   const cancelled={reply:'',action:'none',cancelled:true};
    const add=async(role,message)=>{const event={id:crypto.randomUUID(),at:Date.now(),role,text:message};run.conversation=[...(run.conversation||[]),event].slice(-200);await persist(run);return event;};
-   try{const history=(run.conversation||[]).slice(-16);const instruction={id:crypto.randomUUID(),at:Date.now(),text};run.operatorInstructions=[...(run.operatorInstructions||[]),instruction].slice(-100);const userMessage=await add('user',text);userMessage.attachments=attachments;userMessage.turnId=steer?(activeStream?.turnId||run.chatTurns?.findLast(t=>t.status==='running')?.id):instruction.id;await persist(run);if(steer)return await adapters.chat(run,{text,attachments,model,history,steer:true});if(!steer){run.chatTurns=[...(run.chatTurns||[]),{id:instruction.id,startedAt:instruction.at,provider:run.config.agentProtocol,model:run.config.agentModel,effort:run.config.agentEffort,status:'running'}].slice(-100);}if(!steer){run.chatPaused=false;run.chatActive=true;run.dispatchHold=false;await persist(run);}
-    const draft=activeStream?.draft||{id:crypto.randomUUID(),at:Date.now(),role:'assistant',text:''};if(!activeStream){run.conversation=[...(run.conversation||[]),draft].slice(-200);streaming.set(id,{draft,turnId:instruction.id});await persist(run);}
-    const onDelta=async delta=>{draft.text+=String(delta||'');run.conversation=[...(run.conversation||[])].map(message=>message.id===draft.id?draft:message);await persist(run);};
-    const response=await adapters.chat(run,{text,attachments,model,history,steer,onDelta});if(steer)return response;let result='';if(response.reply&&!streaming.get(id)?.hasItems&&draft.text!==response.reply){draft.text=response.reply;await persist(run);}if(response.action==='set_scope'){run.executionScope={...validateExecutionScope(response.scope),sourceMessageId:run.operatorInstructions.at(-1).id};for(const ep of run.episodes)if(run.executionScope.episodes.includes(ep.number))ep.stage='waiting';run.dispatchHold=false;await persist(run);result='执行范围已保存：第 '+run.executionScope.episodes.join('、')+' 集；后续新提交按范围拦截。';}else{if(response.action==='clear_scope'){for(const ep of run.episodes)if(run.executionScope?.episodes.includes(ep.number))ep.stage='waiting';delete run.executionScope;result='本次对话已解除临时限制，恢复默认工作流的未完成部分。';}run.dispatchHold=false;await persist(run);}
+   if(!steer){
+    chatting.set(id,token);run.chatActive=true;run.chatPaused=false;run.dispatchHold=false;
+    run.chatTurns=[...(run.chatTurns||[]),{id:token.id,startedAt:instruction.at,provider:run.config.agentProtocol,model:run.config.agentModel,effort:run.config.agentEffort,status:'running'}].slice(-100);
+    const draft={id:crypto.randomUUID(),at:Date.now(),role:'assistant',text:'',turnId:token.id};
+    run.conversation.push(draft);streaming.set(id,{draft,turnId:token.id});
+   }
+   const draft=streaming.get(id)?.draft;
+   try{
+    await persist(run);if(!current())return cancelled;
+    const onDelta=async delta=>{if(current())await controller.chatDelta(id,delta,null,null,token.id);};
+    const response=await Promise.race([adapters.chat(run,{text,attachments,model,history,steer,onDelta,turnId:token.id}),new Promise(resolve=>token.abort.signal.addEventListener('abort',()=>resolve(cancelled),{once:true}))]);
+    if(!current()||steer)return current()?response:cancelled;
+    let result='';if(response.reply&&!streaming.get(id)?.hasItems&&draft.text!==response.reply)draft.text=response.reply;
+    if(response.action==='set_scope'){run.executionScope={...validateExecutionScope(response.scope),sourceMessageId:token.latestInstruction};for(const ep of run.episodes)if(run.executionScope.episodes.includes(ep.number))ep.stage='waiting';result='执行范围已保存：第 '+run.executionScope.episodes.join('、')+' 集；后续新提交按范围拦截。';}else if(response.action==='clear_scope'){for(const ep of run.episodes)if(run.executionScope?.episodes.includes(ep.number))ep.stage='waiting';delete run.executionScope;result='本次对话已解除临时限制，恢复默认工作流的未完成部分。';}
+    run.dispatchHold=false;await persist(run);if(!current())return cancelled;
     if(response.action==='pause'){await controller.pause(id);result='已暂停新任务派发。';}
     else if(response.action==='select_collab'){await controller.bindProject(id,response.projectId);result=`已改用协作项目 ${response.projectId}，点击继续接续。`;}
     else if(response.action==='refresh'||response.action==='continue'){if(active.has(id))result='任务正在运行，指令已记录；可暂停后重新读取接续。';else if(run.status==='done')result='任务已经完成，保留已完成结果。';else{await add('system','已接受接续指令，重新读取现有项目并执行未完成阶段。');void controller.start(id).catch(()=>{});}}
     if(result)await add('system',result);if(wasRunning&&!run.chatPaused&&response.action==='none'&&run.status==='attention'){void (async()=>{while(active.has(id))await new Promise(resolve=>setTimeout(resolve,100));if(run.status==='attention'&&!run.chatPaused)await controller.start(id);})().catch(()=>{});}return response;
-   }catch(error){if(!steer){run.dispatchHold=false;await add('system',`指令未完成：${error.message}`);}throw error;}finally{if(!steer){chatting.delete(id);streaming.delete(id);run.chatActive=false;const turn=run.chatTurns?.findLast(t=>t.status==='running');if(turn){turn.endedAt=Date.now();turn.status=run.chatPaused?'cancelled':'finished';}const next=!run.chatPaused?run.pendingChats?.shift():null;await persist(run);if(next)void controller.chat(id,next).catch(()=>{});}}
+   }catch(error){if(!current())return cancelled;if(!steer){run.dispatchHold=false;await add('system',`指令未完成：${error.message}`);}throw error;}
+   finally{if(!steer&&current()){
+    chatting.delete(id);streaming.delete(id);run.chatActive=false;
+    const turn=run.chatTurns.find(t=>t.id===token.id);turn.endedAt=Date.now();turn.status=run.chatPaused?'cancelled':'finished';
+    const next=!run.chatPaused?run.pendingChats?.[0]:null;await persist(run);
+    if(next&&run.pendingChats?.[0]===next&&!chatting.has(id)){run.pendingChats.shift();void controller.chat(id,next).catch(()=>{});}
+   }}
   },
-  async chatDelta(id,delta,progress,meta){const stream=streaming.get(id),run=runs.find(r=>r.id===id);if(!stream||!run)return;if(progress){const incoming=typeof progress==='string'?{text:progress}:progress,previous=incoming.id&&run.conversation?.find(e=>e.providerToolId===incoming.id),event={...(previous||{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool'}),...Object.fromEntries(Object.entries({providerToolId:incoming.id,text:incoming.text,tool:incoming.tool,operation:incoming.operation,status:incoming.status,args:incoming.args,result:incoming.result}).filter(([,v])=>v!==undefined))};run.conversation=[...(run.conversation||[]).filter(e=>e.id!==event.id),event].slice(-200);await persist(run);return;}let target=stream.draft;if(meta?.itemId){stream.hasItems=true;target=run.conversation.find(message=>message.providerItemId===meta.itemId);if(!target){if(!stream.draft.text&&!stream.draft.providerItemId){target=stream.draft;target.providerItemId=meta.itemId;}else{target={id:crypto.randomUUID(),providerItemId:meta.itemId,at:Date.now(),role:'assistant',text:''};run.conversation=[...(run.conversation||[]),target];}}}if(meta?.phase)target.phase=meta.phase;target.text+=String(delta||'');run.conversation=[...(run.conversation||[])].map(message=>message.id===target.id?target:message);await persist(run);},
-  async pause(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)return;run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);},
-  async pauseAll(){for(const run of runs)if(run.status==='running'){run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);}},
+  async stopChat(id){
+   const run=runs.find(r=>r.id===id),token=chatting.get(id);if(!run||!token)return;
+   cancelTurn(run,true);await Promise.all([adapters.stopChat?.(run,token.id),persist(run)]);
+  },
+  async chatDelta(id,delta,progress,meta,turnId){const stream=streaming.get(id),run=runs.find(r=>r.id===id);if(!stream||!run||(turnId&&turnId!==stream.turnId))return;if(progress){const incoming=typeof progress==='string'?{text:progress}:progress,previous=incoming.id&&run.conversation?.find(e=>e.providerToolId===incoming.id),event={...(previous||{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool'}),...Object.fromEntries(Object.entries({providerToolId:incoming.id,text:incoming.text,tool:incoming.tool,operation:incoming.operation,status:incoming.status,args:incoming.args,result:incoming.result}).filter(([,v])=>v!==undefined))};run.conversation=[...(run.conversation||[]).filter(e=>e.id!==event.id),event].slice(-200);await persist(run);return;}let target=stream.draft;if(meta?.itemId){stream.hasItems=true;target=run.conversation.find(message=>message.providerItemId===meta.itemId);if(!target){if(!stream.draft.text&&!stream.draft.providerItemId){target=stream.draft;target.providerItemId=meta.itemId;}else{target={id:crypto.randomUUID(),providerItemId:meta.itemId,at:Date.now(),role:'assistant',text:''};run.conversation=[...(run.conversation||[]),target];}}}if(meta?.phase)target.phase=meta.phase;target.text+=String(delta||'');run.conversation=[...(run.conversation||[])].map(message=>message.id===target.id?target:message);await persist(run);},
+  async pause(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)return;cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);},
+  async pauseAll(){for(const run of runs)if(run.status==='running'||chatting.has(run.id)){cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);}},
  };return controller;
 }
