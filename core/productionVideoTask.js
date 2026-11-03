@@ -12,9 +12,10 @@ export async function runProductionVideoTask({ctx,item,tasks,models,submit,refre
  let candidates=matching(),job=candidates.find(j=>j.status==='success')||candidates.find(j=>!['failed','success'].includes(j.status))||candidates.at(-1);
  if(job?.status==='failed'&&isFundingError(job.error)){item.previousFailedJobs=[...(item.previousFailedJobs||[]).filter(j=>j.id!==job.id),{id:job.id,status:'failed',profileId:job.profileId,model:job.model,error:job.error}];job=null;}
  if(!job&&['submitting','uncertain'].includes(originalStatus))throw Error('此前提交结果未确认，继续核对原任务，不能重复生成');
- let release;try{while(true){ctx.guard();
-  if(job){if(!release)release=await acquire?.(null,job);remember(job);await observe(job);
-   if(job.status==='success'){Object.assign(item,await archive(job),{status:'downloaded',error:'',warning:''});await ctx.checkpoint();await ctx.log?.(`${item.label} · 已成功，视频池下载完成并按集归档。`,'success');await onReady();return;}
+ const imported=()=>!item.localImport?.needsRestore&&item.localImport?.sha256===item.sha256&&Boolean(item.outputFile);
+ let release;try{while(true){ctx.guard();if(imported()){if(job?.id){remember(job);item.jobId||=job.id;}item.status='downloaded';item.error='';item.warning='';await ctx.checkpoint();await onReady();return;}
+  if(job){if(!release)release=await acquire?.(null,job);remember(job);await observe(job);if(imported()){if(job?.id){remember(job);item.jobId||=job.id;}item.status='downloaded';item.error='';item.warning='';await ctx.checkpoint();await onReady();return;}
+   if(job.status==='success'){const archived=await archive(job);if(!imported())Object.assign(item,archived);Object.assign(item,{status:'downloaded',error:'',warning:''});await ctx.checkpoint();await ctx.log?.(`${item.label} · 已成功，视频池下载完成并按集归档。`,'success');await onReady();return;}
    if(job.status==='failed'){
     if(isFundingError(job.error)){ctx.videoBudget=job.error;throw Error(job.error);}
     const previous=item.previousFailedJobs||[];if(!previous.some(j=>j.id===job.id))item.previousFailedJobs=[...previous,{id:job.id,status:'failed',profileId:job.profileId,model:job.model,error:job.error}];await ctx.checkpoint();job=null;release?.();release=null;

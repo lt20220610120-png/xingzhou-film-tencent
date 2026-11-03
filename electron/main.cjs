@@ -1,5 +1,5 @@
 const {pruneUpdateCache}=require('./update-cache.cjs');
-const { app, BrowserWindow, WebContentsView, session, dialog, ipcMain: rawIpcMain, protocol, net, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, dialog, ipcMain: rawIpcMain, protocol, net, shell, safeStorage, nativeImage } = require('electron');
 const path = require('path');
 app.setName('行舟影视（腾讯云版）');
 app.setAppUserModelId('com.xingzhou.film.tencent');
@@ -490,10 +490,10 @@ function startWorkflowTimer(){
 }
 
 const productionAwake=require('./production-awake.cjs').createProductionAwake(require('electron').powerSaveBlocker);
-productionHost=require('./production-host.cjs').createProductionHost({root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),onActivity:(id,running)=>productionAwake.set(id,running),dialog,shell});
+productionHost=require('./production-host.cjs').createProductionHost({thumbnail:async file=>(await nativeImage.createThumbnailFromPath(file,{width:96,height:72})).toDataURL(),root:()=>path.join(getDataDir(),'production-runs'),authorize:workflowAdmin,mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),onActivity:(id,running)=>productionAwake.set(id,running),dialog,shell});
 const productionToolBridge=require('./production-tool-bridge.cjs').createProductionToolBridge();
 ipcMain.handle('production-agent-tool-result',async(event,p)=>{await workflowAdmin();return productionToolBridge.respond(event.sender,p);});
-for(const action of ['list','save','choose','discover','agentHelp','preflight','connect','chat','audit','work','verify','archive','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(event,p)=>{await workflowAdmin();return productionHost[action](action==='chat'?{...p,onDelta:(delta,meta)=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,delta,meta});},onProgress:text=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,progress:text});},callTool:(name,args)=>productionToolBridge.request(event.sender,p.runId,name,args)}:p);});
+for(const action of ['list','save','choose','discover','agentHelp','preflight','connect','chat','attach','audit','work','verify','archive','importVideo','post','postStatus','open','stop'])ipcMain.handle('production-'+action,async(event,p)=>{await workflowAdmin();return productionHost[action](action==='chat'?{...p,onDelta:(delta,meta)=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,delta,meta});},onProgress:text=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,progress:text});},callTool:(name,args)=>productionToolBridge.request(event.sender,p.runId,name,args)}:p);});
 
 ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});

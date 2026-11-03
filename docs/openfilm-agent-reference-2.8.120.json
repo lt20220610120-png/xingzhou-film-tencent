@@ -1,0 +1,44 @@
+{
+  "tool": "rea-agents@6.8.0 CLI",
+  "skill": "reverse-engineer-anything (morluto/rea)",
+  "parent_evidence_id": "ev_a5997f03036a29788eb6453c80f35acb06d55aace6b9f18032e202f181626741",
+  "summary_evidence_id": "ev_b8dba581bed19b49dc5e40636405c76a0dae30807a1ffbbcaf957252543178e9",
+  "artifact": {
+    "path": "D:\\Openfilm\\resources\\app.asar",
+    "sha256": "fc849333967316b5340c1ede44d3b4159998cb52c0402a368325fcbe02fcffeb"
+  },
+  "sources": {
+    "requested_paths": [
+      "src/agents.mjs",
+      "src/chat-ipc.mjs",
+      "src/chat-store.mjs"
+    ],
+    "unselected_files": 12238
+  },
+  "statistics": {
+    "relevant_files": 12244,
+    "nested_asar_containers": 0,
+    "text_bytes_read": 109240,
+    "invalid_utf8_files": 0,
+    "parsed_javascript_files": 3,
+    "skipped_javascript_files": 0,
+    "visited_ast_nodes": 13201,
+    "findings": 198,
+    "modules": 0,
+    "parse_failures": 0
+  },
+  "limitations": [
+    "仅检查3个Agent/附件/聊天存储模块，其他12238个库存文件未分析；语义图保留上限导致部分覆盖。",
+    "REA是静态分析，不证明OpenFilm实际执行权限；实际界面已单独打开观察，前端full-access偏好由本机bundle只读定位。"
+  ],
+  "observations": [
+    "agents.mjs提供ACP AgentSession及session/update、权限请求、会话模型设置。",
+    "chat-ipc.mjs有独立附件路径/字节接口与主窗口校验。",
+    "chat-store.mjs分别保存对话turn/items与日志。"
+  ],
+  "ordinary_source_observations": [
+    "shell/dist/assets/index-DLLweOMY.js的强制偏好中codex mode为agent-full-access。",
+    "行舟原production-agent.cjs线程原设置为read-only/on-request，现交互会话明确完整权限。"
+  ],
+  "complete_evidence_bundle": "output/rea-openfilm-120-focused-evidence"
+}

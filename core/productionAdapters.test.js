@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createProductionAdapters,productionArtResumePlan} from '../src/v06/productionAdapters.js';
 import {selectProductionReferences} from './productionReferenceSelection.js';
-import {productionDefaults} from './productionFurnace.js';
+import {productionDefaults,createProductionController} from './productionFurnace.js';
 import {newArtReview,editArtReview,reviewSceneSignature} from './artReview.js';
 import {bindingSnapshot,proposeEntryBinding,linkedPromptBook} from './promptArtBinding.js';
 function fixture(){
@@ -146,3 +146,9 @@ test('first-episode adjustment generates only its missing clip, switches fallbac
 });
 
 test('live scope narrowing while a generation is in flight preserves that job and stops later episodes from dispatch',async()=>{const f=fixture();f.run.config.videoConcurrency=1;f.run.config.endStage='archive';const submit=f.api.generationSubmit;let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);f.api.generationSubmit=async input=>{if(input.shotLabel==='1-1-1'){entered();await gate;}return submit(input);};const work=f.adapter.videos(f.ctx);await started;f.run.executionScope={episodes:[1],until:'archive'};f.run.planRevision=1;release();await work;assert.equal(f.run.items.filter(i=>i.episode===1&&i.status==='downloaded').length,2);assert.equal(f.events.filter(e=>e.startsWith('submit:2')).length,0);assert.equal(f.run.status,'running');});
+
+
+test('actual production adapters complete a shallow priority then resume all episodes through default editing',async()=>{const f=fixture();f.run.stages={};let c;c=createProductionController({load:async()=>[f.run],save:async()=>{},adapters:{videos:ctx=>f.adapter.videos(ctx),chat:async run=>{await c.agentTool(run.id,'xingzhou_task',{action:'set_scope',episodes:[1],until:'archive'});return{reply:'优先第一集，之后恢复默认',action:'none'};}}});await c.restore();await c.chat(f.run.id,{text:'第一集先归档，然后继续全剧到剪辑'});for(let i=0;i<200&&f.run.status!=='done';i++)await new Promise(r=>setTimeout(r,2));assert.equal(f.run.status,'done',JSON.stringify({message:f.run.message,errors:f.run.stageErrors,episodes:f.run.episodes,events:f.events}));assert.equal(f.run.executionScope,undefined);assert(f.events.includes('edit:1'));assert(f.events.includes('edit:2'));assert(f.events.indexOf('archive:1-1-2')<f.events.indexOf('submit:2-1-1'));assert.equal(f.events.filter(v=>v==='submit:1-1-1').length,1);assert.equal(f.run.executorActive,false);});
+
+
+test('a damaged local import restores from its source even with no remote job or generation references',async()=>{const f=fixture();f.run.config.endStage='archive';const assets=await f.api.collabListAssets();assets.forEach(a=>a.images=[]);f.run.items=f.state.directorProjects[0].episodes.flatMap(e=>e.prompts.map(p=>({id:'linked:collab:'+p.id,label:p.label,episode:e.episodeNumber,status:p.id==='p11'?'local-missing':'downloaded',outputFile:p.label+'.mp4',sha256:'original-hash',...(p.id==='p11'?{localImport:{sourcePath:'D:/fixture/original.mp4',sha256:'original-hash',needsRestore:true}}:{})})));let restored=0;f.api.productionImportVideo=async input=>{restored++;assert.equal(input.sourcePath,'D:/fixture/original.mp4');return{outputFile:'restored.mp4',sha256:'original-hash',localImport:{sourcePath:input.sourcePath,sha256:'original-hash'}};};await f.adapter.videos(f.ctx);assert.equal(restored,1);assert.equal(f.run.items[0].status,'downloaded');assert.equal(f.run.items[0].localImport.needsRestore,undefined);assert.equal(f.jobs.length,0);assert(f.run.episodes.every(e=>e.stage==='done'));});

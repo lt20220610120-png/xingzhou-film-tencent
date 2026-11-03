@@ -264,7 +264,7 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
 
   useEffect(() => {
     let frame;
-    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => actions.current.syncBounds()); };
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => {const host=hostRef.current;if(activeRef.current&&host?.getClientRects().length){const height=Math.max(260,Math.floor(window.innerHeight-host.getBoundingClientRect().top-12))+'px';if(host.style.getPropertyValue('--workbuddy-view-height')!==height)host.style.setProperty('--workbuddy-view-height',height);}actions.current.syncBounds();}); };
     const observer = new ResizeObserver(schedule);
     if (hostRef.current) observer.observe(hostRef.current);
     window.addEventListener('resize', schedule);
@@ -279,7 +279,7 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
     dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'aria-modal'] });
     checkModal(); schedule();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', schedule); window.removeEventListener('scroll', schedule, true); };
-  }, []);
+  }, [panelActive]);
 
   useEffect(() => {
     if (!updating) return;
@@ -347,8 +347,7 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
         {release?.available && <button className="primary" onClick={requestUpdate} disabled={pending}>更新至 {release.latestVersion}</button>}
       </div>
     </div>
-    <div className="workbuddy-install-info"><ShieldCheck size={14} /><span>使用当前行舟管理员身份连接</span><button onClick={selectRoot} disabled={pending}><FolderOpen size={14} />{busy === 'select' ? '选择中…' : status?.installed ? '更换安装目录' : '选择安装目录'}</button></div>
-    {status?.root && <p className="workbuddy-root" title={status.root}>安装目录：{status.root}</p>}
+    <div className="workbuddy-install-info"><ShieldCheck size={14} /><span>使用当前行舟管理员身份连接</span>{status?.root && <span className="workbuddy-root" title={status.root}>安装目录：{status.root}</span>}<button onClick={selectRoot} disabled={pending}><FolderOpen size={14} />{busy === 'select' ? '选择中…' : status?.installed ? '更换安装目录' : '选择安装目录'}</button></div>
     {error && <div className="auth-error workbuddy-error" role="alert"><AlertCircle size={16} /><span>{error}</span><button onClick={refresh} disabled={pending}>重试连接</button></div>}
     {notice && !error && <div className="auth-notice workbuddy-notice" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
     {updating && <div className="workbuddy-progress" role="status" aria-live="polite"><LoaderCircle size={19} className="workbuddy-spin" /><div><strong>正在更新控制面板</strong><p>{progress?.message || '正在下载并验证官方更新…'}</p><small>账号与配置将保留，请勿关闭软件。</small></div></div>}

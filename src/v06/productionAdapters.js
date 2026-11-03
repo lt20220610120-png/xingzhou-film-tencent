@@ -92,7 +92,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   async monitor(ctx){
    if(api.productionVerify&&ctx.run.items?.some(i=>i.status==='downloaded')){
     ctx.run.outputVerificationFailed=true;const files=await api.productionVerify({runId:ctx.run.id});ctx.guard();ctx.run.outputVerificationFailed=false;ctx.run.monitor={...ctx.run.monitor,files};
-    for(const item of ctx.run.items)if(files.invalidItems.includes(item.id)){item.status='uncertain';item.error='原片文件验收未通过，接续原任务重新归档；未重新提交生成';}
+    for(const item of ctx.run.items)if(files.invalidItems.includes(item.id)){if(item.localImport){item.localImport.needsRestore=true;item.status='local-missing';item.error='本机导入副本验收未通过，将从原来源核实恢复';}else{item.status='uncertain';item.error='原片文件验收未通过，接续原任务重新归档；未重新提交生成';}}
     for(const ep of ctx.run.episodes)if(files.invalidEpisodes.includes(ep.number)||ctx.run.items.some(i=>i.episode===ep.number&&files.invalidItems.includes(i.id))){ep.stage='waiting';ep.error='输出文件需要接续核对';}
     await ctx.checkpoint();
    }
@@ -109,10 +109,11 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    const config=Object.fromEntries(Object.entries(run.config).filter(([key])=>key!=='scriptText'&&!/api.?key|token|secret|password|authorization/i.test(key)));return {assignment:productionAssignment(run),status:run.status,config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
   },
   steering:true,
-  async chat(run,{text,model,history,onDelta,steer}){return api.productionChat({runId:run.id,text,model,history,steer});},
+  async chat(run,{text,attachments,model,history,onDelta,steer}){return api.productionChat({runId:run.id,text,attachments,model,history,steer});},
   async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
   async validateScope(run,scope){const numbers=listCollabEpisodes(project(run).episodes).map(e=>e.episodeNumber);if(scope.episodes.some(n=>!numbers.includes(n)))throw Error('指定集数不在当前项目中');},
   async agentProjectTool(run,args){
+   if(args.operation==='import_video'){const item=run.items.find(i=>i.id===args.itemId);if(!item)throw Error('请选择当前任务视频条目');const result=await api.productionImportVideo({runId:run.id,itemId:item.id,sourcePath:args.sourcePath});Object.assign(item,result,{status:'downloaded',error:'',warning:''});delete item.upscaleError;const ep=run.episodes.find(e=>e.number===item.episode);if(ep&&ep.stage!=='done'){ep.stage='waiting';delete ep.error;}run.planRevision=(run.planRevision||0)+1;return{status:'imported',label:item.label,outputFile:item.outputFile,sha256:item.sha256,message:'本机原片已验收并纳入制作记录，自动接续超分和剪辑；没有重新生成视频'};}
    const ctx={run,guard:()=>{},checkpoint:async()=>{},log:async()=>{},readOnly:true},state=await readArt(ctx,true),projectId=state.p.id;
    if(!projectId)throw Error('当前任务尚未绑定协作项目');
    if(args.operation==='project')return agentDataPage(state.p,args);
@@ -248,6 +249,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    };
    const worker=async(item)=>{ctx.guard();if(item.status==='downloaded')return;const entry=book.entries.find(e=>e.id===item.id);if(!entry){item.status='blocked';item.error='来源提示词已变化';return;}
     try{
+     if(item.localImport?.needsRestore){Object.assign(item,await api.productionImportVideo({runId:run.id,itemId:item.id,sourcePath:item.localImport.sourcePath}),{status:'downloaded',error:''});await ctx.checkpoint();await postReady();return;}
      await runProductionVideoTask({ctx:{...ctx,guard:()=>{ctx.guard();if(!episodeAllowed(run,item.episode))throw Error('执行范围已调整，原任务保留后台监测');}},item,tasks,models:videoModels,wait,acquire,
       submit:async selected=>{
        checkSource();if(run.dispatchHold||!episodeAllowed(run,item.episode))throw Object.assign(Error('用户指令已限制新提交，保留原任务'),{beforeSubmission:true});const selectedProfile=generationMediaProfiles(getState(),'video').find(m=>m.id===selected.profileId);
@@ -269,6 +271,8 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     if(loadedRevision!==revision){if(loadedRevision!==-1||ctx.imagesPending||revision){const current=await loadFreshBinding({api,projectId:p.id,accountId:getAccount().id,localSources:getState().directorProjects});book=linkedPromptBook(current.snapshot,current.decisions,getAccount().id,{voiceEnabled:voiceAutomationEnabled(c),omittedAssetIds:Object.keys(run.imageItems||{}).filter(id=>run.imageItems[id].status==='skipped')});checkSource();}loadedRevision=revision;}
     const queue=run.items.filter(item=>{
      if(!episodeAllowed(run,item.episode)||item.status==='downloaded'||running.has(item.id)||attempted.get(item.id)===revision)return false;
+     // Restoring an imported original needs no generation references or paid submission.
+     if(item.localImport?.needsRestore)return true;
      // Preserve unknown paid submissions even if their references are unavailable.
      if(['uncertain','submitting'].includes(item.status)||item.jobId||tasks.some(j=>j.workflowRunId===run.id&&j.workflowItemId===item.id))return true;
      if(run.dispatchHold||!episodeAllowed(run,item.episode))return false;
