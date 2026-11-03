@@ -28,3 +28,9 @@
 
 - 未执行真实付费视频生成，未改动用户制作项目、生产队列或媒体文件。
 - Hermes 的模型目录来自本机 `hermes-acp.exe` 的真实 ACP 会话；Codex 的模型目录来自本机最新 App Server 的真实 `model/list` 响应。
+## 公开发布
+
+- GitHub Release：`432267793`，资产状态与浏览器下载 HEAD 均为正常；资产大小和 digest 与本地安装包一致。
+- 官方 `https://xingzhoufilm.cn/api/updates/latest.json` 与 `xingzhou-film-updates`、`xingzhou-film-tencent` 两份 GitHub 签名清单均为 2.8.121，Ed25519 校验通过。
+- 官方镜像 Range 请求返回 `206`，开头 65536 字节与本地安装包逐字节一致，固定 TLS 证书核验通过。
+- 官方安装包：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.121.exe`。
