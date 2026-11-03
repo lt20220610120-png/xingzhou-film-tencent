@@ -17,3 +17,5 @@ UI采用现有浅紫白色与UI/UX Pro Max的状态反馈/紧凑导航原则；�
 - 实际AdminPanel三宽1280/1700/2232：标题及四管理入口同水平、冗余标题不存在、状态和输入框首屏可见；模型/强度、Hermes模型、过程折叠、即时发送正常。output/119-ui-final.log与output/playwright/workspace-28119-ui.json；截图workspace-28119-paused-1700.png。
 
 安装包运行与公开发布结果在完成后追加。未修改用户制作数据、未安装替换正在运行的客户端；此次真实模型验证只操作隔离内存工具，不代表真实付费生成、Topaz增强和OpenFilm成片的联合实跑。
+
+追加界面要求（同轮119，未发布前）：开工/运行导航并入run-command-bar，项目名称/任务切换/状态/操作同一水平线。取消原双行标签布局与重复strong+select；单个项目选择入口使用appearance:none、右侧32px留白和独立箭头，长名title查看。三宽UI补验同一中心线、各组无重叠、长项目名+双任务实际切换，已通过。
