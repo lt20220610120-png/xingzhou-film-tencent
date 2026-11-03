@@ -42,9 +42,35 @@ async function topazEncoder(executable,run=execute){
 const topazSetupError=message=>Object.assign(Error(message),{code:'TOPAZ_SETUP_REQUIRED'});
 function productionSoftwareError(error){
  const message=String(error?.message||error),detail=String(error?.stderr||''),output=String(error?.stdout||''),diagnostic=`${message}\n${detail}\n${output}`;
- if(/parseAuth|auth\.tpz|login|licen[cs]e|授权|过期|expired|activation/i.test(diagnostic))return topazSetupError('Topaz AI 授权不可用或已过期。请在 Topaz 中登录或续期，行舟影视会自动复查；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
+ if(/parseAuth[^\r\n]*(?:null|fail|invalid|expired)|unauthorized|licen[cs]e[^\r\n]*(?:expired|invalid|fail)|授权|过期|activation failed/i.test(diagnostic))return topazSetupError('Topaz AI 授权不可用或已过期。请在 Topaz 中登录或续期，行舟影视会自动复查；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
  if(/No filtered frames/i.test(diagnostic)&&[3221225477,-1073741819].includes(Number(error?.code)))return topazSetupError('Topaz AI 未产出画面，授权或模型组件可能不可用。请在 Topaz 中确认登录、授权和 Proteus 模型，行舟影视会自动复查；原片及已验收成果均已保留，未改用普通放大冒充 AI 超分。');
  if(/Model not found|No filtered frames/i.test(diagnostic))return topazSetupError('Topaz AI 超分模型或组件不可用。请在 Topaz 中修复 Proteus 模型，行舟影视会自动复查；未改用普通放大冒充 AI 超分。');
  return error instanceof Error?error:Error(message);
 }
 module.exports={discoverSoftware,topazComponents,openFilmComponents,checkTopaz,topazEncoder,productionSoftwareError,registeredLocations};
+
+function topazFilter(config,width,height){
+ const factor=Number(config.upscaleFactor),device=String(config.topazDevice??'-2'),estimate=Number(config.topazEstimate??8);
+ if(![2,4].includes(factor))throw Error('超分倍率应为2或4');
+ if(!['-2','-1','0','1'].includes(device))throw Error('请选择有效的Topaz处理设备');
+ if(![0,8,20].includes(estimate))throw Error('请选择有效的Proteus自动估计帧数');
+ return `tvai_up=model=prob-4:scale=${factor}:estimate=${estimate}:device=${device},scale=${width*factor}:${height*factor}`;
+}
+async function testTopaz(config,{run=execute}={}){
+ const components=topazComponents(config.topazPath),filter=topazFilter(config,256,256);
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-topaz-test-'));
+ const input=path.join(directory,'input.mp4'),output=path.join(directory,'enhanced.mp4');
+ const options={cwd:components.directory,windowsHide:true,timeout:90000,maxBuffer:4*1024*1024,env:{...process.env,TVAI_MODEL_DIR:path.join(components.directory,'models'),TVAI_MODEL_DATA_DIR:path.join(components.directory,'models')}};
+ try{
+  const encoder=await topazEncoder(components.ffmpeg,run);
+  await run(components.ffmpeg,['-hide_banner','-nostdin','-y','-f','lavfi','-i','testsrc2=size=256x256:rate=24:duration=1',...encoder.args,'-pix_fmt','yuv420p',input],options);
+  await run(components.ffmpeg,['-hide_banner','-nostdin','-n','-i',input,'-vf',filter,...encoder.args,'-pix_fmt','yuv420p',output],options);
+  const {stdout}=await run(components.ffprobe,['-v','error','-show_entries','stream=codec_type,width,height:format=duration','-of','json',output],options);
+  const data=JSON.parse(stdout),video=data.streams?.find(v=>v.codec_type==='video'),size=256*Number(config.upscaleFactor);
+  if(video?.width!==size||video?.height!==size||Number(data.format?.duration)<0.8||!fs.statSync(output).size)throw Error('Topaz未产出可验收的AI超分文件');
+  return {ready:true,message:`真实Proteus超分通过：256×256 → ${size}×${size}，1秒测试片已验收`,filter,encoder:encoder.name};
+ }catch(error){const failure=productionSoftwareError(error);return {ready:false,code:failure.code||'TOPAZ_TEST_FAILED',message:failure.code?failure.message:'Topaz真实超分测试失败，请检查授权、模型、设备或编码器。',filter};}
+ finally{fs.rmSync(directory,{recursive:true,force:true});}
+}
+module.exports.topazFilter=topazFilter;
+module.exports.testTopaz=testTopaz;

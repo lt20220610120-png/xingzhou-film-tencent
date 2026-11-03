@@ -61,7 +61,7 @@ function createProductionHost({root,authorize,mediaRoot,listJobs,dialog,shell,th
    let receipt;try{receipt=JSON.parse(fs.readFileSync(receiptPath,'utf8'));}catch{}
    if(receipt?.inputHash===clip.sha256&&receipt.factor===factor&&fs.existsSync(file)&&receipt.sha256===digest(file)){output.push(receipt);continue;}
    if(fs.existsSync(file))throw Error('超分目录已有未经核验的同名视频，已保留');const partial=path.join(dest,safe(clip.label)+'.'+crypto.randomUUID()+'.partial.mp4');
-   try{await command(run,ffmpeg,['-hide_banner','-nostdin','-n','-i',clip.outputFile,'-vf',`tvai_up=model=prob-4:scale=${factor}:estimate=8:device=-2,scale=${input.width*factor}:${input.height*factor}`,...encoderArgs,'-pix_fmt','yuv420p','-c:a','copy',partial],{cwd:toolDir,windowsHide:true,timeout:8*60*60*1000,maxBuffer:16*1024*1024,env:{...process.env,TVAI_MODEL_DIR:path.join(toolDir,'models'),TVAI_MODEL_DATA_DIR:path.join(toolDir,'models')}});}catch(error){if(fs.existsSync(partial))fs.unlinkSync(partial);throw productionSoftwareError(error);}
+   try{await command(run,ffmpeg,['-hide_banner','-nostdin','-n','-i',clip.outputFile,'-vf',require('./production-software.cjs').topazFilter(run.config,input.width,input.height),...encoderArgs,'-pix_fmt','yuv420p','-c:a','copy',partial],{cwd:toolDir,windowsHide:true,timeout:8*60*60*1000,maxBuffer:16*1024*1024,env:{...process.env,TVAI_MODEL_DIR:path.join(toolDir,'models'),TVAI_MODEL_DATA_DIR:path.join(toolDir,'models')}});}catch(error){if(fs.existsSync(partial))fs.unlinkSync(partial);throw productionSoftwareError(error);}
    await check(run);const info=await probe(ffprobe,partial);if(info.width!==input.width*factor||info.height!==input.height*factor||Math.abs(info.duration-input.duration)>0.5)throw Error('超分尺寸或时长与原片不符');
    await check(run);fs.renameSync(partial,file);receipt={id:clip.id,label:clip.label,file,inputHash:clip.sha256,factor,sha256:digest(file),...info};atomic(receiptPath,receipt);output.push(receipt);
   }
@@ -75,15 +75,16 @@ function createProductionHost({root,authorize,mediaRoot,listJobs,dialog,shell,th
   async discover(){await account();const result={};try{const {stdout}=await exec('where.exe',['codex.exe'],{windowsHide:true,timeout:5000});result.agentPath=stdout.trim().split(/\r?\n/)[0];}catch{}
    if(!result.agentPath){const bin=path.join(os.homedir(),'AppData','Local','OpenAI','Codex','bin');if(fs.existsSync(bin)){const files=fs.readdirSync(bin).map(n=>path.join(bin,n,'codex.exe')).filter(p=>fs.existsSync(p));files.sort((a,b)=>fs.statSync(b).mtimeMs-fs.statSync(a).mtimeMs);result.agentPath=files[0]||'';}}
    Object.assign(result,await discoverSoftware());result.agents=require('./production-agent-registry.cjs').discoverAgents();return result;},
-  async preflight(c){await account();const issues=[];
+  async testTopaz(c){await account();return require('./production-software.cjs').testTopaz(c);},
+  async preflight(c){await account();const issues=[],warnings=[];
    const requireFile=(file,label)=>{if(!file||!fs.existsSync(file)||!fs.statSync(file).isFile())throw Error(label+'不存在，请重新选择');};
    try{const dir=fs.realpathSync(c.outputRoot);if(!fs.statSync(dir).isDirectory())throw Error('不是文件夹');const test=path.join(dir,'.xingzhou-write-'+crypto.randomUUID());fs.writeFileSync(test,'',{flag:'wx'});fs.unlinkSync(test);}catch{issues.push('输出目录不可写，请重新选择');}
    try{const ffprobe=await findProbe(c);await exec(ffprobe,['-version'],{windowsHide:true,timeout:10000});}catch(e){issues.push('视频验收组件不可用：'+e.message);}
    for(const [key,label]of [['musicFolder','背景音乐目录'],['soundFolder','音效目录'],['voiceFolder','音色目录']])if(c[key]&&(!fs.existsSync(c[key])||!fs.statSync(c[key]).isDirectory()))issues.push(label+'不存在');
    if(c.endStage==='edit'&&c.tailFrameMode==='custom'&&(!c.tailFramePath||!fs.existsSync(c.tailFramePath)||!fs.statSync(c.tailFramePath).isFile()))issues.push('指定尾帧文件不存在');
-   if(c.endStage!=='archive')try{await checkTopaz(c.topazPath);}catch(e){issues.push(e.message);}
+   if(c.endStage!=='archive')try{await checkTopaz(c.topazPath);const test=await require('./production-software.cjs').testTopaz(c);if(!test.ready)warnings.push(test.message);}catch(e){issues.push(e.message);}
    if(c.endStage==='edit')try{openFilmComponents(c.openFilmPath);await findNode();}catch(e){issues.push(e.message);}
-   return {issues};
+   return {issues,warnings};
   },
   async connect(c){await account();const client=createAgentClient({executable:c.path,protocol:c.protocol,cwd:os.homedir()});try{return await client.connect({status:true});}finally{client.close();}},
   async bindingOptions({runId,projectId}){const run=await read(runId);await check(run);if(projectId!==run.collabProjectId)throw Error('素材来源与制作项目不一致');return {voiceEnabled:run.config.voiceEnabled===true,omittedAssetIds:Object.keys(run.imageItems||{}).filter(id=>run.imageItems[id].status==='skipped')};},
