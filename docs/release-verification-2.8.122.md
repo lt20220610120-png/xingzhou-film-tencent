@@ -29,3 +29,11 @@
 
 - 未执行真实付费生成，未修改用户制作项目或成片。
 - 当前本机 Topaz 授权/模型仍未通过真实 AI 超分，因此本版不宣称已成功产出 AI 超分视频；已验证真实错误被识别并阻止伪替代。
+
+## 公开发布
+
+- 源码提交：`184a518`（`release v2.8.122`）。GitHub Release ID `432313259`。
+- 官网、updates 仓库和源码仓库三份 `latest.json` 均为 2.8.122，Ed25519 签名、下载地址、大小与 SHA256 全部一致。
+- GitHub 完整下载 104003383 字节，SHA256 与本地安装包一致；Release 资产 digest 相同。
+- 官网安装包 Range 请求返回 206，开头 65536 字节与本机安装包逐字节一致。
+- 官方安装包：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.122.exe`。
