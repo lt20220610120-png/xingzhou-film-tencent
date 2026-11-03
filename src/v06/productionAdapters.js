@@ -1,3 +1,4 @@
+import {productionAssignment} from '../../core/productionIdentity.js';
 import {agentDataPage} from '../../core/productionAgentData.js';
 import {episodeAllowed} from '../../core/productionExecutionScope.js';
 import {runPromptModelChain,modelPolicyRows} from '../../core/productionModelPolicy.js';
@@ -105,7 +106,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   },
   async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source.id);const id=run.collabProjectId||run.config.collabProjectId||candidates[0]?.id;
    let assets=[],cloud;if(id&&candidates.some(p=>p.id===id)){cloud=await api.collabGetProject({projectId:id});assets=await api.collabListAssets({projectId:id});}
-   const config=Object.fromEntries(Object.entries(run.config).filter(([key])=>key!=='scriptText'&&!/api.?key|token|secret|password|authorization/i.test(key)));return {config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
+   const config=Object.fromEntries(Object.entries(run.config).filter(([key])=>key!=='scriptText'&&!/api.?key|token|secret|password|authorization/i.test(key)));return {assignment:productionAssignment(run),status:run.status,config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
   },
   steering:true,
   async chat(run,{text,model,history,onDelta,steer}){return api.productionChat({runId:run.id,text,model,history,steer});},
@@ -264,7 +265,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    const running=new Map(),attempted=new Map();let loadedRevision=-1;
    const workerLimit=choices.reduce((sum,m)=>sum+Math.max(1,Math.min(8,Number(m.videoConfig.videoConcurrency)||1)),0);
    while(true){
-    ctx.guard();const revision=ctx.materialRevision||0;
+    ctx.guard();const revision=(ctx.materialRevision||0)+':'+(run.planRevision||0);
     if(loadedRevision!==revision){if(loadedRevision!==-1||ctx.imagesPending||revision){const current=await loadFreshBinding({api,projectId:p.id,accountId:getAccount().id,localSources:getState().directorProjects});book=linkedPromptBook(current.snapshot,current.decisions,getAccount().id,{voiceEnabled:voiceAutomationEnabled(c),omittedAssetIds:Object.keys(run.imageItems||{}).filter(id=>run.imageItems[id].status==='skipped')});checkSource();}loadedRevision=revision;}
     const queue=run.items.filter(item=>{
      if(!episodeAllowed(run,item.episode)||item.status==='downloaded'||running.has(item.id)||attempted.get(item.id)===revision)return false;
@@ -275,10 +276,10 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
      item.status='blocked';item.error=draft?.bindingIssue||'等待本条素材关联和图片';return false;
     });
     for(const item of queue.slice(0,Math.max(0,workerLimit-running.size))){attempted.set(item.id,revision);const task=worker(item).finally(()=>running.delete(item.id));running.set(item.id,task);}
-    if(!running.size&&!ctx.imagesPending){if((ctx.materialRevision||0)!==revision)continue;break;}
+    if(!running.size&&!ctx.imagesPending){if(((ctx.materialRevision||0)+':'+(run.planRevision||0))!==revision)continue;break;}
     // A single completed clip or image event frees the coordinator to admit work;
     // a slow video in another slot never becomes a whole-round barrier.
-    const waits=[...running.values()];if(ctx.imagesPending)waits.push(ctx.waitForMaterials?ctx.waitForMaterials(revision):wait(1000));
+    const waits=[...running.values()];if(ctx.imagesPending)waits.push(ctx.waitForMaterials?ctx.waitForMaterials(ctx.materialRevision||0):wait(1000));
     await Promise.race(waits);await postReady();
    }
    await Promise.all(clipJobs.values());await postReady();await Promise.all(postJobs.values());

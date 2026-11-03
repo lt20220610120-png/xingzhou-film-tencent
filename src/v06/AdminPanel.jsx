@@ -101,20 +101,15 @@ export function AdminPanel({ account, active = true, state={}, setState, onNavig
 
   return (
     <div className="admin-panel">
-      <header className="admin-head">
-        <div>
-          <span className="auth-kicker"><ShieldCheck size={15} /> 管理后台 · 仅管理员可见</span>
-          <h1>管理后台</h1>
-          <p>管理制作工作流、账号、邀请码与本机 WorkBuddy 号池。</p>
-        </div>
-        {tab === 'users' && <button className="admin-refresh" onClick={refresh} disabled={loading}><RefreshCw size={16} /> {loading ? '刷新中…' : '刷新'}</button>}
-      </header>
+      <header className="admin-head admin-command-head"><h1><ShieldCheck size={21}/>管理后台</h1>
       <div className="admin-workspace-tabs" role="tablist" aria-label="管理功能">
         <button role="tab" id="admin-workflow-tab" aria-selected={tab==='workflow'} aria-controls="admin-workflow-panel" className={tab==='workflow'?'active':''} onClick={()=>setTab('workflow')}><Clapperboard size={17}/>制作工作流总控</button>
-        <button role="tab" aria-selected={tab==='license'} className={tab==='license'?'active':''} onClick={()=>setTab('license')}><KeyRound size={17}/>软件授权 / 卡密</button>
-        <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请码</button>
+        <button role="tab" aria-selected={tab==='license'} className={tab==='license'?'active':''} onClick={()=>setTab('license')}><KeyRound size={17}/>软件授权卡密</button>
+        <button role="tab" id="admin-users-tab" aria-selected={tab === 'users'} aria-controls="admin-users-panel" className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><UserRound size={17} /> 用户与邀请</button>
         <button role="tab" id="admin-workbuddy-tab" aria-selected={tab === 'workbuddy'} aria-controls="admin-workbuddy-panel" className={tab === 'workbuddy' ? 'active' : ''} onClick={() => setTab('workbuddy')}><PanelsTopLeft size={17} /> WorkBuddy 号池</button>
       </div>
+      {tab === 'users' && <button className="admin-refresh" onClick={refresh} disabled={loading}><RefreshCw size={16} /> {loading ? '刷新中…' : '刷新'}</button>}
+      </header>
       {tab==='license'&&<SoftwareLicenseAdmin api={api}/>}
       {tab==='workflow'&&<div id="admin-workflow-panel" role="tabpanel" aria-labelledby="admin-workflow-tab"><ProductionConsole account={account} state={state} setState={setState} api={api} production={production} onNavigate={onNavigate}/></div>}
       {(workBuddyVisited || tab === 'workbuddy') && <div id="admin-workbuddy-panel" role="tabpanel" aria-labelledby="admin-workbuddy-tab" hidden={tab !== 'workbuddy'}><WorkBuddyPanel account={account} active={active && tab === 'workbuddy'} /></div>}

@@ -3,7 +3,7 @@ import {createProductionAdapters,productionArtResumePlan} from '../src/v06/produ
 import {selectProductionReferences} from './productionReferenceSelection.js';
 import {productionDefaults} from './productionFurnace.js';
 import {newArtReview,editArtReview,reviewSceneSignature} from './artReview.js';
-import {bindingSnapshot,proposeEntryBinding} from './promptArtBinding.js';
+import {bindingSnapshot,proposeEntryBinding,linkedPromptBook} from './promptArtBinding.js';
 function fixture(){
  const episodes=[1,2].map(n=>({id:'e'+n,episodeNumber:n,title:`第${n}集`,content:`${n}-1 客厅 日 内\n张三说话。`,prompts:[1,2].map(k=>({id:`p${n}${k}`,label:`${n}-1-${k}`,content:'【基础信息】\n人物：张三\n场景：客厅\n道具：无\n【镜头】\n张三说话。'}))}));
  const project={id:'collab',name:'验收剧',director_project_id:'director',episodes},assets=[{id:'person',category:'character',name:'【张三】'},{id:'room',category:'scene',name:'【客厅】'}].map(a=>({...a,images:[{id:a.id+'-img',url:`https://example.invalid/${a.id}.png`}]})),ledger={episodes:{}};
@@ -135,3 +135,14 @@ test('permanently skipped image no longer blocks video; remaining image referenc
 });
 
 test('episode scope submits only target episode and still completes its post production',async()=>{const f=fixture();f.run.executionScope={episodes:[1],until:'edit',pauseAfter:true};await f.adapter.videos(f.ctx);assert(f.events.filter(e=>e.startsWith('submit:')).every(e=>e.startsWith('submit:1-')));assert.equal(f.events.filter(e=>e.startsWith('submit:')).length,2);assert.equal(f.run.episodes.find(e=>e.number===1).stage,'done');assert.notEqual(f.run.episodes.find(e=>e.number===2).stage,'done');});
+
+
+test('first-episode adjustment generates only its missing clip, switches fallback then upscales and edits without stopping',async()=>{
+ const f=fixture();Object.assign(f.run.config,{videoAttempts:1,videoConcurrency:1,videoFallbacks:[{id:'fallback',modelId:JSON.stringify(['backup','b']),attempts:1,ratio:'9:16',videoDuration:30,videoResolution:'480p',videoConcurrency:1}]});f.state.mediaProfiles.push({id:'backup',kind:'video',model:'b',capabilities:{maxImages:8,durations:[30],ratios:['9:16'],resolutions:['480p']}});
+ const {snapshot,decisions}=await f.api.promptArtLoad();const book=linkedPromptBook(snapshot,decisions);f.run.items=book.entries.map(e=>({id:e.id,label:e.label,episode:e.episode,status:e.label==='1-1-2'?'downloaded':e.episode===2?'submitted':'queued',...(e.label==='1-1-2'?{outputFile:'keep.mp4',sha256:'keep-hash'}:{}),...(e.episode===2?{jobId:'paid-'+e.id}:{})}));
+ f.run.executionScope={episodes:[1],until:'edit',pauseAfter:true};f.run.planRevision=1;f.run.operatorInstructions=[{text:'先把第一集做出来，超分并剪辑'}];const sent=[];
+ f.api.generationSubmit=async input=>{sent.push([input.shotLabel,input.profileId]);const job={...input,id:crypto.randomUUID(),status:input.profileId==='video'?'failed':'success',error:input.profileId==='video'?'generation failed':''};f.jobs.push(job);return job;};
+ await f.adapter.videos(f.ctx);assert.equal(f.run.status,'running');assert.deepEqual(sent,[['1-1-1','video'],['1-1-1','backup']]);assert.equal(f.run.episodes.find(e=>e.number===1).stage,'done');assert.equal(f.run.items.find(i=>i.label==='1-1-2').outputFile,'keep.mp4');assert(f.run.items.filter(i=>i.episode===2).every(i=>i.jobId.startsWith('paid-')&&i.status==='submitted'));assert(f.events.includes('edit:1'));assert(!f.events.includes('edit:2'));assert.equal(f.events.filter(e=>e==='archive:1-1-1').length,1);
+});
+
+test('live scope narrowing while a generation is in flight preserves that job and stops later episodes from dispatch',async()=>{const f=fixture();f.run.config.videoConcurrency=1;f.run.config.endStage='archive';const submit=f.api.generationSubmit;let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);f.api.generationSubmit=async input=>{if(input.shotLabel==='1-1-1'){entered();await gate;}return submit(input);};const work=f.adapter.videos(f.ctx);await started;f.run.executionScope={episodes:[1],until:'archive'};f.run.planRevision=1;release();await work;assert.equal(f.run.items.filter(i=>i.episode===1&&i.status==='downloaded').length,2);assert.equal(f.events.filter(e=>e.startsWith('submit:2')).length,0);assert.equal(f.run.status,'running');});
