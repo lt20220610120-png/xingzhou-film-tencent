@@ -4,7 +4,7 @@ function conversationInput(text,attachments=[]){const files=attachments.map(a=>(
 function acpInput(text,attachments,images){const blocks=conversationInput(text,attachments).filter(b=>b.type==='text');let embedded=0;if(images)for(const a of attachments.filter(a=>a.kind==='image')){const stat=fs.statSync(a.path);if(stat.size>20*1024*1024||embedded+stat.size>20*1024*1024)continue;embedded+=stat.size;blocks.push({type:'image',mimeType:a.mime||'image/png',data:fs.readFileSync(a.path).toString('base64')});}return blocks;}
 /** JSON-lines transports; no shell interpolation and no copied login credentials. */
 function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawnProcess=spawn}){
- const launch=require('./production-agent-registry.cjs').resolveAgentLaunch(executable,protocol,cwd);executable=launch.executable;
+ const launch=require('./production-agent-registry.cjs').resolveAgentLaunch(executable,protocol,cwd);executable=launch.executable;const launchProfile=launch.profile||'';
  const child=spawnProcess(executable,launch.args,{cwd:launch.cwd,windowsHide:true,stdio:['pipe','pipe','pipe'],shell:false,...(launch.env?{env:launch.env}:{})});
  let acpSession=null,mcp=null,acpEditing=false,acpFullAccess=false,acpImages=false;
  let serial=0,closed=false;const toolSessions=new Map();const pending=new Map(),listeners=new Set();let stderr='';
@@ -30,6 +30,15 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
   }else{onEvent(message);listeners.forEach(fn=>fn(message));}
  }}));
  function request(method,params,timeout=60000){return new Promise((resolve,reject)=>{const id=++serial;const timer=setTimeout(()=>{pending.delete(id);reject(Error(`Agent ${method} 超时`));},timeout);pending.set(id,{resolve,reject,timer});try{send({jsonrpc:'2.0',id,method,params});}catch(e){clearTimeout(timer);pending.delete(id);reject(e);}});}
+ async function listCodexModels(){
+  const models=[],seen=new Set(),cursors=new Set();let cursor=null;
+  for(let page=0;page<100;page++){
+   const result=await request('model/list',{cursor,limit:100,includeHidden:true});
+   for(const model of result?.data||[]){if(!model?.id||seen.has(model.id))continue;seen.add(model.id);models.push(model);}
+   const next=result?.nextCursor||null;if(!next)return models;if(cursors.has(next))throw Error('Codex 模型目录分页游标重复');cursors.add(next);cursor=next;
+  }
+  throw Error('Codex 模型目录分页过多，已停止刷新');
+ }
  async function openConversation({model,tools=[],callTool,cwd:conversationCwd=cwd,edit=false,fullAccess=false,developerInstructions}={}){
   if(protocol!=='codex')throw Error('当前连接协议不支持行舟持久对话');
   const thread=await request('thread/start',{model,cwd:conversationCwd,ephemeral:true,approvalPolicy:fullAccess?'never':'on-request',sandbox:fullAccess?'danger-full-access':edit?'workspace-write':'read-only',...(developerInstructions?{developerInstructions}:{}),...(tools.length?{dynamicTools:tools}:{})});
@@ -50,8 +59,8 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
  }
  function closeConversation(session){if(session?.threadId)toolSessions.delete(session.threadId);}
  return {
-  async connect({status=false}={}){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true,optOutNotificationMethods:['rawResponseItem/completed']}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');const result=await request('model/list',{});return {connected:true,protocol,models:(result.data||[]).map(m=>({id:m.id,name:m.displayName||m.id,efforts:(m.supportedReasoningEfforts||[]).map(e=>e.reasoningEffort),defaultEffort:m.defaultReasoningEffort})),...(status?{status:await readAgentStatus(request,auth.account,cwd)}:{})};}
-   const init=await request('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'xingzhou-film',version:'1.0.0'}});acpImages=init.agentCapabilities?.promptCapabilities?.image===true;const session=await request('session/new',{cwd,mcpServers:[]},120000);acpSession=session;return {connected:true,protocol,backendTransport:'MCP',currentModelId:session.models?.currentModelId||'',models:session.models?.availableModels?.map(m=>({id:m.modelId,name:m.name}))||[],sessionId:session.sessionId};},
+  async connect({status=false}={}){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true,optOutNotificationMethods:['rawResponseItem/completed']}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');const rows=await listCodexModels(),models=rows.map(m=>({id:m.id,name:m.displayName||m.id,hidden:m.hidden===true,isDefault:m.isDefault===true,efforts:(m.supportedReasoningEfforts||[]).map(e=>e.reasoningEffort),defaultEffort:m.defaultReasoningEffort})),currentModelId=models.find(m=>m.isDefault)?.id||'';return {connected:true,protocol,profile:launchProfile,currentModelId,models,...(status?{status:await readAgentStatus(request,auth.account,cwd)}:{})};}
+   const init=await request('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'xingzhou-film',version:'1.0.0'}});acpImages=init.agentCapabilities?.promptCapabilities?.image===true;const session=await request('session/new',{cwd,mcpServers:[]},120000);acpSession=session;return {connected:true,protocol,profile:launchProfile,backendTransport:'MCP',currentModelId:session.models?.currentModelId||'',models:session.models?.availableModels?.map(m=>({id:m.modelId,name:m.name}))||[],sessionId:session.sessionId};},
   async run({model,prompt,edit=false,fullAccess=false,developerInstructions,attachments=[],effort='high',tools=[],callTool,onDelta=()=>{},onUpdate=()=>{}}){
    if(protocol!=='codex'){
     acpEditing=edit;acpFullAccess=fullAccess;if(tools.length)mcp=await require('./production-agent-mcp.cjs').createAgentMcpServer({tools,callTool});

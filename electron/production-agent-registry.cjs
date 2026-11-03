@@ -10,7 +10,23 @@ function discoverAgents({home=os.homedir(),env=process.env}={}){
  const paths={codex:codex||fromPath(['codex.exe'],env),hermes,cursor,claude,acp:''};
  return definitions.map(d=>({...d,path:paths[d.id],installed:Boolean(paths[d.id])||(d.id==='cursor'&&fs.existsSync(path.join(local,'Cursor')))||(d.id==='claude'&&!!fromPath(['claude.exe'],env)),status:paths[d.id]?'component-found':d.id==='cursor'&&fs.existsSync(path.join(local,'Cursor'))?'desktop-only':'missing'}));
 }
-function resolveAgentLaunch(executable,protocol,cwd){
+function stamp(file){try{return fs.statSync(file).mtimeMs;}catch{return 0;}}
+function desktopProfile(roaming,names){
+ const dir=path.join(roaming,'Hermes','Local Storage','leveldb'),marker='hermes-desktop-active-profile-v1';let files=[];try{files=fs.readdirSync(dir).filter(n=>/\.(?:log|ldb)$/i.test(n)).map(n=>path.join(dir,n)).sort((a,b)=>stamp(b)-stamp(a));}catch{return '';}
+ for(const file of files){let raw='';try{raw=fs.readFileSync(file,'latin1');}catch{continue;}let found='',at=0;while((at=raw.indexOf(marker,at))>=0){let i=at+marker.length,end=Math.min(raw.length,i+5);while(i<end&&raw.charCodeAt(i)!==1)i++;if(i>=end){at+=marker.length;continue;}let candidate='';for(i++;i<raw.length&&candidate.length<64;i++){const c=raw.charCodeAt(i);if(!(c>=48&&c<=57||c>=65&&c<=90||c>=97&&c<=122||[46,45,95].includes(c)))break;candidate+=raw[i];}if(candidate&&names.includes(candidate))found=candidate;at+=marker.length;}if(found)return found;}
+ return '';
+}
+function profileHome(root,name){return name==='default'?root:path.join(root,'profiles',name);}
+function detectedHermesProfile({home=os.homedir(),env=process.env,now=Date.now()}={}){
+ const local=env.LOCALAPPDATA||path.join(home,'AppData','Local'),roaming=env.APPDATA||path.join(home,'AppData','Roaming'),defaultRoot=path.join(local,'hermes');const inherited=String(env.HERMES_HOME||'').trim();let root=defaultRoot;if(inherited&&fs.existsSync(inherited)){const parent=path.dirname(inherited);root=path.basename(parent).toLowerCase()==='profiles'?path.dirname(parent):inherited;}
+ let names=['default'];try{names.push(...fs.readdirSync(path.join(root,'profiles'),{withFileTypes:true}).filter(e=>e.isDirectory()&&!e.name.startsWith('.')).map(e=>e.name));}catch{}
+ const requested=String(env.HERMES_PROFILE||'').trim();if(requested&&names.includes(requested))return {profile:requested,home:profileHome(root,requested)};
+ const desktop=desktopProfile(roaming,names);if(desktop)return {profile:desktop,home:profileHome(root,desktop)};
+ try{const file=path.join(roaming,'Hermes','active-profile.json'),raw=JSON.parse(fs.readFileSync(file,'utf8')),name=String(raw.profile||'').trim();if(name&&names.includes(name)&&stamp(file)>=now-24*60*60*1000)return {profile:name,home:profileHome(root,name)};}catch{}
+ const evidence=names.map(name=>{const dir=profileHome(root,name);const updated=Math.max(...['config.yaml','provider_models_cache.json','auth.json'].map(f=>stamp(path.join(dir,f))),0);return {profile:name,home:dir,updated};}).sort((a,b)=>b.updated-a.updated);
+ if(evidence[0]?.updated)return evidence[0];if(inherited&&fs.existsSync(inherited))return {profile:'default',home:inherited};return {profile:'default',home:root};
+}
+function resolveAgentLaunch(executable,protocol,cwd,options={}){
  if(protocol==='codex'||protocol==='acp')return {executable:require('./production-agent-path.cjs').resolveAgentExecutable(executable,protocol),args:protocol==='codex'?['app-server','--listen','stdio://']:[],cwd};
  if(!definitions.some(d=>d.id===protocol))throw Error('未知智能体类型');
  let selected=executable;if(protocol==='hermes'&&/Hermes\.exe$/i.test(selected||'')&&!/hermes-acp\.exe$/i.test(selected||'')){let dir=path.dirname(selected);for(let i=0;i<8;i++,dir=path.dirname(dir)){const candidate=path.join(dir,'venv','Scripts','hermes-acp.exe');if(fs.existsSync(candidate)){selected=candidate;break;}}}
@@ -19,6 +35,7 @@ function resolveAgentLaunch(executable,protocol,cwd){
  if(!/\.exe$/i.test(selected))throw Error('请选择智能体可执行连接组件');
  if(protocol==='hermes'&&!/hermes-acp\.exe$/i.test(selected))throw Error('请选择Hermes的hermes-acp.exe，而不是桌面程序');
  if(protocol==='claude'&&!/claude-agent-acp\.exe$/i.test(selected))throw Error('Claude Code需要ACP连接组件，普通claude.exe不是ACP服务');
+ if(protocol==='hermes'){const detected=detectedHermesProfile(options);return {executable:selected,args:[],cwd,profile:detected.profile,env:{...process.env,HERMES_HOME:detected.home}};}
  return {executable:selected,args:protocol==='cursor'?['acp']:[],cwd};
 }
-module.exports={definitions,discoverAgents,resolveAgentLaunch};
+module.exports={definitions,discoverAgents,resolveAgentLaunch,detectedHermesProfile};
