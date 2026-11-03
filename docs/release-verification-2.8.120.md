@@ -24,3 +24,9 @@
 OpenFilm 的定向 REA 证据只分析了 `src/agents.mjs`、`src/chat-ipc.mjs`、`src/chat-store.mjs` 三个模块；事实仅为 ACP 会话、持续 update、附件路径/字节 IPC 和前端 full-access 偏好。该静态分析不证明运行权限，也不是完整逆向。行舟没有照搬 OpenFilm“指令完成后停止”的产品语义。
 
 未修改用户真实制作数据，未替换正在运行的客户端，未执行真实付费视频生成；Topaz 增强、OpenFilm 成片与真实上游视频生成仍需用户项目实跑验收。
+
+## 公开发布
+
+- GitHub Release：`432231880`，资产 `state=uploaded`，大小与官方 SHA256 摘要均与本地安装包一致。
+- 官方与两份 GitHub `latest.json` 均通过 Ed25519 签名和字段一致性校验，版本为 2.8.120。
+- 官方安装包 64 字节 Range 请求返回 `206`、`Content-Range: bytes 0-63/103984741`，文件头为 `MZ`。
