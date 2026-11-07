@@ -1,69 +1,45 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {AccessLayout} from './AccessLayout.jsx';
-import {SoftwareUpdateCard} from './SoftwareUpdateCard.jsx';
 import {RegistrationScreen} from './AccountAccess.jsx';
-import {interpretUpdateResult} from '../../core/appServices.js';
+import {SoftwareUpdatePrompt} from './SoftwareUpdatePrompt.jsx';
+import companyLogo from '../assets/company-logo.png';
 import './software-license.css';
-import {RefreshCw,KeyRound,Ticket,ShieldCheck,Clock3,Users,ClipboardList,Plus,Download,Copy,UserRound,ArrowRight,LockKeyhole} from 'lucide-react';
+import './startup-access.css';
+import {RefreshCw,KeyRound,Ticket,ShieldCheck,Clock3,Users,ClipboardList,Plus,Download,Copy,ArrowRight} from 'lucide-react';
 import './license-admin.css';
-const label={unchecked:'正在联网校验…',required:'请输入月卡，激活这台电脑',active:'设备授权有效',exempt:'老用户授权 · 无需卡密',expired:'月卡已到期',revoked:'授权已撤销，请联系管理员',unbound:'设备已解绑，请通过账号恢复入口登录', 'other-device':'账号已绑定其他电脑，请联系管理员解绑',error:'暂时无法完成联网校验',banned:'账号已停用'};
 const readable=e=>String(e?.message||e).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'');
 const fmt=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';
 
 export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
- const [state,setState]=useState({status:'unchecked',allowed:false}),[entered,setEntered]=useState(false),[locked,setLocked]=useState(true);
- const [code,setCode]=useState(''),[prepared,setPrepared]=useState(false),[auth,setAuth]=useState(false),[role,setRole]=useState('director'),[username,setUsername]=useState('');
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[version,setVersion]=useState(''),[update,setUpdate]=useState(null),[updatePhase,setUpdatePhase]=useState('checking'),[updateError,setUpdateError]=useState(''),[progress,setProgress]=useState(0),[dismissed,setDismissed]=useState(false);
- const sequence=useRef(0),[renewing,setRenewing]=useState(false);
- const supported=Boolean(api?.licenseCheck),legacy=state.status==='exempt';
- const applyState=next=>{setState(next);if(!next.allowed)setLocked(true);if(next.status==='exempt'){setEntered(true);setLocked(false);setAuth(false);}if(next.status==='unchecked'){setEntered(false);setPrepared(false);setAuth(false);}};
- const check=async()=>{const request=++sequence.current;setBusy(true);setError('');try{const next=await api.licenseCheck();if(request===sequence.current)applyState(next);return next;}catch(e){if(request===sequence.current){setError(readable(e));setState(current=>({...current,status:['unchecked','unknown','login','account-error'].includes(current.status)?'account-error':'error',allowed:false}));}}finally{if(request===sequence.current)setBusy(false);}};
- useEffect(()=>{if(!supported)return;void check();api.appVersion().then(setVersion).catch(()=>{});
-  let alive=true;api.checkUpdate().then(value=>{if(alive){const next=interpretUpdateResult(value);setUpdate(next);setUpdatePhase(next.available?'available':'idle');}}).catch(e=>{if(alive){setUpdateError(readable(e));setUpdatePhase('error');}});
-  const off=api.onLicenseState?.(next=>{applyState(next);if(next.status==='unchecked')void check();});
-  const offProgress=api.onUpdateProgress?.(next=>setProgress(next.percent||0));return()=>{alive=false;off?.();offProgress?.();};
- },[supported]);
+ const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck);
+ const apply=next=>{setState(next);if(next.status==='unchecked')setError('');};
+ const check=async()=>{const id=++sequence.current;try{const next=await api.licenseCheck();if(mounted.current&&id===sequence.current)apply(next);return next;}catch(e){if(mounted.current&&id===sequence.current){setError(readable(e));setState({status:'error',allowed:false});}}};
+ useEffect(()=>{mounted.current=true;if(supported)void check();const off=api?.onLicenseState?.(next=>{if(mounted.current){sequence.current++;apply(next);if(next.status==='unchecked')void check();}});return()=>{mounted.current=false;sequence.current++;off?.();};},[supported]);
+ const accountReady=state.allowed||['prepared','account'].includes(state.status);
+ const workspaceReady=Boolean(state.allowed&&state.authenticated!==false);
+ const stage=workspaceReady?'workspace':accountReady?'account':'lock';
+ useEffect(()=>{if(supported)Promise.resolve(api.appAccessStage?.(stage)).catch(()=>{});},[stage,supported]);
  if(!supported)return children;
- const authenticated=async()=>{setAuth(false);setPrepared(false);await check();};
- const changeAccount=async()=>{setBusy(true);setError('');try{await api.authLogout();sequence.current++;setEntered(false);setAuth(false);setPrepared(false);setRenewing(false);setUsername('');setCode('');setState({status:'unknown',allowed:false});}catch(e){setError(readable(e));}finally{setBusy(false);}};
- const identify=async event=>{event.preventDefault();setBusy(true);setError('');try{const next=await api.licenseRoute({username});applyState(next);if(next.status==='login')setAuth(true);else await check();}catch(e){setError(readable(e));}finally{setBusy(false);}};
- const activate=async event=>{event.preventDefault();setBusy(true);setError('');try{await api.licensePrepare({code});setCode('');
-   const account=await api.authSession();if(account){applyState(await api.licenseRedeem());setPrepared(false);setRenewing(false);}else{setPrepared(true);setAuth(true);}
-  }catch(e){setError(readable(e));}finally{setBusy(false);}};
- const download=async()=>{setUpdatePhase('downloading');setUpdateError('');try{await api.downloadUpdate({version:update.version});setUpdatePhase('ready');}catch(e){setUpdateError(readable(e));setUpdatePhase('available');}};
- const install=async()=>{setUpdatePhase('installing');try{await api.installUpdate();}catch(e){setUpdateError(readable(e));setUpdatePhase('ready');}};
- const retryUpdate=async()=>{setUpdatePhase('checking');setUpdateError('');try{const next=interpretUpdateResult(await api.checkUpdate());setUpdate(next);setUpdatePhase(next.available?'available':'idle');}catch(e){setUpdateError(readable(e));setUpdatePhase('error');}};
- const updatePanel=<SoftwareUpdateCard version={version} update={update} phase={updatePhase} error={updateError} progress={progress} onDownload={download} onInstall={install} onRetry={['ready','downloading','installing'].includes(updatePhase)?undefined:retryUpdate}/>;
- const neutral=['unknown','login','account-error','unchecked'].includes(state.status),showGate=locked||!entered||!state.allowed;
+ const activate=async event=>{event.preventDefault();if(busy)return;setBusy(true);setError('');try{
+  if(!code.trim()){await check();return;}
+  await api.licensePrepare({code:code.trim()});setCode('');
+  const account=await api.authSession();
+  if(account)apply(await api.licenseRedeem());else apply({status:'prepared',allowed:false,authenticated:false});
+ }catch(e){setError(readable(e));}finally{if(mounted.current)setBusy(false);}};
+ const authenticated=async()=>{setError('');await check();};
+ const checking=state.status==='unchecked';
  return <>
-  {entered&&<div hidden={showGate} inert={showGate?true:undefined} aria-hidden={showGate?true:undefined}>{children}</div>}
-  {legacy&&update?.available&&!dismissed&&<aside className="ordinary-update-notice" aria-label="软件更新提示">{updatePanel}<button disabled={['downloading','installing'].includes(updatePhase)} onClick={()=>setDismissed(true)}>稍后更新</button></aside>}
-  {showGate&&<div className={entered?'license-overlay':''}>
-   {auth?<RegistrationScreen requestedRole={role} initialMode={prepared?'register':'login'} initialUsername={username} allowRegistration={prepared} onClose={()=>setAuth(false)} onRegistered={authenticated} onLogin={authenticated}/>:<AccessLayout version={version} activation={!neutral} updatePanel={(!neutral||update?.available||updatePhase==='error')?updatePanel:null}>
-    {neutral?<section className="license-start-card access-login-card" aria-label="账号登录">
-     <span className="access-icon"><UserRound size={25}/></span><span className="access-eyebrow">你的创作空间</span><h2>欢迎回到行舟</h2><p className="access-card-description">使用你的账号，继续未完的故事。</p>
-     {state.status==='unchecked'?<p className="access-connecting" role="status"><RefreshCw size={18} className="spin"/>正在连接账号服务…</p>:<>
-      <form onSubmit={identify}><label>账号<input autoFocus autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="请输入你的账号" disabled={busy}/></label>{error&&<p className="auth-error" role="alert">{error}</p>}<button className="auth-submit" disabled={busy||!username.trim()}>{busy?'正在连接…':<>继续<ArrowRight size={18}/></>}</button></form>
-      <div className="access-register">首次使用行舟？<button className="access-text-button" disabled={busy} onClick={()=>{setState({status:'required',allowed:false});setError('');}}>激活并创建账号<ArrowRight size={14}/></button></div>
-      {state.status==='account-error'&&<button className="access-text-button" disabled={busy} onClick={check}><RefreshCw size={15}/>重新连接账号服务</button>}
-     </>}
-     <div className="access-security-note"><LockKeyhole size={14}/>账号安全验证 · 专属创作工作台</div>
-    </section>:<section className="license-start-card access-license-card" aria-label="设备激活">
-     <span className="access-icon"><KeyRound size={25}/></span><span className="access-eyebrow">软件使用授权</span><h2>{state.status==='required'?'开启你的创作空间':label[state.status]||'设备授权'}</h2>
-     {state.expiresAt&&<p>有效期至 {fmt(state.expiresAt)}（北京时间）</p>}
-     <p className="access-card-description">{state.allowed?'授权已就绪，准备好开始创作了吗？':'输入月卡卡密，激活这台电脑。已购用户可在下方恢复授权。'}</p>
-     {state.allowed&&<button className="access-text-button" disabled={busy} onClick={()=>setRenewing(!renewing)}>{renewing?'取消续卡':'提前续卡'}</button>}
-     {(!state.allowed||renewing)&&<form onSubmit={activate}><label>月卡卡密<input autoFocus autoComplete="off" value={code} onChange={e=>setCode(e.target.value)} placeholder="请输入 XZ- 开头的月卡卡密" maxLength={65} disabled={busy}/></label><label>创作身份<select value={role} onChange={e=>setRole(e.target.value)} disabled={busy}><option value="director">导演</option><option value="creator">内容创作者</option></select></label><button className="auth-submit" disabled={busy||!code.trim()}>{busy?'正在验证…':<>验证卡密 / 续卡<ArrowRight size={18}/></>}</button></form>}
-     {prepared&&<p>卡密已预验，15分钟内完成登录或注册；关闭窗口不会消耗卡密。</p>}
-     {error&&<p className="auth-error" role="alert">{error}</p>}
-     <div className="license-actions"><button disabled={busy} onClick={check}><RefreshCw size={14}/>重新联网校验</button>{prepared&&<button disabled={busy} onClick={()=>setAuth(true)}>继续登录 / 注册</button>}{!prepared&&!state.allowed&&<button disabled={busy} onClick={()=>setAuth(true)}>恢复已购授权</button>}<button disabled={busy} onClick={changeAccount}>切换账号</button></div>
-     {state.allowed&&<button className="auth-submit" disabled={busy||['downloading','installing'].includes(updatePhase)} onClick={()=>{if(state.authenticated===false){setAuth(true);return;}setEntered(true);setLocked(false);}}>{update?.available?'继续使用当前版本':'进入行舟影视'}<ArrowRight size={18}/></button>}
-     <div className="access-security-note"><ShieldCheck size={14}/>已激活设备无需重复输入卡密</div>
-    </section>}
-   </AccessLayout>}
-
-  </div>}
+  {workspaceReady?children:accountReady?<RegistrationScreen initialMode="login" allowRegistration onClose={()=>api.closeAccessWindow?.()} onRegistered={authenticated} onLogin={authenticated}/>:<main className="startup-license-lock" aria-label="软件启动锁">
+   <section className="startup-lock-card"><div className="startup-lock-brand"><img src={companyLogo} alt=""/><span>行舟影视<small>XINGZHOU FILM</small></span></div>
+    <h1>激活行舟影视</h1><p>{checking?'正在验证设备授权…':'输入卡密，激活这台电脑上的软件。'}</p>
+    <form onSubmit={activate}><label htmlFor="startup-card">卡密</label><input id="startup-card" autoFocus autoComplete="off" spellCheck={false} maxLength={65} value={code} disabled={busy||checking} aria-invalid={!!error} aria-describedby={error?'startup-card-error':undefined} onChange={e=>{setCode(e.target.value);setError('');}} placeholder="请输入卡密"/>
+     {error&&<p className="startup-lock-error" role="alert" id="startup-card-error">{error}</p>}
+     <button type="submit" disabled={checking||busy||(!code.trim()&&state.status!=='error')}>{checking?'正在验证…':busy?'正在激活…':<>验证并激活<ArrowRight size={17}/></>}</button>
+    </form>
+   </section>
+  </main>}
+  <SoftwareUpdatePrompt api={api}/>
  </>;
 }
 

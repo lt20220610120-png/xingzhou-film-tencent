@@ -56,7 +56,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const meta = roleMeta[requestedRole];
+  const meta = roleMeta[requestedRole]||{label:'创作',destination:'对应工作台',icon:UserRound};
   const Icon = meta.icon;
   const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const switchMode = (next) => { setMode(next); setError(''); setNotice(''); };
@@ -67,7 +67,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
     try {
       if (mode === 'register') {
         if (form.password !== form.confirmPassword) throw new Error('两次输入的密码不一致');
-        const account = await window.xingzhou.authRegister({ ...form, requestedRole });
+        const account = await window.xingzhou.authRegister({ ...form, ...(requestedRole?{requestedRole}:{}) });
         onRegistered(account);
       } else if (mode === 'login') {
         const account = await window.xingzhou.authLogin({ username: form.username, password: form.password });
@@ -93,8 +93,8 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
           <button className="auth-back" onClick={onClose}><ArrowLeft /> 返回上一步</button>
           <span className="auth-kicker">行舟影视 · 创作空间</span>
           <h1>{mode === 'register' ? '注册账号' : mode === 'login' ? '登录账号' : '找回账号'}</h1>
-          <p>{mode === 'register' ? `注册成功后可直接进入${meta.destination}。为了避免重复注册，创建账号需要完成邮箱验证码。` : mode === 'login' ? '登录后将按照账号已有权限进入对应工作台。' : '通过注册时绑定的邮箱找回账号，也可以同时设置一个新密码。'}</p>
-          {mode === 'register' && <div className="selected-role"><Icon /><span><small>本次选择</small><strong>{meta.label}</strong></span><b>{meta.destination}</b></div>}
+          <p>{mode === 'register' ? `注册成功后按邀请码开通的权限进入${meta.destination}。为了避免重复注册，创建账号需要完成邮箱验证码。` : mode === 'login' ? '登录后将按照账号已有权限进入对应工作台。' : '通过注册时绑定的邮箱找回账号，也可以同时设置一个新密码。'}</p>
+          {mode === 'register' && requestedRole && <div className="selected-role"><Icon /><span><small>本次选择</small><strong>{meta.label}</strong></span><b>{meta.destination}</b></div>}
           <div className="auth-security"><ShieldCheck /><span><strong>邀请码控制访问权限</strong><small>普通邀请码只开通一个身份；身份解锁码可在之后增加另一个工作台。</small></span></div>
           <div className="auth-security"><MailCheck /><span><strong>一个邮箱绑定一个账号</strong><small>邮箱用于接收验证码，也用于日后找回自己的账号。</small></span></div>
         </section>
@@ -111,11 +111,11 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
           {mode === 'register' && <label>确认密码<input type="password" value={form.confirmPassword} onChange={update('confirmPassword')} placeholder="再次输入密码" autoComplete="new-password" /></label>}
           {mode !== 'login' && <>
             <label>邮箱<input type="email" value={form.email} onChange={update('email')} placeholder={mode === 'register' ? '用于接收注册验证码' : '注册时绑定的邮箱'} autoComplete="email" /></label>
-            <label>邮箱验证码<span className="code-row"><input value={form.emailCode} onChange={update('emailCode')} placeholder="邮箱收到的验证码" inputMode="numeric" maxLength={8} autoComplete="one-time-code" /><SendCodeButton email={form.email} onError={setError} /></span></label>
+            <label>邮箱验证码<span className="code-row"><input aria-label="邮箱验证码" value={form.emailCode} onChange={update('emailCode')} placeholder="邮箱收到的验证码" inputMode="numeric" maxLength={8} autoComplete="one-time-code" /><SendCodeButton email={form.email} onError={setError} /></span></label>
           </>}
           {mode === 'recover' && <label>新密码（可选）<input type="password" value={form.password} onChange={update('password')} placeholder="留空则只找回账号名" autoComplete="new-password" /></label>}
           {mode === 'register' && <>
-            <label>邀请码<input value={form.inviteCode} onChange={update('inviteCode')} placeholder={`请输入${meta.label}邀请码`} autoComplete="off" /></label>
+            <label>邀请码<input value={form.inviteCode} onChange={update('inviteCode')} placeholder={requestedRole?`请输入${meta.label}邀请码`:'请输入管理员发放的邀请码'} autoComplete="off" /></label>
             <p className="invite-note"><LockKeyhole /> 邀请码由管理员发放，并决定账号能够使用的工作台。</p>
           </>}
           {error && <div className="auth-error">{error}</div>}

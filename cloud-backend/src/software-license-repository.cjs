@@ -45,7 +45,7 @@ function extendLicenseRepository(pool){
   },
   async licenseRedeem(token,key,userId){return tx(c=>this.licenseRedeemInTransaction(c,token,key,userId));},
   async registerAndRedeem(payload,key,activation){return tx(async c=>{
-   const username=String(payload?.username||'').trim().toLowerCase(),email=String(payload?.email||'').trim().toLowerCase(),password=String(payload?.password||''),requestedRole=payload?.requestedRole==='director'?'director':'creator',inviteCode=normalizeInviteCode(payload?.inviteCode);
+   const username=String(payload?.username||'').trim().toLowerCase(),email=String(payload?.email||'').trim().toLowerCase(),password=String(payload?.password||''),requestedRole=['director','creator'].includes(payload?.requestedRole)?payload.requestedRole:undefined,inviteCode=normalizeInviteCode(payload?.inviteCode);
    if(!/^[a-z0-9_]{3,32}$/.test(username)||password.length<6||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)||!inviteCode)throw Object.assign(Error('账号、邮箱或密码格式不正确'),{status:400});
    const code=(await c.query('select email,code_hash,expires_at from email_codes where email=$1 for update',[email])).rows[0];if(!emailCodeValid(code,payload?.emailCode))fail('邮箱验证码无效或已过期',400);
    const invite=(await c.query('select id,code,kind,role,max_uses,used_count,disabled from invites where digest=$1 for update',[digestInvite(inviteCode)])).rows[0];if(!inviteUsable(invite))fail('邀请码无效、已停用或已用完',400);const grant=rolesForInvite(invite,requestedRole);if(grant.error)fail(grant.error,400);

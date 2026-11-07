@@ -3,7 +3,7 @@ const {proofMessage}=require('../cloud-backend/shared/software-license.cjs');
 const PAID=new Set(['ai-chat','test-ai-connection','generation-submit','media-generate-image','media-generate-video','collab-generate-asset-image','collab-generate-video']);
 PAID.add('audio-generate');
 function createLicenseClient({directory,safeStorage,call,token,version,onChange=()=>{}}){
- let key,activation='',epoch=0,last={status:'unchecked',allowed:false},checked=0,exemptToken='',routedToken=null,kind='unknown';
+ let key,activation='',epoch=0,last={status:'unchecked',allowed:false},checked=0,exemptToken='',routedToken=null,kind='unknown',activationUntil=0,accountEntry=false;
  const keyFile=path.join(directory,'software-device-key.json');
  const hintFile=path.join(directory,'software-license-route.json');
  let monthlyHint=false;try{monthlyHint=JSON.parse(fs.readFileSync(hintFile,'utf8')).monthly===true;}catch{}
@@ -38,15 +38,17 @@ function createLicenseClient({directory,safeStorage,call,token,version,onChange=
  async function check(){const expected=epoch,bearer=token();try{
   if(isExempt())return {...last,status:'exempt',allowed:true};
   if(routedToken!==bearer){await route();if(isExempt())return {...last};}
-  if(kind!=='monthly'&&!monthlyHint)return {...last,allowed:false};
+  if(accountEntry&&!bearer)return update({status:'account',allowed:false,authenticated:false});
+  if(activation&&Date.now()<activationUntil)return update({status:'prepared',allowed:false,authenticated:Boolean(bearer)});
+  activation='';activationUntil=0;
   kind='monthly';const result=await call('license-check',{},bearer);if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新校验');return update(result);
  }catch(error){if(expected===epoch)update({status:kind==='monthly'||monthlyHint?'error':'account-error',allowed:false,error:error.message});throw error;}}
  return {
   decorate,check,route,state:()=>({...last}),shouldHeartbeat:()=>!isExempt()&&(kind==='monthly'||monthlyHint),
-  reset({forgetRoute=false}={}){epoch++;activation='';exemptToken='';routedToken=null;kind='unknown';if(forgetRoute){monthlyHint=false;try{fs.unlinkSync(hintFile);}catch{}}update({status:'unchecked',allowed:false});},
-  async prepare(code){const expected=epoch,bearer=token();kind='monthly';const r=await call('license-prepare',{code});if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新验证卡密');rememberMonthly();activation=r.activationToken;return {prepared:true,expiresIn:r.expiresIn};},
+  reset({forgetRoute=false}={}){accountEntry=Boolean(forgetRoute&&last.status==='exempt'&&exemptToken);epoch++;activation='';activationUntil=0;exemptToken='';routedToken=null;kind='unknown';if(forgetRoute){monthlyHint=false;try{fs.unlinkSync(hintFile);}catch{}}update({status:accountEntry?'account':'unchecked',allowed:false,authenticated:false});},
+  async prepare(code){const expected=epoch,bearer=token();kind='monthly';const r=await call('license-prepare',{code});if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新验证卡密');rememberMonthly();activation=r.activationToken;activationUntil=Date.now()+Math.min(900,Number(r.expiresIn)||900)*1000;update({status:'prepared',allowed:false,authenticated:Boolean(bearer)});return {prepared:true,expiresIn:r.expiresIn};},
   async redeem(){const expected=epoch,bearer=token(),r=await call('license-redeem',{},bearer);if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新校验');activation='';return update(r);},
-  authenticated(){activation='';epoch++;checked=0;exemptToken='';routedToken=null;},
+  authenticated(){activation='';activationUntil=0;accountEntry=false;epoch++;checked=0;exemptToken='';routedToken=null;},
   async requireActive(force=true){const value=isExempt()?{status:'exempt',allowed:true}:force||Date.now()-checked>=60000?await check():last;if(!value.allowed)throw Error('软件授权未生效或已到期，请在启动授权页续卡后进入软件');return value;},
   needsLicense(channel){return PAID.has(channel)||/^(chatgpt-web|doubao-work|gemini-web|libtv-login|like-pairing|like-bind|import-full-script|import-skill|discover-models|admin-workflow-(?:create|start|resume))/.test(channel);},
  };

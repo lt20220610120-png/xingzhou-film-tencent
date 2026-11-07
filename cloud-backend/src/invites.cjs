@@ -14,6 +14,7 @@ function inviteUsable(invite) {
 
 // 注册可用的邀请码类型；unlock 只能用于为已有账号增加身份。
 function rolesForInvite(invite, requestedRole) {
+  requestedRole=requestedRole||invite.role||'creator';
   if (invite.kind === 'unlock') return { error: '身份解锁码不能用于注册新账号' };
   if (invite.kind === 'admin' || invite.kind === 'full') {
     return { roles: ['creator', 'director'], isAdmin: invite.kind === 'admin', isProducer: invite.kind === 'admin' };

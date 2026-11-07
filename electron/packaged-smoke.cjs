@@ -134,11 +134,15 @@ module.exports = function configurePackagedSmoke(app) {
         for (let attempt=0;attempt<30;attempt++) {
           await new Promise(resolve => setTimeout(resolve,250));
           report.page = await win.webContents.executeJavaScript('({ title: document.title, text: document.body.innerText.slice(0,1500), bridge: typeof window.xingzhou?.appVersion === "function", roles: document.querySelectorAll(".studio-role").length })');
-          if(report.page.text.includes('软件使用授权')&&report.page.text.includes('暂时无法完成联网校验')) break;
+          if(report.page.text.includes('激活行舟影视')&&!report.page.text.includes('正在验证设备授权')) break;
         }
+        report.startupWindow={size:win.getSize(),resizable:win.isResizable()};if(Math.abs(report.startupWindow.size[0]-520)>8||Math.abs(report.startupWindow.size[1]-450)>8||report.startupWindow.resizable)throw Error('Startup lock window must be compact');
+        fs.writeFileSync(path.join(root,'startup-lock.png'),(await win.webContents.capturePage()).toPNG());
+        await win.webContents.executeJavaScript("window.xingzhou.appAccessStage('account')");report.startupWindow.accountSize=win.getSize();if(report.startupWindow.accountSize[0]<1120)throw Error('Account window must restore normal size');
+        await win.webContents.executeJavaScript("window.xingzhou.appAccessStage('lock')");if(Math.abs(win.getSize()[0]-520)>8||win.isResizable())throw Error('Native relock failed');
         report.codexLocal={module:typeof require('./codex-catalog.cjs').readLocalCodexCatalog==='function',bridge:await win.webContents.executeJavaScript("typeof window.xingzhou?.codexLocalCatalog==='function'")};
         if(!Object.values(report.codexLocal).every(Boolean))throw Error('Local Codex catalog bridge missing');
-        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseRoute','licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.access-screen .access-license-card'),rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:!!document.querySelector('[aria-label=\"软件更新\"]')})");
+        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseRoute','licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.startup-license-lock')&&document.querySelectorAll('.startup-license-lock input').length===1&&document.querySelectorAll('.startup-license-lock button').length===1,rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:typeof window.xingzhou.checkUpdate==='function'&&!document.querySelector('.license-update')})");
         const mediaDir=path.join(root,'documents','行舟影视资料','画布素材','整本提示词素材');
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{

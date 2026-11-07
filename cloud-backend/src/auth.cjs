@@ -52,7 +52,7 @@ async function register(payload, repository) {
   const username = String(payload?.username || '').trim().toLowerCase();
   const email = String(payload?.email || '').trim().toLowerCase();
   const password = String(payload?.password || '');
-  const requestedRole = payload?.requestedRole === 'director' ? 'director' : 'creator';
+  const requestedRole = ['director','creator'].includes(payload?.requestedRole) ? payload.requestedRole : undefined;
   const inviteCode = normalizeInviteCode(payload?.inviteCode);
   if (!/^[a-z0-9_]{3,32}$/.test(username) || password.length < 6 || !EMAIL_RE.test(email)) return { status: 400, body: { error: '账号、邮箱或密码格式不正确' } };
   if (!inviteCode) return { status: 400, body: { error: '请输入管理员发放的邀请码' } };
