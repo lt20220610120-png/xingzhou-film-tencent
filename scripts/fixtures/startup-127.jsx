@@ -18,5 +18,6 @@ window.xingzhou={
  downloadUpdate:async()=>{startupQA.downloads++;listeners.forEach(fn=>fn({percent:64}));if(startupQA.delay)await new Promise(resolve=>startupQA.finish=resolve);},installUpdate:async()=>{startupQA.installs++;},
  onUpdateProgress:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},
 };
+startupQA.pushState=next=>stateListeners.forEach(fn=>fn(next));
 startupQA.revoke=()=>{startupQA.revoked=true;stateListeners.forEach(fn=>fn({status:'revoked',allowed:false}));};
 createRoot(document.getElementById('root')).render(<SoftwareLicenseBoundary><div aria-label="工作台">进入工作台</div><button onClick={()=>window.dispatchEvent(new CustomEvent('xingzhou-check-update'))}>手动检查更新</button></SoftwareLicenseBoundary>);

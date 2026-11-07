@@ -13,7 +13,7 @@ const fmt=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour
 export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
  const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck);
- const apply=next=>{setState(next);if(next.status==='unchecked')setError('');};
+ const apply=next=>{setState(next);if(next.error)setError(readable(next.error));else if(next.allowed||['unchecked','prepared'].includes(next.status))setError('');};
  const check=async()=>{const id=++sequence.current;try{const next=await api.licenseCheck();if(mounted.current&&id===sequence.current)apply(next);return next;}catch(e){if(mounted.current&&id===sequence.current){setError(readable(e));setState({status:'error',allowed:false});}}};
  useEffect(()=>{mounted.current=true;if(supported)void check();const off=api?.onLicenseState?.(next=>{if(mounted.current){sequence.current++;apply(next);if(next.status==='unchecked')void check();}});return()=>{mounted.current=false;sequence.current++;off?.();};},[supported]);
  const accountReady=state.allowed||['prepared','account'].includes(state.status);
