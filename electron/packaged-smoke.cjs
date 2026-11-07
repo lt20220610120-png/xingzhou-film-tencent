@@ -136,7 +136,9 @@ module.exports = function configurePackagedSmoke(app) {
           report.page = await win.webContents.executeJavaScript('({ title: document.title, text: document.body.innerText.slice(0,1500), bridge: typeof window.xingzhou?.appVersion === "function", roles: document.querySelectorAll(".studio-role").length })');
           if(report.page.text.includes('软件使用授权')&&report.page.text.includes('暂时无法完成联网校验')) break;
         }
-        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseRoute','licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.license-start'),rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:document.body.innerText.includes('软件更新')})");
+        report.codexLocal={module:typeof require('./codex-catalog.cjs').readLocalCodexCatalog==='function',bridge:await win.webContents.executeJavaScript("typeof window.xingzhou?.codexLocalCatalog==='function'")};
+        if(!Object.values(report.codexLocal).every(Boolean))throw Error('Local Codex catalog bridge missing');
+        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseRoute','licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.access-screen .access-license-card'),rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:!!document.querySelector('[aria-label=\"软件更新\"]')})");
         const mediaDir=path.join(root,'documents','行舟影视资料','画布素材','整本提示词素材');
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{

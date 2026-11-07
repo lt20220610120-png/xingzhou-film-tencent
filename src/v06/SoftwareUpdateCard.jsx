@@ -3,7 +3,7 @@ import {ArrowUpCircle,Check,Download,RefreshCw} from 'lucide-react';
 export function SoftwareUpdateCard({version,update,phase,error,progress,onDownload,onInstall,onRetry}){
  const active=update?.available,working=['checking','downloading','installing'].includes(phase);
  return <section className="license-update software-update-card" aria-label="软件更新">
-  <header><span className="access-icon">{phase==='idle'?<Check size={22}/>:<ArrowUpCircle size={23}/>}</span><div><span className="access-eyebrow">保持灵感，保持更新</span><h2>{phase==='checking'?'正在检查更新':phase==='ready'?'新版本已准备就绪':active?'发现新版本':'已是最新版本'}</h2></div>{active&&<b className="update-version">v{update.version}</b>}</header>
+  <header><span className="access-icon">{phase==='idle'?<Check size={22}/>:<ArrowUpCircle size={23}/>}</span><div><span className="access-eyebrow">保持灵感，保持更新</span><h2>{phase==='error'?'暂时无法检查更新':phase==='checking'?'正在检查更新':phase==='ready'?'新版本已准备就绪':active?'发现新版本':'已是最新版本'}</h2></div>{active&&<b className="update-version">v{update.version}</b>}</header>
   <p className="update-version-line">当前版本 v{version||'…'}{active&&<> <span>→</span> v{update.version}</>}</p>
   {active&&update.notes&&<div className="update-release-notes" tabIndex={0} aria-label="更新内容">{update.notes}</div>}
   {phase==='downloading'&&<div className="update-download-progress" role="status"><span>正在下载更新<strong>{Math.round(progress)}%</strong></span><progress aria-label="更新下载进度" max="100" value={progress}/></div>}
