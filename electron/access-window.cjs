@@ -7,7 +7,7 @@ function createAccessWindowController(){
   if(stage==='lock'){
    if(previous&&previous!=='lock')saved.set(win,{bounds:win.getBounds(),maximized:win.isMaximized()});
    if(win.isMaximized())win.unmaximize();
-   win.setMinimumSize(480,420);win.setResizable(false);win.setSize(520,450);win.center();
+   win.setResizable(true);win.setMinimumSize(480,420);win.setSize(520,450);win.setResizable(false);win.center();
   }else if(previous==='lock'||!previous){
    win.setResizable(true);win.setMinimumSize(1120,720);
    const old=saved.get(win);if(old){win.setBounds(old.bounds);if(old.maximized)win.maximize();saved.delete(win);}else{win.setSize(1500,940);win.center();}
