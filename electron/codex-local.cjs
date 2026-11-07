@@ -3,9 +3,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 
 function findCodexCommand() {
+  const latest = require('./production-agent-path.cjs').latestCodexExecutable();
+  if (latest) return { executable: latest, prefixArgs: [] };
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     const base = path.join(process.env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin');
     try {

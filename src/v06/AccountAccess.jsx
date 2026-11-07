@@ -90,8 +90,8 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
       </header>
       <div className="auth-layout">
         <section className="auth-intro">
-          <button className="auth-back" onClick={onClose}><ArrowLeft /> 返回身份选择</button>
-          <span className="auth-kicker">账号 · 仅限团队成员</span>
+          <button className="auth-back" onClick={onClose}><ArrowLeft /> 返回上一步</button>
+          <span className="auth-kicker">行舟影视 · 创作空间</span>
           <h1>{mode === 'register' ? '注册账号' : mode === 'login' ? '登录账号' : '找回账号'}</h1>
           <p>{mode === 'register' ? `注册成功后可直接进入${meta.destination}。为了避免重复注册，创建账号需要完成邮箱验证码。` : mode === 'login' ? '登录后将按照账号已有权限进入对应工作台。' : '通过注册时绑定的邮箱找回账号，也可以同时设置一个新密码。'}</p>
           {mode === 'register' && <div className="selected-role"><Icon /><span><small>本次选择</small><strong>{meta.label}</strong></span><b>{meta.destination}</b></div>}
@@ -99,6 +99,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
           <div className="auth-security"><MailCheck /><span><strong>一个邮箱绑定一个账号</strong><small>邮箱用于接收验证码，也用于日后找回自己的账号。</small></span></div>
         </section>
         <form className="auth-card" onSubmit={submit}>
+          <div className="auth-card-heading"><span className="access-icon"><LockKeyhole size={22}/></span><h2>{mode === 'register' ? '开启你的创作旅程' : mode === 'login' ? '欢迎回来' : '找回你的创作空间'}</h2><p>{mode==='login'?'登录账号，继续你的故事。':'填写以下信息，安全访问你的工作台。'}</p></div>
           <div className="auth-tabs">
             {allowRegistration&&<button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>创建账号</button>}
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>已有账号登录</button>

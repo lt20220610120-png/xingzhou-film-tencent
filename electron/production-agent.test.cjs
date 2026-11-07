@@ -1,11 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {EventEmitter}=require('node:events');
 const {createAgentClient}=require('./production-agent.cjs');
-function harness({ephemeral=true,rejectThread=false,useTool=false,toolName='xingzhou_task',modelPages=[]}={}){
+function harness({ephemeral=true,rejectThread=false,useTool=false,toolName='xingzhou_task',modelPages=[],accountType='chatgpt'}={}){
  const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();const calls=[];let spawnOptions;
  const emit=value=>child.stdout.emit('data',Buffer.from(JSON.stringify(value)+'\n'));
  child.stdin={write:line=>{const m=JSON.parse(line);calls.push(m);if(m.id===700){queueMicrotask(()=>{emit({method:'item/agentMessage/delta',params:{threadId:'test-owned',delta:'工具已完成'}});emit({method:'turn/completed',params:{threadId:'test-owned',turn:{status:'completed'}}});});return;}if(m.id===undefined)return;
-  const result=m.method==='account/read'?{account:{type:'chatgpt'}}:m.method==='model/list'?modelPages.find(p=>p.cursor===m.params?.cursor)?.result||{data:[{id:'model'}]}:m.method==='thread/start'?{thread:{id:'test-owned',ephemeral}}:{};
+  const result=m.method==='account/read'?{account:{type:accountType}}:m.method==='model/list'?modelPages.find(p=>p.cursor===m.params?.cursor)?.result||{data:[{id:'model'}]}:m.method==='thread/start'?{thread:{id:'test-owned',ephemeral}}:{};
   queueMicrotask(()=>{if(rejectThread&&m.method==='thread/start')return emit({id:m.id,error:{message:'unsupported ephemeral'}});emit({id:m.id,result});if(m.method==='turn/start'){if(useTool){emit({id:700,method:'item/tool/call',params:{threadId:'test-owned',turnId:'turn',callId:'call',tool:toolName,arguments:{action:'inspect'}}});return;}emit({method:'item/agentMessage/delta',params:{threadId:'test-owned',delta:'完成'}});emit({method:'turn/completed',params:{threadId:'test-owned',turn:{status:'completed'}}});}});
  }};child.kill=()=>child.emit('exit');
  const client=createAgentClient({executable:process.execPath,cwd:process.cwd(),spawnProcess:(exe,args,options)=>{spawnOptions={exe,args,...options};return child;}});
@@ -48,3 +48,9 @@ test('interactive full access is applied to both thread and every turn with nati
 
 
 test('ACP full access grants only its current session requests and resets for a later restricted run',async()=>{for(const [fullAccess,sessionId,allowed]of [[true,'acp',true],[true,'other',false],[false,'acp',false]]){const child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();let promptId,outcome;const emit=o=>queueMicrotask(()=>child.stdout.emit('data',Buffer.from(JSON.stringify(o)+'\n')));child.stdin={write:line=>{const m=JSON.parse(line);if(m.id===701){outcome=m.result.outcome;emit({id:promptId,result:{stopReason:'end_turn'}});return;}if(m.id===undefined)return;if(m.method==='session/prompt'){promptId=m.id;emit({id:701,method:'session/request_permission',params:{sessionId,toolCall:{kind:'execute'},options:[{kind:'allow_once',optionId:'once'}]}});return;}emit({id:m.id,result:m.method==='session/new'?{sessionId:'acp'}:{}});}};child.kill=()=>child.emit('exit');const client=createAgentClient({executable:process.execPath,protocol:'acp',cwd:process.cwd(),spawnProcess:()=>child});try{await client.connect();await client.run({prompt:'fixture',fullAccess});assert.equal(outcome.outcome,allowed?'selected':'cancelled');if(fullAccess&&allowed){await client.run({prompt:'restricted'});assert.equal(outcome.outcome,'cancelled');}}finally{client.close();}}});
+
+
+test('API Codex discovery requires ChatGPT and requests only account, quota and models',async()=>{
+ const h=harness();try{const result=await h.client.connect({status:'account',chatgptOnly:true});assert.equal(result.status.account.type,'chatgpt');assert(h.calls.some(c=>c.method==='account/rateLimits/read'));assert(!h.calls.some(c=>/skills|mcp|thread|turn/.test(c.method)));}finally{h.client.close();}
+ const key=harness({accountType:'apiKey'});try{await assert.rejects(key.client.connect({status:'account',chatgptOnly:true}),/ChatGPT.*登录/);assert(!key.calls.some(c=>c.method==='model/list'));}finally{key.client.close();}
+});

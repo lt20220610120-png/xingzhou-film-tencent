@@ -9,6 +9,7 @@ import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import { ChatGPTAccountSetup } from './ChatGPTAccountSetup.jsx';
 import { GeminiAccountSetup } from './GeminiAccountSetup.jsx';
 import { DoubaoWorkAccountSetup } from './DoubaoWorkAccountSetup.jsx';
+import {LocalCodexModels} from './LocalCodexModels.jsx';
 import {ModelImport} from './ModelImport.jsx';
 import {AudioWorkbench,AUDIO_LANGUAGES,LOCAL_QWEN_PROFILE} from './AudioWorkbench.jsx';
 import {normalizeCapabilities} from '../../core/modelCapabilities.js';
@@ -367,9 +368,9 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
       <label>配置名称<input value={form.name} onChange={e => update('name', e.target.value)} placeholder="例如：剧本分析主力、备用接口" autoFocus /></label>
       {kind === 'chat' && <label>服务商<select value={form.provider} onChange={e => handleProviderChange(e.target.value)}>{providerOptions.map(p => <option value={p.type} key={p.type}>{p.name}</option>)}</select></label>}
       {!isLocalAccount && <label className="full">接口地址<input value={form.endpoint} onChange={e => update('endpoint', e.target.value)} placeholder="https://服务商域名/v1" spellCheck={false} /><small>可填写基础地址或完整接口路径，请以服务商文档为准。</small></label>}
-      {kind!=='video'&&(isChatGPTWeb ? <ChatGPTAccountSetup/> : isDoubaoWork ? <DoubaoWorkAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isGeminiWeb ? <GeminiAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isLocalCodex ? <label>Codex 模型<select value={form.model} onChange={e => update('model', e.target.value)}><option value="gpt-6-luna">GPT-6 Luna · 快速</option><option value="gpt-6-sol">GPT-6 Sol · 均衡</option><option value="gpt-6-astra">GPT-6 Astra · 深度</option>{form.model && !['gpt-6-luna','gpt-6-sol','gpt-6-astra'].includes(form.model) && <option value={form.model}>{form.model}</option>}</select></label> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>)}
+      {kind!=='video'&&(isChatGPTWeb ? <ChatGPTAccountSetup/> : isDoubaoWork ? <DoubaoWorkAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isGeminiWeb ? <GeminiAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isLocalCodex ? <LocalCodexModels model={form.model} reasoningEffort={form.reasoningEffort} onChange={patch=>{formRevision.current++;setForm(f=>({...f,...patch}));setTestResult(null);}}/> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>)}
       {isDoubaoWork&&<label>推理强度<select aria-label="豆包工作推理强度" value="high" disabled><option value="high">高</option></select><small>豆包工作连接默认使用高推理强度。</small></label>}
-      {isLocalCodex && <label>推理档位<select value={form.reasoningEffort} onChange={e => update('reasoningEffort', e.target.value)}><option value="low">低 · 更快</option><option value="medium">中 · 均衡</option><option value="high">高 · 更仔细</option><option value="xhigh">超高 · 复杂任务</option></select><small>档位越高，通常等待更久、消耗更多额度；可按任务创建多个配置。</small></label>}
+
       {kind === 'chat' && !isLocalAccount && <label>接口协议<select value={form.protocol} onChange={e => update('protocol', e.target.value)}><option value="auto">自动（默认 OpenAI 兼容）</option><option value="chat">Chat Completions</option><option value="responses">Responses</option><option value="anthropic">Anthropic Messages</option></select></label>}
       {!isLocalAccount && <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>}
       {['chat','audio'].includes(kind) && !isLocalAccount && <label className="api-key-optional full"><input type="checkbox" checked={!form.requiresApiKey} onChange={e => update('requiresApiKey', !e.target.checked)} />本地或自部署服务无需密钥</label>}
@@ -383,6 +384,7 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
 }
 
 export function ApiLibrary({ state, setState }) {
+  const [codexOpen,setCodexOpen]=useState(false);
   const [libtvOpen,setLibTVOpen]=useState(false);
   const [likeOpen,setLikeOpen]=useState(false);
   const [activeApiKind, setActiveApiKind] = useState('chat');
@@ -412,13 +414,13 @@ export function ApiLibrary({ state, setState }) {
   };
   const importModels = rows => {
     setState(state => rows.reduce((s, data) => {
-      const existing = (data.kind === 'chat' ? s.apiProfiles : s.mediaProfiles || []).find(p=>p.endpoint===data.endpoint && p.model===data.model && (data.kind==='chat'||p.kind===data.kind));
+      const existing = (data.kind === 'chat' ? s.apiProfiles : s.mediaProfiles || []).find(p=>p.endpoint===data.endpoint && p.model===data.model && (p.provider||'custom')===(data.provider||'custom') && (data.kind==='chat'||p.kind===data.kind));
       if (data.kind !== 'chat') return existing ? updateMediaProfile(s,existing.id,data) : addMediaProfile(s,data);
-      if (existing) return updateApiProfile(s,existing.id,data);
+      if (existing) return data.provider==='codexLocal'?s:updateApiProfile(s,existing.id,data);
       const next = addApiProfile(s,data.name,data.provider,data.endpoint,data.model,data.apiKey);
       const configured=updateApiProfile(next,next.apiProfiles.at(-1).id,data);
       return s.activeApiId?configured:setActiveApi(configured,next.apiProfiles.at(-1).id);
-    },state)); setImportOpen(false);
+    },state)); setImportOpen(false);setCodexOpen(false);
   };
   const handleActivate = id => setState(s => activeApiKind === 'chat' ? setActiveApi(s, id) : setActiveMediaApi(s, activeApiKind, id));
   const handleDelete = () => {
@@ -426,7 +428,8 @@ export function ApiLibrary({ state, setState }) {
     setDeleteTarget(null);
   };
   return <div className="resource-page api-library">
-    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1></div><div className="modal-actions"><button className="secondary" onClick={()=>setLikeOpen(true)}>连接 Like画布</button><button className="secondary" onClick={()=>setLibTVOpen(true)}>连接 LibTV</button><button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
+    <Dialog open={codexOpen} title="连接本机 Codex" onClose={()=>setCodexOpen(false)}><LocalCodexModels onImport={importModels}/></Dialog>
+    <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1></div><div className="modal-actions"><button className="secondary" onClick={()=>setLikeOpen(true)}>连接 Like画布</button><button className="secondary" onClick={()=>setLibTVOpen(true)}>连接 LibTV</button>{activeApiKind==='chat'&&<button className="secondary" onClick={()=>setCodexOpen(true)}><Bot size={16}/>连接 / 刷新 Codex</button>}<button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
     <nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
     <div className="api-list-toolbar"><span>{all.length} 个配置</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>

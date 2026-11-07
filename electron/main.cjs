@@ -348,7 +348,8 @@ ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dial
 ipcMain.handle('collab-attach-generated-asset-image',(_,payload)=>collabService.attachGeneratedAssetImage(payload));
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
-ipcMain.handle('discover-models', (_, config) => config?.provider==='chatgptWeb'?getChatGPTWeb().listModels():config?.provider==='doubaoWork'?getDoubaoWork().listModels():config?.provider==='geminiWeb'?getGeminiWeb().listModels():discoverModels(config));
+ipcMain.handle('codex-local-catalog', event => require('./codex-catalog.cjs').readLocalCodexCatalog({signal:event?.securitySignal}));
+ipcMain.handle('discover-models', (_, config) => config?.provider==='codexLocal'?require('./codex-catalog.cjs').readLocalCodexCatalog({signal:_?.securitySignal}).then(r=>r.models):config?.provider==='chatgptWeb'?getChatGPTWeb().listModels():config?.provider==='doubaoWork'?getDoubaoWork().listModels():config?.provider==='geminiWeb'?getGeminiWeb().listModels():discoverModels(config));
 ipcMain.handle('collab-resolve-asset-image', (_, payload) => collabService.resolveAssetImage(payload));
 const imageCacheAccount = () => readCloudSession()?.account?.id || '';
 let activeImageCache, activeImageCacheDir;

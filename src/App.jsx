@@ -1,3 +1,4 @@
+import {LogoutConfirm} from './components/LogoutConfirm.jsx';
 import {SettingsUtilityCards} from './components/SettingsUtilityCards.jsx';
 import './temporary-references.css';
 import {initializeClientDistribution} from '../core/clientDistribution.js';
@@ -1153,6 +1154,7 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
   const [registerRole, setRegisterRole] = useState(null);
   const [lockedRole, setLockedRole] = useState(null);
+  const [logoutOpen,setLogoutOpen]=useState(false);
   const [initialized, setInitialized] = useState(false);
   const [storageLoadError, setStorageLoadError] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
@@ -1330,9 +1332,11 @@ function App() {
     setRole(nextRole);localStorage.setItem('xz-role',nextRole);setNav(nextRole==='director'?'director':'fruit');
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => setLogoutOpen(true);
+  const performLogout = async () => {
     await quickGeneration.pauseAndFlush();
     await api.authLogout();
+    setLogoutOpen(false);
     setAccount(null);
     setRole(null);
     setRegisterRole(null);
@@ -1448,7 +1452,7 @@ function App() {
         api={api}
         attachment={aiAttachment}
       />
-    </div></WorkspaceActiveContext.Provider>{!role&&<StudioRoleScreen account={account} onSelect={handleRoleSelect} onLogout={handleLogout}/>}{lockedRole&&<LockedRoleDialog targetRole={lockedRole} onClose={()=>setLockedRole(null)} onUnlocked={unlockRole}/>}</>
+    </div></WorkspaceActiveContext.Provider><LogoutConfirm open={logoutOpen} onCancel={()=>setLogoutOpen(false)} onConfirm={performLogout}/>{!role&&<StudioRoleScreen account={account} onSelect={handleRoleSelect} onLogout={handleLogout}/>}{lockedRole&&<LockedRoleDialog targetRole={lockedRole} onClose={()=>setLockedRole(null)} onUnlocked={unlockRole}/>}</>
   );
 }
 

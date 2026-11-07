@@ -30,7 +30,7 @@ export const API_PROVIDERS = {
     name: '本机 Codex（ChatGPT 额度）',
     type: 'codexLocal',
     defaultEndpoint: '',
-    defaultModel: 'gpt-6-sol',
+    defaultModel: '',
     description: '通过本机已登录的 Codex 处理文本，仅供这台电脑使用',
     requiresApiKey: false,
     keyName: 'apiKey',

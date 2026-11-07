@@ -58,3 +58,11 @@ test('不启动本地执行协议，新窗口被拒绝，主工作区导航不�
  callbacks['will-frame-navigate']({url:'xzapp://canvas/index.html',isMainFrame:false,preventDefault:()=>prevented=true},'xzapp://canvas/index.html',false,false);assert.equal(prevented,false);
  callbacks['will-frame-navigate']({url:'xzapp://canvas/index.html',isMainFrame:true,preventDefault:()=>prevented=true});assert.equal(prevented,true);
 });
+
+
+test('本机 Codex 模型目录遵从账号门禁并在退出时取消连接',async()=>{
+ const denied=fixture();denied.guard.handle('codex-local-catalog',()=>assert.fail('must not read account'));await assert.rejects(denied.handlers.get('codex-local-catalog')(denied.event()),/登录/);
+ const f=fixture({token:()=> 'valid',session:async()=>({id:'u'})});let begin;const begun=new Promise(resolve=>begin=resolve);
+ f.guard.handle('codex-local-catalog',event=>new Promise((resolve,reject)=>{begin();event.securitySignal.addEventListener('abort',()=>reject(Error('catalog aborted')),{once:true});}));f.guard.handle('auth-logout',()=>true);
+ const running=f.handlers.get('codex-local-catalog')(f.event());const rejected=assert.rejects(running,/catalog aborted/);await begun;await f.handlers.get('auth-logout')(f.event());await rejected;
+});

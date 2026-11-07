@@ -31,6 +31,10 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
   }else{onEvent(message);listeners.forEach(fn=>fn(message));}
  }}));
  function request(method,params,timeout=60000){return new Promise((resolve,reject)=>{const id=++serial;const timer=setTimeout(()=>{pending.delete(id);reject(Error(`Agent ${method} 超时`));},timeout);pending.set(id,{resolve,reject,timer});try{send({jsonrpc:'2.0',id,method,params});}catch(e){clearTimeout(timer);pending.delete(id);reject(e);}});}
+ async function readAccountStatus(account){
+  let limits=null;const errors={};try{limits=await request('account/rateLimits/read',{},12000);}catch{errors.limits='额度暂时不可读取';}
+  return require('./production-agent-status.cjs').normalizeAgentStatus({account,limits,errors},cwd);
+ }
  async function listCodexModels(){
   const models=[],seen=new Set(),cursors=new Set();let cursor=null;
   for(let page=0;page<100;page++){
@@ -60,7 +64,7 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
  }
  function closeConversation(session){if(session?.threadId)toolSessions.delete(session.threadId);}
  return {
-  async connect({status=false}={}){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true,optOutNotificationMethods:['rawResponseItem/completed']}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');const rows=await listCodexModels(),models=rows.map(m=>({id:m.id,name:m.displayName||m.id,hidden:m.hidden===true,isDefault:m.isDefault===true,efforts:(m.supportedReasoningEfforts||[]).map(e=>e.reasoningEffort),defaultEffort:m.defaultReasoningEffort})),currentModelId=models.find(m=>m.isDefault)?.id||'';return {connected:true,protocol,profile:launchProfile,currentModelId,models,...(status?{status:await readAgentStatus(request,auth.account,cwd)}:{})};}
+  async connect({status=false,chatgptOnly=false}={}){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true,optOutNotificationMethods:['rawResponseItem/completed']}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');if(chatgptOnly&&auth.account.type!=='chatgpt')throw Error('请先在本机 Codex 使用 ChatGPT 账号登录；此入口不使用 API Key 计费');const rows=await listCodexModels(),models=rows.map(m=>({id:m.id,name:m.displayName||m.id,hidden:m.hidden===true,isDefault:m.isDefault===true,efforts:(m.supportedReasoningEfforts||[]).map(e=>e.reasoningEffort),defaultEffort:m.defaultReasoningEffort})),currentModelId=models.find(m=>m.isDefault)?.id||'';return {connected:true,protocol,profile:launchProfile,currentModelId,models,...(status?{status:status==='account'?await readAccountStatus(auth.account):await readAgentStatus(request,auth.account,cwd)}:{})};}
    const init=await request('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'xingzhou-film',version:'1.0.0'}});acpImages=init.agentCapabilities?.promptCapabilities?.image===true;const session=await request('session/new',{cwd,mcpServers:[]},120000);acpSession=session;return {connected:true,protocol,profile:launchProfile,backendTransport:'MCP',currentModelId:session.models?.currentModelId||'',models:session.models?.availableModels?.map(m=>({id:m.modelId,name:m.name}))||[],sessionId:session.sessionId};},
   async run({model,prompt,edit=false,fullAccess=false,developerInstructions,attachments=[],effort='high',tools=[],callTool,onDelta=()=>{},onUpdate=()=>{}}){
    if(protocol!=='codex'){
