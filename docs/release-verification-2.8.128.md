@@ -8,3 +8,10 @@
 - 连接测试通过 requestText 把 low/medium/high/xhigh/max/ultra 原值传到 Codex，CLI 参数 model_reasoning_effort 与选择一致；未改动卡密或账号流程。
 - 本会话独立复核了配置合并、持久化、默认模型不变、回包刷新与下拉框不误触勾选等边界。
 - 最终全量测试、安装包及公开发布结果后续追加。
+
+## 最终验收与发布
+
+- 2763/2763 全量测试、构建与安装包运行通过，运行报告 qa/packaged-smoke-2.8.128-1794039344853/report.json，success=true、errors=[]。
+- 本机真实 gpt-6.1-sol / xhigh 返回“思考强度连接成功”，证据 output/codex-effort-128-real.json。
+- 安装包104021149字节，SHA256 cb2e326a8749894db272b76fd0f12adb9767583933099336005e7cd8e8eebf0b；GitHub Release id437435011，asset uploaded，公开digest一致。官网正式文件全SHA256、公开Range206前65536字节、三份签名清单及客户端实际优先IP更新源均通过，证据output/effort-128/。
+- 下载：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.128.exe 。本机 release/2.8.128/ 同名安装包。实现ee0adda已推送；没有替换当前运行客户端。
