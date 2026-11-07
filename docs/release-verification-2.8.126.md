@@ -25,3 +25,15 @@
 - 全量测试：2751/2751 通过。生产构建通过；现有大包体提示保持。
 - 最终扩展 UI 验证增加：已消失模型保留明确选项、Codex 请求晚于服务商切换回包时不改写新草稿、812×375 横屏及 reduced-motion 均通过。
 - 安装包首次下载运行时后重命名遭 Windows EPERM，改用本机已备妥的同版本 Electron 43.2.0 物理目录；不修改打包安全参数。旧运行烟测使用旧 `.license-start` 与标题文本定位，已改为新授权表单及更新卡片语义定位，同时新增真实预加载 `codexLocalCatalog` 桥接存在检查。
+
+## 最终安装包与公开通道
+
+- 安装包：`release/2.8.126/Xingzhou-Film-Tencent-Setup-2.8.126.exe`，104020352 字节；SHA256 `c522f99ce6b80da373e9b16ba738c122a4369ab9b09e2f48b3f39ea2f3f98b77`。
+- 最终安装包运行：`qa/packaged-smoke-2.8.126-1794035539279/report.json`，`success=true`、`errors=[]`，新 Codex 模块/桥接及授权门禁通过；ASAR 关键模块与最终源码逐字节一致。
+- GitHub Release id `437408520`，资产 uploaded；公开 API digest 与本地 SHA256 一致。公开安装包：[官网](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.126.exe)、[GitHub](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.126/Xingzhou-Film-Tencent-Setup-2.8.126.exe)。
+- 官网与两仓库 main 的三份公开更新清单与本地签名清单完全一致，Ed25519 验证通过。正式客户端 `fetchUpdateManifest` 使用优先 IP 更新源，实际返回 2.8.126，可从 2.8.125 升级。证据 `output/access-28126/public-manifest-*.json`、`in-app-update.json`。
+- 源码 `de6fd8a`、`293d5ab` 已推送 `codex/character-voice-workflow`；未替换用户正在运行的客户端，未调用付费视频接口。
+
+- 最终公开下载校验：当前 `/opt/xingzhou-updates` 正式安装包全文件 SHA256 与本地及 GitHub digest 一致；官网 HTTPS Range 返回 206、`bytes 0-65535/104020352`，65536 字节与本地逐字节相同。完整报告 `output/access-28126/public-verification.json`。
+- 公网整包重复下载因链路较慢未等待完成；最终采用正式存储文件的整包 SHA256、GitHub 公开 digest、三份签名清单及公开 Range 内容核对，不将未完成的公网整包下载记作通过。
+- 上级 `软件更新记忆.md` 已同步本版版本、安装包地址、实现和验收信息。
