@@ -19,3 +19,13 @@
 - 预验成功、兑换成功增加许可状态代次，较早启动检查的迟到回包不能覆盖新凭证；并发反序回包测试通过。
 
 - 主进程推送联网校验错误时，启动锁直接显示服务返回的错误，不依赖随后已失效的旧请求回包。补充主动推送错误可见性 UI 验证通过；发布前重新构建最终包。
+
+## 最终发布校验
+
+- 最终包：`release/2.8.127/Xingzhou-Film-Tencent-Setup-2.8.127.exe`，104020868 字节；SHA256 `fb8066dc4ed4808ba67541e121836c25f68d996b2c6a70d140d8939c857cbd4d`。
+- 最终打包运行 `qa/packaged-smoke-2.8.127-1794038358776/report.json`：success=true、errors=[]。真实尺寸初始约 523×451、账号约 1502×941、重新锁回约 523×452，单输入单按钮和独立更新桥通过。ASAR 主进程文件与最终源文件一致。
+- 源码 d1a17ce、7608391、6bc8223 已推送。最终 `output/startup-127-final2-dist.log` 2762/2762、构建和安装包运行通过。
+- GitHub Release id 437425884，最终资产 uploaded，公开 digest 与本地一致；官网正式文件全 SHA256 一致，公开 Range 206 的前 65536 字节与本地相同。三份公开 latest.json 与本地签名清单完全一致且 Ed25519 验证通过。
+- 正式客户端更新读取优先 IP 源实际发现 2.8.127，可由 2.8.126 升级。证据 `output/startup-127/public-verification.json`、`in-app-update.json`。
+- 公开地址：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.127.exe 。本机同版本安装包保留；没有替换或关闭用户当前运行的客户端。
+- 桌面提供仅两种界面的独立离线预览 `行舟影视-2.8.127-启动锁与更新提示预览.html`，使用最终组件和模拟数据，无外网请求；与公开客户端分开。
