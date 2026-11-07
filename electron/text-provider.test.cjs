@@ -59,3 +59,5 @@ test('测试本机 Codex 连接检查实际返回正文', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.message, '连接成功');
 });
+
+test('Codex effort selections reach both connection tests and real execution arguments unchanged',async()=>{for(const effort of ['low','medium','high','xhigh','max','ultra']){let received;await testTextConnection({provider:'codexLocal',model:'gpt-6.1-terra',reasoningEffort:effort},{codexRun:async config=>{received=config;return '连接成功';}});assert.equal(received.reasoningEffort,effort);const args=require('./codex-local.cjs').buildCodexArgs(received,'C:/temp/result.txt','C:/temp/work');assert(args.includes('model_reasoning_effort="'+effort+'"'));}});

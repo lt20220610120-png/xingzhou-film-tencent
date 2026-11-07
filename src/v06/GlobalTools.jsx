@@ -413,10 +413,11 @@ export function ApiLibrary({ state, setState }) {
     closeForm();
   };
   const importModels = rows => {
-    setState(state => rows.reduce((s, data) => {
+    setState(state => rows.reduce((s, row) => {
+      const {codexEffortSelected,...data}=row;
       const existing = (data.kind === 'chat' ? s.apiProfiles : s.mediaProfiles || []).find(p=>p.endpoint===data.endpoint && p.model===data.model && (p.provider||'custom')===(data.provider||'custom') && (data.kind==='chat'||p.kind===data.kind));
       if (data.kind !== 'chat') return existing ? updateMediaProfile(s,existing.id,data) : addMediaProfile(s,data);
-      if (existing) return data.provider==='codexLocal'?s:updateApiProfile(s,existing.id,data);
+      if (existing) return data.provider==='codexLocal'?(codexEffortSelected?updateApiProfile(s,existing.id,{reasoningEffort:data.reasoningEffort,codexEfforts:data.codexEfforts}):s):updateApiProfile(s,existing.id,data);
       const next = addApiProfile(s,data.name,data.provider,data.endpoint,data.model,data.apiKey);
       const configured=updateApiProfile(next,next.apiProfiles.at(-1).id,data);
       return s.activeApiId?configured:setActiveApi(configured,next.apiProfiles.at(-1).id);
@@ -428,7 +429,7 @@ export function ApiLibrary({ state, setState }) {
     setDeleteTarget(null);
   };
   return <div className="resource-page api-library">
-    <Dialog open={codexOpen} title="连接本机 Codex" onClose={()=>setCodexOpen(false)}><LocalCodexModels onImport={importModels}/></Dialog>
+    <Dialog open={codexOpen} title="连接本机 Codex" onClose={()=>setCodexOpen(false)}><LocalCodexModels profiles={apiProfiles} onImport={importModels}/></Dialog>
     <header className="api-library-header"><div><span className="eyebrow">创作设置</span><h1>API 接口</h1></div><div className="modal-actions"><button className="secondary" onClick={()=>setLikeOpen(true)}>连接 Like画布</button><button className="secondary" onClick={()=>setLibTVOpen(true)}>连接 LibTV</button>{activeApiKind==='chat'&&<button className="secondary" onClick={()=>setCodexOpen(true)}><Bot size={16}/>连接 / 刷新 Codex</button>}<button className="secondary" onClick={()=>setImportOpen(true)}>拉取 / 导入模型</button><button className="primary" onClick={() => openForm()}><Plus size={16}/>添加接口</button></div></header>
     <nav className="api-library-tabs" aria-label="API 类型">{kinds.map(([kind, label]) => <button key={kind} className={activeApiKind === kind ? 'active' : ''} onClick={() => { setActiveApiKind(kind); setQuery(''); }}>{label}<span>{kind === 'chat' ? apiProfiles.length : mediaProfiles.filter(p => p.kind === kind).length}</span></button>)}</nav>
     <div className="api-list-toolbar"><span>{all.length} 个配置</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
