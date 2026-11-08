@@ -20,6 +20,7 @@ import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection,visibleArtAssets } from '../../core/assetImages.js';
 import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
+import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import AssetSceneLinks from './AssetSceneLinks.jsx';
 import {getArtReviewStore,summarizeArtReview} from '../../core/artReviewPersistence.js';
 import {artReviewFailureSummary} from '../../core/artReviewBatch.js';
@@ -142,7 +143,7 @@ export function ReviewSection(props){
 function ArtReviewEntry(props){
  const {project,assets,api,accountId,refresh}=props;
  const job=useCollabAnalysisJob(project,api,accountId,assets);
- return <ArtReviewSection {...props} analysisJob={job} onStop={()=>stopAnalysis({projectId:project.id,api,accountId})} onAnalyze={({profile,episodeNumber,force,mapOnly,focusItem,detailsOnly})=>startCollabArtAnalysis({project,assets,genre:project.genre,profile,api,refresh,accountId,targetEpisodeNumbers:episodeNumber?[episodeNumber]:undefined,force,mapOnly,focusItem,detailsOnly})}/>;
+ return <ArtReviewSection {...props} analysisJob={job} onStop={()=>stopAnalysis({projectId:project.id,api,accountId})} onAnalyze={({profile,episodeNumber,force,mapOnly,focusItem,detailsOnly,sourceProject})=>startCollabArtAnalysis({project:sourceProject||project,assets,genre:project.genre,profile,api,refresh,accountId,targetEpisodeNumbers:episodeNumber?[episodeNumber]:undefined,force,mapOnly,focusItem,detailsOnly})}/>;
 }
 
 function AnalysisSyncDetails({job}) {
@@ -1597,6 +1598,10 @@ export function CollabWorkspace({ state, api, account }) {
       const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, normalizedAssets);
+      const store=getArtReviewStore({api,projectId,accountId:account?.id});
+      // Resume missing associations with the fresh Director edition, without
+      // tying background model work to the refresh button's network lifetime.
+      void getArtDistributionController({api,projectId,accountId:account?.id}).refresh({project:p,store,existingAssets:normalizedAssets,onBindingSaved:data=>notifyBindingSaved(projectId,account?.id,data)}).catch(error=>{if(isCurrentTarget())setRefreshNotice(`提示词已刷新，补充分发未完成：${error.message}`);});
       if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
       return p;
     } catch (error) {

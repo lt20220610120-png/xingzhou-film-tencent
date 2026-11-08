@@ -46,7 +46,7 @@ export function bindingSnapshot(project,ledger,assets,previous={}){
    const id=String(prompt.id);
    if(seen.has(id)||promptIds.has(id)){invalid(`提示词身份重复：${label}`);continue;}seen.add(id);promptIds.add(id);
    const sceneId=`${Number(match[1])}-${Number(match[2])}`;
-   entries.push({id,episodeId:episode.id||String(episode.episodeNumber),episode:episode.episodeNumber,scene:Number(match[2]),number:Number(match[3]),sceneId,label,prompt:text,promptHash:bindingHash(text),runId:prompt.generationRunId||'',sceneReady:Boolean(valid&&record.scenes.some(scene=>scene.id===sceneId))});
+   entries.push({id,episodeId:episode.id||String(episode.episodeNumber),episode:episode.episodeNumber,scene:Number(match[2]),number:Number(match[3]),sceneId,label,prompt:text,promptHash:bindingHash(text),runId:prompt.generationRunId||'',...(prompt.profileId?{profileId:prompt.profileId}:{}),...(prompt.profileHash?{profileHash:prompt.profileHash}:{}),sceneReady:Boolean(valid&&record.scenes.some(scene=>scene.id===sceneId))});
   }
  }
  // Director batches belong to individual scenes, not to an entire project's version.

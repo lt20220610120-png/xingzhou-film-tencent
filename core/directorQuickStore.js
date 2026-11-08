@@ -143,7 +143,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const prompts=plan.segments.flatMap((segment,i)=>(advisory?Boolean(run.segmentDrafts?.[segment.id]?.prompt?.content):run.segmentDrafts?.[segment.id]?.validated)?[{
     id:ids[i],label:run.segmentDrafts[segment.id].prompt.label,content:run.segmentDrafts[segment.id].prompt.content,
     sourceText:[preamble,plan.sceneHeader,plan.sourceText.slice(segment.sourceStart,segment.sourceEnd)].filter(Boolean).join('\n\n'),
-    skillId:snapshot.skillId,skillName:state.skills.find(s=>s.id===snapshot.skillId)?.name || '',profileId:snapshot.profileId,
+    skillId:snapshot.skillId,skillName:state.skills.find(s=>s.id===snapshot.skillId)?.name || '',profileId:snapshot.profileId,profileHash:snapshot.profileHash,
     generationComplete:run.segmentDrafts[segment.id].generationComplete!==false,generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,

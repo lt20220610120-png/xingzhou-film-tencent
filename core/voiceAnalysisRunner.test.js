@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ensureEpisodeVoices,readProjectVoices} from './voiceAnalysisRunner.js';
+test('episode-filtered voice reading never requests another episode',async()=>{
+ const episodes=[1,2].map(n=>({id:'e'+n,episodeNumber:n,content:`${n}-1 房间 日 内\n小林：回家。`})),records=Object.fromEntries(episodes.map(e=>[e.episodeNumber,{sourceContent:e.content,scenes:[{id:e.episodeNumber+'-1',source:e.content,items:[]}]}])),calls=[];
+ const store={snapshot:()=>({episodes:records}),update:async(n,fn)=>{records[n]=fn(records[n]);}};
+ const api={aiChat:async p=>{calls.push(p);return JSON.stringify({scenes:[{sceneId:'2-1',speakers:[{name:'小林',ageStage:'default',language:'Chinese',quote:'回家。',evidence:'小林：回家。',kind:'dialogue'}]}]})}};
+ const result=await readProjectVoices({project:{episodes},store,api,profile:{id:'model'},targetEpisodeNumbers:[2]});assert.deepEqual(result.errors,[]);assert.equal(calls.length,1);assert.equal(records[1].voiceAnalysis,undefined);assert.equal(records[2].voiceAnalysis.prepared,true);
+});
 test('information reading fills missing speakers, reuses current data and reports invalid replies',async()=>{
  const episode={episodeNumber:1,content:'1-1 日 内\n小林：回家。'};
  let record={sourceContent:episode.content,scenes:[{id:'1-1',source:episode.content,items:[]}]},calls=0;

@@ -1,6 +1,6 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {bindingSnapshot} from '../../core/promptArtBinding.js';
-import {selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
+import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
 import {assignCardToPrompts,cardPromptIds} from '../../core/scenePromptAssignments.js';
 import {getPromptDistributionService} from '../../core/promptDistributionService.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
@@ -11,7 +11,7 @@ import {supplementPromptMissingReferences} from '../../core/promptMissingSupplem
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
 export function notifyBindingSaved(projectId,accountId,data){window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
 
-export default function useScenePromptLinks({project,ledger,assets,api,accountId,enabled,canEdit}){
+export default function useScenePromptLinks({project,ledger,assets,api,accountId,enabled,canEdit,versionId}){
  const [saved,setSaved]=useState(null),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const resolving=useRef(false);
  const [supplementProgress,setSupplementProgress]=useState('');
@@ -21,7 +21,7 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
   window.addEventListener(BINDING_SAVED_EVENT,sync);return()=>{alive=false;window.removeEventListener(BINDING_SAVED_EVENT,sync);};
  },[api,project.id,accountId,enabled]);
  const current=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
- const {snapshot,decisions}=useMemo(()=>selectBindingVersion(current,saved),[current,saved]);
+ const {snapshot,decisions}=useMemo(()=>selectBindingVersion(current,saved,bindingVersionOptions(current,saved).some(row=>row.id===versionId)?versionId:undefined),[current,saved,versionId]);
  const store=getArtReviewStore({api,projectId:project.id,accountId});
  const service=useMemo(()=>getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets}),onSaved:data=>notifyBindingSaved(project.id,accountId,data)}),[api,project.id,accountId]);
  service.configure(()=>({project,ledger:store.snapshot(),assets}));
@@ -36,7 +36,7 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
  const assign=async(sceneId,item,ids)=>{
   if(!canEdit||!loaded||busy)throw Error('正在读取或保存关联，请稍后再试');
   setBusy(true);setError('');try{
-   const latest=await api.promptArtLoad({projectId:project.id,accountId}),fresh=bindingSnapshot(project,ledger,assets,latest?.snapshot),selected=selectBindingVersion(fresh,latest);
+   const latest=await api.promptArtLoad({projectId:project.id,accountId}),fresh=bindingSnapshot(project,ledger,assets,latest?.snapshot),selected=selectBindingVersion(fresh,latest,versionId||undefined);
    const card=selected.snapshot.cards.find(card=>card.sceneIds.includes(sceneId)&&card.category===item.category&&card.name===item.name);
    if(!card)throw Error('本场资产已变化，请重新打开关联');
    const nextDecisions=assignCardToPrompts(selected.snapshot,selected.decisions,sceneId,card.uid,ids);
@@ -63,5 +63,5 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
   try{return await supplementPromptMissingReferences({service,store,api,targets,versionId,profile,actor:accountId,onProgress:setSupplementProgress});}
   catch(e){setError(e.message);throw e;}finally{resolving.current=false;setBusy(false);setSupplementProgress('');}
  };
- return {links,assign,skipMissing,skipMissingBatch,supplementMissing,supplementProgress,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,ctx:{project,ledger,assets}}};
+ return {links,assign,skipMissing,skipMissingBatch,supplementMissing,supplementProgress,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,currentSnapshot:current,ctx:{project,ledger,assets}}};
 }

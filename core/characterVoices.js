@@ -73,6 +73,15 @@ export function setVoiceCandidate(profile={},audio,settings={}){
  const candidate={id:audio.id,sourceResultId:audio.sourceResultId||'',kind:'audio',filePath:audio.filePath,url:audio.url,duration:audio.duration,mime:audio.mime,name:audio.name,createdAt:Date.now(),profileId:settings.profileId||'',model:settings.model||'',instructions:settings.instructions||'',quote:settings.quote||'',language:settings.language||'Chinese'};
  return {...profile,candidates:[...(profile.candidates||[]),candidate]};
 }
+// Episode voice inventory follows dialogue scenes, including minor speakers.
+// Appearance frequency controls the all-project browser, never episode routing.
+export function episodeVoiceRoster(project,ledger,episodeNumber){
+ const number=Number(episodeNumber);
+ return projectVoiceRoster(project,ledger).characters.flatMap(character=>{
+  const speakingSceneIds=character.speakingSceneIds.filter(id=>Number(String(id).split('-')[0])===number);
+  return speakingSceneIds.length?[{...character,allSpeakingSceneIds:character.speakingSceneIds,speakingSceneIds,sceneIds:character.sceneIds.filter(id=>Number(String(id).split('-')[0])===number)}]:[];
+ });
+}
 export function confirmVoiceCandidate(profile,id){
  const candidate=profile.candidates?.find(c=>c.id===id);if(!candidate)throw Error('样音已不存在');
  return {...profile,confirmed:{...candidate,confirmedAt:Date.now()}};

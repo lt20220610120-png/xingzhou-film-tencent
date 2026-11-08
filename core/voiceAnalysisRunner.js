@@ -30,10 +30,10 @@ export async function ensureEpisodeVoices({episode,store,api,profile,job={},onPr
   onProgress();
   }finally{job.taskIds=job.taskIds.filter(id=>id!==taskId);}
 }
-export async function readProjectVoices({project,store,api,profile,job={},onProgress=()=>{}}){
+export async function readProjectVoices({project,store,api,profile,job={},onProgress=()=>{},targetEpisodeNumbers}){
  if(!profile)throw Error('请选择对白读取模型');
  const result={done:0,skipped:0,errors:[]};
- for(const episode of listCollabEpisodes(project.episodes)){
+ for(const episode of listCollabEpisodes(project.episodes).filter(ep=>!targetEpisodeNumbers?.length||targetEpisodeNumbers.includes(ep.episodeNumber))){
   if(job.cancelled)break;
   try{
    const outcome=await ensureEpisodeVoices({episode,store,api,profile,job,onProgress});

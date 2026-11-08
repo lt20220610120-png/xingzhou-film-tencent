@@ -1,5 +1,5 @@
 import {bindingHash,bindingProblems,sceneInventoryCards,saveDistribution,entryBindingSignature} from './promptArtBinding.js';
-import {saveBindingVersion,promptSetId} from './promptBindingVersions.js';
+import {saveBindingVersion,currentPromptVersionId} from './promptBindingVersions.js';
 import {sceneReadyForPromptDistribution} from './promptDistributionService.js';
 import {editArtReview,isSceneVerified,reviewSceneSignature} from './artReview.js';
 
@@ -51,9 +51,9 @@ export function promptReviewState(state,scope={}){
 // decisions, including results that finished in other episodes in the meantime.
 export async function resolvePromptMissingReferences({service,targets,versionId}){
  if(!targets?.length)throw Error('请选择待处理项');
- const initial=await service.read(versionId),selectedVersion=initial.snapshot.versionId,followedCurrent=selectedVersion===promptSetId(initial.currentSnapshot);
+ const initial=await service.read(versionId),selectedVersion=initial.snapshot.versionId,followedCurrent=selectedVersion===currentPromptVersionId(initial.currentSnapshot,initial.saved);
  return service.mutate(selectedVersion,state=>{
-  if(followedCurrent&&promptSetId(state.currentSnapshot)!==selectedVersion)throw Error('提示词来源版本已变化，请重新检查待处理项');
+  if(followedCurrent&&currentPromptVersionId(state.currentSnapshot,state.saved)!==selectedVersion)throw Error('提示词来源版本已变化，请重新检查待处理项');
   const pending=promptReviewState(state,{}).pendingMissing,decisions={...state.decisions};
   for(const target of targets){
    const row=pending.find(({entry,need})=>entry.id===target.entryId&&need.id===target.needId);
@@ -86,7 +86,7 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
   if(!entries.length)throw Error('请先人工核实本范围全部提示词，再发布');
  }
  if(entries.some(e=>service.isBusy(e.id)))throw Error('本范围仍在模型分发，请完成后再核实');
- const followedCurrent=initial.snapshot.versionId===promptSetId(initial.currentSnapshot);
+ const followedCurrent=initial.snapshot.versionId===currentPromptVersionId(initial.currentSnapshot,initial.saved);
  const signatures=new Map(entries.map(e=>[e.id,promptHumanReviewSignature(initial.snapshot,e,initial.decisions[e.id])]));
  const check=(state,targets=entries)=>{
   const expectedIds=new Set(targets.map(e=>e.id));

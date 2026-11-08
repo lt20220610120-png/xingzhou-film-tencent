@@ -41,10 +41,11 @@ import { DirectorBatchPanel } from './DirectorBatchPanel.jsx';
 import { renderNumberedScene } from '../../core/directorSegmentation.js';
 import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
 import { reconcileDirectorEpisodes } from '../../core/directorEpisodeReconcile.js';
-import { directorSettingsHash } from '../../core/directorQuickStore.js';
+import { directorSettingsHash,publicModelConfiguration,sha256Text } from '../../core/directorQuickStore.js';
 import {reconcileDirectorMasterDraft,refreshDirectorCollaboration} from '../../core/directorCollaborationRefresh.js';
 import {registerEditor,flushEditing,queueDraft,readQueuedDraft} from '../editing.js';
 import {DirectorVersions} from './DirectorVersions.jsx';
+import {directorPromptCoverage} from '../../core/directorPromptCoverage.js';
 
 /* ================================================================
  * ProjectCards - 导演工作台项目选择页
@@ -114,11 +115,14 @@ function DirectorCloudManager({ projects, onBack, onDelete }) {
  * ================================================================ */
 function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBack, kind }) {
   const episodeNumberAt = (index) => project.episodes.slice(0, index + 1).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').length;
+  const coverage=React.useMemo(()=>directorPromptCoverage(project),[project]);
+  const complete=coverage.length>0&&coverage.every(ep=>ep.complete);
   return (
     <aside className="director-rail">
       <div className="project-directory-fixed">
       <button onClick={onBack}><ArrowLeft size={16} /> 所有导演项目</button>
-      <h2>{project.name}</h2>
+      <h2 className="director-coverage-title">{project.name}<span className={`director-completion-dot ${complete?'complete':''}`} role="img" aria-label={complete?'全剧提示词已齐全':'全剧提示词尚未齐全'} title={complete?'全剧提示词已齐全':'全剧提示词尚未齐全'}/></h2>
+      <small className="director-coverage-summary">{complete?'全剧提示词已齐全':`提示词齐全 ${coverage.filter(ep=>ep.complete).length}/${coverage.length} 集`}</small>
       <div className="rail-label">总剧本</div>
       <button
         className={active === 'master' ? 'active' : ''}
@@ -131,7 +135,7 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
       </div>
       <div className="project-directory-scroll">
       <div className="rail-label">分集</div>
-      {project.episodes?.map((ep, idx) => (
+      {project.episodes?.map((ep, idx) => {const progress=coverage.find(row=>row.id===ep.id);return (
         <button
           key={ep.id}
           className={active === ep.id ? 'active' : ''}
@@ -140,11 +144,12 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
           <span className="rail-index">{ep.kind === 'setting' || ep.title === '设定和小传' ? '序' : String(episodeNumberAt(idx)).padStart(2, '0')}</span>
           <span>
             {ep.title}
-            <small>{ep.status || '待导演处理'}</small>
+            <small>{progress?`${progress.complete?'提示词已齐全':'提示词未齐全'} ${progress.count}/${progress.expected}`:ep.status || '待导演处理'}</small>
           </span>
+          {progress&&<span className={`director-completion-dot ${progress.complete?'complete':''}`} role="img" aria-label={`${ep.title}：${progress.complete?'提示词已齐全':'提示词未齐全'}`} title={progress.complete?'全部场景提示词已保存':progress.scenes.filter(s=>!s.complete).map(s=>`${s.label}：${s.stale?'原文或设定已变化':s.missingLabels.length?'缺少 '+s.missingLabels.join('、'):'编号重复或批次待核对'}`).join('；')}/>}
           <span className="rail-episode-delete" onClick={(event) => { event.stopPropagation(); onDeleteEpisode?.(ep.id); }}>删除</span>
         </button>
-      ))}
+      );})}
 
       <button className="add-episode" onClick={onAdd}>
         <Plus size={16} /> 添加集数
@@ -389,7 +394,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         existing: episode.prompts || [],
         skill: currentSkill?.name || '',
         sourceText,
-      });
+      }).map(prompt=>({...prompt,profileId:directorProfile?.id,profileHash:sha256Text(JSON.stringify(publicModelConfiguration(directorProfile)))}));
       setState((s) => appendDirectorPromptHistory(appendDirectorEpisodePrompts(s, project.id, episode.id, newPrompts, {
         status: '已生成提示词',
         lastUsedSkill: currentSkill?.name || '',

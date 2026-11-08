@@ -10,11 +10,10 @@ import BindingAuditList from './BindingAuditList.jsx';
 import SceneInventoryDisclosure from './SceneInventoryDisclosure.jsx';
 import {BINDING_SAVED_EVENT,notifyBindingSaved} from './useScenePromptLinks.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
-import {ModelSelect} from './ModelSelect.jsx';
 import '../prompt-art-binding.css';
 
-export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,onSkipMissing,sceneActions,onBindingVersionChange}){
- const [available,setAvailable]=useState(false),[loaded,setLoaded]=useState(false),[saved,setSaved]=useState(null),[selected,setSelected]=useState(''),[version,setVersion]=useState(''),[category,setCategory]=useState('all'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,onSkipMissing,sceneActions,versionId}){
+ const [available,setAvailable]=useState(false),[loaded,setLoaded]=useState(false),[saved,setSaved]=useState(null),[selected,setSelected]=useState(''),[category,setCategory]=useState('all'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const mounted=useRef(false),saving=useRef(false);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
  useEffect(()=>{const sync=event=>{const d=event.detail;if(d.projectId===project.id&&d.accountId===accountId){latest.current.saved=d.data;setSaved(d.data);}};window.addEventListener(BINDING_SAVED_EVENT,sync);return()=>window.removeEventListener(BINDING_SAVED_EVENT,sync);},[accountId,project.id]);
@@ -24,8 +23,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  }).catch(problem=>alive&&setError(problem.message));return()=>{alive=false;};},[api,accountId,project.id]);
  const currentSnapshot=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
  const versions=useMemo(()=>bindingVersionOptions(currentSnapshot,saved),[currentSnapshot,saved]);
- const selectedVersion=versions.some(row=>row.id===version)?version:versions[0].id;
- useEffect(()=>{onBindingVersionChange?.(selectedVersion);},[selectedVersion,onBindingVersionChange]);
+ const selectedVersion=versions.some(row=>row.id===versionId)?versionId:versions[0].id;
  const {snapshot,decisions}=useMemo(()=>selectBindingVersion(currentSnapshot,saved,selectedVersion),[currentSnapshot,saved,selectedVersion]);
  const entries=snapshot.entries.filter(entry=>entry.sceneId===sceneId),entry=entries.find(row=>row.id===selected)||entries[0];
  const decision=entry&&currentEntryBinding(snapshot,entry,decisions[entry.id]);
@@ -54,24 +52,24 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const disabled=busy||distribution.isBusy(entry?.id)||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
   {entry&&<SceneInventoryDisclosure cards={inventory} needs={displayNeeds} entryLabel={entry.label} disabled={disabled} onToggle={(card,checked)=>act(()=>toggleCard(card,checked))}/>} 
-  <header className="prompt-art-toolbar"><div><h2>场景 {sceneId} · 按提示词分发</h2></div><div className="prompt-art-header-actions">{modelProfiles&&<ModelSelect label="分发模型" profiles={modelProfiles} value={modelId} onChange={setModelId} disabled={disabled}/>}<button className="prompt-art-redistribute" disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>AI 重新分发本条</button>{!distribution.paused&&distribution.working?<button onClick={distribution.stop}>停止清单分发</button>:<button disabled={!canEdit||busy||!profile||distribution.working} onClick={distribution.resume}>开始清单分发</button>}{onBackScene&&<button onClick={onBackScene}>返回场景清单</button>}{sceneActions}<button disabled={disabled} onClick={()=>act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));await refresh({manual:true});setVersion('');setNotice('已检查提示词与美术更新');})}>检查更新</button></div></header>
+  <header className="prompt-art-toolbar"><div><h2>场景 {sceneId} · 提示词素材关联</h2></div><div className="prompt-art-header-actions">{sceneActions}<details className="prompt-art-local-actions"><summary>本条操作</summary><button disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>重新关联本条</button></details></div></header>
   {(distribution.working||distribution.active>0||distribution.queued>0)&&<p className="prompt-art-queue-status" role="status">模型请求 {distribution.active}/6 · 排队 {distribution.queued} 条</p>}
   {error&&<p role="alert" className="collab-error">{error}</p>}{(notice||distribution.notice)&&<p role="status">{notice||distribution.notice}</p>}
   {<>
-   {!entry?<p>本场尚无已保存提示词，可先核实美术清单；提示词生成后再检查更新。</p>:<div className="prompt-art-workspace">
+   {!entry?<p>本场尚无已保存提示词，可先核实美术清单；补齐后刷新云端即可自动关联。</p>:<div className="prompt-art-workspace">
     <section className="prompt-art-prompt-column" aria-label="当前提示词">
      <div className="prompt-art-prompt-heading"><span>当前提示词 <strong>{entry.label}</strong></span><div className="prompt-art-stepper" role="tablist" aria-label="提示词快速定位">{entries.map((row,index)=><button type="button" key={row.id} role="tab" aria-selected={row.id===entry.id} aria-label={'第 '+(index+1)+' 条提示词 '+row.label} className={row.id===entry.id?'active':''} disabled={busy} onClick={()=>{setSelected(row.id);setError('');setNotice('');}}>{index+1}</button>)}</div></div>
      <div className="prompt-art-source"><h3>提示词原文</h3><pre>{entry.prompt}</pre></div>
      {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
-     {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，请重新分发核对。</p>}
+     {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，正在等待补齐素材关联。</p>}
      {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.(entry.id,need.id,selectedVersion))} title={`${need.text}：确认无需参考图`}>确认无需参考图{missing.length>1?` · ${need.text}`:""}</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
-     {!distribution.working&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?'自动分发待处理':'上次分发未完成'}，可重新分发本条或返回场景检查。</p>}
+     {!distribution.working&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?'自动关联待处理':'上次关联未完成'}，可使用页面上方的“补齐素材关联”继续处理。</p>}
      {decision.issue&&<p className="collab-error">{decision.issue}</p>}
     </section>
     <section className="prompt-art-cards-column" aria-label="本条人物场景道具音色卡片">
-     <div className="prompt-art-scene-summary" aria-label="整场清单与提示词版本"><div><b>本条已关联</b><button type="button" className={category==='all'?'selected':''} onClick={()=>setCategory('all')}>全部</button><button type="button" className={category==='voice'?'selected':''} onClick={()=>setCategory('voice')}>音色 {voiceNeeds.length}</button><button type="button" className={category==='character'?'selected':''} onClick={()=>setCategory('character')}>人物 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='character'&&auditNeeds.some(n=>n.cardUid===card.uid&&n.visibility!=='excluded')).length}</button><button type="button" className={category==='scene'?'selected':''} onClick={()=>setCategory('scene')}>场景 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='scene'&&auditNeeds.some(n=>n.cardUid===card.uid&&n.visibility!=='excluded')).length}</button><button type="button" className={category==='prop'?'selected':''} onClick={()=>setCategory('prop')}>道具 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='prop'&&auditNeeds.some(n=>n.cardUid===card.uid&&n.visibility!=='excluded')).length}</button></div><label>提示词版本<select aria-label="提示词版本" disabled={disabled} value={selectedVersion} onChange={event=>{const id=event.target.value;act(async()=>{await persist(saveBindingVersion(saved,snapshot,decisions));setVersion(id);setSelected('');});}}>{versions.map(row=><option key={row.id} value={row.id}>{row.label}{row.current?' · 最新':''}</option>)}</select></label></div>
+     <div className="prompt-art-scene-summary" aria-label="整场清单与提示词版本"><div><b>本条已关联</b><button type="button" className={category==='all'?'selected':''} onClick={()=>setCategory('all')}>全部</button><button type="button" className={category==='voice'?'selected':''} onClick={()=>setCategory('voice')}>音色 {voiceNeeds.length}</button><button type="button" className={category==='character'?'selected':''} onClick={()=>setCategory('character')}>人物 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='character'&&auditNeeds.some(n=>n.cardUid===card.uid&&n.visibility!=='excluded')).length}</button><button type="button" className={category==='scene'?'selected':''} onClick={()=>setCategory('scene')}>场景 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='scene'&&auditNeeds.some(n=>n.cardUid===card.uid&&n.visibility!=='excluded')).length}</button><button type="button" className={category==='prop'?'selected':''} onClick={()=>setCategory('prop')}>道具 {snapshot.cards.filter(card=>card.sceneIds.includes(sceneId)&&card.category==='prop'&&auditNeeds.some(n=>n.cardUid===card.uid&&n.visibility!=='excluded')).length}</button></div><small>{versions.find(row=>row.id===selectedVersion)?.label} · 本场 {entries.length} 条</small></div>
     <VoiceBindingSummary snapshot={snapshot} entry={entry} decision={decision}/><BindingAuditList cards={inventory} needs={displayNeeds} category={category} renderImage={(card,need,image)=>image&&need.visibility==='visible'?<CloudAssetImage api={api} projectId={project.id} assetId={card.assetId} image={image} alt={card.name}/>:null} renderControls={(card,need)=>need.visibility==='visible'&&bindingImages(card).length>1?<label>使用图片<select aria-label={`${card.name}使用图片`} disabled={disabled} value={need.imageId||''} onChange={event=>act(()=>edit(need.id,{imageId:event.target.value||null}))}><option value="">请选择图片</option>{bindingImages(card).map((row,index)=><option key={row.id} value={row.id}>图片 {index+1}</option>)}</select></label>:null}/>
-    {decision.confirmed&&!stale&&<span className="prompt-binding-state">{bindingProblems(snapshot,entry,decision,{requireImages:true}).length?'本条已分发 · 图片待完成':'本条分发已就绪'}</span>}
+    {decision.confirmed&&!stale&&<span className="prompt-binding-state">{bindingProblems(snapshot,entry,decision,{requireImages:true}).length?'本条已关联 · 图片待完成':'本条素材已就绪'}</span>}
     </section>
    </div>}
   </>}

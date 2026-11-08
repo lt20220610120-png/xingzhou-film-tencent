@@ -283,3 +283,5 @@
 .prompt-art-toolbar button{flex:none;white-space:nowrap;}
 .prompt-art-toolbar .window-model-select select{width:clamp(150px,15vw,240px);min-width:0;}
 .prompt-art-queue-status{font-variant-numeric:tabular-nums;}
+.prompt-art-panel .prompt-art-local-actions{margin:0;position:relative}
+.prompt-art-local-actions>button{position:absolute;z-index:10;right:0;top:100%;white-space:nowrap;box-shadow:0 6px 20px #29324b20}

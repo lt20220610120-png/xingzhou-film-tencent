@@ -41,11 +41,11 @@ export function getArtDistributionController(options){
    const scene=store.snapshot().episodes[episode.episodeNumber]?.scenes.find(s=>s.id===sceneId);
    const stamp=sceneId+':'+JSON.stringify(scene.items.map(i=>[i.id,i.description,i.detailStatus]));if(scheduled.has(stamp))return;scheduled.add(stamp);
    const task=(async()=>{
-    const state=await service.read();if(job.cancelled)return;
+    const state=await service.read(settings.versionId);if(job.cancelled)return;
     const entries=state.snapshot.entries.filter(e=>e.sceneId===sceneId&&(!settings.preserveExisting||!hasProductionAssociation(state.snapshot,e,state.decisions[e.id],{voiceEnabled:settings.voiceEnabled!==false})));
-    const results=await Promise.allSettled(entries.map(entry=>service.run(entry.id,{profile,job,voiceEnabled:settings.voiceEnabled!==false})));
+    const results=await Promise.allSettled(entries.map(entry=>service.run(entry.id,{profile,job,versionId:settings.versionId,voiceEnabled:settings.voiceEnabled!==false})));
     for(const result of results)if(result.status==='rejected'&&!job.cancelled)errors.push(`${sceneId} 提示词：${result.reason.message}`);
-    const checked=await service.read();for(const entry of checked.snapshot.entries.filter(e=>e.sceneId===sceneId))errors.push(...bindingProblems(checked.snapshot,entry,checked.decisions[entry.id],{voiceEnabled:settings.voiceEnabled!==false}).map(problem=>`${entry.label}：${problem}`));
+    const checked=await service.read(settings.versionId),scheduledIds=new Set(entries.map(e=>e.id));for(const entry of checked.snapshot.entries.filter(e=>scheduledIds.has(e.id)))errors.push(...bindingProblems(checked.snapshot,entry,checked.decisions[entry.id],{voiceEnabled:settings.voiceEnabled!==false}).map(problem=>`${entry.label}：${problem}`));
    })();prompts.add(task);task.then(()=>prompts.delete(task),e=>{prompts.delete(task);errors.push(e.message)});
   };
   const launchReady=()=>{for(const scene of store.snapshot().episodes[episode.episodeNumber]?.scenes||[])launchPrompts(scene.id);emit();};
@@ -73,7 +73,8 @@ export function getArtDistributionController(options){
    }launchReady();
   };
   try{
-   if(settings.focusItem){const result=await runArtReviewAnalysis({...args,targetEpisodeNumbers:[episode.episodeNumber]});errors.push(...result.errors);launchReady();}
+   if(settings.promptOnly){launchReady();}
+   else if(settings.focusItem){const result=await runArtReviewAnalysis({...args,targetEpisodeNumbers:[episode.episodeNumber]});errors.push(...result.errors);launchReady();}
    else{
     launchReady();const scenes=store.snapshot().episodes[episode.episodeNumber]?.scenes||[];
     const mappings=settings.detailsOnly?[]:scenes.map(s=>scenePool.run(()=>mapScene(s.id)).catch(e=>{if(!job.cancelled)errors.push(`${s.id}：${e.message}`)}));
@@ -98,16 +99,23 @@ export function getArtDistributionController(options){
   enqueueEpisode(episode,settings={}){
    if(paused)return Promise.resolve([]);const number=episode.episodeNumber;
    if(jobs.has(number)){
-    if(!settings.focusItem&&!settings.mapOnly&&!settings.detailsOnly)return jobs.get(number).promise;
+    if(!settings.focusItem&&!settings.mapOnly&&!settings.detailsOnly&&!settings.promptOnly&&!settings.rescan)return jobs.get(number).promise;
     const token=generation,next={...settings,profile:settings.profile||config.profile};
     return jobs.get(number).promise.then(()=>{if(paused||token!==generation)throw Error('任务已停止');return control.enqueueEpisode(episode,next);});
    }
-   const record=config.store.snapshot().episodes[number];if(!record||!isReviewCurrent(record,episode)||['empty','inventory-pending'].includes(record.status))return Promise.resolve([]);
+   const record=config.store.snapshot().episodes[number];if(!record||!isReviewCurrent(record,episode)||['empty','inventory-pending'].includes(record.status))return Promise.resolve(settings.rescan?[`第 ${number} 集清单尚未读取完成，请先完成信息读取`]:[]);
    const job={cancelled:false,taskIds:[],generation};jobs.set(number,job);emit();
    job.promise=processEpisode(episode,job,settings).then(errors=>{if(!job.cancelled)notice=errors.length?errors[0]:`第 ${number} 集已有清单分发完成`;return errors;}).finally(()=>{if(jobs.get(number)===job)jobs.delete(number);emit();});
    return job.promise;
   },
-  async start(next={}){await control.activate(next);const episodes=listCollabEpisodes(config.project.episodes);const results=await Promise.all(episodes.map(episode=>control.enqueueEpisode(episode)));return results.flat();},
+  async start(next={}){const {versionId,...options}=next;await control.activate(options);const episodes=listCollabEpisodes(config.project.episodes);const results=await Promise.all(episodes.map(episode=>control.enqueueEpisode(episode,{versionId,rescan:true})));return results.flat();},
+  // Refresh continues an already authorized reading/distribution session only.
+  // Opening a project, or refreshing after Stop, never starts paid model work.
+  async refresh(next={}){
+   control.configure(next);if(paused||!config.profile)return [];
+   const token=generation;await prepare();if(paused||token!==generation)return [];service?.resume();
+   return (await Promise.all(listCollabEpisodes(config.project.episodes).map(episode=>control.enqueueEpisode(episode,{promptOnly:true,preserveExisting:true})))).flat();
+  },
   async finish(){
    if(paused)return [];if(jobs.has('final'))return jobs.get('final').promise;
    const job={cancelled:false,taskIds:[]},before=new Map(Object.entries(config.store.snapshot().episodes).map(([n,r])=>[n,JSON.stringify(reviewRoster(r))]));

@@ -2,8 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as v from './characterVoices.js';
 import {newArtReview,decodeArtReviewOutput,applyArtReviewCandidate} from './artReview.js';
+import {entryVoiceCards,applyVoiceBinding,compileVoiceBinding} from './voiceBinding.js';
 const ep=n=>({id:'e'+n,episodeNumber:n,title:`第${n}集`,content:`${n}-1 日 内\n小林：我回来了。\n小林（心声）：别怕。`});
 const scene=n=>({id:n+'-1',source:ep(n).content,items:[{category:'character',name:'【小林-日常装】',description:'青年男子'}]});
+test('episode voice inventory includes only actual local speakers, retains minor speakers and full edit associations',()=>{
+ const episodes=[1,2,10].map(n=>({id:'ep'+n,episodeNumber:n,content:`${n}-1 房间 日 内\n${n===1?'小林：回家。\n路人站着。':n===2?'小林：再见。\n路人：你好。':'外客：到了。'}`}));
+ const ledger={episodes:{},voiceProfiles:{}};
+ for(const e of episodes){const n=e.episodeNumber,s={id:n+'-1',source:e.content,items:[{category:'character',name:'【小林】'},{category:'character',name:'【路人】'}]},names=n===1?['小林']:n===2?['小林','路人']:['外客'];
+  const quotes=n===1?['回家。']:n===2?['再见。','你好。']:['到了。'];
+  ledger.episodes[n]={sourceContent:e.content,scenes:[s],voiceAnalysis:v.validateEpisodeVoices(e,[s],{scenes:[{sceneId:s.id,speakers:names.map((name,i)=>({name,quote:quotes[i],language:'Chinese',kind:'dialogue',evidence:name+'：'+quotes[i]}))}]})};
+ }
+ const project={id:'voices',episodes},one=v.episodeVoiceRoster(project,ledger,1),two=v.episodeVoiceRoster(project,ledger,2);
+ assert.deepEqual(one.map(c=>c.characterName),['小林']);assert.deepEqual(one[0].speakingSceneIds,['1-1']);assert.deepEqual(one[0].allSpeakingSceneIds,['1-1','2-1']);assert.equal(one[0].major,true,'appearance counts never replace speaking-scene checks');
+ assert.deepEqual(new Set(two.map(c=>c.characterName)),new Set(['小林','路人']));assert.equal(v.episodeVoiceRoster(project,ledger,10).some(c=>c.characterName==='外客'),true);
+ for(const c of v.projectVoiceRoster(project,ledger).characters)ledger.voiceProfiles[c.key]={confirmed:{id:c.key,url:'https://fixture.test/'+encodeURIComponent(c.key)+'.wav'}};
+ const snapshot={voiceCards:v.projectVoiceCards(project,ledger)},entry={id:'p',sceneId:'1-1',prompt:'小林：回家。'};
+ assert.deepEqual(entryVoiceCards(snapshot,entry).map(c=>c.characterName),['小林']);
+ const card=entryVoiceCards(snapshot,entry)[0],decision=applyVoiceBinding(snapshot,entry,{},[{voiceUid:card.uid,evidence:entry.prompt,kind:'dialogue'}]);
+ const output=compileVoiceBinding(snapshot,entry,decision,{prompt:entry.prompt,references:[]});assert.equal(output.references.length,1);assert.equal(output.references[0].characterName,'小林');
+ const outsider=snapshot.voiceCards.find(c=>c.characterName==='外客');assert.throws(()=>applyVoiceBinding(snapshot,entry,{},[{voiceUid:outsider.uid,evidence:entry.prompt,kind:'dialogue'}]),/不属于本场/);
+});
 test('voice extraction requires scene evidence and only normal dialogue',()=>{
  const a=v.validateEpisodeVoices(ep(1),[scene(1)],{scenes:[{sceneId:'1-1',speakers:[{name:'小林',ageStage:'default',language:'Chinese',quote:'我回来了。',evidence:'小林：我回来了。',kind:'dialogue'},{name:'小林',quote:'别怕。',evidence:'小林（心声）：别怕。',kind:'thought'}]}]});
  assert.equal(a.scenes[0].speakers.length,1);

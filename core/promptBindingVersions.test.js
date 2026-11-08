@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bindingVersionOptions,selectBindingVersion,saveBindingVersion,promptExportImages} from './promptBindingVersions.js';
+import {bindingVersionOptions,selectBindingVersion,saveBindingVersion,promptExportImages,promptSetId} from './promptBindingVersions.js';
 import {proposeEntryBinding,entryBindingSignature} from './promptArtBinding.js';
 import {bookSharedReferences,mergeEpisodeMedia} from './promptBook.js';
 test('prompt-scoped imports never leak into siblings and override broad image pools',()=>{
@@ -44,4 +44,24 @@ test('per-entry evidence survives another save, publication, images and unrelate
  // Another write cannot discard the original accepted baseline.
  saved=saveBindingVersion(saved,reopened.snapshot,reopened.decisions);reopened=selectBindingVersion(next,JSON.parse(JSON.stringify(saved)));assert.equal(reopened.decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
  const edited=structuredClone(saved);edited.decisions.a.needs[0].reason='人工修改';edited.decisions.a.signature='manual-draft';assert.notEqual(selectBindingVersion(next,edited).decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+});
+
+test('supplementing the same model keeps one edition and accepted associations, including old forked versions',()=>{
+ const first=fixture();first.entries[0].profileId='model-a';
+ const decision={...proposeEntryBinding(first,first.entries[0]),confirmed:true,origin:'manual'};
+ const saved=saveBindingVersion(null,first,{a:decision}),id=saved.selectedVersionId;
+ const next=structuredClone(first);next.entries.push({...next.entries[0],id:'b',label:'1-1-2'});
+ let reopened=selectBindingVersion(next,saved);assert.equal(reopened.versionId,id);assert.equal(reopened.decisions.a.confirmed,true);assert.equal(reopened.decisions.b,undefined);assert.equal(bindingVersionOptions(next,saved).length,1);
+ // Simulate the old refresh behavior: a new global hash, no copied decisions.
+ const fork=promptSetId(next),broken={...saved,snapshot:next,decisions:{},selectedVersionId:fork,versions:{...saved.versions,[fork]:{id:fork,label:'版本 2',snapshot:next,decisions:{}}}};
+ reopened=selectBindingVersion(next,JSON.parse(JSON.stringify(broken)));assert.equal(reopened.versionId,id);assert.equal(reopened.decisions.a.confirmed,true);assert.equal(bindingVersionOptions(next,broken).length,1);
+ // A newer explicit human draft must win over the older confirmed result.
+ broken.versions[fork].decisions.a={...decision,signature:'human-draft',confirmed:false};broken.decisions=broken.versions[fork].decisions;
+ assert.equal(selectBindingVersion(next,broken).decisions.a.signature,'human-draft');
+});
+test('replacing, removing or changing a known model stays a distinct edition',()=>{
+ const first=fixture();first.entries[0].profileId='model-a';first.entries[0].profileHash='config-a';const saved=saveBindingVersion(null,first,{});
+ for(const change of [s=>s.entries[0].prompt+='改写',s=>s.entries[0].profileId='model-b',s=>s.entries[0].profileHash='config-b',s=>s.entries.push({...s.entries[0],id:'b',label:'1-1-2',profileId:'model-b'}),s=>s.entries=[]]){
+  const next=structuredClone(first);change(next);assert.equal(bindingVersionOptions(next,saved).length,2);assert.notEqual(selectBindingVersion(next,saved).versionId,saved.selectedVersionId);
+ }
 });

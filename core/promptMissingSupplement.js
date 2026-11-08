@@ -1,5 +1,5 @@
 import {bindingSnapshot,isCharacterAttributeFragment} from './promptArtBinding.js';
-import {promptSetId} from './promptBindingVersions.js';
+import {currentPromptVersionId} from './promptBindingVersions.js';
 import {promptReviewState,promptHumanReviewSignature} from './promptReviewBatch.js';
 import {readPromptFoundationBlock} from './promptFoundation.js';
 import {reviewRoster,reviewAssetKey,reviewSceneSignature,isReviewCurrent,editArtReview,decodeReviewJson,canonicalReviewName,needsArtReviewDetails} from './artReview.js';
@@ -7,7 +7,7 @@ import {requestArtModel} from './artModelQueue.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 
 function selectedRows(state,targets){
- if(state.snapshot.versionId!==promptSetId(state.currentSnapshot))throw Error('提示词来源版本已变化，请切换到当前提示词版本后补充场景清单');
+ if(state.snapshot.versionId!==currentPromptVersionId(state.currentSnapshot,state.saved))throw Error('提示词来源版本已变化，请切换到当前提示词版本后补充场景清单');
  const pending=promptReviewState(state,{}).pendingMissing;
  return targets.map(target=>{
   const row=pending.find(r=>r.entry.id===target.entryId&&r.need.id===target.needId);
@@ -67,7 +67,7 @@ export async function supplementPromptMissingReferences({service,store,api,targe
    let added=0,reused=0;
    await store.update(number,current=>{
     const live=service.getContext(),snapshot=bindingSnapshot(live.project,live.ledger,live.assets||[],state.saved?.snapshot);
-    if(promptSetId(snapshot)!==state.snapshot.versionId||!isReviewCurrent(current,listCollabEpisodes(live.project.episodes).find(e=>e.episodeNumber===number))||reviewSceneSignature(current.scenes.find(s=>s.id===sceneId))!==stamp)throw Error('补充期间提示词或场景已变化，旧回包未应用');
+    if(currentPromptVersionId(snapshot,state.saved)!==state.snapshot.versionId||!isReviewCurrent(current,listCollabEpisodes(live.project.episodes).find(e=>e.episodeNumber===number))||reviewSceneSignature(current.scenes.find(s=>s.id===sceneId))!==stamp)throw Error('补充期间提示词或场景已变化，旧回包未应用');
     let next=current;
     for(const item of items){
      const roster=reviewRoster(next),existing=roster.find(i=>item.reuseItemId?i.id===item.reuseItemId:reviewAssetKey(i)===reviewAssetKey(item));

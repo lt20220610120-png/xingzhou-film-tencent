@@ -1,12 +1,12 @@
 import {productionIdentity} from './productionIdentity.js';
 import {validateExecutionScope,executionScopeDone} from './productionExecutionScope.js';
 import {modelPolicyIssues} from './productionModelPolicy.js';
-import {parseDirectorScenes,inferDirectorEpisodeNumber} from './scriptImport.js';
 import {profileModels} from './videoCatalog.js';
 import {generationMediaProfiles} from './canvasStore.js';
 import {normalizeCapabilities} from './modelCapabilities.js';
 import {effectiveEditingInstruction} from './editingPresets.js';
 import {videoPolicyIssues} from './productionVideoPolicy.js';
+export {directorPromptCoverage as productionCoverage} from './directorPromptCoverage.js';
 export function productionVideoIssues(c,state){
  let selected;try{selected=JSON.parse(c.videoModel);}catch{return ['请选择有效的视频模型'];}
  const p=generationMediaProfiles(state,'video').find(p=>p.id===selected[0]),model=p&&profileModels(p,'video').find(m=>m.id===selected[1]);if(!model)return ['所选视频模型已不存在'];
@@ -50,19 +50,6 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
  if(!(Number(c.videoDuration)>0&&Number(c.videoDuration)<=3600))issues.push('视频生成时长无效');
  for(const k of ['imageConcurrency','videoConcurrency','imageAttempts'])if(!Number.isInteger(Number(c[k]))||c[k]<1||c[k]>8)issues.push('并发和尝试次数应在 1–8 之间');
  return issues;
-}
-export function productionCoverage(project){
- const episodes=(project?.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传');
- return episodes.map((ep,i)=>{const number=inferDirectorEpisodeNumber(ep,i+1),scenes=parseDirectorScenes(ep.content||'',number);return {id:ep.id,number,scenes:scenes.map(scene=>{
-  const all=(ep.prompts||[]).filter(p=>String(p.label||'').startsWith(scene.label+'-'));
-  const plan=(ep.quickScenePlans||[]).find(p=>p.id===ep.activeQuickScenePlanIds?.[scene.label]);
-  const latest=all.filter(p=>p.generationRunId).at(-1)?.generationRunId;
-  const current=plan?all.filter(p=>p.segmentationPlanId===plan.id):latest?all.filter(p=>p.generationRunId===latest):all;
-  const labels=plan?.segments?.length?plan.segments.map((p,i)=>scene.label+'-'+(p.index||i+1)):Array.from({length:Math.max(1,...current.map(p=>Number(p.label.split('-').at(-1))||0))},(_,i)=>scene.label+'-'+(i+1));
-  const missingLabels=labels.filter(label=>!current.some(p=>p.label===label&&p.content?.trim()&&p.generationComplete!==false));
-  const count=current.filter(p=>p.content?.trim()&&p.generationComplete!==false).length;
-  return {label:scene.label,count,expected:labels.length,missingLabels,complete:missingLabels.length===0&&count===labels.length};
- }),prompts:(ep.prompts||[]).filter(p=>p.content?.trim()).length};});
 }
 export function productionExpectedPrompts(project){
  return (project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传').flatMap(ep=>{

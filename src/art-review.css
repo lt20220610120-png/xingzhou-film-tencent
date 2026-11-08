@@ -248,3 +248,14 @@
 .art-review-prompt-missing-batch button{padding:5px 8px;font-size:12px;white-space:nowrap}
 .art-review-supplement-progress{font-size:13px;color:#26333f;margin:6px 0 10px}
 @media(max-width:680px){.art-review-prompt-missing-body>header,.art-review-prompt-missing-list article{align-items:stretch;flex-direction:column}.art-review-prompt-missing-list article>div:last-child{justify-content:flex-start}}
+.art-review-association-progress{margin:0;padding:0 20px 12px;font-size:12px;line-height:1.6;color:#546278}
+.art-review-more{position:relative;align-self:center;flex:none}
+.art-review-more>summary{display:flex;align-items:center;gap:5px;min-height:38px;padding:7px 9px;cursor:pointer;color:#5b6378;font-size:13px;list-style:none}
+.art-review-more>summary::-webkit-details-marker{display:none}
+.art-review-more>div{position:absolute;right:0;top:100%;z-index:15;display:grid;gap:5px;min-width:185px;padding:8px;background:#fff;border:1px solid #dde2ed;border-radius:10px;box-shadow:0 10px 30px #29324b20}
+.art-review-more>div>button{text-align:left;white-space:nowrap}
+.art-review-more>summary:focus-visible{outline:2px solid #8b79ca;outline-offset:2px;border-radius:6px}
+.art-review-version-picker{display:flex;align-items:center;gap:9px;font-size:13px;color:#54477a}
+.art-review-version-picker>span{white-space:nowrap;font-weight:600}
+.art-review-version-picker>select{max-width:250px;min-height:38px;border:1px solid #ddd7ed;border-radius:8px;background:#faf8ff;color:#4d4273;padding:7px 10px;font:inherit}
+.art-review-version-picker>select:focus-visible{outline:2px solid #8b79ca;outline-offset:2px}

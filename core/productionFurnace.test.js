@@ -108,7 +108,7 @@ test('Agent tool receipts stay readable while the full result remains available 
 
 
 test('coverage requires every active planned segment, including a missing tail',()=>{
- const ep={id:'e',content:'1-1 客厅 日 内\n甲说话。',activeQuickScenePlanIds:{'1-1':'plan'},quickScenePlans:[{id:'plan',sceneLabel:'1-1',segments:[{id:'a',index:1},{id:'b',index:2},{id:'c',index:3}]}],prompts:[{label:'1-1-1',content:'已完成',segmentationPlanId:'plan',segmentId:'a'}]};
+ const ep={id:'e',content:'1-1 客厅 日 内\n甲说话。',activeQuickScenePlanIds:{'1-1':'plan'},quickScenePlans:[{id:'plan',sceneLabel:'1-1',segments:[{id:'a',index:1},{id:'b',index:2},{id:'c',index:3}]}],prompts:[{id:'p1',label:'1-1-1',content:'已完成',segmentationPlanId:'plan',segmentId:'a'}]};
  const scene=productionCoverage({episodes:[ep]})[0].scenes[0];assert.equal(scene.complete,false);assert.deepEqual(scene.missingLabels,['1-1-2','1-1-3']);
 });
 test('semi mode resumes missing upstream work and streams videos while images are still working',async()=>{
