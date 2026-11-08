@@ -1,3 +1,4 @@
+import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {bindingHash,bindingProblems,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
 
 export const promptSetId=snapshot=>'v-'+bindingHash((snapshot.entries||[]).map(({id,label,prompt,sceneId,profileId,profileHash})=>[id,label,prompt,sceneId,...(profileId?[profileId]:[]),...(profileHash?[profileHash]:[])]));
@@ -10,14 +11,14 @@ const extendsEdition=(base,current)=>{
  const profiles=new Set(base.entries.map(e=>e.profileId).filter(Boolean)),hashes=new Set(base.entries.map(e=>e.profileHash).filter(Boolean)),labels=new Set(base.entries.map(e=>e.label));
  return current.entries.filter(e=>!oldIds.has(e.id)).every(e=>!labels.has(e.label)&&(!profiles.size||!e.profileId||profiles.has(e.profileId))&&(!hashes.size||!e.profileHash||hashes.has(e.profileHash)));
 };
-const distributionStamp=(snapshot,entry)=>bindingHash([...(snapshot.voiceCards?.length?[snapshot.voiceCards.filter(c=>c.sceneIds.includes(entry.sceneId)).map(c=>[c.uid,c.reference.id])]:[]),entry.id,entry.prompt,entry.sceneId,snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus])]);
+const distributionStamp=(snapshot,entry)=>bindingHash([...(snapshot.voiceCards?.length?[snapshot.voiceCards.filter(c=>c.sceneIds.includes(entry.sceneId)).map(voiceAssociationIdentity)]:[]),entry.id,entry.prompt,entry.sceneId,snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus])]);
 // Each accepted decision carries its own semantic baseline. Saving another
 // entry must not replace the only evidence for this entry's valid association.
 const decisionIdentity=decision=>{const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
 const associationSource=(snapshot,entry,decision)=>{
  const referenced=new Set((decision.needs||[]).map(n=>n.cardUid).filter(Boolean));
  const cards=snapshot.cards.filter(c=>referenced.has(c.uid)).map(c=>[c.uid,c.category,c.name,c.description,c.detailStatus,c.sceneIds.includes(entry.sceneId)]).sort((a,b)=>a[0].localeCompare(b[0]));
- const voices=(snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(entry.sceneId)).map(c=>[c.uid,c.name,c.reference.id]).sort((a,b)=>a[0].localeCompare(b[0]));
+ const voices=(snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(entry.sceneId)).map(voiceAssociationIdentity).sort((a,b)=>a[0].localeCompare(b[0]));
  return bindingHash([snapshot.projectId,snapshot.directorProjectId,entry.id,entry.prompt,entry.sceneId,cards,voices]);
 };
 const withEvidence=(snapshot,entry,decision)=>{

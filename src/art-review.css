@@ -29,7 +29,7 @@
 .art-review-eyebrow { font-size:14px; color:#736a81; }
 .art-review-heading h1 { font-size:23px; margin:8px 0; letter-spacing:.2px; }
 .art-review-navigation-panel { padding:12px 16px; border:1px solid var(--review-line); border-radius:12px; background:#fff; margin-bottom:14px; }
-.art-review-controls { display:grid; grid-template-columns:minmax(224px,.9fr) minmax(240px,1fr) auto; align-items:center; gap:12px; }
+.art-review-controls { display:grid; grid-template-columns:minmax(200px,300px) minmax(220px,310px) auto auto; justify-content:center; align-items:center; gap:12px; }
 .art-review-controls label { display:flex; align-items:center; gap:8px; color:#575c69; font-size:15px; white-space:nowrap; min-width:0; }
 .art-review-dialog label { display:flex; flex-direction:column; gap:7px; color:#575c69; font-size:15px; }
 .art-review-controls select,.art-review-dialog input:not([type="checkbox"]),.art-review-dialog select,.art-review-dialog textarea { background:#fff; border:1px solid #e0e4ed; border-radius:7px; color:#344054; min-height:38px; padding:8px 10px; font:inherit; outline:none; }
@@ -195,8 +195,8 @@
 .art-review-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
 @container(max-width:1120px) {
-  .art-review-controls { grid-template-columns:minmax(224px,.8fr) minmax(240px,1fr); }
-  .art-review-controls-actions { grid-column:1/-1; flex-wrap:wrap; }
+  .art-review-controls { grid-template-columns:minmax(200px,1fr) minmax(220px,1fr); }
+  .art-review-controls-actions { justify-content:flex-end; flex-wrap:wrap; }
 }
 @container(max-width:540px) {
   .art-review-controls { grid-template-columns:minmax(0,1fr); }
@@ -248,7 +248,7 @@
 .art-review-prompt-missing-batch button{padding:5px 8px;font-size:12px;white-space:nowrap}
 .art-review-supplement-progress{font-size:13px;color:#26333f;margin:6px 0 10px}
 @media(max-width:680px){.art-review-prompt-missing-body>header,.art-review-prompt-missing-list article{align-items:stretch;flex-direction:column}.art-review-prompt-missing-list article>div:last-child{justify-content:flex-start}}
-.art-review-association-progress{margin:0;padding:0 20px 12px;font-size:12px;line-height:1.6;color:#546278}
+.art-review-association-progress{margin:0;padding:0;font-size:12px;line-height:1.6;color:#546278;white-space:nowrap}
 .art-review-more{position:relative;align-self:center;flex:none}
 .art-review-more>summary{display:flex;align-items:center;gap:5px;min-height:38px;padding:7px 9px;cursor:pointer;color:#5b6378;font-size:13px;list-style:none}
 .art-review-more>summary::-webkit-details-marker{display:none}
@@ -260,3 +260,8 @@
 .art-review-version-picker>select{max-width:250px;min-height:38px;border:1px solid #ddd7ed;border-radius:8px;background:#faf8ff;color:#4d4273;padding:7px 10px;font:inherit}
 .art-review-version-picker>select:focus-visible{outline:2px solid #8b79ca;outline-offset:2px}
 .art-review-page,.review-section-tabs,.art-review-page :is(summary,label,span,button,select,h2,h3),.review-section-tabs button{font-family:var(--studio-font,"Microsoft YaHei","PingFang SC",sans-serif)}
+
+.art-review-mode-switch button[aria-pressed="true"]{background:#eee8fb;border-color:#b8a7df;color:#5c4598}
+.art-review-scene-navigation>header .art-review-scene-stepper{margin-left:auto}
+
+.art-review-inventory .art-review-voice-item>div>small{display:block}

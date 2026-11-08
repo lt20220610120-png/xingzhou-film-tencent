@@ -543,11 +543,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             </button>
           ))}
         </div>
-        <small className="style-bar-hint">
-          {project.style || project.aspectRatio
-            ? `已设定：${[displayProjectStyle(project.style), project.aspectRatio].filter(Boolean).join(' · ')}。生成前优先读取项目设定。`
-            : '生成前优先读取项目风格与画幅。'}
-        </small>
+
       </div>
       </section>
 

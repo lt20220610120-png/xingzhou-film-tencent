@@ -14,6 +14,9 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
  return Boolean(episode&&isReviewCurrent(record,episode)&&record.status!=='empty'&&record.status!=='inventory-pending'&&scene?.mappingReady&&scene.items.length&&scene.items.every(i=>!needsArtReviewDetails(i)||isArtDetailDeferred(record,i)));
 }
 
+// Media adoption hydrates signatures; only semantic decisions signal a human edit.
+const decisionFingerprint=decision=>{if(!decision)return bindingHash(null);const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
+
 export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,concurrency}){
  let context=getContext,writer=Promise.resolve(),generation=0,notice='',paused=false;
  // Bound preparation/persistence too. Hundreds of queued entries must not all
@@ -73,14 +76,14 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      selectedId=state.snapshot.versionId;task.versionId=selectedId;stamp=sceneDistributionStamp(state.snapshot,entry,sceneSource(state.ctx,entry.sceneId));claimKey=selectedId+':'+entryId;
      const followedCurrent=selectedId===currentPromptVersionId(state.currentSnapshot,state.saved);
      if(!manual&&state.decisions[entryId]?.confirmed&&bindingProblems(state.snapshot,entry,state.decisions[entryId],{voiceEnabled}).length===0)return state.decisions[entryId];
-     captured=state;owner=crypto.randomUUID();decisionToken=bindingHash(state.decisions[entryId]||null);
+     captured=state;owner=crypto.randomUUID();decisionToken=decisionFingerprint(state.decisions[entryId]);
      await mutate(selectedId,latest=>{
       if(stopped())throw Error('任务已停止');
       if(followedCurrent&&currentPromptVersionId(latest.currentSnapshot,latest.saved)!==selectedId)throw Error('提示词来源版本已变化，旧分发未应用');
       state=latest;captured=latest;const currentEntry=latest.snapshot.entries.find(e=>e.id===entryId);
       if(!currentEntry)throw Error('本条来源已变化，旧分发未应用');
       stamp=sceneDistributionStamp(latest.snapshot,currentEntry,sceneSource(latest.ctx,currentEntry.sceneId));
-      decisionToken=bindingHash(latest.decisions[entryId]||null);
+      decisionToken=decisionFingerprint(latest.decisions[entryId]);
       const running=latest.saved?.sceneDistributionAttempts?.[claimKey];
       if(running?.status==='running'&&running.startedAt>Date.now()-10*60*1000)throw Error('本条正在另一窗口分发，请稍后再试');
       return {...saveBindingVersion(latest.saved,latest.snapshot,latest.decisions),sceneDistributionAttempts:{...latest.saved?.sceneDistributionAttempts,[claimKey]:{stamp,status:'running',owner,startedAt:Date.now(),label:entry.label}}};
@@ -101,7 +104,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
       if(followedCurrent&&currentPromptVersionId(latest.currentSnapshot,latest.saved)!==selectedId)throw Error('提示词来源版本已变化，旧分发未应用');
       const current=latest.snapshot.entries.find(e=>e.id===entryId);
       if(!current||sceneDistributionStamp(latest.snapshot,current,sceneSource(latest.ctx,current.sceneId))!==stamp)throw Error('本条来源或场景清单已变化，旧分发未应用');
-      if(bindingHash(latest.decisions[entryId]||null)!==decisionToken)throw Error('分发期间关联已被人工修改，已保留最新选择');
+      if(decisionFingerprint(latest.decisions[entryId])!==decisionToken)throw Error('分发期间关联已被人工修改，已保留最新选择');
       if(latest.saved.sceneDistributionAttempts?.[claimKey]?.owner!==owner)throw Error('本条分发任务已变化');
       const rebased={...result,signature:currentEntryBinding(latest.snapshot,current).signature};
       const decisions={...latest.decisions,[entryId]:saveDistribution(latest.snapshot,current,rebased,{voiceEnabled})};

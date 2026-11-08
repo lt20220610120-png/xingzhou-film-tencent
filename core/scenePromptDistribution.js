@@ -1,3 +1,4 @@
+import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
 import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation,readPromptFoundationBlock} from './promptFoundation.js';
 import {bindingHash,cardInEntry,entryBindingSignature,isCharacterAttributeFragment,sceneInventoryCards} from './promptArtBinding.js';
@@ -5,7 +6,7 @@ import {sceneIdentities,reconcileSceneIdentities,isNoReferenceText} from './scen
 
 const usages=['visible','voice','mentioned','excluded'];
 export const sceneCards=(snapshot,entry)=>snapshot.cards.filter(card=>cardInEntry(card,entry));
-export const sceneDistributionStamp=(snapshot,entry,sceneSource='')=>bindingHash([...(entryVoiceCards(snapshot,entry).length?[entryVoiceCards(snapshot,entry).map(c=>[c.uid,c.reference.id])]:[]),'scene-inventory-v3',entry.id,entry.prompt,entry.sceneId,sceneSource,sceneInventoryCards(snapshot,entry).map(c=>[c.uid,c.category,c.name,c.description,c.detailStatus])]);
+export const sceneDistributionStamp=(snapshot,entry,sceneSource='')=>bindingHash([...(entryVoiceCards(snapshot,entry).length?[entryVoiceCards(snapshot,entry).map(voiceAssociationIdentity)]:[]),'scene-inventory-v3',entry.id,entry.prompt,entry.sceneId,sceneSource,sceneInventoryCards(snapshot,entry).map(c=>[c.uid,c.category,c.name,c.description,c.detailStatus])]);
 export function sceneFoundationEvidence(entry){
  const block=readPromptFoundationBlock(entry.prompt);if(!block)return [];
  return Object.entries(readPromptFoundation(entry.prompt)).flatMap(([category,rows])=>rows.flatMap((row,index)=>{
