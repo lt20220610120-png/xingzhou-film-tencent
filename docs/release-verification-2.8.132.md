@@ -19,3 +19,15 @@
 - Jev 独立复核工具请求返回 HTTP402，不可用，未将其记为通过。已人工逐项复核源码差异与验证证据，包括媒体采用与人工选择指纹的区别。最终全量、原补漏链路与安装包/公开清单结果发布后追加。
 
 - 最后人工复核收窄电话标签过滤：现场打电话仍可关联，电话画外音继续排除；新增断言覆盖。已在签名更新清单发布前暂停首次上传，修正后重新打包，最终资产以本节后续记录为准。
+
+## 最终构建与发布状态
+
+- 实现3b177b8、最终电话边界修正bfec484已推送。最终 npm run dist：2794/2794测试、构建、NSIS安装包实际运行验证通过，success=true、errors=[]；报告output/132-dist-final.log、qa/packaged-smoke-2.8.132-1794165183375/report.json。
+- 首次打包下载Electron时win-unpacked.tmp重命名EPERM，使用本机现有同版本43.2.0运行库成功，无降级或替换用户运行客户端。最终包由完整dist流程重建。
+- 原补漏→刷新→自动分发→分镜引用、同模型补漏沿版/换模型新版本/全剧切版三宽回归通过：output/132-chain-ui.log。新交互三宽和原图片/音频导出播放回归见前文。
+- GitHub Release438458237，正式安装包104029095字节，SHA256 2d497f15ca3e0c6ff573b39229aacc66668f7c62e4c9a4db392c00da2dd0144f。GitHub资产uploaded、大小和digest均与本机一致；公开下载Range206首65536字节及总长度一致。两仓库main/latest.json与本机签名清单完全一致，签名由客户端验证。证据output/review-132/fallback-publication.json、github-release.json、github-download.json、current-sources.json。
+- 实际客户端fetchUpdateManifest经生产createUpdateFetch和固定公钥验签，从https://raw.githubusercontent.com/lt20220610120-png/xingzhou-film-tencent/main/latest.json成功读到2.8.132并判定高于2.8.131，安装包大小/sha256一致。证据output/review-132/in-app-update.json。
+- **官网镜像尚未同步，不能将官网完整哈希或三份清单一致性记为通过。** 发布脚本上传GitHub后，106.55.41.128:22在SSH握手前关闭连接；Windows原生/Git附带SSH、官方域名及现有HTTP代理均复现。官网HTTPS也在TLS握手关闭，客户端因此成功使用既有GitHub备用源。没有关闭主机密钥验证或更改服务器/系统网络。已向用户询问是否更换登录入口，尚待回复。
+- 后续网络恢复后执行原scripts/publish-update-mirror.py，输入release/2.8.132中的最终exe和latest.json；再做官网全SHA256、Range及三清单一致性检查。无需重新上传GitHub资产或重签清单。若改入口，先严格核对同一固定主机密钥。
+- 下载：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.132/Xingzhou-Film-Tencent-Setup-2.8.132.exe
+- 本机安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.132/Xingzhou-Film-Tencent-Setup-2.8.132.exe。旧项目可点一次补齐素材关联修复漏项；采用音频自动接入已有身份，实际带音频生成/导出仍需真实已采用样音。未强制替换或关闭用户运行中的客户端，未写用户项目或付费生成。
