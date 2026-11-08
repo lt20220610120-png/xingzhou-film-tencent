@@ -24,3 +24,17 @@
 - 验收使用隔离内存项目和模拟素材，不更改用户项目，不调用付费图片/视频生成。
 
 最终安装包、运行及公开更新验证结果发布后追加。
+
+## 最终打包验收
+
+- 实现 450c99a 与补充修复 fe2331e 已推送当前开发分支。最终 2775/2775 全量测试与构建通过。
+- 安装包真实运行通过，success=true、errors=[]：qa/packaged-smoke-2.8.129-1794142199983/report.json。新用户仍先见卡密小窗，账号/身份不提前显示；本轮没有改动激活/注册规则。
+- 最终安装包 104011903 字节，SHA256 2e2e51cb75c6ef0f6226f11d5e4e50fb40dedb0277fd90ca36ee055557f4b91e。仅采用最后一次打包产物发布。
+
+## 公开发布验收
+
+- GitHub Release 438243906；官网及两个 GitHub 更新源的三份清单一致且签名验证通过。
+- 官网正式文件全 SHA256 与本机最终安装包一致，公开下载 Range206 的前65536字节及总大小一致；GitHub公开资产 uploaded、size/digest 一致。证据 output/links-129/public-verification.json。
+- 客户端实际优先 IP 更新源 https://106.55.41.128/api/updates/latest.json 返回2.8.129，newerVersion(2.8.129,2.8.128)=true；证据 output/links-129/in-app-update.json。
+- 官方下载：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.129.exe 。本机：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.129/Xingzhou-Film-Tencent-Setup-2.8.129.exe。
+- 未替换或关闭用户正在运行的客户端，用户安装后重启使用新版。
