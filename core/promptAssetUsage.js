@@ -32,9 +32,20 @@ export function storyboardPromptValue(binding,shot,value,accountId){
  if(entry.label!==shot.label||entry.prompt!==shot.content)return pending('提示词正文已变化，请返回清单核实重新分发');
  try{
   const compiled=compileEntryBinding(snapshot,entry,decisions?.[entry.id]);
-  if(value.prompt!==entry.prompt&&value.prompt!==compiled.prompt)return {...pending('本地提示词已修改，草稿已保留，请核对提示词关联'),prompt:value.prompt};
+  const generated=value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===entry.prompt;
+  if(value.prompt!==entry.prompt&&value.prompt!==compiled.prompt&&!generated)return {...pending('本地提示词已修改，草稿已保留，请核对提示词关联'),prompt:value.prompt};
   return {...value,...compiled,referenceBindingMode:'confirmed',bindingIssue:'',bindingSourcePrompt:entry.prompt,bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:compiled.references.map(ref=>ref.id),bindingEntrySignature:entryBindingSignature(snapshot,entry),bindingProjectId:snapshot.projectId,bindingAccountId:accountId,bindingSourcePromptId:entry.id,bindingVersionId:snapshot.versionId||'',autoReferenceExclusions:[],autoReferenceSignature:null};
  }catch(error){return pending(error.message);}
+}
+export function canRefreshStoryboardBinding(draft,shot){
+ if(!draft?.dirty)return true;
+ const value=draft.value;
+ if(!value.bindingSourcePromptId)return value.prompt===shot.content;
+ if(value.bindingSourcePromptId!==(shot.sourcePromptId||shot.id)||value.autoReferenceExclusions?.length)return false;
+ if(value.prompt!==shot.content&&!(value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===shot.content))return false;
+ // A failed automatic load clears references; hand removal records exclusions.
+ if(value.referenceBindingMode==='pending'&&!(value.references||[]).length)return true;
+ return value.referenceBindingMode==='confirmed'&&JSON.stringify((value.references||[]).map(r=>r.id))===JSON.stringify(value.bindingExpectedReferences);
 }
 export function storyboardSaveUpdates(value){
  const {prompt,...generationConfig}=value;

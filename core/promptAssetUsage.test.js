@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assetPromptUsage,storyboardPromptValue,storyboardSaveUpdates} from './promptAssetUsage.js';
+import {assetPromptUsage,storyboardPromptValue,storyboardSaveUpdates,canRefreshStoryboardBinding} from './promptAssetUsage.js';
 import {entryBindingSignature} from './promptArtBinding.js';
 test('project without director prompts associates confirmed timbre by scene without copying other scenes',()=>{
  const binding={snapshot:{entries:[],voiceCards:[{uid:'v',name:'张三',sceneIds:['1-1'],reference:{id:'voice:a',kind:'audio',filePath:'D:/a.wav'}},{uid:'w',name:'李四',sceneIds:['1-2'],reference:{id:'voice:b',kind:'audio',filePath:'D:/b.wav'}}]}};
@@ -51,4 +51,16 @@ test('旧版本同编号不同内容及歧义编号不被错误绑定',()=>{
  assert.equal(storyboardPromptValue(f.binding,shot,{prompt:shot.content},'u').referenceBindingMode,'pending');
  f.binding.snapshot.entries.push({...f.entries[0],id:'duplicate'});
  assert.equal(storyboardPromptValue(f.binding,{...f.shot,id:'cloud-copy'},{prompt:f.shot.content},'u').referenceBindingMode,'pending');
+});
+test('a persisted failed binding can refresh while genuine prompt and reference edits remain protected',()=>{
+ const f=fixture(),failed={dirty:true,value:{prompt:f.shot.content,references:[],bindingSourcePromptId:f.shot.id,referenceBindingMode:'pending',duration:15}};
+ assert.equal(canRefreshStoryboardBinding(failed,f.shot),true);const fixed=storyboardPromptValue(f.binding,f.shot,failed.value,'u');assert.equal(fixed.referenceBindingMode,'confirmed');assert.equal(fixed.references.length,2);assert.equal(fixed.duration,15);
+ assert.equal(canRefreshStoryboardBinding({dirty:true,value:fixed},f.shot),true);
+ assert.equal(canRefreshStoryboardBinding({dirty:true,value:{...fixed,prompt:fixed.prompt+'人工改词'}},f.shot),false);
+ assert.equal(canRefreshStoryboardBinding({dirty:true,value:{...fixed,references:[]}},f.shot),false);
+ assert.equal(canRefreshStoryboardBinding({dirty:true,value:{...failed.value,autoReferenceExclusions:['manual-removal']}},f.shot),false);
+ assert.equal(canRefreshStoryboardBinding({dirty:true,value:fixed},{...f.shot,id:'another-prompt'}),false);
+ // Automatically inserted old aliases may change when the verified roster is repaired.
+ const older={...fixed,prompt:fixed.prompt+'\n【旧自动参考】',bindingCompiledPrompt:fixed.prompt+'\n【旧自动参考】'};
+ const refreshed=storyboardPromptValue(f.binding,f.shot,older,'u');assert.equal(refreshed.referenceBindingMode,'confirmed');assert.equal(refreshed.prompt,fixed.prompt);
 });

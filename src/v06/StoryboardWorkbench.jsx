@@ -1,5 +1,5 @@
 import useProjectPromptBinding from './useProjectPromptBinding.js';
-import {storyboardPromptValue,storyboardSaveUpdates} from '../../core/promptAssetUsage.js';
+import {storyboardPromptValue,storyboardSaveUpdates,canRefreshStoryboardBinding} from '../../core/promptAssetUsage.js';
 import {displayAssetName} from '../../core/collabStore.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {queueDraft,readQueuedDraft} from '../editing.js';
@@ -37,10 +37,10 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   return {...entry,value,dirty:entry.dirty||cleaned!==entry.value||needsSave};
  };
  const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});
- const initial=()=>{const stored=read();return stored?(stored.dirty&&stored.value.bindingSourcePromptId?stored:cleanDraft(stored)):cloudDraft();};
+ const initial=()=>{const stored=read();return stored?(canRefreshStoryboardBinding(stored,shot)?cleanDraft(stored):stored):cloudDraft();};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false);
  const current=useRef(draft);current.current=draft;
- useEffect(()=>{if(!current.current.dirty)setDraft(cloudDraft());else if(!current.current.value.bindingSourcePromptId&&current.current.value.prompt===shot.content)setDraft(cleanDraft(current.current));},[shot,assets,media,scene,epNumber,promptBinding]);
+ useEffect(()=>{if(!current.current.dirty)setDraft(cloudDraft());else if(canRefreshStoryboardBinding(current.current,shot))setDraft(cleanDraft(current.current));},[shot,assets,media,scene,epNumber,promptBinding]);
  const change=value=>{
   value=cleanStoryboardReferenceValue(value,project.id);
   const previous=current.current.value;
