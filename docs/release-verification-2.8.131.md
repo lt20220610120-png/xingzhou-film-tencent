@@ -23,3 +23,14 @@
 ## 升级操作
 
 在旧客户端停止正在执行的关联任务，再安装新版本并打开项目。可点击“补齐素材关联”修复旧的漏配结果；人工排除仍按原选择保留。音色需生成或上传并确定采用后，才有真实音频可以随图片导出。
+
+## 最终验收与发布
+
+- 实现 037ed53 已推送。最终 npm run dist：2788/2788 测试通过、构建通过；安装包实际运行 success=true、errors=[]，包括本地音频解码播放及下载字节一致。报告 output/131-dist-final.log 和 qa/packaged-smoke-2.8.131-1794152303876/report.json。
+- 首次打包测试曾出现已有 Like 连接器本机请求及 Windows 窗口最小化测试失败；独立重跑相关套件22/22通过，最终全量2788/2788通过。没有改动或跳过这些测试。
+- 最终源码再跑实际UI和原补漏/切版/分镜链路，全部通过：output/131-ui-published-source.log、output/131-chain-final.log。独立代码复核在人工跳过锁修复后通过。
+- 安装包104028256字节，SHA256 05c96c899350f5e49212cc9a9c69f1c1482a146bec8f4e29a3ccae736ce67bcc。GitHub Release 438339892，资产 uploaded、大小及digest与本机一致；官网正式文件完整哈希、公开Range206首65536字节和总长度一致；三份公开更新清单内容及Ed25519签名均验证通过。证据 output/review-131/public-verification.json。
+- 客户端实际优先IP更新源 https://106.55.41.128/api/updates/latest.json 返回2.8.131，正确识别为高于2.8.130。证据 output/review-131/in-app-update.json。
+- 首次发布请求遇代理TLS EOF，尚未创建Release即失败；随后用原凭据及发布脚本直连成功，没有重复发布或修改最终安装包。
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.131.exe。
+- 本机安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.131/Xingzhou-Film-Tencent-Setup-2.8.131.exe。未强制替换或关闭用户正在运行的客户端。

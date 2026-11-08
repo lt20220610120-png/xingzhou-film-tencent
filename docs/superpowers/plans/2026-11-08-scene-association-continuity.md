@@ -10,7 +10,7 @@ Spec: User screenshots and request 2026-11-08; full request is the authority. Ex
 - [x] Implement voice identity continuity and source signatures; persist per-prompt decisions, render adopted/pending accurately, require adopted media for compilation.
 - [x] Implement shared scene identity context, exact original-evidence coverage checks, no-reference negatives, and preservation of manual choices.
 - [x] Add real React flow tests ending in exact storyboard references and no trailing scroll space; run focused + full tests and build.
-- [ ] Independently inspect changes and edge cases. Package and publish 2.8.131, verify public manifests/hash/download, update handoff and release memory.
+- [x] Independently inspect changes and edge cases. Package and publish 2.8.131, verify public manifests/hash/download, update handoff and release memory.
 
 Ruling: User has explicitly requested continued update and concrete corrections, so proceed without a new design approval conversation. Reuse current suitable checkout; no merge or data migration. Logical voice routing must not pretend an audio file exists. Ambiguous roles must remain reviewable.
 
