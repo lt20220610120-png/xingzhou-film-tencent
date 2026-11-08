@@ -86,9 +86,10 @@ export function confirmVoiceCandidate(profile,id){
  const candidate=profile.candidates?.find(c=>c.id===id);if(!candidate)throw Error('样音已不存在');
  return {...profile,confirmed:{...candidate,confirmedAt:Date.now()}};
 }
-export function projectVoiceCards(project,ledger){
+export function projectVoiceCards(project,ledger,{includePending=false}={}){
  return projectVoiceRoster(project,ledger).characters.flatMap(c=>{
   const audio=ledger.voiceProfiles?.[c.key]?.confirmed;
-  return audio?[{...c,uid:'voice:'+c.key,reference:{...audio,id:'voice:'+c.key+':'+audio.id,name:c.name+'音色',characterName:c.characterName||c.name,ageStage:c.ageStage,kind:'audio',projectId:project.id},sceneIds:c.speakingSceneIds}]:[];
+  if(!audio&&(!includePending||!c.speakingSceneIds.length))return [];
+  return [{...c,uid:'voice:'+c.key,pendingAudio:!audio,reference:{...audio,id:'voice:'+c.key+':'+(audio?.id||'pending'),name:c.name+'音色',characterName:c.characterName||c.name,ageStage:c.ageStage,kind:'audio',projectId:project.id},sceneIds:c.speakingSceneIds}];
  });
 }

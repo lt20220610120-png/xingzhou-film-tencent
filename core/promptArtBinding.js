@@ -1,5 +1,6 @@
 import {projectVoiceCards} from './characterVoices.js';
-import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,compileVoiceBinding} from './voiceBinding.js';
+import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,compileVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
+import {sceneIdentities,lockedIdentityOmission} from './sceneIdentityContext.js';
 import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation} from './promptFoundation.js';
 import {parseAssetName} from './collabStore.js';
 import {inspectCollabEpisodes} from './collabEpisodes.js';
@@ -55,7 +56,7 @@ export function bindingSnapshot(project,ledger,assets,previous={}){
  issues.length=0;if(inspection.error)issues.push(inspection.error);issues.push(...invalidEntries.map(row=>row.reason));
  const labels=new Map();for(const entry of entries){const group=labels.get(entry.label)||[];group.push(entry.id);labels.set(entry.label,group);}
  for(const entry of entries)entry.duplicateLabel=labels.get(entry.label).length>1;
- const snapshot={voiceCards:projectVoiceCards(project,ledger),projectId:project.id,directorProjectId:project.director_project_id||'',name:project.name,cards,entries,issues,invalidEntries};
+ const snapshot={voiceCards:projectVoiceCards(project,ledger,{includePending:true}),projectId:project.id,directorProjectId:project.director_project_id||'',name:project.name,cards,entries,issues,invalidEntries};
  snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries]);
  return snapshot;
 }
@@ -140,8 +141,16 @@ export function bindingProblems(snapshot,entry,decision,{requireImages=false,req
  if(entry.duplicateLabel)problems.push('本场存在同编号提示词，请明确采用批次并处理重复编号');
  if(!decision||decision.signature!==entryBindingSignature(snapshot,entry))return [...problems,'来源或素材已更新，请重新核对本条关联'];
  if(requireConfirmed&&!decision.confirmed)problems.push('本条关联尚未确认');
+ // Re-open old "successful" results that silently omitted a literal, unique
+ // scene identity. Human exclusions stay authoritative, including on refresh.
+ if(decision.origin==='scene-inventory-ai')for(const match of sceneIdentities(snapshot,entry)){
+  const need=decision.needs.find(n=>n.cardUid===match.cardUid);
+  if(match.cardUid&&!need?.locked&&!lockedIdentityOmission(decision.needs,match)&&need?.visibility!=='visible')problems.push(`${match.token} 在本条基础设定中出现，尚未关联`);
+ }
+ if(voiceEnabled)for(const speaker of declaredPromptSpeakers(snapshot,entry))if(!decision.speakers?.some(s=>s.voiceUid===speaker.voiceUid))problems.push('本条明确讲话人物的音色尚未关联');
  if(decision.issue)problems.push(decision.issue);
  try{if(voiceEnabled)applyVoiceBinding(snapshot,entry,decision,decision.speakers);}catch(e){problems.push(e.message);}
+ if(requireImages&&voiceEnabled)for(const speaker of decision.speakers||[]){const card=entryVoiceCards(snapshot,entry).find(c=>c.uid===speaker.voiceUid);if(card?.pendingAudio)problems.push(`${card.name}音色尚未生成并采用`);}
  for(const need of decision.needs){
   if(need.visibility!=='visible'){if(!need.reason?.trim())problems.push(`${need.text} 排除原因未填写`);continue;}
   const card=snapshot.cards.find(card=>card.uid===need.cardUid&&cardInEntry(card,entry));

@@ -5,7 +5,8 @@ import {publishedReviewProject} from '../../core/publishedReviewProject.js';
 import {notifyBindingSaved} from './useScenePromptLinks.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
 import {assetPromptUsage} from '../../core/promptAssetUsage.js';
-import {loadFreshBinding} from '../../core/promptArtBinding.js';
+import {loadFreshBinding,bindingSnapshot} from '../../core/promptArtBinding.js';
+import {ArtExportChoiceDialog,ArtExportAudioDialog} from './ArtExportDialogs.jsx';
 import {bindingVersionOptions,selectBindingVersion,promptExportImages,sceneVoiceExports} from '../../core/promptBindingVersions.js';
 import {retainAssetOrder} from '../../core/stableAssetOrder.js';
 import {assetRevisionJobs} from '../../core/assetRevisionJobs.js';
@@ -718,7 +719,7 @@ function AssetQuickNav({ entries, locator, rail = false }) {
 /* ================================================================
  * 美术：按集分框 → 人物/场景/道具 → 资产列表+描述+生图
  * ================================================================ */
-function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore, onProjectChange, accountId, onOpenReview }) {
+export function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore, onProjectChange, accountId, onOpenReview }) {
   const {data:promptBinding}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
   const batchProfiles=mediaModelChoices(state,'image');
   const [batchProfileId,setBatchProfileId,batchProfile]=useWindowModel(`batch-image:${project.id}`,batchProfiles);
@@ -748,21 +749,28 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
   const askExport=run=>{setExportChoiceOpen(false);setExportAudioChoice({run});};
   const exportWithVoices=async(images,folder,layout)=>askExport(async includeAudio=>{try{let rows=images;if(includeAudio){const store=getArtReviewStore({api,projectId:project.id,accountId});await store.load(project,assets);rows=[...images,...sceneVoiceExports({voiceCards:projectVoiceCards(project,store.snapshot())})];}await exportImages(rows,folder,layout);}catch(error){setExportError(error.message);}});
   const [exportBinding,setExportBinding]=useState(null),[exportVersion,setExportVersion]=useState(''),[exportBindingError,setExportBindingError]=useState('');
+  const availableExportBinding=exportBinding||(!promptBinding?.error?promptBinding:null);
+  const exportVersions=availableExportBinding?.currentSnapshot?bindingVersionOptions(availableExportBinding.currentSnapshot,availableExportBinding.saved):[];
+  const selectedExportVersion=exportVersions.some(row=>row.id===exportVersion)?exportVersion:exportVersions[0]?.id||'';
   useEffect(()=>{
     let alive=true;if(!exportChoiceOpen)return;
-    setExportBinding(null);setExportBindingError('');
+    setExportBindingError('');
+    if(promptBinding?.currentSnapshot){setExportBinding(promptBinding);return;}
+    setExportBinding(null);
     Promise.resolve(api.promptArtStatus?.()).then(async status=>{
-      if(!status?.enabled||!alive)return;
-      const data=await loadFreshBinding({api,projectId:project.id,accountId,localSources:state.directorProjects,allowUnbound:true});
-      if(alive){setExportBinding(data);setExportVersion(bindingVersionOptions(data.currentSnapshot,data.saved)[0].id);}
+      if(!status?.enabled||!alive){if(alive)setExportBindingError('当前账号未启用提示词关联导出');return;}
+      const store=getArtReviewStore({api,projectId:project.id,accountId});
+      const [saved]=await Promise.all([api.promptArtLoad({projectId:project.id,accountId}),store.load(project,assets)]);
+      const currentSnapshot=bindingSnapshot(project,store.snapshot(),assets,saved?.snapshot);
+      if(alive)setExportBinding({saved,currentSnapshot,...selectBindingVersion(currentSnapshot,saved)});
     }).catch(error=>alive&&setExportBindingError(error.message));
     return()=>{alive=false;};
-  },[exportChoiceOpen,project.id,accountId]);
+  },[exportChoiceOpen,project.id,accountId,promptBinding]);
   const exportPromptVersion=async(includeAudio=false)=>{
     try{
-      const fresh=await loadFreshBinding({api,projectId:project.id,accountId,localSources:state.directorProjects,versionId:exportVersion,allowUnbound:true});
+      const fresh=await loadFreshBinding({api,projectId:project.id,accountId,localSources:state.directorProjects,versionId:selectedExportVersion,allowUnbound:true});
       const images=promptExportImages(fresh.snapshot,fresh.decisions,{includeAudio});
-      await exportImages(images,`${project.name}-${bindingVersionOptions(fresh.currentSnapshot,fresh.saved).find(row=>row.id===exportVersion)?.label||'提示词'}-按提示词美术图片`,'prompt');
+      await exportImages(images,`${project.name}-${bindingVersionOptions(fresh.currentSnapshot,fresh.saved).find(row=>row.id===selectedExportVersion)?.label||'提示词'}-按提示词美术图片`,'prompt');
     }catch(error){setExportError(error.message);}
   };
 
@@ -871,21 +879,8 @@ function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore,
         {exportError&&<div className="collab-error" role="alert">{exportError}</div>}
         <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}>{wholeControls}</ProjectCompositionControl>
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
-        {exportChoiceOpen&&createPortal(
-          <div className="veil" onMouseDown={event=>event.target===event.currentTarget&&setExportChoiceOpen(false)}>
-            <div className="modal collab-art-export-modal" role="dialog" aria-modal="true" aria-label="选择整部剧图片导出方式">
-              <header><h2>导出整部剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setExportChoiceOpen(false)}><X size={18}/></button></header>
-              {exportBindingError&&<p className="collab-error" role="alert">{exportBindingError}</p>}
-              {exportBinding&&<label>提示词版本<select aria-label="导出提示词版本" value={exportVersion} onChange={event=>setExportVersion(event.target.value)}>{bindingVersionOptions(exportBinding.currentSnapshot,exportBinding.saved).map(row=><option key={row.id} value={row.id}>{row.label}{row.current?' · 最新':''}</option>)}</select></label>}
-              <div className="modal-actions collab-art-export-options">
-                <button className="secondary collab-art-export-option" onClick={()=>exportImages(projectImages,`${project.name}-全部美术图片`,'flat')}>全部汇总导出</button>
-                <button className="secondary collab-art-export-option" onClick={()=>exportWithVoices(projectImages,`${project.name}-按集美术素材`,'episode')}>按集整理导出</button>
-                <button className="secondary collab-art-export-option" onClick={()=>exportWithVoices(projectImages,`${project.name}-按场景美术素材`,'scene')}>按场景整理导出</button>
-                {exportBinding&&<button className="secondary collab-art-export-option" disabled={exporting} onClick={()=>askExport(exportPromptVersion)}>按具体提示词导出</button>}
-              </div>
-            </div>
-          </div>,document.body)}
-        {exportAudioChoice&&createPortal(<div className="veil"><div className="modal" role="dialog" aria-modal="true" aria-label="选择是否导出对应音频"><header><h2>是否同时导出对应人物音频？</h2><button className="ghost" aria-label="取消导出" onClick={()=>setExportAudioChoice(null)}><X size={18}/></button></header><p>按当前导出方式整理已确认并关联的人物音色。</p><div className="modal-actions"><button className="secondary" onClick={()=>{const run=exportAudioChoice.run;setExportAudioChoice(null);run(false);}}>仅导出图片</button><button className="primary" onClick={()=>{const run=exportAudioChoice.run;setExportAudioChoice(null);run(true);}}>图片和对应音频一起导出</button></div></div></div>,document.body)}
+        {exportChoiceOpen&&<ArtExportChoiceDialog versions={exportVersions} version={selectedExportVersion} onVersionChange={setExportVersion} loading={!availableExportBinding&&!exportBindingError} error={exportBindingError} exporting={exporting} onClose={()=>setExportChoiceOpen(false)} onChoose={layout=>{if(layout==='flat')void exportImages(projectImages,`${project.name}-全部美术图片`,'flat');else if(layout==='episode')void exportWithVoices(projectImages,`${project.name}-按集美术素材`,'episode');else if(layout==='scene')void exportWithVoices(projectImages,`${project.name}-按场景美术素材`,'scene');else askExport(exportPromptVersion);}}/>}
+        {exportAudioChoice&&<ArtExportAudioDialog onClose={()=>setExportAudioChoice(null)} onChoose={includeAudio=>{const run=exportAudioChoice.run;setExportAudioChoice(null);void run(includeAudio);}}/>}
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}
         {analysisJob?.error && <div className="collab-error">{analysisJob.error}</div>}

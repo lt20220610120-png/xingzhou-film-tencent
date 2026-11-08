@@ -74,10 +74,10 @@ test('254 queued prompts keep only five prepared claims and let the first retry 
  await service.stop();hold.resolve();await Promise.all(jobs);
 });
 test('adopting a voice later invalidates the visual-only baseline and adds the real speaker association',async()=>{
- const f=fixture(),ep=f.project.episodes[0],record=f.ledger.episodes[1],quote='张三：水温正好。';ep.content+='\n'+quote;ep.prompts[0].content+='\n【对白】\n'+quote;record.sourceContent=ep.content;record.scenes[0].source=ep.content;
+ const f=fixture(),ep=f.project.episodes[0],record=f.ledger.episodes[1],quote='张三：水温正好。';ep.content+='\n'+quote;ep.prompts[0].content+='\n【连续台词】\nD01｜张三｜现场对白｜分镜01：『水温正好。』';record.sourceContent=ep.content;record.scenes[0].source=ep.content;
  record.voiceAnalysis=validateEpisodeVoices(ep,record.scenes,{scenes:[{sceneId:'1-1',speakers:[{name:'张三',ageStage:'default',language:'Chinese',quote:'水温正好。',evidence:quote,kind:'dialogue'}]}]});
- const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await service.run('p1',{profile:{id:'m'}});assert.deepEqual(f.saved.decisions.p1.speakers,[]);
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await service.run('p1',{profile:{id:'m'}});assert.equal(f.saved.decisions.p1.speakers.length,1);
  f.ledger.voiceProfiles={[voiceIdentity('张三','default')]:{confirmed:{id:'adopted',filePath:'D:/fixture.wav'}}};let payload;
- f.api.aiChat=async p=>{payload=JSON.parse(p.messages[1].content);return JSON.stringify({...JSON.parse(f.output(p.messages)),speakers:[{voiceUid:payload.voiceCards[0].uid,evidence:quote,kind:'dialogue'}]});};
+ f.api.aiChat=async p=>{payload=JSON.parse(p.messages[1].content);return JSON.stringify({...JSON.parse(f.output(p.messages)),speakers:[{voiceUid:payload.voiceCards[0].uid,evidence:'D01｜张三｜现场对白｜分镜01：『水温正好。』',kind:'dialogue'}]});};
  await service.run('p1',{profile:{id:'m'}});assert.equal(payload.voiceCards.length,1);assert.equal(f.saved.decisions.p1.confirmed,true);assert.equal(f.saved.decisions.p1.speakers.length,1);
 });

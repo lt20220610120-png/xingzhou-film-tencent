@@ -94,7 +94,7 @@ export function saveBindingVersion(saved,snapshot,decisions){
 export function promptExportImages(snapshot,decisions,{includeAudio=false}={}){
  const images=new Map();
  for(const entry of snapshot.entries){
-  const compiled=compileEntryBinding(snapshot,entry,decisions[entry.id]);
+  const compiled=compileEntryBinding(snapshot,entry,decisions[entry.id],{voiceEnabled:includeAudio});
   for(const ref of compiled.references){
    if(ref.kind==='video'||ref.kind==='audio'&&!includeAudio)continue;
    if(ref.kind==='audio'){
