@@ -1,5 +1,5 @@
 // Read only explicit speech declarations; visual cast lists never imply speech.
-export const nonDialogueVoiceLabel=/(?:旁白|画外[音声]|电话|心声|内心独白|独白旁述|(?:^|[^a-z])(?:OS|VO|V\s*\.\s*O\.?|O\s*\.\s*S\.?)(?=$|[^a-z]))/i;
+export const nonDialogueVoiceLabel=/(?:旁白|画外[音声]|心声|内心独白|独白旁述|(?:^|[^a-z])(?:OS|VO|V\s*\.\s*O\.?|O\s*\.\s*S\.?)(?=$|[^a-z]))/i;
 export function explicitDialogueLines(text,{prompt=false}={}){
  const rows=[];let dialogueSection=!prompt;
  for(const line of String(text||'').split(/\r?\n/)){

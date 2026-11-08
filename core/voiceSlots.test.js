@@ -71,6 +71,7 @@ test('speech selection excludes offscreen/narration and ambiguous ages or roles;
  const cards=['小林','小王','温可儿助理','周星星助理'].map((name,i)=>({uid:String(i),name,sceneIds:['1-1']}));
  const entry={sceneId:'1-1',prompt:'【基础设定】\n人物：小林：只是描述\n【连续台词】\n小林：你能听到我的心声？\n小王（电话画外音）：喂。\n助理：好的。\n旁白：后来。\n【画面内容】\n小王：这里只是动作描述'};
  assert.deepEqual(declaredPromptSpeakers({voiceCards:cards},entry).map(s=>s.voiceUid),['0']);
+ assert.deepEqual(declaredPromptSpeakers({voiceCards:cards},{...entry,prompt:'【连续台词】\n小林（打电话）：你能听到我的心声？'}).map(s=>s.voiceUid),['0'],'visible telephone dialogue stays eligible');
  cards.push({...cards[0],uid:'child',ageStage:'child'});assert.equal(declaredPromptSpeakers({voiceCards:cards},entry).length,0);
 });
 
