@@ -22,4 +22,4 @@ export function getArtModelQueue(api){
   return new Promise((resolve,reject)=>{pending.push({call,manual,resolve,reject,stopped:()=>Boolean(job?.cancelled||isStopped?.())});pump();});
  },notify:pump};queues.set(api,queue);return queue;
 }
-export const requestArtModel=(api,payload,options)=>getArtModelQueue(api).run(()=>api.aiChat(payload),options);
+export const requestArtModel=(api,payload,options={})=>getArtModelQueue(api).run(()=>{options.onStart?.();return api.aiChat(payload);},options);

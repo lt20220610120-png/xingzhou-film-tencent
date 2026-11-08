@@ -16,7 +16,9 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
 
 export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,concurrency}){
  let context=getContext,writer=Promise.resolve(),generation=0,notice='',paused=false;
- const tasks=new Map(),maintenance=new Set(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=concurrency?createTaskPool(concurrency):null;
+ // Bound preparation/persistence too. Hundreds of queued entries must not all
+ // read, claim and rewrite the complete version archive before the first reply.
+ const tasks=new Map(),maintenance=new Set(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=createTaskPool(concurrency||5);
  const emit=()=>listeners.forEach(fn=>fn());
  const entrySceneId=id=>{const label=context().project.episodes.flatMap(e=>e.prompts||[]).find(p=>p.id===id)?.label,match=/^(\d+)-(\d+)-(\d+)$/.exec(String(label||''));return match?`${Number(match[1])}-${Number(match[2])}`:null;};
  const sceneSource=(ctx,sceneId)=>{const n=Number(String(sceneId).split('-')[0]),record=ctx.ledger?.episodes?.[n];return record?.scenes?.find(s=>s.id===sceneId)?.source||'';};
@@ -49,7 +51,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   },
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
   isBusy:id=>tasks.has(id)||maintenance.has(entrySceneId(id)),
-  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],notice,paused,...modelQueue.status()}),
+  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],entryTasks:Object.fromEntries([...tasks].map(([id,t])=>[id,{phase:t.phase,attempt:t.attempt,queuedAt:t.queuedAt,startedAt:t.startedAt,versionId:t.versionId}])),notice,paused,...modelQueue.status(),queued:Math.max(modelQueue.status().queued,lane.queued)}),
   resume(){paused=false;emit();},
   async stop(){paused=true;generation++;modelQueue.notify();const ids=[...tasks.values()].filter(t=>!t.manual).flatMap(t=>t.taskIds);await Promise.allSettled(ids.map(taskId=>api.cancelAiTask?.({taskId})));emit();},
   run(entryId,{profile,manual=false,versionId,job={},voiceEnabled=true}={}){
@@ -58,15 +60,17 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
    if(tasks.has(entryId))return tasks.get(entryId).promise;
    if(paused&&!manual)return Promise.reject(Error('已暂停自动分发'));
    if(!profile)return Promise.reject(Error('请选择分发模型'));
-   const token=generation,task={manual,taskIds:[]};
+   const token=generation,task={manual,taskIds:[],phase:'queued',attempt:0,queuedAt:Date.now(),versionId};
+   const phase=value=>{task.phase=value;emit();};
    const stopped=()=>job.cancelled||(!manual&&generation!==token);
-   task.promise=(lane&&!manual?lane.run:fn=>Promise.resolve().then(fn))(async()=>{
+   task.promise=(!manual?lane.run:fn=>Promise.resolve().then(fn))(async()=>{
     let claimKey,stamp,owner,selectedId,decisionToken,captured;
     try{
      if(stopped())throw Error('任务已停止');
+     phase('preparing');
      let state=await read(versionId);const entry=state.snapshot.entries.find(e=>e.id===entryId);
      if(!entry||!sceneReadyForPromptDistribution(state.ctx.project,state.ctx.ledger,entry.sceneId))throw Error('场景清单尚未分析完成，请先分析本场清单');
-     selectedId=state.snapshot.versionId;stamp=sceneDistributionStamp(state.snapshot,entry,sceneSource(state.ctx,entry.sceneId));claimKey=selectedId+':'+entryId;
+     selectedId=state.snapshot.versionId;task.versionId=selectedId;stamp=sceneDistributionStamp(state.snapshot,entry,sceneSource(state.ctx,entry.sceneId));claimKey=selectedId+':'+entryId;
      const followedCurrent=selectedId===currentPromptVersionId(state.currentSnapshot,state.saved);
      if(!manual&&state.decisions[entryId]?.confirmed&&bindingProblems(state.snapshot,entry,state.decisions[entryId],{voiceEnabled}).length===0)return state.decisions[entryId];
      captured=state;owner=crypto.randomUUID();decisionToken=bindingHash(state.decisions[entryId]||null);
@@ -85,12 +89,13 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      const seeded=currentEntryBinding(state.snapshot,entry,state.decisions[entryId]);
      const seed={...seeded,needs:state.decisions[entryId]?.signature===seeded.signature?state.decisions[entryId].needs:seeded.needs.filter(n=>n.locked),issue:''};
      notice=`${manual?'重新':'自动'}分发 ${entry.label}`;emit();
-     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId),{voiceEnabled}),call:messages=>{
+     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId),{voiceEnabled}),onAttempt:attempt=>{task.attempt=attempt;phase(attempt>1?'retrying':'waiting');},call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
       const cardCount=state.snapshot.entries.find(e=>e.id===entryId)?sceneCards(state.snapshot,state.snapshot.entries.find(e=>e.id===entryId)).length:0;
-      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,isStopped:stopped});
+      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,isStopped:stopped,onStart:()=>{task.startedAt=Date.now();phase('requesting');}});
      },isStopped:stopped,validate:raw=>applySceneDistribution(state.snapshot,entry,seed,raw,sceneSource(state.ctx,entry.sceneId),{voiceEnabled})});
      if(stopped())throw Error('任务已停止');
+     phase('saving');
      await mutate(selectedId,latest=>{
       if(stopped())throw Error('任务已停止');
       if(followedCurrent&&currentPromptVersionId(latest.currentSnapshot,latest.saved)!==selectedId)throw Error('提示词来源版本已变化，旧分发未应用');

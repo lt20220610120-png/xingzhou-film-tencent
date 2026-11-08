@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createPromptDistributionService} from './promptDistributionService.js';
 import {fixture} from './promptDistribution.fixtures.js';
+import {validateEpisodeVoices,voiceIdentity} from './characterVoices.js';
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
 test('opening a service and an empty scene never triggers model calls or produces heuristic missing cards',async()=>{
@@ -62,4 +63,21 @@ test('stop during the final queued save read prevents applying the late result',
  f.api.promptArtLoad=async()=>{if(++reads===3){entered.resolve();await hold.promise;}return load()};
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'}),pending=service.run('p1',{profile:{id:'m'}}).catch(e=>e);
  await entered.promise;await service.stop();hold.resolve();const result=await pending;assert(result instanceof Error);assert.equal(f.saved.decisions.p1,undefined);
+});
+test('254 queued prompts keep only five prepared claims and let the first retry save before the backlog',async()=>{
+ const f=fixture(),template=f.project.episodes[0].prompts[0],hold=deferred(),firstSaved=deferred();let calls=0,firstCalls=0;
+ f.project.episodes[0].prompts=Array.from({length:254},(_,i)=>({...template,id:'p'+(i+1),label:'1-1-'+(i+1)}));
+ const save=f.api.promptArtSave;f.api.promptArtSave=async payload=>{const result=await save(payload);if(result.decisions.p1?.confirmed)firstSaved.resolve();return result;};
+ f.api.aiChat=async payload=>{calls++;const data=JSON.parse(payload.messages[1].content);if(data.label==='1-1-1'){if(++firstCalls===1)return '{}';return JSON.stringify({assignments:data.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidenceId:data.evidenceSpans.find(s=>s.category===c.category).id,reason:'基础设定明确出现'})),missing:[]});}await hold.promise;return f.output(payload.messages);};
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'}),jobs=f.project.episodes[0].prompts.map(p=>service.run(p.id,{profile:{id:'m'}}).catch(e=>e));
+ await firstSaved.promise;assert.equal(firstCalls,2);assert(calls<=7,'a retry must not go behind all 254 entries');assert(Object.keys(f.saved.sceneDistributionAttempts).length<=5,'queued entries must not write hundreds of running claims');assert(service.status().queued>=248);assert.equal(f.saved.decisions.p1.confirmed,true);
+ await service.stop();hold.resolve();await Promise.all(jobs);
+});
+test('adopting a voice later invalidates the visual-only baseline and adds the real speaker association',async()=>{
+ const f=fixture(),ep=f.project.episodes[0],record=f.ledger.episodes[1],quote='张三：水温正好。';ep.content+='\n'+quote;ep.prompts[0].content+='\n【对白】\n'+quote;record.sourceContent=ep.content;record.scenes[0].source=ep.content;
+ record.voiceAnalysis=validateEpisodeVoices(ep,record.scenes,{scenes:[{sceneId:'1-1',speakers:[{name:'张三',ageStage:'default',language:'Chinese',quote:'水温正好。',evidence:quote,kind:'dialogue'}]}]});
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await service.run('p1',{profile:{id:'m'}});assert.deepEqual(f.saved.decisions.p1.speakers,[]);
+ f.ledger.voiceProfiles={[voiceIdentity('张三','default')]:{confirmed:{id:'adopted',filePath:'D:/fixture.wav'}}};let payload;
+ f.api.aiChat=async p=>{payload=JSON.parse(p.messages[1].content);return JSON.stringify({...JSON.parse(f.output(p.messages)),speakers:[{voiceUid:payload.voiceCards[0].uid,evidence:quote,kind:'dialogue'}]});};
+ await service.run('p1',{profile:{id:'m'}});assert.equal(payload.voiceCards.length,1);assert.equal(f.saved.decisions.p1.confirmed,true);assert.equal(f.saved.decisions.p1.speakers.length,1);
 });

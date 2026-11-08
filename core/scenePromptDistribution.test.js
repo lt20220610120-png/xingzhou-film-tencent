@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {applySceneDistribution,sceneDistributionMessages,assignSceneCard,resolveSceneMissing,sceneDistributionStamp,shouldDistributeSceneEntry} from './scenePromptDistribution.js';
+import {applySceneDistribution,sceneDistributionMessages,assignSceneCard,resolveSceneMissing,sceneDistributionStamp,shouldDistributeSceneEntry,sceneFoundationEvidence} from './scenePromptDistribution.js';
 import {currentEntryBinding,saveDistribution,compileEntryBinding,entryBindingSignature} from './promptArtBinding.js';
 
 function fixture(){
@@ -79,5 +79,17 @@ test('AI误报缺项时可手动指定本场已有卡片，替换不用记录并
 test('voice scene distribution reads the complete scene source and requires exact speaker evidence',()=>{
  const f=fixture();f.snapshot.voiceCards=[{uid:'voice:周凯',name:'周凯音色',characterName:'周凯',sceneIds:['1-1'],reference:{id:'v1',kind:'audio',filePath:'D:/zhou.wav'}},{uid:'voice:赵国强',name:'赵国强音色',characterName:'赵国强',sceneIds:['1-1'],reference:{id:'v2',kind:'audio',filePath:'D:/zhao.wav'}}];const source='1-1 日 内\n周凯：你来了。\n赵国强（暴怒）：滚出去！';const messages=sceneDistributionMessages(f.snapshot,f.entry,f.decision,source);const payload=JSON.parse(messages[1].content);assert.equal(payload.dialogueSource,source);assert.match(messages[0].content,/完整阅读 dialogueSource/);
  const d=applySceneDistribution(f.snapshot,f.entry,f.decision,{...f.raw,speakers:[{voiceUid:'voice:周凯',evidence:'周凯：你来了。',kind:'dialogue'},{voiceUid:'voice:赵国强',evidence:'赵国强（暴怒）：滚出去！',kind:'dialogue'}]},source);assert.deepEqual(d.speakers.map(s=>s.voiceUid),['voice:周凯','voice:赵国强']);
+});
+test('no adopted scene voices means a visual-only request and cannot block image references on invented speakers',()=>{
+ const f=fixture(),messages=sceneDistributionMessages(f.snapshot,f.entry,f.decision,'整场很长的对白。'),input=JSON.parse(messages[1].content);
+ assert.equal('dialogueSource' in input,false);assert.equal('voiceCards' in input,false);assert.match(messages[0].content,/不返回 speakers/);
+ const decision=saveDistribution(f.snapshot,f.entry,applySceneDistribution(f.snapshot,f.entry,f.decision,{...f.raw,speakers:[{voiceUid:'invented',evidence:'不存在',kind:'dialogue'}]}));
+ assert.equal(decision.confirmed,true);assert.deepEqual(decision.speakers,[]);assert.equal(compileEntryBinding(f.snapshot,f.entry,decision).references.length,3);
+});
+test('model-selected evidence IDs resolve only to literal original spans of the selected category',()=>{
+ const f=fixture(),spans=sceneFoundationEvidence(f.entry),raw={assignments:[{cardUid:'person',visibility:'visible',evidenceId:spans.find(s=>s.category==='character').id,reason:'本条实际出现'}],missing:[]};
+ const result=applySceneDistribution(f.snapshot,f.entry,f.decision,raw),need=result.needs.find(n=>n.cardUid==='person');assert.equal(f.entry.prompt.slice(need.start,need.end),need.text);assert.equal(need.text,spans[0].text);
+ assert.throws(()=>applySceneDistribution(f.snapshot,f.entry,f.decision,{...raw,assignments:[{...raw.assignments[0],evidenceId:'scene:1'}]}),/类别不符/);
+ assert.throws(()=>applySceneDistribution(f.snapshot,f.entry,f.decision,{...raw,assignments:[{...raw.assignments[0],evidenceId:'character:999'}]}),/片段不存在/);
 });
 

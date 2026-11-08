@@ -371,3 +371,11 @@
 .rewrite-reference-actions{display:flex;align-items:center;gap:8px;margin-top:10px}.rewrite-reference-actions select{min-width:0;flex:1;border:1px solid #e0e5ed;border-radius:6px;padding:7px;background:#fff}.rewrite-reference-actions button{white-space:nowrap}
 .rewrite-story-legacy{margin:18px;padding:12px;border:1px solid #e3e7ed;border-radius:8px;font-size:13px;color:#64748b}.rewrite-story-legacy>.formatted-text{max-height:360px;overflow:auto}
 @media(max-width:1100px){.rewrite-story-layout{grid-template-columns:190px minmax(0,1fr)}.rewrite-story-editor{padding:16px}.rewrite-world-runbar>label{gap:6px}}
+.director-rail .project-directory-scroll>button.director-episode-row{grid-template-columns:24px minmax(0,1fr) max-content 8px;gap:6px;min-height:38px;padding:6px 8px;line-height:24px}
+.director-episode-row .director-episode-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.director-episode-row .director-episode-count{font-size:12px;line-height:24px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--brand-muted)}
+.director-rail .director-episode-row>.director-completion-dot{margin:0;justify-self:center;width:8px;height:8px;align-self:center}
+.director-rail .project-directory-scroll>button.director-episode-row .rail-episode-delete{top:6px;right:21px;display:grid;place-items:center;width:24px;height:24px;padding:0;opacity:0;pointer-events:none;background:var(--brand-selected);border-radius:5px}
+.director-rail .project-directory-scroll>button.director-episode-row:is(:hover,:focus-within) .rail-episode-delete{opacity:1;pointer-events:auto}
+.director-episode-row:is(:hover,:focus-within) .director-episode-count{visibility:hidden}
+.director-episode-row .rail-episode-delete:focus-visible{outline:2px solid #8b79ca;outline-offset:1px}

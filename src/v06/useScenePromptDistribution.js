@@ -13,7 +13,7 @@ export default function useScenePromptDistribution({project,assets,accountId,sna
  controller.configure({project,store,existingAssets:assets,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data)});
  const [,render]=useState(0);useEffect(()=>{const update=()=>render(n=>n+1),a=service.subscribe(update),b=controller.subscribe(update);return()=>{a();b();};},[service,controller]);
  const serviceState=service.status(),controllerState=controller.status();
- const state={...serviceState,...controllerState,working:serviceState.working||controllerState.working};
+ const state={...serviceState,...controllerState,working:serviceState.working||controllerState.working,queued:Math.max(serviceState.queued,controllerState.queued)};
  return {...state,service,isBusy:service.isBusy,redistribute:async entry=>{
   if(!loaded||!canEdit)return;setError('');setNotice(`正在让模型重新读取 ${entry.label}…`);
   try{await service.run(entry.id,{profile,manual:true,versionId:snapshot.versionId});setNotice(`已按模型结果分发 ${entry.label}`);}catch(error){setError(error.message);throw error;}

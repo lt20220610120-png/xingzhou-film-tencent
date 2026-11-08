@@ -16,13 +16,13 @@ const initialDirector={id:'director-129',name:'三级素材关联验收',episode
 let project={id:'workflow-129',director_project_id:initialDirector.id,name:initialDirector.name,myRole:'producer',episodes:structuredClone(initialDirector.episodes)},assets=[],saved=null;
 const items=[['person','character','【张三】'],['room','scene','【客厅】'],['cup','prop','【水杯】']].map(([id,category,name])=>({id,category,name,description:'完整客观描述，保留原清单身份。',ready:true,manual:true}));
 let ledger={episodes:Object.fromEntries(project.episodes.map(e=>{let r=newArtReview(e);r=applyArtReviewCandidate(r,e,{items,inventory:'已读取分集清单',complete:true,warnings:[],mapping:r.scenes.map(s=>({sceneId:s.id,assets:items.map(i=>({category:i.category,name:i.name}))}))});return [e.episodeNumber,r];}))};
-window.qaSupplement={requests:[],get saved(){return saved},get project(){return project},get assets(){return assets}};
+window.qaSupplement={hold:false,pending:[],requests:[],get saved(){return saved},get project(){return project},get assets(){return assets}};
 const clone=value=>structuredClone(value),empty=async()=>[];
 const api={directorCollabListProjects:empty,collabListProjects:empty,collabIsProducer:async()=>true,
  promptArtStatus:async()=>({enabled:true}),promptArtLoad:async()=>clone(saved),promptArtSave:async({baseRevision,data})=>{if(baseRevision!==(saved?.revision||0))throw Error('关联记录已被另一窗口更新');saved={...clone(data),revision:baseRevision+1};return clone(saved);},
  artReviewLoadLocal:async()=>clone(ledger),artReviewSaveLocal:async({data})=>{ledger=clone(data);},collabGetProject:async()=>clone(project),collabListAssets:async()=>clone(assets),collabListMedia:empty,generationList:empty,
  collabResolveAssetImage:async({assetId})=>({url:assets.find(a=>a.id===assetId)?.images[0]?.url}),
- aiChat:async payload=>{const input=JSON.parse(payload.messages[1].content);qaSupplement.requests.push(input.label||'mapping');await new Promise(r=>setTimeout(r,40));return JSON.stringify({assignments:input.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidence:c.name.replace(/[【】]/g,''),reason:'基础设定明确使用'})),missing:[]});},
+ aiChat:async payload=>{const input=JSON.parse(payload.messages[1].content);qaSupplement.requests.push(input.label||'mapping');if(qaSupplement.hold)await new Promise(resolve=>qaSupplement.pending.push(resolve));await new Promise(r=>setTimeout(r,40));return JSON.stringify({assignments:input.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidence:c.name.replace(/[【】]/g,''),reason:'基础设定明确使用'})),missing:[]});},
  collabPatchStoryboard:async({episodeId,shotId,updates})=>{Object.assign(project.episodes.find(e=>e.id===episodeId).prompts.find(p=>p.id===shotId),updates);return clone(project);},
 };
 const store=getArtReviewStore({api,projectId:project.id,accountId:'qa'});

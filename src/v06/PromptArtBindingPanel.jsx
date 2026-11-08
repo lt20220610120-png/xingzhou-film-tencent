@@ -47,13 +47,17 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const edit=(id,patch)=>saveDecision({...decision,confirmed:false,needs:decision.needs.map(need=>need.id===id?{...need,...patch,locked:true}:need)});
  const ready=Object.fromEntries(Object.values(ledger.episodes||{}).flatMap(record=>(record.scenes||[]).map(scene=>[scene.id,Boolean(scene.mappingReady&&scene.items.length)])));
  const distribution=useScenePromptDistribution({project,ledger,assets,accountId,snapshot,loaded,canEdit,profile,api,setError,setNotice});
+ const liveTask=entry&&distribution.entryTasks?.[entry.id],taskCurrent=liveTask&&(!liveTask.versionId||liveTask.versionId===snapshot.versionId);
+ const [now,setNow]=useState(Date.now());
+ useEffect(()=>{if(!taskCurrent)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[entry?.id,taskCurrent,liveTask?.phase]);
+ const phaseText=taskCurrent?({queued:'等待前序任务',preparing:'正在准备清单',waiting:'等待模型请求',retrying:`正在重试（第 ${liveTask.attempt} 次）`,requesting:liveTask.attempt>1?`正在重新关联（第 ${liveTask.attempt} 次）`:'正在关联',saving:'正在保存关联'})[liveTask.phase]:attempt?.status==='failed'?'关联失败':stale?'关联需重新核对':decisions[entry?.id]?.confirmed?'已关联':attempt?.status==='done'?'已读取，需核对关联':attempt?.status==='running'?'上次关联尚未完成':'尚未开始';
  const toggleCard=(card,checked)=>card.category==='voice'?Promise.resolve():saveDecision(assignSceneCard(snapshot,entry,{...decision,needs:[...auditNeeds,...decision.needs.filter(n=>!n.cardUid)]},card.uid,checked));
  if(!available)return null;
  const disabled=busy||distribution.isBusy(entry?.id)||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
   {entry&&<SceneInventoryDisclosure cards={inventory} needs={displayNeeds} entryLabel={entry.label} disabled={disabled} onToggle={(card,checked)=>act(()=>toggleCard(card,checked))}/>} 
-  <header className="prompt-art-toolbar"><div><h2>场景 {sceneId} · 提示词素材关联</h2></div><div className="prompt-art-header-actions">{sceneActions}<details className="prompt-art-local-actions"><summary>本条操作</summary><button disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>重新关联本条</button></details></div></header>
-  {(distribution.working||distribution.active>0||distribution.queued>0)&&<p className="prompt-art-queue-status" role="status">模型请求 {distribution.active}/6 · 排队 {distribution.queued} 条</p>}
+  <header className="prompt-art-toolbar"><div><h2>场景 {sceneId} · 提示词素材关联</h2></div><div className="prompt-art-header-actions">{sceneActions}<button className="prompt-art-entry-retry" title="重新读取当前提示词并关联素材，保留人工选择" disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>重新关联本条</button></div></header>
+  {entry&&<p className="prompt-art-queue-status" role="status">本条 {entry.label}：{phaseText}{taskCurrent?` · ${Math.max(0,Math.floor((now-liveTask.queuedAt)/1000))} 秒`:''}{distribution.working?` · 同时请求 ${distribution.active}/6 · 待处理 ${distribution.queued} 条`:''}</p>}
   {error&&<p role="alert" className="collab-error">{error}</p>}{(notice||distribution.notice)&&<p role="status">{notice||distribution.notice}</p>}
   {<>
    {!entry?<p>本场尚无已保存提示词，可先核实美术清单；补齐后刷新云端即可自动关联。</p>:<div className="prompt-art-workspace">
@@ -63,7 +67,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
      {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
      {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，正在等待补齐素材关联。</p>}
      {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.(entry.id,need.id,selectedVersion))} title={`${need.text}：确认无需参考图`}>确认无需参考图{missing.length>1?` · ${need.text}`:""}</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
-     {!distribution.working&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?'自动关联待处理':'上次关联未完成'}，可使用页面上方的“补齐素材关联”继续处理。</p>}
+     {!taskCurrent&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?`本条关联失败：${attempt.error||'模型未返回有效结果'}`:'上次关联未完成'}。可点击“重新关联本条”重试。</p>}
      {decision.issue&&<p className="collab-error">{decision.issue}</p>}
     </section>
     <section className="prompt-art-cards-column" aria-label="本条人物场景道具音色卡片">
