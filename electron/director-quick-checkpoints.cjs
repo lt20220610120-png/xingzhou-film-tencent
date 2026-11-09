@@ -101,7 +101,7 @@ function createDirectorQuickCheckpoints(dataDir, getAccountId) {
   }
 
   return {
-    list() {
+    list({recoverable=false,limit=64,after=''}={}) {
       const { accountId, directory } = scope();
       let names;
       try {
@@ -110,7 +110,14 @@ function createDirectorQuickCheckpoints(dataDir, getAccountId) {
         if (error.code === 'ENOENT') return [];
         throw checkpointError('DIRECTOR_QUICK_READ_FAILED', '自动分段任务列表读取失败，请检查本地资料目录。');
       }
-      return names.filter((name) => name.endsWith('.json')).map((name) => {
+      names=names.filter(name=>name.endsWith('.json')).sort();
+      if(recoverable){
+        if(!Number.isInteger(limit)||limit<1||limit>128||after&&!RUN_ID.test(after))throw checkpointError('DIRECTOR_QUICK_INVALID_RUN_ID','任务列表分页参数无效');
+        const valid=names.filter(name=>RUN_ID.test(name.slice(0,-5))),remaining=valid.filter(name=>!after||name>after+'.json'),page=remaining.slice(0,limit),runs=[],issues=after?[]:names.filter(name=>!RUN_ID.test(name.slice(0,-5))).map(()=>({runId:null,code:'DIRECTOR_QUICK_INVALID_RUN_ID'}));
+        for(const name of page){const runId=name.slice(0,-5);try{assertRunId(runId);runs.push(readRun(path.join(directory,name),accountId,runId));}catch(e){issues.push({runId:RUN_ID.test(runId)?runId:null,code:e.code||'DIRECTOR_QUICK_READ_FAILED'});}}
+        return {runs,issues,nextCursor:remaining.length>page.length?page.at(-1).slice(0,-5):null};
+      }
+      return names.map((name) => {
         const runId = name.slice(0, -5);
         if (!RUN_ID.test(runId)) throw checkpointError('DIRECTOR_QUICK_CORRUPT', '自动分段任务目录含无效检查点文件。');
         return readRun(path.join(directory, name), accountId, runId);
@@ -121,6 +128,10 @@ function createDirectorQuickCheckpoints(dataDir, getAccountId) {
       const { accountId, directory } = scope();
       try{return readRun(path.join(directory, `${runId}.json`), accountId, runId);}
       catch(error){if(allowMissing===true&&error.code==='DIRECTOR_QUICK_NOT_FOUND')return null;throw error;}
+    },
+    async saveAsync({run}={}){
+      const {accountId,directory}=scope();assertRun(run,accountId);
+      await require('./state-writer.cjs').writeStateAsync(path.join(directory,`${run.id}.json`),run);return true;
     },
     save({ run } = {}) {
       const { accountId, directory } = scope();

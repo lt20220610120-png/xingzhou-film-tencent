@@ -24,7 +24,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const start=()=>invoke(async()=>{const plan=preview;setOpened(false);try{await quickGeneration.startBatch(plan);setPreview(null);}catch(e){setOpened(true);throw e;}});
  const status={preview:'待开始',running:'正在生成',pausing:'正在保存并发请求，完成后暂停',paused:'已暂停，可以继续',completed:'整本任务已完成','completed-with-errors':'本轮已结束，部分场景需处理',cancelled:'任务已结束'};
  const rowStatus={pending:'待处理',running:'处理中',completed:'已保存',skipped:'跳过',stale:'需重新建立任务',failed:'失败，可继续',paused:'已暂停'};
- return <div className="director-batch-launcher"><button className="primary" onClick={open} disabled={!quickGeneration}>{active?`整本生成 · ${batch.targets.filter(t=>t.status==='completed').length}/${batch.targets.filter(t=>t.status!=='skipped').length}`:'一键生成整本提示词'}</button>
+ return <div className="director-batch-launcher"><button className="primary" onClick={open} disabled={!quickGeneration}>{active?`整本生成 · ${batch.targets.filter(t=>t.status==='completed').length}/${batch.targets.filter(t=>t.status!=='skipped').length}`:batch&&['paused','completed-with-errors'].includes(batch.phase)?'继续整本任务':'一键生成整本提示词'}</button>
  <Dialog open={opened} title="生成整本提示词" onClose={()=>setOpened(false)} className="director-batch-dialog"><section className="director-batch-panel" aria-label="整本剧本生成">
   <p>{segmentationMode==='manual'?'沿用人工划分的集、场景和（1）（2）分段；每场一次运行所选完整 Skill，不重新拆分。没有分段标记的场景生成一条。':'沿用已划分的集与场景，各场自动分析视频分段后生成提示词。'}生成结果先保存本地，实时协作连接后自动同步给项目成员。</p>
   <div className="director-batch-heading"><div className="director-batch-purpose"><strong>整本提示词</strong><small>按场景并发生成，进度自动保存，中断后可继续。</small></div>

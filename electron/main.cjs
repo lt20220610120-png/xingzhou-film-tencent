@@ -7,6 +7,7 @@ app.setAppUserModelId('com.xingzhou.film.tencent');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const isPackagedSmoke = require('./packaged-smoke.cjs')(app);
+if(!require('./runtime-health.cjs').installSingleInstance({app,getWindow:()=>mainWindow,skip:!app.isPackaged||isPackagedSmoke}))process.exit(0);
 const { pathToFileURL } = require('url');
 const {LOCAL_MEDIA_PRIVILEGES,createLocalMediaHandler,exportMediaFile}=require('./local-media.cjs');
 const mammoth = require('mammoth');
@@ -67,6 +68,7 @@ const getGeminiWeb = () => geminiWebService || (geminiWebService=createGeminiWeb
 const geminiRun = (config,options) => getGeminiWeb().request(config,options);
 for(const [channel,method] of Object.entries({'gemini-web-status':'status','gemini-web-login':'openLogin','gemini-web-models':'listModels'}))ipcMain.handle(channel,(event)=>{assertTrustedFrame(event,mainWindow);return getGeminiWeb()[method]();});
 let mainWindow, workBuddyService, workBuddyPanel, winAiPanel;
+if(!isPackagedSmoke)app.whenReady().then(()=>require('./runtime-health.cjs').installRuntimeHealth({app,getWindow:()=>mainWindow}));
 function setupWorkBuddy() {
   winAiPanel=createWinAIPanel({getWindow:()=>mainWindow,accessService,entry:challenge=>cloudGateway('win-ai-entry',{challenge},accessService.token()),WebContentsView,session,shell,onState:value=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('win-ai-state',value);}});
   workBuddyService = createWorkBuddyService({ userDataDir: app.getPath('userData') });
@@ -132,7 +134,7 @@ function loadPersistedState() {
  const file = dataFile();
  const pending = loadCreatorStateWithBackup(file);
  // Retain failures to block automatic writes until the renderer successfully reloads.
- stateBackupLoads.set(file, pending);
+ const barrier=pending.then(()=>true);barrier.catch(()=>{});stateBackupLoads.set(file, barrier);
  return pending;
 }
 ipcMain.handle('load-state',()=>loadPersistedState());
@@ -149,7 +151,7 @@ function assertDirectorQuickSender(event) {
  if(!readCloudSession()?.account?.id)throw new Error('请先登录行舟影视');
 }
 const directorQuickStore=()=>require('./director-quick-checkpoints.cjs').createDirectorQuickCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id);
-for(const [channel,method] of Object.entries({'director-quick-list-runs':'list','director-quick-load-run':'load','director-quick-save-run':'save','director-quick-remove-run':'remove'})){
+for(const [channel,method] of Object.entries({'director-quick-list-runs':'list','director-quick-load-run':'load','director-quick-save-run':'saveAsync','director-quick-remove-run':'remove'})){
  ipcMain.handle(channel,(event,payload)=>{assertDirectorQuickSender(event);return directorQuickStore()[method](payload);});
 }
 let selectedDataDirectory=null;

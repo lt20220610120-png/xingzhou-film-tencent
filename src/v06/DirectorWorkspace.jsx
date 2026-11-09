@@ -313,7 +313,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const [sourceView,setSourceView]=useState('source');
   const manualOutputRevision=(episode.manualSceneReplies||[]).length;
   const savedReplies=(episode.manualSceneReplies||[]).filter(reply=>reply.sceneLabel===currentScene);
-  const manualOutputs=[...savedReplies,...(quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
+  const manualOutputs=[...savedReplies,...(quickGeneration?.getSceneManualRuns?.(project.id,episode.id,currentScene)||quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
   const [autoError,setAutoError]=useState('');
   const localRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);

@@ -1,3 +1,4 @@
+import {directorRunEntries} from './directorRunView.js';
 import { parseScenePlanningJson, recoverScenePlan } from './directorPlanRecovery.js';
 import { buildSceneSourceTape, validateScenePlan } from './directorSegmentation.js';
 import { recalibrateScenePlanTimings, getDirectorSegmentTimingFacts } from './directorTiming.js';
@@ -436,7 +437,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
   return {
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     get:runId=>runs.has(runId)?clone(runs.get(runId)):null,
-    entries:()=>[...runs.values()].map(clone),
+    entries:options=>directorRunEntries(runs.values(),options),
     async start(sceneRequest,{runId,batchId}={}){
       const snapshot=await createSceneSnapshot(sceneRequest);
       if([...runs.values()].some(r=>isQuickRunActive(r)&&snapshotKey(r.snapshot)===snapshotKey(snapshot)))throw error('当前场景正在生成','BUSY');

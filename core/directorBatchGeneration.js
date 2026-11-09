@@ -1,3 +1,4 @@
+import {directorRunEntries} from './directorRunView.js';
 import {productionCoverage} from './productionFurnace.js';
 import {parseDirectorScenes} from './scriptImport.js';
 import {createSceneSnapshot,directorSceneInput} from './directorQuickStore.js';
@@ -150,7 +151,7 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
   const task=execute(batch).finally(()=>executions.delete(batch.id));executions.set(batch.id,task);return task;
  };
  return {
-  entries:()=>[...batches.values()].map(clone),get:id=>batches.has(id)?clone(batches.get(id)):null,
+  entries:options=>directorRunEntries(batches.values(),options),get:id=>batches.has(id)?clone(batches.get(id)):null,
   async start(plan){
    if(disposed)throw fault('任务已停止');
    if(plan?.kind!=='batch'||!plan.targets?.length)throw fault('整本任务清单无效');

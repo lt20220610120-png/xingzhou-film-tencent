@@ -1,3 +1,4 @@
+import {directorRunEntries} from './directorRunView.js';
 import {createSceneSnapshot,snapshotMatchesContext,directorSceneInput} from './directorQuickStore.js';
 import {buildNumberedSceneTasks,buildWholeSceneSubmission,splitNumberedPromptOutput} from './directorCreative.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
@@ -73,7 +74,7 @@ export function createDirectorManualController({getContext,executeSkill,checkpoi
  };
  const schedule=run=>{if(executions.has(run.id))return executions.get(run.id);const task=execute(run).finally(()=>executions.delete(run.id));executions.set(run.id,task);return task;};
  return{
-  get:id=>runs.has(id)?clone(runs.get(id)):null,entries:()=>[...runs.values()].map(clone),
+  get:id=>runs.has(id)?clone(runs.get(id)):null,entries:options=>directorRunEntries(runs.values(),options),
   async start(context,{runId=crypto.randomUUID(),batchId}={}){
    if(disposed)throw fault('任务已停止');
    const snapshot=await createSceneSnapshot(context),expectedLabels=manualSceneTasks(snapshot.sourceSnapshot,snapshot.sceneLabel).map(t=>t.label);
