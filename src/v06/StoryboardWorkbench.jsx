@@ -60,7 +60,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   if(!canEdit)return;setSaving(true);setError('');
   const savingDraft=current.current;
   try{const {content,generationConfig}=storyboardSaveUpdates(savingDraft.value);
-   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
+   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
    onProjectChange(saved);
    // Do not clear edits typed while the request was in flight.
    if(current.current===savingDraft){const next={...savingDraft,base:{content,generationConfig},dirty:false};current.current=next;setDraft(next);queueDraft(storageKey,null);}
@@ -107,9 +107,9 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   createLock.current=true;
   setCreating(true);setError('');
   try{
-   const key=episode.id+':'+currentScene;
+   const key=episode.id+':'+(episode.promptEditionId||'legacy')+':'+currentScene;
    if(createPending.current?.key!==key)createPending.current={key,shotId:crypto.randomUUID()};
-   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,operation:'create',shotId:createPending.current.shotId,scene:currentScene});
+   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',operation:'create',shotId:createPending.current.shotId,scene:currentScene});
    onProjectChange(saved);createPending.current=null;
   }catch(e){setError(e.message||'创建分镜失败，请重试');}finally{createLock.current=false;setCreating(false);}
  };
@@ -133,12 +133,12 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   <section className="collab-sb-mid collab-sb-prompt-stack">
    <div className="collab-panel-title">场景 {currentScene} · {prompts.length} 条分镜</div>
    {error&&<p role="alert" className="collab-error">{error}</p>}
-   {bindingLoading?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} promptBinding={promptBinding} accountId={accountId} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
+   {bindingLoading?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${episode.promptEditionId||'legacy'}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} promptBinding={promptBinding} accountId={accountId} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
    {<button className="collab-create-storyboard" onClick={create} disabled={!canEdit||creating}><Plus size={20}/>{creating?'创建中…':'创建分镜'}</button>}
   </section>
   <DeleteConfirm open={Boolean(deleteTarget)} title="删除分镜" name={deleteTarget?.label} detail={deleting?'正在删除…':'确认删除这条分镜？生成的视频与素材会保留，导演工作台原提示词不会删除。'} onCancel={()=>!deleting&&setDeleteTarget(null)} onConfirm={async()=>{
    if(deleting)return;setDeleting(true);setError('');
-   try{const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,operation:'delete',shotId:deleteTarget.id,base:{content:deleteTarget.content,generationConfig:deleteTarget.generationConfig}});onProjectChange(saved);localStorage.removeItem(`xz-shot-draft:${project.id}:${deleteTarget.id}`);setDeleteTarget(null);}catch(e){setError(e.message);setDeleteTarget(null);}finally{setDeleting(false);}
+   try{const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',operation:'delete',shotId:deleteTarget.id,base:{content:deleteTarget.content,generationConfig:deleteTarget.generationConfig}});onProjectChange(saved);localStorage.removeItem(`xz-shot-draft:${project.id}:${deleteTarget.id}`);setDeleteTarget(null);}catch(e){setError(e.message);setDeleteTarget(null);}finally{setDeleting(false);}
   }}/>
  </div>;
 }

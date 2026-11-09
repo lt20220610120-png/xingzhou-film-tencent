@@ -14,6 +14,9 @@ import {threeWayMerge} from '../../core/threeWayMerge.js';
 import React, { useState, useRef, useCallback, useEffect, useSyncExternalStore } from 'react';
 import { directorJobs } from '../../core/backgroundJobs.js';
 import { createPortal } from 'react-dom';
+import {flushSync} from 'react-dom';
+import {DirectorPromptEditionControl} from './DirectorPromptEditionControl.jsx';
+import {newDirectorPromptEdition,switchDirectorPromptEdition,renameDirectorPromptEdition,directorEditionHistory,directorEditionKey} from '../../core/directorPromptEditions.js';
 import { readRemembered, useRememberedState } from '../useRememberedState.js';
 import {
   ArrowLeft, Upload, FileText, BookOpen, Plus, Trash2, Sparkles,
@@ -263,6 +266,13 @@ function DirectorCloudNotice({ notice }) {
 }
 
 function EpisodeDirector({ project, episode, episodeNumber, state, setState, api, onAttach, onRefreshCloud, refreshingCloud, cloudRefreshNotice, accountId, quickGeneration,onJumpToScene,onUploadCloud,uploadingCloud,onVersions }) {
+  const changeEdition=async reduce=>{
+    flushEditing();
+    if(project.cloudLocked||quickGeneration?.isProjectBatchActive(project.id)||quickGeneration?.runs.some(r=>r.snapshot.projectId===project.id&&isQuickRunActive(r))||directorJobs.entries().some(([key,job])=>key.startsWith(JSON.stringify([accountId,project.id]).slice(0,-1)+',')&&job.status==='running'))throw Error('请先暂停生成，再切换或新建版本');
+    const next=reduce(project);
+    flushSync(()=>setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id===project.id?next:p)})));
+    await quickGeneration?.saveLocal?.();
+  };
   const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
   const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
   const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
@@ -355,6 +365,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
         label: `${episodeNumber}-${part.label}`,
         content: part.content,
+        promptEditionId:directorEditionKey(project),
         skill: currentSkill?.name || '',
         generationMode: 'quick',
         createdAt: new Date().toISOString(),
@@ -392,7 +403,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
         existing: episode.prompts || [],
         skill: currentSkill?.name || '',
         sourceText,
-      }).map(prompt=>({...prompt,profileId:directorProfile?.id,profileHash:sha256Text(JSON.stringify(publicModelConfiguration(directorProfile)))}));
+      }).map(prompt=>({...prompt,promptEditionId:directorEditionKey(project),profileId:directorProfile?.id,profileHash:sha256Text(JSON.stringify(publicModelConfiguration(directorProfile)))}));
       setState((s) => appendDirectorPromptHistory(appendDirectorEpisodePrompts(s, project.id, episode.id, newPrompts, {
         status: '已生成提示词',
         lastUsedSkill: currentSkill?.name || '',
@@ -495,6 +506,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
               历史提示词
             </button>
           </div>
+          <DirectorPromptEditionControl project={project} disabled={Boolean(project.cloudLocked||project.cloudConflict)||project.canWrite===false||quickGeneration?.isProjectBatchActive(project.id)||quickGeneration?.runs.some(r=>r.snapshot.projectId===project.id&&isQuickRunActive(r))||runningScenes.size>0} onCreate={name=>changeEdition(p=>newDirectorPromptEdition(p,name))} onSwitch={id=>changeEdition(p=>switchDirectorPromptEdition(p,id))} onRename={(id,name)=>changeEdition(p=>renameDirectorPromptEdition(p,id,name))}/>
           <div className="editor-head-actions">
             {project.cloudProjectId && <button className="secondary director-cloud-refresh" onClick={onRefreshCloud} disabled={refreshingCloud}><RefreshCw size={15} className={refreshingCloud ? 'spin' : ''}/> {refreshingCloud ? '刷新中…' : '刷新云端'}</button>}
             {project.cloudProjectId&&<><button className="primary" disabled={uploadingCloud||project.cloudLocked} onClick={onUploadCloud}><Upload size={15}/>{uploadingCloud?'上传中…':project.cloudLive?'保存协作版本':'上传云端'}</button><button className="secondary" onClick={onVersions}>协作版本</button></>}
@@ -720,7 +732,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onDeletePrompts, onE
   const [exportMode, setExportMode] = useState(false); // 选集导出模式
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const allPrompts = collectDirectorPromptHistory(project);
+  const allPrompts = directorEditionHistory(project,collectDirectorPromptHistory(project));
   const groups = groupDirectorPromptHistory(allPrompts);
   const activeGroup = groups.find((group) => group.key === openGroup);
 
@@ -786,7 +798,7 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onDeletePrompts, onE
   return (
     <div className="prompt-history-container">
       <div className="prompt-history-toolbar">
-        <div className="prompt-history-title"><Save size={16}/> 历史提示词 · 共 {allPrompts.length} 条（除手动删除外永久保留，修改总剧本或添加集数都不会丢失）</div>
+        <div className="prompt-history-title"><Save size={16}/> 历史提示词 · {allPrompts.length} 条</div>
         <div className="prompt-history-export-actions">
           <button className="prompt-history-clear" aria-label="删除全部历史提示词" title="删除全部历史提示词" disabled={!allPrompts.length} onClick={()=>requestDelete(null)}><Trash2 size={14}/> 删除全部</button>
           {exportMode ? (
@@ -1209,7 +1221,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         <SettingEditor project={selectedProject} episode={activeEpisode} setState={setState}/>
       ) : activeEpisode ? (
         <EpisodeDirector
-          key={`${selectedProject.id}:${activeEpisode.id}`}
+          key={`${selectedProject.id}:${activeEpisode.id}:${directorEditionKey(selectedProject)}`}
           accountId={accountId}
           quickGeneration={quickGeneration}
           onJumpToScene={(episodeId,sceneLabel)=>{rememberPreference(`xz-director-scene:${accountId}:${selectedProject.id}:${episodeId}`,sceneLabel);setActivePane(episodeId);}}

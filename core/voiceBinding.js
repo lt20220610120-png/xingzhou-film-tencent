@@ -13,6 +13,21 @@ export function declaredPromptSpeakers(snapshot,entry){
  }
  return [...selected.values()];
 }
+// Validate each model suggestion independently. Multiple Dxx lines may refer to
+// one identity; an unrelated/stale uid must never discard valid image bindings.
+export function reconcilePromptSpeakers(snapshot,entry,speakers){
+ const selected=new Map(),issues=[];
+ for(const row of Array.isArray(speakers)?speakers:[]){
+  try{
+   const checked=applyVoiceBinding(snapshot,entry,{},[row]).speakers[0],cards=entryVoiceCards(snapshot,entry);
+   if(!explicitDialogueLines(row.evidence).some(line=>uniqueDialogueIdentity(cards,line.name)?.uid===checked.voiceUid))throw Error('音色原文与说话人身份不一致');
+   selected.set(checked.voiceUid,checked);
+  }
+  catch(error){issues.push(error.message);}
+ }
+ for(const row of declaredPromptSpeakers(snapshot,entry))selected.set(row.voiceUid,row);
+ return {speakers:[...selected.values()],voiceWarnings:[...new Set(issues)]};
+}
 export function applyVoiceBinding(snapshot,entry,decision,speakers,evidenceSource=entry.prompt){
  const cards=entryVoiceCards(snapshot,entry);
  if(!cards.length&&!speakers?.length)return {...decision,speakers:[]};

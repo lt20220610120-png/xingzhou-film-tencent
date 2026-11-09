@@ -18,6 +18,14 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
   }
   if(old?.collabOnly){usedEpisodes.add(old);return old;}
   old=old||{};usedEpisodes.add(old);
+  const editions=[...(old.collaborationEditions||[])],legacy=(ep.promptEditions||[]).find(row=>String(row.id).startsWith('original:'))?.id||'legacy';
+  const oldEdition=old.promptEditionId||legacy,nextEdition=ep.promptEditionId||legacy;
+  if(oldEdition!==nextEdition){
+   const saved=editions.find(row=>row.id===nextEdition)?.work;
+   const archived={id:oldEdition,work:{prompts:old.prompts||[],deletedPromptIds:old.deletedPromptIds||[],shotCounters:old.shotCounters||{}}};
+   const index=editions.findIndex(row=>row.id===oldEdition);if(index>=0)editions[index]=archived;else editions.push(archived);
+   old={...old,prompts:saved?.prompts||[],deletedPromptIds:saved?.deletedPromptIds||[],shotCounters:saved?.shotCounters||{}};
+  }
   const deleted=new Set([...(old.deletedPromptIds||[]),...(ep.deletedPromptIds||[])]);
   const prompts=(ep.prompts||[]).filter(source=>!deleted.has(source.id)&&!deleted.has('source-label:'+source.label)).map(source=>{
    let previous=(old.prompts||[]).find(p=>p.id===source.id);
@@ -39,7 +47,7 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
     }
     prompts.push(kept);
   }
-  return {...old,...ep,...(old.collabOnly?{title:old.title,content:old.content,episodeNumber:old.episodeNumber,number:old.number,collabOnly:true,origin:old.origin}:{}),id:old.id||ep.id,prompts,deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
+  return {...old,...ep,...(editions.length?{collaborationEditions:editions.filter(row=>row.id!==nextEdition)}:{}),...(old.collabOnly?{title:old.title,content:old.content,episodeNumber:old.episodeNumber,number:old.number,collabOnly:true,origin:old.origin}:{}),id:old.id||ep.id,prompts,deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
  });
  for(const ep of current)if(!usedEpisodes.has(ep)){
   const before=ep.collabOnly?merged.findIndex(item=>episodeNumber(item)>episodeNumber(ep)):-1;
@@ -50,6 +58,7 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
 function patchShot(episodes,payload) {
  const next=normalizeStoryboardEpisodes(structuredClone(episodes||[])),ep=next.find(e=>e.id===String(payload.episodeId));
  if(!ep)throw Object.assign(new Error('分集已变更，请刷新后重试'),{status:409});
+ if(payload.promptEditionId!==undefined&&payload.promptEditionId!==(ep.promptEditionId||'legacy'))throw Object.assign(new Error('提示词版本已切换，草稿已保留；请刷新后核对版本'),{status:409});
  ep.prompts=ep.prompts||[];
  if(payload.operation==='create'){
   if(!String(payload.shotId||'').trim())throw Object.assign(new Error('分镜编号缺失，请重新创建'),{status:400});

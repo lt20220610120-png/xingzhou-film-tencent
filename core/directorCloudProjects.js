@@ -65,6 +65,7 @@ export const mergeCloudEpisodes = (localEpisodes = [], cloudEpisodes = []) => {
   const merged = (cloudEpisodes || []).map((cloudEp) => {
     const localEp = localById.get(cloudEp.id);
     if (!localEp) return cloudEp;
+    if((localEp.promptEditionId||cloudEp.promptEditionId)&&localEp.promptEditionId!==cloudEp.promptEditionId)return cloudEp;
     const tombstones = unionTombstones(localEp.deletedPromptIds, cloudEp.deletedPromptIds);
     const byId = new Map();
     for (const prompt of [...(cloudEp.prompts || []), ...(localEp.prompts || [])]) {

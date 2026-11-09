@@ -7,6 +7,45 @@ export const documentProtocol=doc=>doc.getMap('fields').get(key(['@protocol']))|
 const editableText=path=>path.length===1&&path[0]==='script'||path[0]==='episodes'&&(path.includes('quickSceneEdits')||path.includes('sceneVisions')||['content','text','directorVision'].includes(path.at(-1))&&!path.includes('quickScenePlans'));
 // ID arrays are sets of independently editable records, ordered by their rank.
 // Adding a prompt in one episode never replaces another member's prompt list.
+const editionWorkFields={prompts:[],quickScenePlans:[],activeQuickScenePlanIds:{},quickSceneEdits:{},sceneVisions:{},manualSceneReplies:[],quickScenePlanConflicts:[],status:'待导演处理'};
+// Concurrent collaborators may still be writing edition A after B is opened.
+// All paid work and editable drafts therefore live under their edition ID.
+function scopeEditionWork(document){
+ if(!document?.episodes)return document;
+ return {...document,episodes:document.episodes.map(ep=>{
+  if(!ep.promptEditionId)return ep;
+  const fields=Object.keys(editionWorkFields),work={style:document.style||'',aspectRatio:document.aspectRatio||'',...Object.fromEntries(fields.map(k=>[k,ep[k]??structuredClone(editionWorkFields[k])]))},result={...ep};
+  result.promptEditions=(ep.promptEditions||[]).map(row=>row.id===ep.promptEditionId?{...row,work:{...row.work,...work}}:row);
+  for(const k of fields)delete result[k];return result;
+ })};
+}
+function restoreEditionWork(document){
+ if(!document?.episodes)return document;
+ let settings;
+ const episodes=document.episodes.map(ep=>{
+  if(!ep.promptEditionId)return ep;
+  const original=(ep.promptEditions||[]).find(row=>row.id.startsWith('original:'));
+  // On the first upgrade an older collaborator may still append to the legacy
+  // paths. Preserve those replies/drafts in the original edition only.
+  if(original){
+   const legacy=Object.fromEntries(Object.keys(editionWorkFields).filter(k=>ep[k]!==undefined).map(k=>[k,ep[k]]));
+   if(Object.keys(legacy).length){
+    const work={...original.work};for(const [k,value] of Object.entries(legacy)){
+     const prior=work[k];
+     if(Array.isArray(value)&&Array.isArray(prior)){const rows=new Map(prior.map(row=>[row.id,row]));for(const row of value)rows.set(row.id,row);work[k]=[...rows.values()];}
+     else if(value&&prior&&typeof value==='object'&&!Array.isArray(value))work[k]={...prior,...value};
+     else work[k]=value;
+    }
+    ep={...ep,promptEditions:ep.promptEditions.map(row=>row.id===original.id?{...row,work}:row)};
+   }
+  }
+  const active=(ep.promptEditions||[]).find(row=>row.id===ep.promptEditionId);
+  if(!active?.work)return ep;
+  settings||={style:active.work.style??document.style,aspectRatio:active.work.aspectRatio??document.aspectRatio};
+  const work=Object.fromEntries(Object.keys(editionWorkFields).map(k=>[k,active.work[k]??structuredClone(editionWorkFields[k])]));
+  return {...ep,...work,promptEditions:ep.promptEditions.map(row=>row.id===ep.promptEditionId?{...row,work:undefined}:row)};
+ });return {...document,episodes,...settings};
+}
 export function flattenDocument(document) {
  const out=new Map();
  function walk(value,path){
@@ -18,7 +57,7 @@ export function flattenDocument(document) {
    for(const [name,v] of Object.entries(value)){if(['__proto__','constructor','prototype'].includes(name)||name.startsWith('@'))continue;if(v!==undefined)walk(v,[...path,name]);}
   }else out.set(key(path),{type:typeof value==='string'&&editableText(path)?'text':'value',value});
  }
- walk(document,[]);return out;
+ walk(scopeEditionWork(document),[]);return out;
 }
 export function replaceText(text,next){
  const before=text.toString();if(before===next)return;
@@ -32,12 +71,17 @@ export function replaceText(text,next){
 }
 export function editDocument(doc,base,next,origin='local'){
  const previous=flattenDocument(base),desired=flattenDocument(next),fields=doc.getMap('fields');
+ const versioned=new Set((next?.episodes||[]).filter(ep=>ep.promptEditionId).map(ep=>ep.id));
+ const migrating=new Set((base?.episodes||[]).filter(ep=>!ep.promptEditionId&&versioned.has(ep.id)).map(ep=>ep.id));
+ const legacyWork=p=>p[0]==='episodes'&&p[1]==='@item'&&versioned.has(p[2])&&Object.hasOwn(editionWorkFields,p[3]);
+ const keepLegacy=(p,k)=>p.at(-1)==='@kind'||migrating.has(p[2])&&fields.get(k)?.text===true;
  doc.transact(()=>{
-  for(const [k,v] of desired){const old=previous.get(k);if(fields.has(k)&&old?.type===v.type&&JSON.stringify(old.value)===JSON.stringify(v.value))continue;
+  for(const [k,v] of desired){const old=previous.get(k),p=JSON.parse(k),projectedLegacy=p[0]==='episodes'&&p[3]==='promptEditions'&&p[5]?.startsWith('original:')&&p[6]==='work'&&fields.has(key([...p.slice(0,3),...p.slice(7)]));if(!projectedLegacy&&fields.has(k)&&old?.type===v.type&&JSON.stringify(old.value)===JSON.stringify(v.value))continue;
    if(v.type==='text'){if(!fields.get(k)?.text)fields.set(k,{text:true});replaceText(doc.getText('text:'+k),String(v.value));}
    else fields.set(k,v.value);
   }
-  for(const k of previous.keys())if(!desired.has(k))fields.delete(k);
+  for(const k of previous.keys())if(!desired.has(k)){const p=JSON.parse(k);if(!legacyWork(p)||!keepLegacy(p,k))fields.delete(k);}
+  for(const k of fields.keys()){const p=JSON.parse(k);if(legacyWork(p)&&!keepLegacy(p,k))fields.delete(k);}
  },origin);
 }
 export function seedDocument(value){const doc=new Y.Doc();editDocument(doc,undefined,value,'seed');doc.transact(()=>{const fields=doc.getMap('fields');fields.set(key(['@protocol']),LIVE_PROTOCOL);fields.set(key(['@epoch']),globalThis.crypto?.randomUUID?.()||`${doc.clientID}-${Date.now()}-${Math.random()}`);},'seed');return doc;}
@@ -58,7 +102,7 @@ export function readDocument(doc){
   if(kind==='object'){const result={};for(const [k,v] of n.children)if(!k.startsWith('@'))result[k]=materialize(v);return result;}
   return n.value;
  }
- return materialize(node([]));
+ return restoreEditionWork(materialize(node([])));
 }
 export const encode64=bytes=>typeof Buffer!=='undefined'?Buffer.from(bytes).toString('base64'):btoa(Array.from(bytes,c=>String.fromCharCode(c)).join(''));
 export const decode64=value=>typeof Buffer!=='undefined'?new Uint8Array(Buffer.from(value,'base64')):Uint8Array.from(atob(value),c=>c.charCodeAt(0));

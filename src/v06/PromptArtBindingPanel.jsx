@@ -50,7 +50,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const liveTask=entry&&distribution.entryTasks?.[entry.id],taskCurrent=liveTask&&(!liveTask.versionId||liveTask.versionId===snapshot.versionId);
  const [now,setNow]=useState(Date.now());
  useEffect(()=>{if(!taskCurrent)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[entry?.id,taskCurrent,liveTask?.phase]);
- const phaseText=taskCurrent?({queued:'等待前序任务',preparing:'正在准备清单',waiting:'等待模型请求',retrying:`正在重试（第 ${liveTask.attempt} 次）`,requesting:liveTask.attempt>1?`正在重新关联（第 ${liveTask.attempt} 次）`:'正在关联',saving:'正在保存关联'})[liveTask.phase]:attempt?.status==='failed'?'关联失败':stale?'关联需重新核对':decisions[entry?.id]?.confirmed?'已关联':attempt?.status==='done'?'已读取，需核对关联':attempt?.status==='running'?'上次关联尚未完成':'尚未开始';
+ const phaseText=taskCurrent?({queued:'等待前序任务',preparing:'正在准备清单',waiting:'等待模型请求',retrying:`正在重试（第 ${liveTask.attempt} 次）`,requesting:liveTask.attempt>1?`正在重新关联（第 ${liveTask.attempt} 次）`:'正在关联',saving:'正在保存关联'})[liveTask.phase]:stale?'关联需重新核对':decisions[entry?.id]?.confirmed?(attempt?.status==='calibration-failed'?'已关联 · 模型校准未完成':'已关联'):attempt?.status==='failed'?'关联待核对':attempt?.status==='done'?'已读取，需核对关联':attempt?.status==='running'?'上次关联尚未完成':'尚未开始';
  const toggleCard=(card,checked)=>card.category==='voice'?Promise.resolve():saveDecision(assignSceneCard(snapshot,entry,{...decision,needs:[...auditNeeds,...decision.needs.filter(n=>!n.cardUid)]},card.uid,checked));
  if(!available)return null;
  const disabled=busy||distribution.isBusy(entry?.id)||!loaded||!canEdit;

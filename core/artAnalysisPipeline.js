@@ -12,6 +12,7 @@ import {artWorkflowState} from './artWorkflow.js';
 import {requestArtModel,getArtModelQueue} from './artModelQueue.js';
 import {bindingProblems} from './promptArtBinding.js';
 import {hasProductionAssociation} from './productionBindingState.js';
+import {automaticSceneAssociation} from './automaticArtAssociation.js';
 
 
 const registries=new WeakMap();
@@ -96,6 +97,18 @@ export function getArtDistributionController(options){
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)},
   status:()=>({paused,working:jobs.size>0,activeEpisodes:[...jobs.keys()].filter(Number.isInteger),notice,...getArtModelQueue(api).status()}),
   async activate(next={}){control.configure(next);if(!config.profile)throw Error('请选择分发模型');await prepare();paused=false;service?.resume();emit();},
+  async autoAssociate({versionId,isStopped=()=>false}={}){
+   const errors=[];await prepare();
+   for(const episode of listCollabEpisodes(config.project.episodes)){
+    if(isStopped())break;
+    const record=config.store.snapshot().episodes[episode.episodeNumber];
+    if(!record)continue;
+    const next=automaticSceneAssociation(record,episode);
+    if(next!==record)try{await config.store.update(episode.episodeNumber,current=>isStopped()?current:automaticSceneAssociation(current,episode));}catch(error){errors.push(`${episode.episodeNumber}：${error.message}`);}
+   }
+   if(!isStopped()&&service)await service.autoAssociate({versionId,isStopped});
+   return errors;
+  },
   enqueueEpisode(episode,settings={}){
    if(paused)return Promise.resolve([]);const number=episode.episodeNumber;
    if(jobs.has(number)){
@@ -114,6 +127,8 @@ export function getArtDistributionController(options){
   async refresh(next={}){
    control.configure(next);if(paused||!config.profile)return [];
    const token=generation;await prepare();if(paused||token!==generation)return [];service?.resume();
+   await control.autoAssociate({versionId:next.versionId,isStopped:()=>paused||token!==generation});
+   if(paused||token!==generation)return [];
    return (await Promise.all(listCollabEpisodes(config.project.episodes).map(episode=>control.enqueueEpisode(episode,{promptOnly:true,preserveExisting:true})))).flat();
   },
   async finish(){
@@ -163,6 +178,7 @@ export async function runArtAnalysisPipeline(args){
  }
  const results=await Promise.all(pending);for(const result of results)errors.push(...result);
  if(!job.cancelled)errors.push(...await control.finish());
+ if(!job.cancelled)errors.push(...await control.autoAssociate());
  await store.setAnalysisRun({status:job.cancelled?'stopped':errors.length?'paused':'complete',updatedAt:Date.now(),modelDriven:true});
  return {...summarizeArtReview(store.snapshot(),project),errors:[...new Set(errors)]};
 }

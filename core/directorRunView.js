@@ -3,7 +3,7 @@
 export function directorRunEntries(records,{summary=false,projectId,episodeId,sceneLabel,accountId}={}){
  return [...records].filter(run=>(!projectId||run.snapshot.projectId===projectId)&&(!episodeId||run.snapshot.episodeId===episodeId)&&(!sceneLabel||run.snapshot.sceneLabel===sceneLabel)&&(!accountId||run.snapshot.accountId===accountId)).map(run=>structuredClone(summary?{
   id:run.id,kind:run.kind,phase:run.phase,createdAt:run.createdAt,updatedAt:run.updatedAt,revision:run.revision,
-  snapshot:{accountId:run.snapshot.accountId,projectId:run.snapshot.projectId,episodeId:run.snapshot.episodeId,sceneLabel:run.snapshot.sceneLabel},
+  snapshot:{accountId:run.snapshot.accountId,projectId:run.snapshot.projectId,episodeId:run.snapshot.episodeId,sceneLabel:run.snapshot.sceneLabel,promptEditionId:run.snapshot.promptEditionId},
  }:run));
 }
 // Share one paged read across auto/manual/batch restore, but never cache an old

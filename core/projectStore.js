@@ -618,9 +618,14 @@ export const appendDirectorEpisodePrompts = (state, projectId, episodeId, newPro
     const episodes = (project.episodes || []).map((episode) => {
       if (episode.id !== episodeId) return episode;
       const tombstones = [...(project.deletedPromptIds || []), ...(episode.deletedPromptIds || [])];
-      const seen = new Set((episode.prompts || []).map((item) => item.id));
-      const added = (newPrompts || []).filter((item) => item && item.id && !seen.has(item.id) && !tombstones.includes(item.id));
-      return { ...episode, ...extraUpdates, prompts: [...(episode.prompts || []), ...added] };
+      const active=episode.promptEditionId||'original:'+(project.cloudProjectId||project.id),groups=new Map();
+      for(const item of newPrompts||[])if(item?.id&&!tombstones.includes(item.id)){
+        const source=item.promptEditionId||active,edition=active==='original:'+project.cloudProjectId&&source==='original:'+project.id?active:source,rows=groups.get(edition)||[];rows.push(item);groups.set(edition,rows);
+      }
+      const append=(prior,added)=>{const seen=new Set(prior.map(p=>p.id));return [...prior,...added.filter(p=>{if(seen.has(p.id))return false;seen.add(p.id);return true;})];};
+      const activeAdded=groups.get(active)||[];
+      return {...episode,...(activeAdded.length?extraUpdates:{}),prompts:append(episode.prompts||[],activeAdded),
+        ...(episode.promptEditions?{promptEditions:episode.promptEditions.map(row=>row.id!==active&&groups.has(row.id)?{...row,work:{...row.work,...extraUpdates,prompts:append(row.work?.prompts||[],groups.get(row.id))}}:row)}:{})};
     });
     return { ...project, episodes, updatedAt: now() };
   }),

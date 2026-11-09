@@ -1,5 +1,5 @@
 import {voiceAssociationIdentity} from './explicitDialogue.js';
-import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
+import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,reconcilePromptSpeakers} from './voiceBinding.js';
 import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation,readPromptFoundationBlock} from './promptFoundation.js';
 import {bindingHash,cardInEntry,entryBindingSignature,isCharacterAttributeFragment,sceneInventoryCards} from './promptArtBinding.js';
 import {sceneIdentities,reconcileSceneIdentities,isNoReferenceText} from './sceneIdentityContext.js';
@@ -68,8 +68,7 @@ export function applySceneDistribution(snapshot,entry,decision,raw,sceneSource='
  // reference. Keep that explicit choice even when it no longer echoes missing.
  needs.push(...decision.needs.filter(n=>n.locked&&!n.cardUid&&!needs.some(row=>row.id===n.id)));
  const result=reconcileSceneIdentities(snapshot,entry,{...decision,signature:entryBindingSignature(snapshot,entry),needs,confirmed:false,origin:'scene-inventory-ai',issue:''});
- const declared=declaredPromptSpeakers(snapshot,entry),speakers=Array.isArray(data.speakers)?[...data.speakers,...declared.filter(s=>!data.speakers.some(row=>row.voiceUid===s.voiceUid))]:declared.length?declared:data.speakers;
- return voiceEnabled&&entryVoiceCards(snapshot,entry).length?applyVoiceBinding(snapshot,entry,result,speakers,entry.prompt):{...result,speakers:[]};
+ return voiceEnabled&&entryVoiceCards(snapshot,entry).length?{...result,...reconcilePromptSpeakers(snapshot,entry,data.speakers)}:{...result,speakers:[]};
 }
 export function assignSceneCard(snapshot,entry,decision,cardUid,selected){
  const card=sceneCards(snapshot,entry).find(c=>c.uid===cardUid);

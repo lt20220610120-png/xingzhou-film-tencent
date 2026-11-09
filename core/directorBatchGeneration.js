@@ -1,3 +1,4 @@
+import {directorEditionKey,sameDirectorEdition} from './directorPromptEditions.js';
 import {directorRunEntries} from './directorRunView.js';
 import {productionCoverage} from './productionFurnace.js';
 import {parseDirectorScenes} from './scriptImport.js';
@@ -38,7 +39,7 @@ export async function createDirectorBatchPlan({accountId,project,skill,profile,m
  }
  if(!targets.length)throw fault('项目没有可生成的场景');
  return {id:crypto.randomUUID(),kind:'batch',schemaVersion:2,phase:'preview',createdAt:new Date().toISOString(),revision:0,concurrency,
-  snapshot:{accountId,projectId:project.id,skillId:skill.id,profileId:profile.id,maxDurationSeconds,segmentationMode},manualPromptCount:targets.reduce((n,t)=>n+t.manualCount,0),
+  snapshot:{accountId,projectId:project.id,promptEditionId:directorEditionKey(project),skillId:skill.id,profileId:profile.id,maxDurationSeconds,segmentationMode},manualPromptCount:targets.reduce((n,t)=>n+t.manualCount,0),
   projectName:project.name,skillName:skill.name,modelName:profile.name||profile.model,existingPolicy,episodeCount:episodes.length,targets,errors:[]};
 }
 
@@ -88,7 +89,7 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
     if(!context.project||!context.episode||!context.skill||!context.profile||context.permissions?.canGenerate===false)throw fault('项目、Skill、模型或生成权限已变化，请核对后继续','STALE_CONFIGURATION');
     const request=contextFor(context,requestTarget),latest=await createSceneSnapshot(request);
     if(disposed||batch.phase!=='running')return;
-    if(fingerprintFields.some(key=>latest[key]!==target.fingerprint[key])){
+    if(!sameDirectorEdition(context.project,batch.snapshot)||fingerprintFields.some(key=>latest[key]!==target.fingerprint[key])){
      target.status='stale';target.reason='原文、项目设定、Skill 或模型已变化，本场未继续';await persist(batch);return;
     }
     // Persist the child ID before starting it. A crash between the child commit

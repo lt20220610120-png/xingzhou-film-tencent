@@ -1,4 +1,5 @@
 import {parseDirectorScenes} from './scriptImport.js';
+import {inheritDirectorEdition} from './directorPromptEditions.js';
 
 const normalize = value => String(value ?? '').replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').trim();
 const kind = episode => episode?.kind === 'setting' || episode?.title === '设定和小传' ? 'setting' : 'episode';
@@ -29,7 +30,7 @@ export function reconcileDirectorEpisodes(previousEpisodes=[],parsedEpisodes=[])
     if(match<0 || used.has(match)){
       const candidates=previous.filter(ep=>identity(ep)===identity(item) || titleIdentity(ep)===titleIdentity(item));
       if(candidates.length)conflicts.push({type:'episode-identity',title:item.title || '',previousEpisodeIds:candidates.map(ep=>ep.id),message:'分集身份有歧义，旧历史已保留，未按位置继承计划'});
-      return {...item,id:item.id && !previous.some(ep=>ep.id===item.id) ? item.id : crypto.randomUUID(),prompts:item.prompts || []};
+      return inheritDirectorEdition({episodes:previous},{...item,id:item.id && !previous.some(ep=>ep.id===item.id) ? item.id : crypto.randomUUID(),prompts:item.prompts || []});
     }
     used.add(match);const old=previous[match];
     const oldScenes=parseDirectorScenes(old.content,previousNumbers[match] || 1),newScenes=parseDirectorScenes(item.content,nextNumbers[index] || 1);

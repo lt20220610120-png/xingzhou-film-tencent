@@ -27,6 +27,11 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
  service.configure(()=>({project,ledger:store.snapshot(),assets}));
  const distributionController=useMemo(()=>getArtDistributionController({api,projectId:project.id,accountId}),[api,project.id,accountId]);
  distributionController.configure({project,store,existingAssets:assets,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data)});
+ useEffect(()=>{
+  if(!loaded||!enabled||!canEdit)return;let cancelled=false;
+  void distributionController.autoAssociate({versionId:snapshot.versionId,isStopped:()=>cancelled}).catch(e=>{if(!cancelled)setError(e.message);});
+  return()=>{cancelled=true;};
+ },[loaded,enabled,canEdit,current.signature,snapshot.versionId,distributionController]);
  const [,render]=useState(0);useEffect(()=>{const update=()=>render(n=>n+1),a=service.subscribe(update),b=distributionController.subscribe(update);return()=>{a();b();};},[service,distributionController]);
  const links=(sceneId,item)=>{
   const card=snapshot.cards.find(card=>card.sceneIds.includes(sceneId)&&card.category===item.category&&card.name===item.name);

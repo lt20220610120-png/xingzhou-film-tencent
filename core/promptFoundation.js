@@ -8,6 +8,7 @@ export const PROMPT_DISTRIBUTION_SKILL=`【内置分发 Skill】
 const empty=()=>({character:[],scene:[],prop:[]});
 const name=text=>text.replace(/[（(][^）)]*[）)]/g,'').replace(/[【】\[\]]/g,'').replace(/[。\s]+$/g,'').trim();
 const attribute=/^(?:肤色|发色|发型|短黑发|长黑发|短发|身材|年龄|穿|牛仔裤|旧胶鞋|驾驶台|副驾驶|车座|脚垫|前挡风|本段|同一时段|无其他|没有其他)/;
+const sceneAttribute=/^(?:墙面|墙壁|地面|天花板|顶部|走廊顶部|走廊尽头|两人所在|灯光|光线|环境|背景|室内陈设|门窗|房门|窗外|摆放|悬挂|整体色调)/;
 export function readPromptFoundation(prompt=''){
  const source=readPromptFoundationBlock(prompt),out=empty();if(!source)return out;
  const block=source.text;
@@ -16,6 +17,7 @@ export function readPromptFoundation(prompt=''){
   const field=fields[i],category=types[field[1]];if(!category)continue;
   const value=block.slice(field.index+field[0].length,fields[i+1]?.index??block.length).trim();
   for(const text of value.split(/[；;]/).map(s=>s.trim()).filter(Boolean)){
+   if(/^(?:无|没有|暂无)(?:关键|其他|任何|手持|道具|人物|角色|场景|参考)|^(?:不需要|无需)(?:参考|道具|人物|场景)/.test(text)||category==='scene'&&sceneAttribute.test(text))continue;
    let names=[];
    if(category==='scene'){
     names=[...text.matchAll(/(?:内景|外景)为([^，,；;\n]+)/g)].map(m=>name(m[1]));

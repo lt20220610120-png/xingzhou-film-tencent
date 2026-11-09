@@ -1,3 +1,4 @@
+import {directorEditionKey,sameDirectorEdition} from './directorPromptEditions.js';
 import {buildSkillContext} from './skillContext.js';
 import {parseDirectorScenes,parseMasterScript} from './scriptImport.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
@@ -68,7 +69,7 @@ function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationS
   if(inputText == null)throw new Error('场景原文已不存在');
   const sourceSnapshot=String(inputText),style=project.style || '',aspectRatio=project.aspectRatio || '',settingText=directorSettingText(project),rulesVersion=1;
   return {
-    accountId,projectId:project.id,episodeId:episode.id,sceneLabel,sourceSnapshot,
+    accountId,projectId:project.id,episodeId:episode.id,sceneLabel,sourceSnapshot,promptEditionId:directorEditionKey(project),
     sourceHash:sha256Text(sourceSnapshot),
     episodeSourceHash:sha256Text(String(episode.content ?? '')),
     settingsHash:directorSettingsHash({project,episode,maxDurationSeconds}),
@@ -83,7 +84,7 @@ export async function createSceneSnapshot(context) { return snapshotOf(context);
 const snapshotFields=['accountId','projectId','episodeId','sceneLabel','sourceHash','episodeSourceHash','settingsHash','skillId','skillHash','profileId','profileHash','rulesVersion'];
 export function snapshotMatchesContext(snapshot,context) {
   try { const current=snapshotOf({...context,maxDurationSeconds:context.maxDurationSeconds ?? snapshot.maxDurationSeconds});
-    return snapshotFields.every(key=>current[key]===snapshot[key]);
+    return sameDirectorEdition(context.project,snapshot)&&snapshotFields.every(key=>current[key]===snapshot[key]);
   } catch { return false; }
 }
 
@@ -97,6 +98,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(state.accountId!==snapshot.accountId)return fail(state,'当前账号已变化，不能提交其他账号的任务');
   const project=state.directorProjects?.find(p=>p.id===snapshot.projectId),episode=project?.episodes?.find(ep=>ep.id===snapshot.episodeId);
   if(!project || !episode)return fail(state,'目标项目或分集已删除，草稿已保留');
+  if(!sameDirectorEdition(project,snapshot))return fail(state,'提示词版本已切换，付费回包保留在原版本任务中');
   if(project.cloudLocked || project.canWrite===false || project.permissions?.canWrite===false || project.permissions?.canGenerate===false || project.cloudConflict || episode.canWrite===false)return fail(state,'当前项目不可写入，请先核对权限或云端冲突');
   const tombstones=new Set([...(project.deletedPromptIds || []),...(project.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])]);
   if(ids.some(id=>tombstones.has(id)))return fail(state,'本次结果已被删除，不能通过恢复重新添加');
@@ -144,7 +146,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     id:ids[i],label:run.segmentDrafts[segment.id].prompt.label,content:run.segmentDrafts[segment.id].prompt.content,
     sourceText:[preamble,plan.sceneHeader,plan.sourceText.slice(segment.sourceStart,segment.sourceEnd)].filter(Boolean).join('\n\n'),
     skillId:snapshot.skillId,skillName:state.skills.find(s=>s.id===snapshot.skillId)?.name || '',profileId:snapshot.profileId,profileHash:snapshot.profileHash,
-    generationComplete:run.segmentDrafts[segment.id].generationComplete!==false,generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
+    promptEditionId:snapshot.promptEditionId,generationComplete:run.segmentDrafts[segment.id].generationComplete!==false,generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
     ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),

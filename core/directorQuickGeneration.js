@@ -1,3 +1,4 @@
+import {sameDirectorEdition} from './directorPromptEditions.js';
 import {directorRunEntries} from './directorRunView.js';
 import { parseScenePlanningJson, recoverScenePlan } from './directorPlanRecovery.js';
 import { buildSceneSourceTape, validateScenePlan } from './directorSegmentation.js';
@@ -55,6 +56,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
     if(disposed || versions.get(run.id)!==version)throw error('任务已停止','STOPPED');
     const context=await getContext(run.snapshot);
     if(!context || context.accountId!==run.snapshot.accountId)throw error('账号已切换，任务已暂停','ACCOUNT_CHANGED');
+    if(context.project&&!sameDirectorEdition(context.project,run.snapshot))throw error('提示词版本已切换，原版本草稿已保留','STALE');
     if(!context.project || !context.episode || !context.skill || !context.profile)throw error('项目、场景、Skill 或模型已不存在','STALE');
     if(context.permissions?.canGenerate===false || context.project.cloudLocked)throw error('项目已锁定或无权生成','STALE');
     const latest=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds});

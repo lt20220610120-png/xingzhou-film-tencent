@@ -1,10 +1,12 @@
 import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {bindingHash,bindingProblems,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
 
-export const promptSetId=snapshot=>'v-'+bindingHash((snapshot.entries||[]).map(({id,label,prompt,sceneId,profileId,profileHash})=>[id,label,prompt,sceneId,...(profileId?[profileId]:[]),...(profileHash?[profileHash]:[])]));
+const legacySetId=snapshot=>'v-'+bindingHash((snapshot.entries||[]).map(({id,label,prompt,sceneId,profileId,profileHash})=>[id,label,prompt,sceneId,...(profileId?[profileId]:[]),...(profileHash?[profileHash]:[])]));
+export const promptSetId=snapshot=>snapshot.editionId?'edition:'+snapshot.editionId:legacySetId(snapshot);
 // Adding missing entries is an extension of an existing edition. Replacing an
 // entry, deleting one, or introducing a different known model is a new edition.
 const extendsEdition=(base,current)=>{
+ if(base?.editionId||current?.editionId)return Boolean(base?.editionId&&base.editionId===current.editionId&&base.projectId===current.projectId&&base.directorProjectId===current.directorProjectId);
  if(!base?.entries?.length||base.projectId!==current.projectId||base.directorProjectId!==current.directorProjectId)return false;
  const entries=new Map(current.entries.map(e=>[e.id,e])),oldIds=new Set(base.entries.map(e=>e.id));
  if(!base.entries.every(old=>{const next=entries.get(old.id);return next&&old.label===next.label&&old.prompt===next.prompt&&old.sceneId===next.sceneId&&(!old.profileId||!next.profileId||old.profileId===next.profileId)&&(!old.profileHash||!next.profileHash||old.profileHash===next.profileHash);} ))return false;
@@ -25,9 +27,14 @@ const withEvidence=(snapshot,entry,decision)=>{
  if(!decision||decision.signature!==entryBindingSignature(snapshot,entry)||!decision.confirmed||bindingProblems(snapshot,entry,decision,{voiceEnabled:false}).length)return decision;
  return {...decision,reuseEvidence:{source:associationSource(snapshot,entry,decision),decision:decisionIdentity(decision)}};
 };
-function archive(saved){
+function archive(saved,current){
  const versions={...saved?.versions};
  if(saved?.snapshot?.entries?.length){const id=saved.snapshot.versionId||promptSetId(saved.snapshot);versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot:saved.snapshot,decisions:saved.decisions||{},createdAt:versions[id]?.createdAt||saved.updatedAt||new Date().toISOString()};}
+ for(const source of current?.promptEditions||[]){
+  const match=Object.values(versions).find(row=>row.snapshot.editionId===source.editionId)||Object.values(versions).find(row=>!row.snapshot.editionId&&legacySetId(row.snapshot)===legacySetId(source))||(source.legacyOriginal&&saved?.snapshot&&!saved.snapshot.editionId?versions[saved.snapshot.versionId||promptSetId(saved.snapshot)]:null);
+  const id=match?.id||promptSetId(source),{promptEditions,...base}=current;
+  versions[id]={...match,id,label:source.editionName,snapshot:{...base,...source,versionId:id},decisionSnapshot:match?.decisionSnapshot||match?.snapshot,decisions:match?.decisions||{},createdAt:match?.createdAt||new Date().toISOString()};
+ }
  return versions;
 }
 function versionGroups(versions,saved){
@@ -42,24 +49,24 @@ function versionGroups(versions,saved){
  for(const group of groups){
   if(group.members.some(row=>row.id===topId)&&extendsEdition(group.snapshot,versions[topId].snapshot))group.snapshot=versions[topId].snapshot;
   const rows=[...group.members,...(group.members.some(r=>r.id===topId)?[versions[topId]]:[])];
-  for(const row of rows){Object.assign(group.reviews,row.reviews);for(const [id,value] of Object.entries(row.decisions||{})){group.decisions[id]=value;group.decisionSources[id]=row.snapshot;}}
+  for(const row of rows){Object.assign(group.reviews,row.reviews);for(const [id,value] of Object.entries(row.decisions||{})){group.decisions[id]=value;group.decisionSources[id]=row.decisionSnapshot||row.snapshot;}}
  }
  return groups;
 }
 const editionRows=(current,versions,saved)=>versionGroups(versions,saved).filter(row=>extendsEdition(row.snapshot,current));
-export function currentPromptVersionId(current,saved){return editionRows(current,archive(saved),saved)[0]?.id||promptSetId(current);}
+export function currentPromptVersionId(current,saved){return editionRows(current,archive(saved,current),saved)[0]?.id||promptSetId(current);}
 export function bindingVersionOptions(snapshot,saved){
- const versions=archive(saved),groups=versionGroups(versions,saved),extensions=groups.filter(row=>extendsEdition(row.snapshot,snapshot)),id=extensions[0]?.id||promptSetId(snapshot);
+ const versions=archive(saved,snapshot),groups=versionGroups(versions,saved),extensions=groups.filter(row=>extendsEdition(row.snapshot,snapshot)),id=extensions[0]?.id||promptSetId(snapshot);
  return [{id,label:versions[id]?.label||`版本 ${groups.length+1}`,count:snapshot.entries.length,current:true},...groups.filter(row=>row.id!==id).reverse().map(({id,label,snapshot})=>({id,label,count:snapshot.entries.length,current:false}))];
 }
 export function selectBindingVersion(current,saved,id){
- const versions=archive(saved),groups=versionGroups(versions,saved),extensions=groups.filter(row=>extendsEdition(row.snapshot,current)),currentId=extensions[0]?.id||promptSetId(current);
+ const versions=archive(saved,current),groups=versionGroups(versions,saved),extensions=groups.filter(row=>extendsEdition(row.snapshot,current)),currentId=extensions[0]?.id||promptSetId(current);
  const group=groups.find(row=>row.members.some(member=>member.id===id));
  id=id===undefined||id===promptSetId(current)||extensions.some(row=>row.id===group?.id)?currentId:group?.id||id;
  const stored=groups.find(row=>row.id===id);
  if(id!==currentId&&!stored)throw Error('提示词版本不存在，请刷新项目');
  const source=id===currentId?current:stored.snapshot;
- const snapshot={...current,entries:source.entries.map(entry=>({...entry,sceneReady:current.entries.find(row=>row.sceneId===entry.sceneId)?.sceneReady??current.cards.some(card=>card.sceneIds.includes(entry.sceneId))})),issues:source.issues||[],invalidEntries:source.invalidEntries,versionId:id};
+ const snapshot={...current,editionId:source.editionId,editionName:source.editionName,entries:source.entries.map(entry=>({...entry,sceneReady:current.entries.find(row=>row.sceneId===entry.sceneId)?.sceneReady??current.cards.some(card=>card.sceneIds.includes(entry.sceneId))})),issues:source.issues||[],invalidEntries:source.invalidEntries,versionId:id};
  snapshot.signature=bindingHash([current.signature,id,snapshot.entries]);
  const decisions={},baselines=new Map();
  // Migrate previously forked supplement versions too. The newest explicit
@@ -85,11 +92,11 @@ export function selectBindingVersion(current,saved,id){
  return {snapshot,decisions,versionId:id};
 }
 export function saveBindingVersion(saved,snapshot,decisions){
- const versions=archive(saved),id=snapshot.versionId||currentPromptVersionId(snapshot,saved);
+ const versions=archive(saved,snapshot),id=snapshot.versionId||currentPromptVersionId(snapshot,saved);
  snapshot={...snapshot,versionId:id};
  decisions=Object.fromEntries(Object.entries(decisions).map(([key,value])=>{const entry=snapshot.entries.find(e=>e.id===key);return [key,entry?withEvidence(snapshot,entry,value):value];}));
  const reviews=Object.assign({},...editionRows(snapshot,versions,saved).map(row=>row.reviews||{}),versions[id]?.reviews||{});
- versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${versionGroups(versions,saved).length+1}`,snapshot,decisions,reviews,createdAt:versions[id]?.createdAt||new Date().toISOString()};
+ versions[id]={...versions[id],id,label:snapshot.editionName||versions[id]?.label||`版本 ${versionGroups(versions,saved).length+1}`,snapshot,decisionSnapshot:undefined,decisions,reviews,createdAt:versions[id]?.createdAt||new Date().toISOString()};
  return {...saved,enabled:true,snapshot,decisions,versions,selectedVersionId:id};
 }
 export function promptExportImages(snapshot,decisions,{includeAudio=false}={}){

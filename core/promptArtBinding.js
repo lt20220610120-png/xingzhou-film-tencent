@@ -7,6 +7,7 @@ import {inspectCollabEpisodes} from './collabEpisodes.js';
 import {isReviewCurrent,isSceneVerified,reviewSceneSignature} from './artReview.js';
 import {numberedReferences} from './generationReferences.js';
 import {selectBindingVersion} from './promptBindingVersions.js';
+import {activeDirectorEditionId,directorPromptEditions,directorEditionEpisodes} from './directorPromptEditions.js';
 
 const categories={人物:'character',场景:'scene',道具:'prop'};
 const clean=text=>String(text||'').normalize('NFKC').replace(/[【】\[\]\s]/g,'');
@@ -19,7 +20,7 @@ export const bindingImages=asset=>asset?.images?.length?asset.images.filter(imag
 const imageIdentity=image=>image?.objectKey||String(image?.url||'').split('?')[0];
 const CHARACTER_ATTRIBUTE_FRAGMENT=/^(?:人物)?(?:肤色|发色|发型|短发|长发|胡须|妆容|穿着|衣着|服装|上衣|裤子|裙子|鞋子|鞋|牛仔裤|旧胶鞋|皮肤|身材|年龄|气质|外貌|外观|体型|发型略显|短黑发|长黑发|黑发|白发|偏深|略显凌乱).*$/u;
 export const isCharacterAttributeFragment=text=>CHARACTER_ATTRIBUTE_FRAGMENT.test(String(text||'').trim());
-export function bindingSnapshot(project,ledger,assets,previous={}){
+export function bindingSnapshot(project,ledger,assets,previous={},includeEditions=true){
  const inspection=inspectCollabEpisodes(project.episodes),cards=[],entries=[],issues=[],invalidEntries=[],promptIds=new Set(),latestRuns=new Map();
  if(inspection.error)issues.push(inspection.error);
  for(const episode of inspection.episodes){
@@ -57,7 +58,13 @@ export function bindingSnapshot(project,ledger,assets,previous={}){
  const labels=new Map();for(const entry of entries){const group=labels.get(entry.label)||[];group.push(entry.id);labels.set(entry.label,group);}
  for(const entry of entries)entry.duplicateLabel=labels.get(entry.label).length>1;
  const snapshot={voiceCards:projectVoiceCards(project,ledger,{includePending:true}),projectId:project.id,directorProjectId:project.director_project_id||'',name:project.name,cards,entries,issues,invalidEntries};
- snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries]);
+ const explicitEdition=activeDirectorEditionId(project),editionId=explicitEdition||(project.director_project_id?'original:'+project.director_project_id:null);
+ if(editionId){snapshot.editionId=editionId;snapshot.editionName=directorPromptEditions(project).find(row=>row.id===editionId)?.name||'原始版本';}
+ if(includeEditions&&editionId)snapshot.promptEditions=(explicitEdition?directorPromptEditions(project):[{id:editionId,name:'原始版本',legacyOriginal:true}]).map(row=>{
+  const source=row.id===editionId?snapshot:bindingSnapshot({...project,episodes:directorEditionEpisodes(project,row.id)},ledger,assets,{cards},false);
+  return {editionId:row.id,editionName:row.name,...(row.legacyOriginal?{legacyOriginal:true}:{}),entries:source.entries,issues:source.issues,invalidEntries:source.invalidEntries};
+ });
+ snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
  return snapshot;
 }
 export const cardInEntry=(card,entry)=>card.sceneIds.includes(entry.sceneId)&&(!card.entryIds||card.entryIds.includes(entry.id));

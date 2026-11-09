@@ -1,3 +1,4 @@
+import {sameDirectorEdition} from '../../core/directorPromptEditions.js';
 import {createDirectorCheckpointReader} from '../../core/directorRunView.js';
 import {storageWorkBusy} from '../../core/storageWork.js';
 import { useEffect, useRef, useState } from 'react';
@@ -117,12 +118,12 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     runs,restoreError,
     saveLocal:async()=>{persistence.enqueue(stateRef.current);await persistence.flush();},
     getManualSceneRun:id=>manualController.get(id),
-    getSceneManualRuns:(projectId,episodeId,sceneLabel)=>manualController.entries({projectId,episodeId,sceneLabel,accountId}),
+    getSceneManualRuns:(projectId,episodeId,sceneLabel)=>manualController.entries({projectId,episodeId,sceneLabel,accountId}).filter(run=>sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),run.snapshot)),
     previewBatch:request=>createDirectorBatchPlan({...request,accountId}),
     startBatch:async plan=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');assertNoSingleWork(plan.snapshot.projectId);return batchController.start(plan);},
     resumeBatch:async id=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');const batch=batchController.get(id);if(!batch)throw new Error('找不到整本任务');if(!isDirectorBatchActive(batch))assertNoSingleWork(batch.snapshot.projectId);return batchController.resume(id);},
     pauseBatch:id=>batchController.pause(id),cancelBatch:id=>batchController.cancel(id),
-    getProjectBatch:projectId=>{const row=batches.filter(b=>b.snapshot.projectId===projectId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?batchController.get(row.id):null;},
+    getProjectBatch:projectId=>{const row=batches.filter(b=>b.snapshot.projectId===projectId&&sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),b.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?batchController.get(row.id):null;},
     isProjectBatchActive:projectId=>batches.some(b=>b.snapshot.projectId===projectId&&isDirectorBatchActive(b)),
     isCloudSaving:cloudSync.isSaving,getCloudProject:id=>stateRef.current.directorProjects?.find(p=>p.id===id),
     uploadCloudProject:async id=>{
@@ -141,7 +142,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       const result=await cloudSync.flush(id,submission);
       if(!result?.acknowledged)throw new Error('上传未确认，本地版本已保留，请刷新后核对');
     },
-    getSceneRun:(projectId,episodeId,sceneLabel)=>{const row=runs.filter(run=>run.kind!=='manual-scene'&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?controller.get(row.id):null;},
+    getSceneRun:(projectId,episodeId,sceneLabel)=>{const row=runs.filter(run=>run.kind!=='manual-scene'&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel&&sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),run.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?controller.get(row.id):null;},
     pauseAndFlush:async()=>{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
     prepareDirectorySwitch:async()=>{if(storageWorkBusy()||directorJobs.entries().some(([,j])=>j.status==='running')||[...(stateRef.current.fruitProjects||[]),...(stateRef.current.scriptProjects||[])].some(p=>(p.creator?.records||[]).some(r=>r.status==='running')))throw new Error('仍有创作任务正在运行，请任务完成后再切换资料目录');directorySwitchRef.current=true;directoryEpochRef.current++;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
     finishDirectorySwitch:()=>{directoryEpochRef.current++;try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();window.dispatchEvent(new Event('xz-storage-changed'));}finally{directorySwitchRef.current=false;}},
