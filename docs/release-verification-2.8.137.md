@@ -27,6 +27,15 @@ audio-generation-context捕获原账号/目录指纹；队列执行前和原生�
 - 定向覆盖FIFO/并发/去重/隔离/恢复ack并发/默认作用域与手工草稿/单项全恢复/采用图跟随/云路由SQL权限。
 - 1280/1700/2232宽真实CollabWorkspace：生成中刷新与切页后2声音归原卡、0重生成找回旧样音；手工正文和删素材时仍可应用全部默认，逐条覆盖切页保留；恢复单个/全部、上传同行、保存删除相邻；美术与资产采用旧图一致、新图重新默认采用，无横向溢出。
 - 既有命名版/补漏/核实发布/3图→3图2声/LibTV项目复用三宽回归通过。所有生成与云写接口模拟。
-- 全量2854/2854通过，独立48项定向及边界复核通过。最终构建通过（既有bundle体积提示保留）；NSIS与公开清单核验在完成后补录。
+- 全量2854/2854通过，独立48项定向及边界复核通过。最终构建通过（既有bundle体积提示保留）；NSIS实际安装包运行验证通过，公开发布核验通过。
 - 本机HTTP批处理模拟验证3并发汇为1批，1项通过；未加载真实模型或打断正在使用的本地服务。
 - 云端阶段及部署时7项测试通过，更新collab.cjs/repository-extras.cjs两文件；原服务器与基线代码仅CRLF差异已核验。备份 /opt/xingzhou-backups/asset-adoption-2.8.137-20261109T171118Z，自动回滚脚本就绪，healthz和systemd active通过，无schema变更。
+
+## 公开发布
+
+- 官网：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.137.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.137/Xingzhou-Film-Tencent-Setup-2.8.137.exe
+- 本机：D:\AI\Qwen3-TTS\xingzhou-release\release\2.8.137\Xingzhou-Film-Tencent-Setup-2.8.137.exe
+- 104034023字节，SHA256 b81f3a1f69aa10b68d64f78be246373bdf0db587a3cbb4309c37e3bf8fd38990。官网完整哈希、公开Range206前65536字节、三份签名清单、GitHub资产digest/大小一致。
+- 生产更新检测实际命中官网IP源2.8.137，对2.8.136可升级。Release439419694，实现b678c36已推送。
+- 发布使用临时DIRECT绑定WLAN，用毕关闭；未改原全局代理/TUN，不强制替换运行客户端。
