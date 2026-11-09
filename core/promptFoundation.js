@@ -9,6 +9,7 @@ const empty=()=>({character:[],scene:[],prop:[]});
 const name=text=>text.replace(/[（(][^）)]*[）)]/g,'').replace(/[【】\[\]]/g,'').replace(/[。\s]+$/g,'').trim();
 const attribute=/^(?:肤色|发色|发型|短黑发|长黑发|短发|身材|年龄|穿|牛仔裤|旧胶鞋|驾驶台|副驾驶|车座|脚垫|前挡风|本段|同一时段|无其他|没有其他)/;
 const sceneAttribute=/^(?:墙面|墙壁|地面|天花板|顶部|走廊顶部|走廊尽头|两人所在|灯光|光线|环境|背景|室内陈设|门窗|房门|窗外|摆放|悬挂|整体色调)/;
+const sceneContinuation=text=>sceneAttribute.test(text)||/(?:门框|墙面|墙壁|地板|沙发|茶几|书架|窗帘|地毯|防盗门|向.*延伸|通向|通往|摆放|悬挂|斑驳|铺着|亮着|可开合)/.test(text);
 export function readPromptFoundation(prompt=''){
  const source=readPromptFoundationBlock(prompt),out=empty();if(!source)return out;
  const block=source.text;
@@ -16,15 +17,26 @@ export function readPromptFoundation(prompt=''){
  for(let i=0;i<fields.length;i++){
   const field=fields[i],category=types[field[1]];if(!category)continue;
   const value=block.slice(field.index+field[0].length,fields[i+1]?.index??block.length).trim();
+  let sceneFound=false;
   for(const text of value.split(/[；;]/).map(s=>s.trim()).filter(Boolean)){
    if(/^(?:无|没有|暂无)(?:关键|其他|任何|手持|道具|人物|角色|场景|参考)|^(?:不需要|无需)(?:参考|道具|人物|场景)/.test(text)||category==='scene'&&sceneAttribute.test(text))continue;
+   // After a location declaration, unmarked clauses describe that location.
+   // Another reference placeholder or explicit time/interior heading declares
+   // a second location. Doors, furniture and wall detail are never new rooms.
+   if(category==='scene'&&sceneFound&&sceneContinuation(text)&&!/(?:参考|内景为|外景为)|^(?:日|夜|白天|夜晚|日间|夜间|内|外)[，,]/.test(text))continue;
    let names=[];
    if(category==='scene'){
     names=[...text.matchAll(/(?:内景|外景)为([^，,；;\n]+)/g)].map(m=>name(m[1]));
-    if(!names.length){const chunks=text.split(/[，,]/).map(name);names=chunks.filter(s=>! /^(?:日|夜|日间|夜间|白天|晚上|内|外|内景|外景)$/.test(s)).slice(0,1);}
-   }else names=text.split(/[，,]/)[0].split('、').map(name);
+    if(!names.length){const chunks=text.replace(/[（(][^）)]*[）)]/g,'').split(/[，,]/).map(name);names=chunks.filter(s=>! /^(?:日|夜|日间|夜间|白天|晚上|内|外|内景|外景)$/.test(s)).slice(0,1);}
+   }else {
+    // Parentheses can contain commas (e.g. 手机（林秋雨持有，屏幕亮）).
+    // Remove complete parenthetical notes before splitting entity names.
+    const head=text.replace(/[（(][^）)]*[）)]/g,'').split(/[，,]/)[0];
+    names=head.split(category==='prop'?/[、与及]/:'、').map(name);
+    if(category==='prop')names=names.map(s=>s.replace(/^.{1,12}的(?=.{1,12}$)/,'').replace(/^(?:[一二三四五六七八九十两\d]+[只个把件台瓶杯本])/,'').replace(/(?:各[一二三四五六七八九十两\d]+|[一二三四五六七八九十两\d]+[只个把件台瓶杯本具])$/,''));
+   }
    names=names.filter(s=>s&&!attribute.test(s)&&! /^(?:无|没有|暂无|不需要)$/.test(s));
-   if(names.length)out[category].push({text,names});
+   if(names.length){out[category].push({text,names});if(category==='scene')sceneFound=true;}
   }
  }
  return out;

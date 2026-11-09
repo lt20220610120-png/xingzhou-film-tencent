@@ -5,7 +5,7 @@ const out='output/playwright/supplement-129';fs.mkdirSync(out,{recursive:true});
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true}),report=[];let page;
 try{for(const width of [1280,1700,2232]){
  page=await browser.newPage({viewport:{width,height:1100}});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://127.0.0.1:5837/qa/supplement-workflow.html');
+ await page.goto('http://127.0.0.1:5837/qa/supplement-workflow.html',{waitUntil:'domcontentloaded'});
  await page.getByRole('img',{name:'第一集：提示词未齐全',exact:true}).waitFor();assert(await page.getByRole('img',{name:'第二集：提示词已齐全',exact:true}).isVisible());
  await page.screenshot({path:`${out}/director-missing-${width}.png`});
  const toolbar=page.locator('.qa-toolbar');await toolbar.getByRole('button',{name:'信息读取',exact:true}).click();await page.getByRole('button',{name:'读取信息并自动关联',exact:true}).click();await page.getByText('信息读取与自动关联完成',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>qaSupplement.requests.length),3);

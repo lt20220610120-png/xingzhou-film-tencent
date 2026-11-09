@@ -17,8 +17,10 @@ export function assetPromptUsage(binding,asset){
 export function storyboardPromptValue(binding,shot,value,accountId){
  const pending=issue=>({...value,references:[],referenceBindingMode:'pending',bindingIssue:issue});
  if(binding?.error)return pending('提示词素材关联读取失败，请刷新重试：'+binding.error);
- if(binding?.snapshot&&!binding.snapshot.entries?.length){
-  const sceneId=String(shot.label||'').split('-').slice(0,2).join('-'),voices=(binding.snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(sceneId));
+ const sceneId=String(shot.label||'').split('-').slice(0,2).join('-');
+ const manualScene=shot.manual&&!binding?.snapshot?.entries?.some(e=>e.id===(shot.sourcePromptId||shot.id));
+ if(binding?.snapshot&&(manualScene||!binding.snapshot.entries?.some(e=>e.sceneId===sceneId))){
+  const voices=(binding.snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(sceneId)&&!c.pendingAudio);
   if(!voices.length&&!value.sceneVoiceAssociation)return null;
   const references=[...(value.references||[]).filter(r=>!String(r.id).startsWith('voice:')),...voices.map(c=>c.reference)],aliases=new Map(numberedReferences(references).map(r=>[r.id,r.alias]));
   const prompt=String(value.prompt||'').split('\n【场景人物音色参考】')[0]+(voices.length?'\n【场景人物音色参考】\n':'')+voices.map(c=>`${c.name}：使用 ${aliases.get(c.reference.id)} 的音色；对白仍按本条剧本。`).join('\n');
@@ -31,10 +33,10 @@ export function storyboardPromptValue(binding,shot,value,accountId){
  const entry=rows[0];
  if(entry.label!==shot.label||entry.prompt!==shot.content)return pending('提示词正文已变化，请返回清单核实重新分发');
  try{
-  const compiled=compileEntryBinding(snapshot,entry,decisions?.[entry.id]);
+  const compiled=compileEntryBinding(snapshot,entry,decisions?.[entry.id],{preview:true});
   const generated=value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===entry.prompt;
   if(value.prompt!==entry.prompt&&value.prompt!==compiled.prompt&&!generated)return {...pending('本地提示词已修改，草稿已保留，请核对提示词关联'),prompt:value.prompt};
-  return {...value,...compiled,referenceBindingMode:'confirmed',bindingIssue:'',bindingSourcePrompt:entry.prompt,bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:compiled.references.map(ref=>ref.id),bindingEntrySignature:entryBindingSignature(snapshot,entry),bindingProjectId:snapshot.projectId,bindingAccountId:accountId,bindingSourcePromptId:entry.id,bindingVersionId:snapshot.versionId||'',autoReferenceExclusions:[],autoReferenceSignature:null};
+  return {...value,...compiled,referenceBindingMode:compiled.pendingMedia.length?'pending':'confirmed',bindingIssue:compiled.pendingMedia.join('；'),bindingSourcePrompt:entry.prompt,bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:compiled.references.map(ref=>ref.id),bindingEntrySignature:entryBindingSignature(snapshot,entry),bindingProjectId:snapshot.projectId,bindingAccountId:accountId,bindingSourcePromptId:entry.id,bindingVersionId:snapshot.versionId||'',autoReferenceExclusions:[],autoReferenceSignature:null};
  }catch(error){return pending(error.message);}
 }
 export function canRefreshStoryboardBinding(draft,shot){
@@ -44,12 +46,13 @@ export function canRefreshStoryboardBinding(draft,shot){
  if(value.bindingSourcePromptId!==(shot.sourcePromptId||shot.id)||value.autoReferenceExclusions?.length)return false;
  if(value.prompt!==shot.content&&!(value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===shot.content))return false;
  // A failed automatic load clears references; hand removal records exclusions.
- if(value.referenceBindingMode==='pending'&&!(value.references||[]).length)return true;
+ if(value.referenceBindingMode==='pending'&&(!(value.references||[]).length||value.prompt===value.bindingCompiledPrompt&&JSON.stringify((value.references||[]).map(r=>r.id))===JSON.stringify(value.bindingExpectedReferences)))return true;
  return value.referenceBindingMode==='confirmed'&&JSON.stringify((value.references||[]).map(r=>r.id))===JSON.stringify(value.bindingExpectedReferences);
 }
 export function storyboardSaveUpdates(value){
  const {prompt,...generationConfig}=value;
  if(value.referenceBindingMode==='confirmed'&&typeof value.bindingSourcePrompt!=='string')throw Error('缺少关联来源提示词，请重新载入本条素材');
  if(value.referenceBindingMode==='confirmed'&&prompt!==value.bindingCompiledPrompt)return {content:prompt,generationConfig:{...generationConfig,referenceBindingMode:'pending',bindingIssue:'分镜提示词已修改，请返回清单核实重新分发'}};
- return {content:value.referenceBindingMode==='confirmed'?value.bindingSourcePrompt:prompt,generationConfig};
+ const linkedPreview=value.referenceBindingMode==='pending'&&typeof value.bindingSourcePrompt==='string'&&prompt===value.bindingCompiledPrompt;
+ return {content:value.referenceBindingMode==='confirmed'||linkedPreview?value.bindingSourcePrompt:prompt,generationConfig};
 }

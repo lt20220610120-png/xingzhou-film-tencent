@@ -59,6 +59,7 @@ export function applySceneDistribution(snapshot,entry,decision,raw,sceneSource='
   const text=row.text.trim(),block=readPromptFoundationBlock(entry.prompt),start=block?entry.prompt.indexOf(text,block.start):-1;
   if(!block||start<block.start||start>=block.end)throw Error('AI 缺项没有基础设定范围内的原文依据');
   if(isNoReferenceText(text))continue;
+  if(!readPromptFoundation(entry.prompt)[row.category]?.some(r=>r.names.some(token=>text.includes(token))&&r.text.includes(text)))throw Error('AI 把属性或补充描述当成新素材缺项');
   if((row.category==='character'&&isCharacterAttributeFragment(text))||/^(日|夜|日间|夜间|内|外|白天|晚上)$/.test(text)||/^(本段|同一时段|无其他|没有其他)/.test(text))throw Error('AI 把属性或描述当成缺项');
   if(needs.some(n=>n.category===row.category&&n.text===text&&n.visibility!=='excluded'))continue;
   const locked=decision.needs.find(n=>n.locked&&!n.cardUid&&n.category===row.category&&n.text===text);

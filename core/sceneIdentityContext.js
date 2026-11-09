@@ -12,9 +12,15 @@ export function sceneIdentities(snapshot,entry){
  const cards=snapshot.cards.filter(c=>c.sceneIds.includes(entry.sceneId)),block=readPromptFoundationBlock(entry.prompt);
  return Object.entries(readPromptFoundation(entry.prompt)).flatMap(([category,rows])=>rows.flatMap(row=>row.names.flatMap(token=>{
   if(isNonvisualFoundationText(row.text))return [];
-  const key=identity(token),same=cards.filter(c=>c.category===category&&c.detailStatus!=='nonvisual');
+  const direction=category==='scene'?row.text.match(/(?:^|[，,])\s*(内|外)(?:景)?\s*(?:[，,]|$)/)?.[1]:null;
+  const key=identity(token),same=cards.filter(c=>c.category===category&&c.detailStatus!=='nonvisual'&&(!direction||! /^(内|外)$/.test(parseAssetName(c.name).variant)||parseAssetName(c.name).variant===direction));
   const exact=same.filter(c=>identity(parseAssetName(c.name).base)===key||identity(c.name)===key);
-  const matches=exact.length?exact:category==='character'&&/^(?:助理|秘书|护士|医生|司机|保镖|管家|老师|警察)$/u.test(key)?same.filter(c=>identity(parseAssetName(c.name).base).endsWith(key)):[];
+  let matches=exact.length?exact:category==='character'&&/^(?:助理|秘书|护士|医生|司机|保镖|管家|老师|警察)$/u.test(key)?same.filter(c=>identity(parseAssetName(c.name).base).endsWith(key)):[];
+  if(category==='scene'&&!matches.length){
+   const candidates=same.filter(c=>{const base=identity(parseAssetName(c.name).base);return base.length>=4&&key.includes(base);});
+   const longest=Math.max(0,...candidates.map(c=>identity(parseAssetName(c.name).base).length));matches=candidates.filter(c=>identity(parseAssetName(c.name).base).length===longest);
+  }
+  if(category==='prop'&&matches.length>1){const owned=matches.filter(c=>{const owner=parseAssetName(c.name).variant;return owner&&row.text.includes(owner);});if(owned.length===1)matches=owned;}
   const rowStart=block?entry.prompt.indexOf(row.text,block.start):-1,start=rowStart+row.text.indexOf(token);
   if(!block||rowStart<block.start||start<rowStart||start>=block.end)return [];
   return [{token,category,start,end:start+token.length,cardUid:matches.length===1?matches[0].uid:null,candidateUids:matches.map(c=>c.uid)}];

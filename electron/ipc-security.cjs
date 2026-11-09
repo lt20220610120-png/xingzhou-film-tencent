@@ -7,7 +7,7 @@ for(const c of ['like-status','like-pairing','like-bind','like-open-project'])on
 for(const channel of ['project-video-export','production-connect','production-chat','production-audit','production-work','production-archive','production-post'])onlineChannels.add(channel);
 const stringChannels = new Set(['app-access-stage','open-external', 'check-update', 'media-import-file', 'media-import-files']);
 for(const channel of ['generation-reference-list','generation-reference-cleanup'])onlineChannels.add(channel);
-for(const channel of ['libtv-status','libtv-login','libtv-logout','libtv-models','libtv-model-schema','libtv-accounts','libtv-use-account','libtv-cancel-login'])onlineChannels.add(channel);
+for(const channel of ['libtv-projects','libtv-create-project','libtv-use-project','libtv-status','libtv-login','libtv-logout','libtv-models','libtv-model-schema','libtv-accounts','libtv-use-account','libtv-cancel-login'])onlineChannels.add(channel);
 function trustedPage(url, { entryFile, isDev }) {
   try {
     const actual = new URL(url);actual.hash='';actual.search='';

@@ -33,18 +33,21 @@ export function promptReviewState(state,scope={}){
   const localProblems=[];
   const decision=decisions[entry.id],cards=sceneInventoryCards(snapshot,entry);
   if(!cards.length||ctx&&!sceneReadyForPromptDistribution(ctx.project,ctx.ledger,entry.sceneId))localProblems.push('场景清单尚未完成');
-  if(!decision||decision.origin==='rules'||!cards.every(c=>decision.needs.some(n=>n.cardUid===c.uid)) )localProblems.push('模型分发尚未完成');
+  if(!decision||decision.origin==='rules')localProblems.push('素材关联尚未完成');
   else {
    const unresolved=decision.signature===entryBindingSignature(snapshot,entry)?(decision.needs||[]).filter(need=>need.visibility==='visible'&&!need.cardUid):[];
    unresolved.forEach(need=>pendingMissing.push({entry,need}));
    localProblems.push(...bindingProblems(snapshot,entry,decision));
   }
-  if(saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id]?.status==='running')localProblems.push('模型正在分发');
+  const attempt=saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id];
+  if(attempt?.status==='running'&&(state.service?.isBusy?.(entry.id)||attempt.startedAt>Date.now()-10*60*1000))localProblems.push('模型正在分发');
   const unique=[...new Set(localProblems)];if(unique.length)problems.push(...unique.map(p=>`${entry.label}：${p}`));entryProblems.set(entry.id,unique);
   if(reviews[entry.id]?.signature===promptHumanReviewSignature(snapshot,entry,decision)){approved++;if(reviews[entry.id].published)published++;}
  }
  const reviewableEntries=entries.filter(entry=>(entryProblems.get(entry.id)||[]).length===0);
- return {entries,reviewableEntries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,approved,published};
+ const readyScenes=new Set([...new Set(reviewableEntries.map(e=>e.sceneId))].filter(id=>entries.filter(e=>e.sceneId===id).every(e=>reviewableEntries.includes(e))&&!(snapshot.invalidEntries||[]).some(e=>e.sceneId===id||!e.sceneId&&e.episode===Number(id.split('-')[0]))));
+ const publishableEntries=reviewableEntries.filter(e=>readyScenes.has(e.sceneId)&&entries.filter(row=>row.sceneId===e.sceneId).every(row=>reviews[row.id]?.signature===promptHumanReviewSignature(snapshot,row,decisions[row.id])));
+ return {entries,reviewableEntries,publishableEntries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,approved,published};
 }
 
 // Resolve only the exact needs the person saw. One CAS write retains unrelated
