@@ -36,3 +36,14 @@
 - npm run dist：2803/2803、生产构建及NSIS实际运行通过，success=true、errors=[]。证据output/133-dist.log及qa/packaged-smoke-2.8.133-1794192794900/report.json。
 - 原补漏→刷新接续→关联→分镜引用、同模型沿版/换模型新版本/全剧切版三宽回归通过，output/133-chain-ui.log。没有跳过或放松原断言。
 - 安装包由既有43.2.0运行库构建，无依赖升级。公开镜像、签名和安装包全哈希检查发布后追加。
+
+## 公开发布完成
+
+- 实现759220f已推送。GitHub Release438695331，资产uploaded、大小104034296字节和digest均与本机一致，SHA256 906b2434ba82e87af45b77193fcbc32db0dfe4b3b79e238c1b83c141149d9722。
+- 原发布流程完成官网静态镜像和两份GitHub更新清单同步；镜像网络通道使用上次已验证的临时DIRECT绑定WLAN，固定主机密钥、原SSH凭据、原CA/证书指纹和签名验证保留。没有改用户的全局代理/TUN/系统路由或服务器业务代码。
+- 官网正式文件完整SHA256、公开Range206首65536字节和总长度与本机相同；三份签名清单完全一致并逐份Ed25519验签通过。生产客户端同一更新读取逻辑，经临时直连保留TLS/指纹验证，官网优先IP源返回2.8.133，版本比较高于2.8.132。证据output/review-133/public-verification.json、in-app-update-official.json及133-publish.log。
+- 官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.133.exe
+- GitHub备用：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.133/Xingzhou-Film-Tencent-Setup-2.8.133.exe
+- 本机安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.133/Xingzhou-Film-Tencent-Setup-2.8.133.exe。
+- 没有强制关闭或替换正在运行的旧客户端。升级前暂停旧任务，关闭旧客户端，安装后在原项目点继续整本任务。已保存的回包继续复用；尚未取得的服务端结果不能保证从本地恢复。源项目、历史正文与进度文件没有为排障而清理。
+- 临时发布代理和本次Vite验收服务完成后关闭。
