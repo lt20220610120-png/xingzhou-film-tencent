@@ -27,4 +27,12 @@
 
 ## 发布
 
-安装包与公开签名清单验证结果完成后补录。
+npm run dist再次2819全量通过，Electron43.2.0、NSIS、安装包实际运行smoke通过（qa/packaged-smoke-2.8.134-1794210530563）。未安装替换用户运行中的客户端。
+
+安装包104038586字节，SHA256 e692997e56cf2588db5e08bb225d4d4c67e268f3b14dd4fa7fe1b3e97d028a9e；实现982d521已推送。官网及GitHub公开发布完成，Release438856948。官网完整文件SHA256、公开Range206首65536字节、三份公开清单签名及GitHub资产digest/大小全部一致；生产更新逻辑保留CA/固定证书指纹/签名验证，实际命中官网IP源并返回2.8.134，较2.8.133为新版本。证据output/review-134/public-verification.json、in-app-update-official.json。
+
+官方下载：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.134.exe
+
+本机安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.134/Xingzhou-Film-Tencent-Setup-2.8.134.exe
+
+发布临时DIRECT实例绑定WLAN，仅用于本次网络传输，用毕关闭；原全局代理/TUN配置及凭据验证不变。
