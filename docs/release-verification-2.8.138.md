@@ -28,4 +28,10 @@
 
 ## 发布
 
-安装包运行及公开发布验证待完成。
+- Electron 43.2.0 NSIS运行及打包桥接/权限门/本地音视频预览/回收站/LibTV等实际运行检查通过；报告 qa/packaged-smoke-2.8.138-1794248334245。
+- 官网：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.138.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.138/Xingzhou-Film-Tencent-Setup-2.8.138.exe
+- 本机：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.138/Xingzhou-Film-Tencent-Setup-2.8.138.exe
+- 104054424字节，SHA256 e18ac4badc7b16b69371a83d9a934e8d862bb31a51aeb602c1ea9226ef776d2d。官网完整文件哈希、公开Range206前65536字节、三份清单签名及逐字一致、GitHub资产digest/大小一致。
+- 软件内生产更新检测命中官网IP源2.8.138，对2.8.137可升级；生产CA、证书指纹和签名校验保留。Release 439482522；源码 b49438e 已推送。
+- 临时DIRECT仅绑定WLAN，未更改用户原全局代理/TUN；发布后关闭测试Vite与DIRECT辅助进程，保留既有工作树，不替换正在运行客户端。
