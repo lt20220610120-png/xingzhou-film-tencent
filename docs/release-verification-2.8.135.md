@@ -24,4 +24,8 @@
 
 安装包104029791字节，SHA256 9c36c9106f2727f0e35558b6b8760e79e51c8406a3353700aca304fb05c5ed3e。
 本机：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.135/Xingzhou-Film-Tencent-Setup-2.8.135.exe。
-公开发布后补录清单与完整哈希验收。
+官网与GitHub公开发布完成，Release438924498；实现6ccb6f0已推送。官网完整SHA256、公开Range206首65536字节、三份清单签名与GitHub资产digest/大小一致。生产更新逻辑保留CA、证书指纹和签名验证，实际命中官网IP源并读到2.8.135，对2.8.134为可更新。证据output/review-135/public-verification.json、in-app-update-official.json。
+
+官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.135.exe
+
+本次任务专用DIRECT实例绑定WLAN进行发布，未改原代理/TUN/服务器配置，用毕关闭。
