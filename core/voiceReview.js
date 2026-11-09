@@ -13,10 +13,10 @@ export function voiceGenerationRequest(character,profile,selected){
  if(instructions.length>2000)throw Error(`${character.name}：人物介绍与音色描述合计过长，请精简至2000字符以内`);
  return {...selected,input:settings.quote,instructions,language:settings.language};
 }
-export async function generateCharacterVoice({character,store,api,selected,job={},keepResult=()=>false}){
+export async function generateCharacterVoice({character,store,api,selected,job={},keepResult=()=>false,target}){
  if(!selected)throw Error('请选择语音模型');if(job.cancelled)return;
  const profile=store.snapshot().voiceProfiles?.[character.key]||{},request=voiceGenerationRequest(character,profile,selected);
- const result=await api.audioGenerate(request);if(job.cancelled&&!keepResult())return;
+ const result=await api.audioGenerate({...request,...(target?{voiceTarget:{...target,characterKey:character.key,requestId:crypto.randomUUID()}}:{})});if(job.cancelled&&!keepResult())return;
  await store.setVoiceProfile(character.key,p=>job.cancelled&&!keepResult()?p:setVoiceCandidate(p,{...result,name:character.name+'音色',sourceResultId:result.id},voiceGenerationSettings(character,profile,selected)));
 }
 export async function adoptCharacterVoice({character,store,api,id,job={}}){
@@ -103,4 +103,28 @@ export async function removeCharacterVoice({character,store,api,id}){
  if(!candidate)throw Error('样音已不存在');
  if(candidate.sourceResultId)await api.audioResultDelete?.({id:candidate.sourceResultId});
  await store.setVoiceProfile(character.key,current=>({...current,candidates:(current.candidates||[]).filter(sample=>sample.id!==id),...(current.confirmed?.id===id?{confirmed:undefined}:{})}));
+}
+
+// Recover acknowledged audio without generating it again. Legacy receipts need
+// both exact dialogue and explicit speaker/stage evidence, never text alone.
+export async function recoverCharacterVoiceResults({characters,store,api,projectId,accountId,allowLegacy=false}){
+ if(!api.audioResultsList)return 0;
+ const results=await api.audioResultsList();let recovered=0;
+ for(const result of [...results].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))){
+  const target=result.voiceTarget;
+  const matches=characters.filter(c=>{
+   if(target)return target.projectId===projectId&&target.accountId===accountId&&target.characterKey===c.key;
+   if(!allowLegacy)return false;
+   const settings=voiceGenerationSettings(c,store.snapshot().voiceProfiles?.[c.key]);
+   const lines=String(result.instructions||'').split('\n');
+   return result.text===settings.quote&&lines.includes('人物：'+(c.characterName||c.name))&&lines.includes('年龄阶段：'+(c.ageStage||'default'));
+  });
+  if(matches.length!==1||!(result.filePath||result.url))continue;
+  const c=matches[0];if(store.snapshot().voiceProfiles?.[c.key]?.candidates?.some(r=>r.sourceResultId===result.id||r.id===result.id))continue;let added=false;
+  await store.setVoiceProfile(c.key,p=>{
+   if(p.candidates?.some(r=>r.sourceResultId===result.id||r.id===result.id))return p;
+   added=true;return setVoiceCandidate(p,{...result,name:c.name+'音色',sourceResultId:result.id},{profileId:result.profileId,model:result.model,quote:result.text,instructions:result.instructions,language:result.language});
+  });if(added)recovered++;
+ }
+ return recovered;
 }

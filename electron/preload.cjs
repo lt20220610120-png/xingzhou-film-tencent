@@ -1,7 +1,7 @@
 const {contextBridge,ipcRenderer,webUtils}=require('electron');
 contextBridge.exposeInMainWorld('xingzhou',{
  appAccessStage:stage=>ipcRenderer.invoke('app-access-stage',stage),closeAccessWindow:()=>ipcRenderer.invoke('app-access-close'),
- audioGenerate:payload=>ipcRenderer.invoke('audio-generate',payload),audioResultsList:()=>ipcRenderer.invoke('audio-results-list'),audioResultSave:p=>ipcRenderer.invoke('audio-result-save',p),audioResultRetain:p=>ipcRenderer.invoke('audio-result-retain',p),audioResultDelete:p=>ipcRenderer.invoke('audio-result-delete',p),audioResultsClear:()=>ipcRenderer.invoke('audio-results-clear'),
+ audioGenerationContext:()=>ipcRenderer.invoke('audio-generation-context'),audioGenerate:payload=>ipcRenderer.invoke('audio-generate',payload),audioResultsList:()=>ipcRenderer.invoke('audio-results-list'),audioResultSave:p=>ipcRenderer.invoke('audio-result-save',p),audioResultRetain:p=>ipcRenderer.invoke('audio-result-retain',p),audioResultDelete:p=>ipcRenderer.invoke('audio-result-delete',p),audioResultsClear:()=>ipcRenderer.invoke('audio-results-clear'),
   licenseCheck:()=>ipcRenderer.invoke('license-check'),
   licenseRoute:payload=>ipcRenderer.invoke('license-route',payload),
  licensePrepare:p=>ipcRenderer.invoke('license-prepare',p),

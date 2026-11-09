@@ -79,13 +79,13 @@ test('model changes remove unsupported aliases and restore voice binding on a su
  assert.match(matchBasicReferences(hidden,refs,options).prompt,/音色：苏洲（参考@audio1）/);
 });
 
-test('project pool contains every image for the selected episode and only that episode media',()=>{
+test('project pool keeps history, automatic association chooses adopted image and only that episode media',()=>{
  const assets=[{id:'a',name:'苏洲',category:'character',episodes:[1,2],images:[{id:'i',url:'https://x/1'},{id:'j',url:'https://x/2'}]},{id:'b',name:'苏洲',category:'character',episodes:[2],images:[{id:'k',url:'https://x/3'}]}];
  const pool=projectReferenceCandidates(assets,[{id:'v',kind:'audio',episode:1,filename:'苏洲.wav',url:'https://x/v'},{id:'w',kind:'audio',episode:2,filename:'苏洲.wav',url:'https://x/w'}],'p',1);
  assert.deepEqual(pool.map(r=>r.id),['i','j','v']);
  assert.equal(pool[0].assetId,'a');assert.equal(pool[0].imageId,'i');assert.equal(pool[0].projectId,'p');
  const next=matchBasicReferences({prompt:'【基础设定】\n人物：苏洲。\n音色：苏洲。',references:[]},pool,options);
- assert.equal(next.references.length,3);
+ assert.equal(next.references.length,2);
 });
 
 test('automatic annotations and exclusions stay per prompt entry, not shared across an episode',()=>{
@@ -159,4 +159,15 @@ test('升级自动修复旧签名缓存下的空引用，保留人工删掉的�
  const removed={...legacy,prompt:'【基础设定】\n人物：刘娜。'};
  assert.equal(matchBasicReferences(removed,refs,options).prompt,removed.prompt);
  assert.strictEqual(matchBasicReferences(next,refs,options),next);
+});
+
+test('automatic asset image follows adoption changes without duplicating pictures, while manual history stays selected',()=>{
+ const asset={id:'a',name:'甲',category:'character',episodes:[1],adoptedImageId:'one',images:[{id:'one',url:'one.png'},{id:'two',url:'two.png'}]};const pool=()=>projectReferenceCandidates([asset],[],'p',1);
+ let value=matchBasicReferences({prompt:'【基础设定】\n人物：甲（参考@）。\n【画面内容】\n拍摄甲。',references:[]},pool(),options);assert.equal(value.references[0].id,'one');assert(value.references[0].autoAssetImage);asset.adoptedImageId='two';value=matchBasicReferences(value,pool(),options);assert.deepEqual(value.references.map(r=>r.id),['two']);assert.match(value.prompt,/@image1/);
+ const manual={prompt:'【基础设定】\n人物：甲。',references:[{...pool()[0],autoAssetImage:false}]};assert.equal(matchBasicReferences(manual,pool(),options).references[0].id,'one');assert.equal(matchBasicReferences(manual,pool(),options).references.length,1);
+});
+
+test('adopting an already manually selected historical image merges the automatic seat without duplicate references or aliases',()=>{
+ const asset={id:'a',name:'甲',category:'character',episodes:[1],adoptedImageId:'one',images:[{id:'one',url:'one.png'},{id:'two',url:'two.png'}]},pool=()=>projectReferenceCandidates([asset],[],'p',1);
+ let value=matchBasicReferences({prompt:'【基础设定】\n人物：甲（参考@）。',references:[]},pool(),options);const manual=pool()[1];value={...value,prompt:value.prompt+'\n同时参考@image2。',references:[...value.references,manual]};asset.adoptedImageId='two';value=matchBasicReferences(value,pool(),options);assert.equal(value.references.length,1);assert.equal(value.references[0].id,'two');assert(!value.references[0].autoAssetImage);assert(!value.prompt.includes('@image2'));assert.match(value.prompt,/@image1/);
 });

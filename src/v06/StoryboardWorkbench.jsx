@@ -1,3 +1,5 @@
+import {readStoryboardDefaults,saveStoryboardDefaults,applyStoryboardDefaults} from '../../core/storyboardDefaults.js';
+import {missingStoryboardReferences,restoreStoryboardReferences,rememberStoryboardRemoval,storyboardRecoveryBaseline} from '../../core/storyboardReferenceRecovery.js';
 import './StoryboardWorkbench.css';
 import {readCollabNavigation,rememberCollabNavigation} from '../../core/collabNavigation.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
@@ -6,12 +8,12 @@ import {displayAssetName} from '../../core/collabStore.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {queueDraft,readQueuedDraft} from '../editing.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
-import React,{useState,useEffect,useRef,useMemo} from 'react';
-import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard} from 'lucide-react';
+import React,{useState,useEffect,useRef,useMemo,useLayoutEffect} from 'react';
+import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard,RotateCcw,Trash2} from 'lucide-react';
 import {DeleteConfirm} from './DeleteConfirm.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
-import {referenceName,refreshAssetReferences,isProjectGenerationReference} from '../../core/generationReferences.js';
+import {referenceName,refreshAssetReferences,isProjectGenerationReference,mediaSource} from '../../core/generationReferences.js';
 import {cleanStoryboardReferenceValue} from '../../core/storyboardReferences.js';
 import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
@@ -27,32 +29,36 @@ function ResourcePicker({api,projectId,assets,media,selected,onClose,onSelect,on
  return <Dialog open title="选择项目参考素材" onClose={onClose}><div className="generation-resource-tabs">{categories.map(([k,n])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{n}</button>)}<button onClick={onRefresh}><RefreshCw size={14}/>刷新图片</button></div><input aria-label="搜索资源名称" placeholder="搜索资源名称" value={query} onChange={e=>setQuery(e.target.value)}/><div className="generation-resource-grid"><button onClick={upload} disabled={busy}><Plus/><span>{busy?'上传中…':'上传本地素材'}</span></button>{shown.map(r=><button key={r.id} className={picked.some(p=>p.id===r.id)?'selected':''} onClick={()=>setPicked(current=>current.some(p=>p.id===r.id)?current.filter(p=>p.id!==r.id):[...current,r])}>{r.kind==='image'?<CloudAssetImage api={api} projectId={projectId} assetId={r.assetId} image={{...r,id:r.imageId||r.id}} alt={r.name} />:r.kind==='video'?<video src={r.url} preload="none"/>:<span>♫ 音频</span>}<small>{r.displayName||r.name}</small></button>)}</div>{error&&<p className="collab-error">{error}</p>}<footer className="generation-resource-tabs"><span>已选择 {picked.length} 项</span><button onClick={onClose}>取消</button><button className="primary" onClick={()=>onSelect(picked)}>确认引用</button></footer></Dialog>;
 }
 
-function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId}) {
+function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId,defaults}) {
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}`;
  const read=()=>{try{const queued=readQueuedDraft(storageKey);return queued.found?queued.value:JSON.parse(localStorage.getItem(storageKey)||'null')}catch{return null}};
- const sceneReferences=()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene);
+ const sceneReferences=()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene).filter(r=>r.assetAdopted!==false).map(r=>r.assetId?{...r,autoAssetImage:true}:r);
  const cleanDraft=entry=>{
-  const cleaned=cleanStoryboardReferenceValue(entry.value,project.id);
+  const cleaned=applyStoryboardDefaults(cleanStoryboardReferenceValue(entry.value,project.id),defaults);
   const linked=storyboardPromptValue(promptBinding,shot,cleaned,accountId);
   const value=linked||cleaned;
   const needsSave=linked?.referenceBindingMode==='confirmed'&&(JSON.stringify(value.references)!==JSON.stringify(shot.generationConfig?.references||[])||value.bindingCompiledPrompt!==shot.generationConfig?.bindingCompiledPrompt);
   return {...entry,value,dirty:entry.dirty||cleaned!==entry.value||needsSave};
  };
  const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});
- const initial=()=>{const stored=read();return stored?(canRefreshStoryboardBinding(stored,shot)?cleanDraft(stored):stored):cloudDraft();};
+ const initial=()=>{const stored=read();if(!stored)return cloudDraft();const value=applyStoryboardDefaults(stored.value,defaults),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):next;};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false);
  const current=useRef(draft);current.current=draft;
- useEffect(()=>{if(!current.current.dirty)setDraft(cloudDraft());else if(canRefreshStoryboardBinding(current.current,shot))setDraft(cleanDraft(current.current));},[shot,assets,media,scene,epNumber,promptBinding]);
+ useEffect(()=>{const old=current.current,value=applyStoryboardDefaults(old.value,defaults);let next=value===old.value?old:{...old,value,dirty:true};if(!next.dirty)next=cloudDraft();else if(canRefreshStoryboardBinding(next,shot))next=cleanDraft(next);current.current=next;setDraft(next);if(value!==old.value||next.value.storyboardDefaultsRevision&&next.dirty)queueDraft(storageKey,next);},[shot,assets,media,scene,epNumber,promptBinding,defaults]);
  const change=value=>{
   value=cleanStoryboardReferenceValue(value,project.id);
   const previous=current.current.value;
-  for(const ref of previous.references||[])if(!(value.references||[]).some(r=>generationReferenceKey(r)===generationReferenceKey(ref))) {
+  for(const ref of previous.references||[])if(!(value.references||[]).some(r=>generationReferenceKey(r)===generationReferenceKey(ref))&&!(ref.autoAssetImage&&value.references?.some(n=>n.autoAssetImage&&n.assetId===ref.assetId))) {
    const removed=removeGenerationReference(previous,generationReferenceKey(ref));
    value={...value,autoReferenceExclusions:[...new Set([...(value.autoReferenceExclusions||[]),...removed.autoReferenceExclusions])]};
   }
+  value=rememberStoryboardRemoval(previous,value);
   const next={...current.current,value,dirty:true};current.current=next;setDraft(next);queueDraft(storageKey,next);
  };
  const referenceCandidates=useMemo(()=>draft.value.referenceBindingMode?[]:projectReferenceCandidates(assets,media,project.id,epNumber,scene),[assets,media,project.id,epNumber,scene,draft.value.referenceBindingMode]);
+ const baseline=storyboardRecoveryBaseline(shot,draft.value,sceneReferences(),storyboardPromptValue(promptBinding,shot,{...draft.value,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},accountId));
+ const removedReferences=missingStoryboardReferences(draft.value,baseline);
+ const restore=keys=>change(restoreStoryboardReferences(current.current.value,baseline,keys));
  const cloudChanged=draft.dirty&&(shot.content!==draft.base.content||JSON.stringify(shot.generationConfig)!==JSON.stringify(draft.base.generationConfig));
  const resolveRefs=refs=>refreshAssetReferences(refs,assets,project.id).map(ref=>{
   const asset=assets.find(a=>a.id===ref.assetId),image=asset?.images?.find(i=>i.id===ref.id),file=media.find(m=>m.id===ref.id);
@@ -76,19 +82,28 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
  const cloudVideos=media.filter(m=>m.kind==='video'&&(m.note?.includes(`[shot:${shot.id}]`)||m.note===shot.label)&&m.scene===scene).map(m=>({...m,status:'success',prompt:shot.content}));
  const localTasks=tasks.filter(t=>t.projectId===project.id&&t.shotId===shot.id);
  const results=[...localTasks,...cloudVideos.filter(m=>!localTasks.some(t=>t.mediaId===m.id))];
- return <><article className="collab-shot-card" data-shot-id={shot.id}><header><b className="collab-shot-badge">{shot.label}</b><button disabled={!canEdit||!draft.dirty||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}>删除分镜</button></header>{cloudChanged&&<div className="generation-conflict">云端已有新修改，本地草稿已保留。<FormattedText text={shot.content}/><button onClick={()=>{queueDraft(storageKey,null);setDraft(cloudDraft());}}>采用云端版本</button><button onClick={()=>{const next={...draft,base:{content:shot.content,generationConfig:shot.generationConfig}};setDraft(next);queueDraft(storageKey,next);}}>已核对，保留我的草稿继续编辑</button></div>}{shot.sourceConflict&&<div className="generation-conflict">导演工作台也修改了此提示词，请核对：<FormattedText text={shot.sourceConflict}/><button disabled={!canEdit} onClick={()=>change({...draft.value,prompt:shot.sourceConflict})}>采用导演新提示词</button></div>}{shot.sourceRemoved&&<p className="generation-draft-note">导演已移除该提示词；此分镜及作品仍保留。</p>}<GenerationComposer api={api} state={state} referenceViewport referenceCandidates={referenceCandidates} value={{...draft.value,references:resolveRefs(draft.value.references||[])}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
+ return <><article className="collab-shot-card" data-shot-id={shot.id}><header><b className="collab-shot-badge">{shot.label}</b><div className="storyboard-reference-actions"><button type="button" disabled={!canEdit||!baseline.references?.length} onClick={()=>restore()}><RefreshCw size={14}/>重新载入本条关联素材</button>{!!removedReferences.length&&<details><summary><RotateCcw size={14}/>恢复素材（{removedReferences.length}）</summary><div className="storyboard-reference-recovery"><button disabled={!canEdit} onClick={()=>restore()}>全部恢复</button>{removedReferences.map(ref=><button key={generationReferenceKey(ref)} disabled={!canEdit} onClick={()=>restore([generationReferenceKey(ref)])}>{ref.kind==='image'&&<img src={mediaSource(ref)} alt=""/>}{ref.name}</button>)}</div></details>}</div><div className="storyboard-save-actions"><button disabled={!canEdit||!draft.dirty||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}><Trash2 size={14}/>删除分镜</button></div></header>{cloudChanged&&<div className="generation-conflict">云端已有新修改，本地草稿已保留。<FormattedText text={shot.content}/><button onClick={()=>{queueDraft(storageKey,null);setDraft(cloudDraft());}}>采用云端版本</button><button onClick={()=>{const next={...draft,base:{content:shot.content,generationConfig:shot.generationConfig}};setDraft(next);queueDraft(storageKey,next);}}>已核对，保留我的草稿继续编辑</button></div>}{shot.sourceConflict&&<div className="generation-conflict">导演工作台也修改了此提示词，请核对：<FormattedText text={shot.sourceConflict}/><button disabled={!canEdit} onClick={()=>change({...draft.value,prompt:shot.sourceConflict})}>采用导演新提示词</button></div>}{shot.sourceRemoved&&<p className="generation-draft-note">导演已移除该提示词；此分镜及作品仍保留。</p>}<GenerationComposer api={api} state={state} referenceViewport referenceCandidates={referenceCandidates} value={{...draft.value,references:resolveRefs(draft.value.references||[])}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
   if(cloudChanged)throw new Error('请先核对云端修改');
   change({...current.current.value,prompt:input.originalPrompt,references:[...(current.current.value.references||[]),...input.references.filter(r=>!(current.current.value.references||[]).some(old=>generationReferenceKey(old)===generationReferenceKey(r)))],model:input.model,profileId:input.profileId,ratio:input.ratio,duration:input.duration,resolution:input.resolution,autoReferenceOrder:input.autoReferenceOrder,autoReferenceSignature:input.autoReferenceSignature,autoReferenceExclusions:input.autoReferenceExclusions});
   if(!await save())throw new Error('分镜尚未保存，请先处理保存提示');
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return (input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
   if(unresolved.length)throw new Error(`以下引用尚未选择图片：${unresolved.map(a=>a.name).join('、')}`);
   await api.generationSubmit({...input,projectId:project.id,episode:epNumber,scene,shotId:shot.id,shotLabel:shot.label});window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();
- }}>{draft.value.referenceBindingMode&&<button type="button" onClick={()=>{queueDraft(storageKey,null);setDraft(cloudDraft());}}>重新载入本条关联素材</button>}{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}{!!results.length&&<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/>}</article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
+ }}>{draft.dirty&&<small className="generation-draft-note">本地草稿已保留，保存后协作者可见</small>}</GenerationComposer>{error&&<p className="collab-error">{error}</p>}{!!results.length&&<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDelete={canEdit?async t=>{if(!window.confirm('删除此生成结果？'))return;try{const mediaId=t.mediaId||(!t.filePath?t.id:null);if(mediaId)await api.collabDeleteMedia({projectId:project.id,mediaId});if(t.filePath)await api.generationArchive({id:t.id});await loadMedia();}catch(e){setError(e.message);}}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/>}</article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
 }
 
 export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange,accountId}) {
  const {data:promptBinding,loading:bindingLoading}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
+ const editionId=project.episodes?.find(e=>e.promptEditionId)?.promptEditionId||'legacy',defaultsScope=JSON.stringify([accountId,project.id,editionId]);
+ const scope={accountId,projectId:project.id,editionId};
+ const [defaultState,setDefaultState]=useState(()=>({scope:defaultsScope,value:readStoryboardDefaults(scope)})),[defaultForm,setDefaultForm]=useState(()=>readStoryboardDefaults(scope)?.settings||{}),[defaultsError,setDefaultsError]=useState('');
+ const defaults=defaultState.scope===defaultsScope?defaultState.value:readStoryboardDefaults(scope);
+ useEffect(()=>{setDefaultState({scope:defaultsScope,value:readStoryboardDefaults(scope)});setDefaultForm(readStoryboardDefaults(scope)?.settings||{});setDefaultsError('');},[defaultsScope]);
+ const applyDefaults=settings=>{try{const value=saveStoryboardDefaults(scope,settings);setDefaultState({scope:defaultsScope,value});setDefaultsError('');}catch(e){setDefaultsError(e.message);}};
  const [episodeId,setEpisodeId]=useState(null),[scene,setScene]=useState(''),[media,setMedia]=useState([]),[tasks,setTasks]=useState([]),[error,setError]=useState(''),[creating,setCreating]=useState(false);
+ const leftColumn=useRef(null);
+ useLayoutEffect(()=>{let frame;const fit=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{const node=leftColumn.current;if(node)node.style.setProperty('--storyboard-left-height',Math.max(300,innerHeight-Math.max(0,node.getBoundingClientRect().top)-16)+'px');});};fit();window.addEventListener('resize',fit);window.addEventListener('scroll',fit,true);return()=>{cancelAnimationFrame(frame);window.removeEventListener('resize',fit);window.removeEventListener('scroll',fit,true);};},[project.id,episodeId,defaultState]);
+
  const [deleteTarget,setDeleteTarget]=useState(null),[deleting,setDeleting]=useState(false);
  const createPending=useRef(null);
  const createLock=useRef(false);
@@ -124,8 +139,8 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   <div className="collab-episode-grid">{episodes.map(ep=><button className="collab-episode-card" key={ep.id} onClick={()=>selectEpisode(ep.id)}><b>{ep.title}</b><small>{ep.content?.slice(0,70)}</small><span>{ep.prompts?.length||0} 条分镜</span></button>)}</div>
   {!episodes.length&&<p className="generation-empty">当前项目尚无分集，请在导演工作台完善项目后，点击左下角刷新云端数据。</p>}
  </section>;
- return <div className="collab-storyboard">
-  <aside className="collab-sb-left">
+ return <><GenerationComposer settingsOnly api={api} state={state} value={defaultForm} onChange={setDefaultForm} disabled={!canEdit} onApplySettings={applyDefaults}/>{defaultsError&&<p className="collab-error" role="alert">{defaultsError}</p>}<div className="collab-storyboard">
+  <aside ref={leftColumn} className="collab-sb-left">
    <nav className="collab-sb-navigation" aria-label="分镜导航">
     <button className="collab-sb-back" onClick={()=>selectEpisode(null)}><ArrowLeft size={16}/>返回分集</button>
     <div className="collab-sb-ep-switch">
@@ -138,12 +153,12 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   <section className="collab-sb-mid collab-sb-prompt-stack">
    <div className="collab-panel-title">场景 {currentScene} · {prompts.length} 条分镜</div>
    {error&&<p role="alert" className="collab-error">{error}</p>}
-   {bindingLoading?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${episode.promptEditionId||'legacy'}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} promptBinding={promptBinding} accountId={accountId} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
+   {bindingLoading?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${episode.promptEditionId||'legacy'}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} promptBinding={promptBinding} accountId={accountId} defaults={defaults} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
    {<button className="collab-create-storyboard" onClick={create} disabled={!canEdit||creating}><Plus size={20}/>{creating?'创建中…':'创建分镜'}</button>}
   </section>
   <DeleteConfirm open={Boolean(deleteTarget)} title="删除分镜" name={deleteTarget?.label} detail={deleting?'正在删除…':'确认删除这条分镜？生成的视频与素材会保留，导演工作台原提示词不会删除。'} onCancel={()=>!deleting&&setDeleteTarget(null)} onConfirm={async()=>{
    if(deleting)return;setDeleting(true);setError('');
    try{const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',operation:'delete',shotId:deleteTarget.id,base:{content:deleteTarget.content,generationConfig:deleteTarget.generationConfig}});onProjectChange(saved);localStorage.removeItem(`xz-shot-draft:${project.id}:${deleteTarget.id}`);setDeleteTarget(null);}catch(e){setError(e.message);setDeleteTarget(null);}finally{setDeleting(false);}
   }}/>
- </div>;
+ </div></>;
 }

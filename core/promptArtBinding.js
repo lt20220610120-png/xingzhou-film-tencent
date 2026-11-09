@@ -1,3 +1,4 @@
+import {adoptedAssetImage,bindingImageId} from './adoptedAssetImage.js';
 import {projectVoiceCards} from './characterVoices.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,compileVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
 import {sceneIdentities,lockedIdentityOmission} from './sceneIdentityContext.js';
@@ -41,7 +42,7 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
      const aliases=sameProject&&uniqueCard?(previous.cards||[]).filter(row=>row.category===item.category&&row.name===item.name&&row.sceneIds.some(id=>Number(id.split('-')[0])===episode.episodeNumber)&&!usedCardUids.has(row.uid)):[];
      const old=previous.cards?.find(row=>row.key===key&&!usedCardUids.has(row.uid))||(aliases.length===1?aliases[0]:null),matches=assets.filter(asset=>asset.name===item.name&&asset.category===item.category);
      const asset=matches.length===1?matches[0]:null;
-     card={key,uid:old?.uid||crypto.randomUUID(),category:item.category,name:item.name,description:item.description||'',detailStatus:item.detailStatus||'',sceneIds:[],publishedSceneIds:[],assetId:asset?.id||null,images:bindingImages(asset)};
+     card={key,uid:old?.uid||crypto.randomUUID(),category:item.category,name:item.name,description:item.description||'',detailStatus:item.detailStatus||'',sceneIds:[],publishedSceneIds:[],assetId:asset?.id||null,adoptedImageId:adoptedAssetImage(asset)?.id||null,images:bindingImages(asset)};
      cards.push(card);
      usedCardUids.add(card.uid);
     }
@@ -76,13 +77,13 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
   const source=row.id===editionId?snapshot:bindingSnapshot({...project,episodes:directorEditionEpisodes(project,row.id)},ledger,assets,{...previous,cards},false);
   return {editionId:row.id,editionName:row.name,...(row.legacyOriginal?{legacyOriginal:true}:{}),entries:source.entries,issues:source.issues,invalidEntries:source.invalidEntries};
  });
- snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
+ snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.adoptedImageId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
  return snapshot;
 }
 export const cardInEntry=(card,entry)=>card.sceneIds.includes(entry.sceneId)&&(!card.entryIds||card.entryIds.includes(entry.id));
 export const sceneInventoryCards=(snapshot,entryOrScene)=>snapshot.cards.filter(card=>card.sceneIds.includes(typeof entryOrScene==='string'?entryOrScene:entryOrScene?.sceneId));
 export function entryBindingSignature(snapshot,entry){
- return bindingHash([...(entryVoiceCards(snapshot,entry).length?[entryVoiceCards(snapshot,entry).map(c=>[c.uid,c.name,c.reference.id,c.reference.filePath,c.reference.objectKey||String(c.reference.url||'').split('?')[0]])]:[]),'scene-distribution-v2',snapshot.projectId,snapshot.directorProjectId,entry, snapshot.cards.filter(card=>cardInEntry(card,entry)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.assetId,card.publishedSceneIds,card.images.map(image=>[image.id,imageIdentity(image)])])]);
+ return bindingHash([...(entryVoiceCards(snapshot,entry).length?[entryVoiceCards(snapshot,entry).map(c=>[c.uid,c.name,c.reference.id,c.reference.filePath,c.reference.objectKey||String(c.reference.url||'').split('?')[0]])]:[]),'scene-distribution-v2',snapshot.projectId,snapshot.directorProjectId,entry, snapshot.cards.filter(card=>cardInEntry(card,entry)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.assetId,card.adoptedImageId,card.publishedSceneIds,card.images.map(image=>[image.id,imageIdentity(image)])])]);
 }
 export function extractBindingNeeds(prompt,cards=[]){
  const marker=/[【\[]基础(?:设定|信息)[】\]]/.exec(prompt);
@@ -127,7 +128,7 @@ export function proposeEntryBinding(snapshot,entry){
   const exact=same.filter(card=>clean(card.name)===clean(need.text));
   const matches=exact.length?exact:same.filter(card=>clean(parseAssetName(card.name).base)===clean(need.text));
   const card=matches.length===1?matches[0]:null;
-  return {...need,cardUid:card?.uid||null,reason:card?'同类别名称唯一匹配':matches.length?'存在多套造型或同名素材，请选择':'本场素材池缺少明确匹配，请核对',imageId:card?.images.length===1?card.images[0].id:null};
+  return {...need,cardUid:card?.uid||null,reason:card?'同类别名称唯一匹配':matches.length?'存在多套造型或同名素材，请选择':'本场素材池缺少明确匹配，请核对',imageId:bindingImageId(card),imageSelection:'asset'};
  });
  return {signature:entryBindingSignature(snapshot,entry),needs:needs.sort((left,right)=>left.start-right.start),issue:parsed.issue,confirmed:false,origin:'rules'};
 }
@@ -192,7 +193,7 @@ export function applyBindingAi(snapshot,entry,decision,raw){
   if(row.visibility==='visible'&&row.cardUid&&!card)throw Error('AI 选择了本场不存在或类别错误的卡片');
   const old=decision.needs.find(need=>need.start===row.start&&need.end===row.end&&need.category===row.category);
   if(old?.locked)return old;
-  return {id:`ai:${index}:${row.start}`,category:row.category,text:row.text,start:row.start,end:row.end,visibility:row.visibility,reason:row.reason,cardUid:card?.uid||null,imageId:old?.cardUid===card?.uid?old?.imageId:card?.images.length===1?card.images[0].id:null};
+  return {id:`ai:${index}:${row.start}`,category:row.category,text:row.text,start:row.start,end:row.end,visibility:row.visibility,reason:row.reason,cardUid:card?.uid||null,imageId:bindingImageId(card,old?.cardUid===card?.uid?old:undefined),imageSelection:old?.imageSelection||'asset'};
  });
  for(const old of decision.needs)if(!needs.some(row=>row.category===old.category&&row.start<=old.start&&row.end>=old.end))throw Error('AI 漏掉原有需求，原选择已保留');
  for(const old of decision.needs.filter(row=>row.locked))if(!needs.some(row=>row===old))throw Error('AI 改变了人工锁定的原文范围，原选择已保留');

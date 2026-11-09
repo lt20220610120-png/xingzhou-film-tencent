@@ -79,6 +79,7 @@ export function projectVoiceRoster(project,ledger={}){
 }
 export function setVoiceCandidate(profile={},audio,settings={}){
  if(!audio?.id||!(audio.filePath||audio.url))throw Error('样音文件无效');
+ if(profile.candidates?.some(c=>c.id===audio.id||audio.sourceResultId&&c.sourceResultId===audio.sourceResultId))return profile;
  const candidate={id:audio.id,sourceResultId:audio.sourceResultId||'',kind:'audio',filePath:audio.filePath,url:audio.url,duration:audio.duration,mime:audio.mime,name:audio.name,createdAt:Date.now(),profileId:settings.profileId||'',model:settings.model||'',instructions:settings.instructions||'',quote:settings.quote||'',language:settings.language||'Chinese'};
  return {...profile,candidates:[...(profile.candidates||[]),candidate]};
 }

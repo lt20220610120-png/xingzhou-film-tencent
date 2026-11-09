@@ -1,3 +1,4 @@
+import {adoptedAssetImage} from './adoptedAssetImage.js';
 import {numberedReferences,isProjectGenerationReference} from './generationReferences.js';
 
 const ALIAS=/@(image|audio|video)\d+(?!\d)/g;
@@ -121,25 +122,34 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
  if(value.referenceBindingMode==='confirmed'||value.referenceBindingMode==='pending')return value;
  const originalPrompt=String(value.prompt||''),subjects=basicSubjects(originalPrompt);
  if(!subjects.length&&!value.autoReferenceOrder)return value;
- const references=[...(value.references||[])];
+ const swaps=new Map();
+ const mappedReferences=(value.references||[]).map(ref=>{
+  if(!ref.autoAssetImage||!ref.assetId||ref.kind!=='image')return ref;
+  const adopted=candidates.find(c=>c.assetId===ref.assetId&&c.assetAdopted===true&&c.kind==='image');
+  if(!adopted||generationReferenceKey(adopted)===generationReferenceKey(ref))return ref;
+  swaps.set(generationReferenceKey(ref),generationReferenceKey(adopted));return {...adopted,autoAssetImage:true};
+ });
+ const references=[...new Map(mappedReferences.map(ref=>[generationReferenceKey(ref),ref])).values()];
  const pool=[...new Map([...references,...candidates].map(r=>[generationReferenceKey(r),r])).values()];
  const excluded=new Set(value.autoReferenceExclusions||[]);
  const subjectNames=subjects.map(s=>[s.field,normalizeName(s.name)]);
- const signature=(refs,version)=>fingerprint([subjectNames,pool.map(r=>[generationReferenceKey(r),r.name,r.filename,r.category]),refs.map(generationReferenceKey),[...excluded].sort(),allowedKinds],version);
+ const signature=(refs,version)=>fingerprint([subjectNames,pool.map(r=>[generationReferenceKey(r),r.name,r.filename,r.category,r.assetAdopted]),refs.map(generationReferenceKey),[...excluded].sort(),allowedKinds],version);
  if(value.autoReferenceSignature===signature(references))return value;
  // Repair cached empty placeholders once on upgrade, without recreating tags
  // the user deliberately erased or changing their existing manual references.
  if(value.autoReferenceSignature===signature(references,'basic-v1')&&!subjects.some(subject=>/^[ \t]*[（(]参考[ \t]*@[ \t]*[）)]/.test(originalPrompt.slice(subject.end))))return {...value,autoReferenceSignature:signature(references)};
  const matched=new Map(subjects.map(s=>[s,[]]));
  for(const ref of pool) {
-  if(excluded.has(generationReferenceKey(ref))||!allowedKinds.includes(ref.kind))continue;
+  if(excluded.has(generationReferenceKey(ref))||!allowedKinds.includes(ref.kind)||ref.assetAdopted===false&&!references.some(r=>generationReferenceKey(r)===generationReferenceKey(ref)))continue;
+  if(ref.kind==='image'&&ref.assetId&&!references.some(r=>generationReferenceKey(r)===generationReferenceKey(ref))&&references.some(r=>r.assetId===ref.assetId&&r.kind==='image'&&!r.autoAssetImage))continue;
   const scores=subjects.map(s=>matchScore(s,ref)),best=Math.max(0,...scores);
   if(!best)continue;
   subjects.forEach((s,i)=>{if(scores[i]===best)matched.get(s).push(ref);});
-  if(!references.some(r=>generationReferenceKey(r)===generationReferenceKey(ref)))references.push(ref);
+  if(!references.some(r=>generationReferenceKey(r)===generationReferenceKey(ref)))references.push(ref.kind==='image'&&ref.assetId?{...ref,autoAssetImage:true}:ref);
  }
  const after=visibleOrder(references,allowedKinds);
- const before=value.autoReferenceOrder||visibleOrder(value.references||[],allowedKinds);
+ const priorOrder=value.autoReferenceOrder||visibleOrder(value.references||[],allowedKinds);
+ const before=[...priorOrder,...visibleOrder(value.references||[],allowedKinds).filter(row=>!priorOrder.some(old=>old.alias===row.alias))].map(row=>({...row,key:swaps.get(row.key)||row.key}));
  let prompt=remapGenerationAliases(originalPrompt,before,after,onPromptEdit);
  // Re-read offsets because removing/remapping aliases can change their lengths.
  const updatedSubjects=basicSubjects(prompt),aliases=new Map(after.map(r=>[r.key,r.alias]));
@@ -160,7 +170,7 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
 export function projectReferenceCandidates(assets,media,projectId,episode,scene) {
  const belongs=asset=>scene&&asset.reviewedSceneIds?.includes(scene)?asset.sceneIds?.includes(scene):scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
  return [
-  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,filename:i.filename,category:a.category}))),
+  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,filename:i.filename,category:a.category,assetAdopted:!a.images?.length||i.id===adoptedAssetImage(a)?.id}))),
   ...(media||[]).filter(m=>isProjectGenerationReference(m,projectId)&&Number(m.episode)===Number(episode)&&(!scene||!m.scene||String(m.scene)===String(scene)||String(m.scene)===String(scene).split('-').at(-1))).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
  ];
 }

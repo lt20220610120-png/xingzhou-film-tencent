@@ -1,3 +1,4 @@
+import {adoptedAssetImage} from './adoptedAssetImage.js';
 export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|aac|ogg|flac)$/i,'').replace(/^[【\[]|[】\]]$/g, '');
 const referenceNames = item => [...new Set([item.name,item.displayName,...(item.nameAliases||[])].map(referenceName).filter(Boolean))];
 export const isProjectGenerationReference=(ref,projectId)=>
@@ -24,7 +25,7 @@ export function autoReferences(prompt, assets) {
   return assets.filter(a => {
     return referenceNames(a).some(name=>prompt.includes(`@${name}`)||prompt.includes(`@【${name}】`));
   }).flatMap(a => {
-    const image=(a.images || []).find(i=>i.url) || (/^https?:/.test(a.image_url || '') ? {url:a.image_url} : null);
+    const image=adoptedAssetImage(a) || (/^https?:/.test(a.image_url || '') ? {url:a.image_url} : null);
     return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,kind:'image',url:image.url}] : [];
   });
 }

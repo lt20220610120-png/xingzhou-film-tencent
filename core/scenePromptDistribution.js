@@ -1,3 +1,4 @@
+import {bindingImageId} from './adoptedAssetImage.js';
 import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,reconcilePromptSpeakers} from './voiceBinding.js';
 import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation,readPromptFoundationBlock} from './promptFoundation.js';
@@ -48,7 +49,7 @@ export function applySceneDistribution(snapshot,entry,decision,raw,sceneSource='
   const text=span?.text||(typeof row.evidence==='string'?row.evidence.trim():''),block=readPromptFoundationBlock(entry.prompt),start=text&&block?entry.prompt.indexOf(text,block.start):-1;
   if(row.visibility!=='excluded'&&(!text||start<block.start||start>=block.end))throw Error('AI 分发缺少基础设定范围内的原文依据');
   const old=decision.needs.find(n=>n.cardUid===card.uid);
-  needs.push({id:'card:'+card.uid,category:card.category,cardUid:card.uid,text:text||card.name,start:text?Math.max(0,start):0,end:text&&start>=0?start+text.length:0,visibility:row.visibility,reason:row.reason.trim(),imageId:card.images.some(i=>i.id===old?.imageId)?old.imageId:card.images.length===1?card.images[0].id:null});
+  needs.push({id:'card:'+card.uid,category:card.category,cardUid:card.uid,text:text||card.name,start:text?Math.max(0,start):0,end:text&&start>=0?start+text.length:0,visibility:row.visibility,reason:row.reason.trim(),imageId:bindingImageId(card,old),imageSelection:old?.imageSelection||'asset'});
  }
  for(const card of cards)if(!seen.has(card.uid)){
   const locked=decision.needs.find(n=>n.locked&&n.cardUid===card.uid);
@@ -76,12 +77,12 @@ export function assignSceneCard(snapshot,entry,decision,cardUid,selected){
  if(!card)throw Error('只能从本场景清单关联卡片');
  const old=decision.needs.find(n=>n.cardUid===card.uid);
  const anchored=old&&old.end>old.start&&entry.prompt.slice(old.start,old.end)===old.text;
- const need={...(old||{id:'manual:'+card.uid}),...(!anchored?{text:card.name,start:0,end:0,manualReference:true}:{}),category:card.category,cardUid:card.uid,visibility:selected?(card.detailStatus==='nonvisual'?'voice':'visible'):'excluded',imageId:card.images.some(i=>i.id===old?.imageId)?old.imageId:card.images.length===1?card.images[0].id:null,reason:selected?'人工从本场景清单关联':'人工确认本条不用',locked:true};
+ const need={...(old||{id:'manual:'+card.uid}),...(!anchored?{text:card.name,start:0,end:0,manualReference:true}:{}),category:card.category,cardUid:card.uid,visibility:selected?(card.detailStatus==='nonvisual'?'voice':'visible'):'excluded',imageId:bindingImageId(card,old),imageSelection:old?.imageSelection||'asset',reason:selected?'人工从本场景清单关联':'人工确认本条不用',locked:true};
  return {...decision,signature:entryBindingSignature(snapshot,entry),needs:[...decision.needs.filter(n=>n.cardUid!==card.uid),need],confirmed:false};
 }
 export function resolveSceneMissing(snapshot,entry,decision,needId,cardUid){
  const need=decision.needs.find(n=>n.id===needId&&!n.cardUid),card=sceneCards(snapshot,entry).find(c=>c.uid===cardUid&&c.category===need?.category);
  if(!need||!card)throw Error('请选择本场同类别的已有卡片');
- const next={...need,cardUid:card.uid,visibility:card.detailStatus==='nonvisual'?'voice':'visible',imageId:card.images.length===1?card.images[0].id:null,reason:'人工核对为本场已有资产',locked:true};
+ const next={...need,cardUid:card.uid,visibility:card.detailStatus==='nonvisual'?'voice':'visible',imageId:bindingImageId(card),imageSelection:'asset',reason:'人工核对为本场已有资产',locked:true};
  return {...decision,signature:entryBindingSignature(snapshot,entry),needs:[...decision.needs.filter(n=>n.id!==needId&&n.cardUid!==card.uid),next],confirmed:false};
 }

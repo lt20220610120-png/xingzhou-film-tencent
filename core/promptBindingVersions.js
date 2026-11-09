@@ -1,3 +1,4 @@
+import {bindingImageId} from './adoptedAssetImage.js';
 import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {bindingHash,bindingProblems,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
 
@@ -84,7 +85,7 @@ export function selectBindingVersion(current,saved,id){
   if(!reusable&&!unchanged)continue;
   const hydrated={...decision,signature:entryBindingSignature(snapshot,entry),needs:decision.needs.map(need=>{
    const card=snapshot.cards.find(row=>row.uid===need.cardUid);
-   return {...need,imageId:need.imageId||((card?.images.length===1)?card.images[0].id:null)};
+   return {...need,imageId:bindingImageId(card,need)};
   })};
   // Missing/removed locked images remain errors; never substitute another image.
   decisions[entry.id]=withEvidence(snapshot,entry,hydrated);

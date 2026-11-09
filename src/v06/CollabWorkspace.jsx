@@ -1,3 +1,4 @@
+import {adoptedAssetImage} from '../../core/adoptedAssetImage.js';
 import {projectVoiceCards} from '../../core/characterVoices.js';
 import ProjectVoices from './ProjectVoices.jsx';
 import PromptPublicationProgress from './PromptPublicationProgress.jsx';
@@ -387,7 +388,10 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const explicitlyNoReference=refId==='';
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = uniqueAssetImages([...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages]).map(image => ({...image, projectId:project.id, assetId:asset.id}));
-  const selectedImage = images.find((image) => image.id === selectedImageId) || images[images.length - 1] || null;
+  const adoptedImage=adoptedAssetImage({...asset,images});
+  useEffect(()=>setSelectedImageId(adoptedImage?.id||''),[adoptedImage?.id,images.map(i=>i.id).join(',')]);
+  const adoptImage=async()=>{if(!selectedImage||!canEdit)return;setBusy(true);setError('');try{await api.collabUpdateAsset({projectId:project.id,assetId:asset.id,updates:{adoptedImageId:selectedImage.id}});await refresh();}catch(e){setError(e.message);}finally{setBusy(false);}};
+  const selectedImage = images.find((image) => image.id === selectedImageId) || adoptedImage || images[images.length - 1] || null;
 
   const pendingImage = readAssetImageRecovery(project.id, asset.id);
   const generate = async () => {
@@ -435,7 +439,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     } catch(e) { setError(readableCloudError(e)); }
     finally { setBusy(false); }
   };
-  const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
+  const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; if(!window.confirm('删除这张图片？若正在采用，将改用最新的剩余图片。'))return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
   const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: displayAssetName(asset,assets), images: [{ ...selectedImage, assetName: displayAssetName(asset,assets) }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
   const previewRequest = useRef(0);
   useEffect(() => { previewRequest.current++; }, [asset.id, selectedImage?.id]);
@@ -456,12 +460,12 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={openOriginal} title="点击放大查看原图"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={image} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
       </div>
-      {selectedImage && <div className="collab-image-item-actions"><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
+      {selectedImage && <div className="collab-image-item-actions"><button className={`asset-image-adopt${selectedImage.id===adoptedImage?.id?' adopted':''}`} disabled={!canEdit||busy||selectedImage.id===adoptedImage?.id} onClick={adoptImage}>{selectedImage.id===adoptedImage?.id?'已采用':'采用此图'}</button><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
       <div className="collab-image-controls">
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{formats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
         <div className="asset-reference-controls">
-        <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}（第一张）` : referenceRequired?`等待${asset.category==='scene'?'场景':'人物'}基准参考图`:"默认（不引用参考）"}</option><option value="">不引用参考</option>{localReference&&<option value="__local__">本机参考 {localReference.name}</option>}{mates.map((m) => <option key={m.id} value={m.id}>参考 {displayAssetName(m,assets)}</option>)}</select></label>
+        <label className="collab-ref-picker"><AtSign size={13} /><select aria-label={`${asset.name} 参考图片`} value={refId ?? "__auto__"} onChange={(e) => setRefId(e.target.value === "__auto__" ? null : e.target.value)}><option value="__auto__">{defaultReference ? `默认参考 ${defaultReference.name}` : referenceRequired?`等待${asset.category==='scene'?'场景':'人物'}基准参考图`:"默认（不引用参考）"}</option><option value="">不引用参考</option>{localReference&&<option value="__local__">本机参考 {localReference.name}</option>}{mates.map((m) => <option key={m.id} value={m.id}>参考 {displayAssetName(m,assets)}</option>)}</select></label>
         {(api.mediaImportFile||api.mediaImportFiles)&&<button type="button" className="secondary asset-local-reference-button" aria-label="选择本机参考图" onClick={importReference} disabled={busy||generating||!canEdit}><Upload size={13}/> 本机参考图</button>}
         </div>
         {!mates.length&&<small className="collab-ref-hint">项目暂无可选参考图。可先上传或生成资产图片，再在此选择。</small>}

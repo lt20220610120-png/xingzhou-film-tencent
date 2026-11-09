@@ -292,6 +292,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return ok(rows.map((row) => ({
       ...row,
       image_url: assetImageLink(row.image_url, signer).url,
+      adoptedImageId: (images.find(img=>img.asset_id===row.id&&(img.object_path||img.url)===row.image_url)||images.filter(img=>img.asset_id===row.id).at(-1))?.id||null,
       images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, projectId, assetId: row.id, ...assetImageLink(img.object_path, signer), filename: img.filename, mime: img.mime })),
     })));
   }
@@ -320,6 +321,10 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     const myRole = await roleOf(projectId, user, repo);
     if (!['producer', 'artist', 'artist_collaborator'].includes(myRole)) return DENY;
     const updates = payload.updates || payload;
+    if(Object.hasOwn(updates,'adoptedImageId')){
+      if(typeof updates.adoptedImageId!=='string'||!(/^[0-9a-f-]{36}$/i).test(updates.adoptedImageId))return {status:400,body:{error:'请选择本卡片的有效图片'}};
+      const saved=guard(await repo.selectAssetImage(projectId,payload.assetId,updates.adoptedImageId,user.id));return saved?ok(saved):NOT_FOUND;
+    }
     const fields = {};
     for (const key of ['name', 'description']) {
       if (key in updates) {

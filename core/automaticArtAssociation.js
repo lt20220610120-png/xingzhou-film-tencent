@@ -1,3 +1,4 @@
+import {bindingImageId} from './adoptedAssetImage.js';
 import {sceneIdentities,isNonvisualFoundationText,reconcileSceneIdentities} from './sceneIdentityContext.js';
 import {readPromptFoundation,readPromptFoundationBlock} from './promptFoundation.js';
 import {currentEntryBinding,entryBindingSignature,saveDistribution} from './promptArtBinding.js';
@@ -17,7 +18,7 @@ export function automaticEntryAssociation(snapshot,entry,saved,{voiceEnabled=tru
    const start=entry.prompt.indexOf(token,block.start);
    if(needs.some(n=>n.cardUid&&n.cardUid===card?.uid||n.locked&&!n.cardUid&&n.category===category&&n.text.startsWith(token)))continue;
    const prior=seed.needs.find(n=>n.cardUid&&n.cardUid===card?.uid);
-   needs.push({id:'auto:'+category+':'+start,category,text:token,start,end:start+token.length,cardUid:card?.uid||null,visibility:'visible',imageId:card?.images.some(i=>i.id===prior?.imageId)?prior.imageId:card?.images.length===1?card.images[0].id:null,reason:card?'基础设定与本场唯一身份一致':match?.candidateUids.length?'存在多套造型，待核对':'本场清单缺少明确匹配，待补充'});
+   needs.push({id:'auto:'+category+':'+start,category,text:token,start,end:start+token.length,cardUid:card?.uid||null,visibility:'visible',imageId:bindingImageId(card,prior),imageSelection:prior?.imageSelection||'asset',reason:card?'基础设定与本场唯一身份一致':match?.candidateUids.length?'存在多套造型，待核对':'本场清单缺少明确匹配，待补充'});
   }
  }
  const next=reconcileSceneIdentities(snapshot,entry,{...seed,signature:entryBindingSignature(snapshot,entry),needs,origin:'automatic',issue:block?'':'未找到基础设定或基础信息，请核对提示词格式',...(voiceEnabled?reconcilePromptSpeakers(snapshot,entry,seed.speakers):{speakers:[]})});

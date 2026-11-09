@@ -336,6 +336,11 @@ function extendRepository(pool) {
       }
       return many('select * from collab_assets where project_id=$1 order by created_at', [pid]);
     },
+    async selectAssetImage(pid,assetId,imageId,uid){
+      return one(`update collab_assets a set image_url=coalesce(nullif(m.object_path,''),m.url),updated_at=now() from collab_media m,collab_projects p
+        where a.id=$2 and a.project_id=$1 and m.id=$3 and m.asset_id=a.id and m.project_id=a.project_id and m.kind='asset-image' and p.id=a.project_id
+        and p.deleted_at is null and p.genre not like '%[PROJECT_LOCKED]%' and (p.owner_id=$4 or exists(select 1 from collab_members member where member.project_id=p.id and member.user_id=$4 and member.role in ('producer','artist','artist_collaborator'))) returning a.*`,[pid,assetId,imageId,uid]);
+    },
     async recordAssetImage(pid, p, uid) {
       if (!await canRead(pid, uid)) return null;
       const sql = 'insert into collab_media(project_id,asset_id,episode,kind,url,object_path,filename,mime,user_id,username) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *';
@@ -348,9 +353,7 @@ function extendRepository(pool) {
     async deleteAssetImage(pid, p, uid) {
       if (!await canRead(pid, uid)) return null;
       const removed = await one('delete from collab_media where project_id=$1 and id=$2 returning *', [pid, p.mediaId || p.imageId]);
-      if (p.assetId) {
-        await pool.query("update collab_assets set image_url='', updated_at=now() where id=$1 and project_id=$2", [p.assetId, pid]);
-      }
+      if(removed?.asset_id){await pool.query("update collab_assets a set image_url=coalesce((select coalesce(nullif(m.object_path,''),m.url) from collab_media m where m.asset_id=a.id and m.project_id=$1 and m.kind='asset-image' order by m.created_at desc,m.id desc limit 1),''),updated_at=now() where a.id=$2 and a.project_id=$1 and a.image_url=coalesce(nullif($3,''),$4)",[pid,removed.asset_id,removed.object_path,removed.url]);}
       return removed || { ok: true };
     },
     async clearAssetImages(pid, p, uid) {

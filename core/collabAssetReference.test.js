@@ -10,11 +10,12 @@ const assets = [
   { id: 'other', name: '【崔小溪-便服】', category: 'character', images: [{ url: 'https://example.test/other.png' }] },
 ];
 
-test('later outfits use the first character image from an earlier episode, never the newest image', () => {
+test('later outfits use the adopted baseline character image from an earlier episode', () => {
   for (const asset of [assets[1], assets[2]]) {
     const reference = resolveAssetReference(asset, assets);
     assert.equal(reference.id, 'base');
-    assert.equal(autoReferences(`@${reference.name}`, [reference])[0].id, 'first');
+    assert.equal(autoReferences(`@${reference.name}`, [reference])[0].id, 'newest');
+    assert.equal(autoReferences(`@${reference.name}`, [{...reference,adoptedImageId:'first'}])[0].id,'first');
   }
   assert.equal(resolveAssetReference(assets[0], assets), null);
   assert.equal(resolveAssetReference(assets[3], assets), null);
