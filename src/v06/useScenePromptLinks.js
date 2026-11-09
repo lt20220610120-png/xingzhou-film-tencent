@@ -1,3 +1,4 @@
+import {invalidateProjectBindings} from '../../core/projectBindingCache.js';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {bindingSnapshot} from '../../core/promptArtBinding.js';
 import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
@@ -9,7 +10,7 @@ import {resolvePromptMissingReferences,promptHumanReviewSignature} from '../../c
 import {supplementPromptMissingReferences} from '../../core/promptMissingSupplement.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
-export function notifyBindingSaved(projectId,accountId,data){window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
+export function notifyBindingSaved(projectId,accountId,data){invalidateProjectBindings(accountId,projectId);window.dispatchEvent(new CustomEvent(BINDING_SAVED_EVENT,{detail:{projectId,accountId,data}}));}
 
 export default function useScenePromptLinks({project,ledger,assets,api,accountId,enabled,canEdit,versionId}){
  const [saved,setSaved]=useState(null),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');

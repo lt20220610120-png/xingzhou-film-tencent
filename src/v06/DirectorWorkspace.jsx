@@ -144,10 +144,10 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
           className={`director-episode-row${active === ep.id ? ' active' : ''}`}
           onClick={() => setActive(ep.id)}
         >
-          <span className="rail-index">{ep.kind === 'setting' || ep.title === '设定和小传' ? '序' : String(episodeNumberAt(idx)).padStart(2, '0')}</span>
+          <span className={`rail-index${progress?.complete?' is-complete':''}`} aria-label={progress?`${ep.title}：${progress.complete?'提示词已齐全':'提示词未齐全'}`:undefined} title={progress?.complete?'全部场景提示词已保存':undefined}>{ep.kind === 'setting' || ep.title === '设定和小传' ? '序' : String(episodeNumberAt(idx)).padStart(2, '0')}</span>
           <span className="director-episode-title" title={ep.title}>{ep.title}</span>
           <span className="director-episode-count" aria-label={progress?`提示词 ${progress.count}/${progress.expected}`:undefined}>{progress?`${progress.count}/${progress.expected}`:''}</span>
-          {progress&&<span className={`director-completion-dot ${progress.complete?'complete':''}`} role="img" aria-label={`${ep.title}：${progress.complete?'提示词已齐全':'提示词未齐全'}`} title={progress.complete?'全部场景提示词已保存':progress.scenes.filter(s=>!s.complete).map(s=>`${s.label}：${s.stale?'原文或设定已变化':s.missingLabels.length?'缺少 '+s.missingLabels.join('、'):'编号重复或批次待核对'}`).join('；')}/>}
+
           <span className="rail-episode-delete" role="button" tabIndex={0} aria-label={`删除${ep.title}`} title={`删除${ep.title}`} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();onDeleteEpisode?.(ep.id);}}} onClick={(event) => { event.stopPropagation(); onDeleteEpisode?.(ep.id); }}><Trash2 size={13}/></span>
         </button>
       );})}
