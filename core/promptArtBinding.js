@@ -22,6 +22,12 @@ const CHARACTER_ATTRIBUTE_FRAGMENT=/^(?:人物)?(?:肤色|发色|发型|短发|�
 export const isCharacterAttributeFragment=text=>CHARACTER_ATTRIBUTE_FRAGMENT.test(String(text||'').trim());
 export function bindingSnapshot(project,ledger,assets,previous={},includeEditions=true){
  const inspection=inspectCollabEpisodes(project.episodes),cards=[],entries=[],issues=[],invalidEntries=[],promptIds=new Set(),latestRuns=new Map();
+ const explicitEdition=activeDirectorEditionId(project),editionId=explicitEdition||(project.director_project_id?'original:'+project.director_project_id:null);
+ const sameProject=previous.projectId===project.id&&previous.directorProjectId===(project.director_project_id||'');
+ const priorEdition=previous.editionId===editionId||!previous.editionId&&(!editionId||editionId==='original:'+project.director_project_id)?previous:(previous.promptEditions||[]).find(row=>row.editionId===editionId);
+ const sameSource=sameProject&&Boolean(priorEdition);
+ const usedCardUids=new Set(),rawIds=new Map();
+ for(const ep of inspection.episodes)for(const p of ep.prompts||[])if(p.id)rawIds.set(String(p.id),(rawIds.get(String(p.id))||0)+1);
  if(inspection.error)issues.push(inspection.error);
  for(const episode of inspection.episodes){
   const record=ledger.episodes?.[episode.episodeNumber],valid=record&&isReviewCurrent(record,episode);
@@ -31,10 +37,13 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
     const key=`${episode.id||episode.episodeNumber}:${item.id}`;
     let card=cards.find(row=>row.key===key);
     if(!card){
-     const old=previous.cards?.find(row=>row.key===key),matches=assets.filter(asset=>asset.name===item.name&&asset.category===item.category);
+     const uniqueCard=new Set(record.scenes.flatMap(s=>s.items).filter(i=>i.category===item.category&&i.name===item.name).map(i=>i.id)).size===1;
+     const aliases=sameProject&&uniqueCard?(previous.cards||[]).filter(row=>row.category===item.category&&row.name===item.name&&row.sceneIds.some(id=>Number(id.split('-')[0])===episode.episodeNumber)&&!usedCardUids.has(row.uid)):[];
+     const old=previous.cards?.find(row=>row.key===key&&!usedCardUids.has(row.uid))||(aliases.length===1?aliases[0]:null),matches=assets.filter(asset=>asset.name===item.name&&asset.category===item.category);
      const asset=matches.length===1?matches[0]:null;
      card={key,uid:old?.uid||crypto.randomUUID(),category:item.category,name:item.name,description:item.description||'',detailStatus:item.detailStatus||'',sceneIds:[],publishedSceneIds:[],assetId:asset?.id||null,images:bindingImages(asset)};
      cards.push(card);
+     usedCardUids.add(card.uid);
     }
     card.sceneIds.push(scene.id);
     if(isSceneVerified(scene)&&record.published?.[scene.id]?.signature===reviewSceneSignature(scene))card.publishedSceneIds.push(scene.id);
@@ -45,7 +54,11 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
    const invalid=reason=>{issues.push(reason);invalidEntries.push({episode:episode.episodeNumber,sceneId:match&&Number(match[1])===episode.episodeNumber?`${Number(match[1])}-${Number(match[2])}`:null,label,reason,runId:prompt.generationRunId||''});};
    if(match&&prompt.generationRunId)latestRuns.set(`${Number(match[1])}-${Number(match[2])}`,prompt.generationRunId);
    if(!match||Number(match[1])!==episode.episodeNumber||!text.trim()||!prompt.id){invalid(`提示词 ${label||'未编号'} 内容为空或缺少明确身份或集场编号`);continue;}
-   const id=String(prompt.id);
+   if(rawIds.get(String(prompt.id))>1){invalid(`提示词身份重复：${label}`);continue;}
+   const aliases=sameSource?(priorEdition.entries||[]).filter(e=>e.episode===episode.episodeNumber&&e.label===label&&e.prompt===text):[];
+   const unique=(episode.prompts||[]).filter(p=>p.label===label&&String(p.content||'')===text).length===1;
+   const alias=aliases.length===1&&unique&&!promptIds.has(aliases[0].id)&&!(episode.prompts||[]).some(p=>p.id===aliases[0].id)?aliases[0]:null;
+   const id=String(alias?.id||prompt.id);
    if(seen.has(id)||promptIds.has(id)){invalid(`提示词身份重复：${label}`);continue;}seen.add(id);promptIds.add(id);
    const sceneId=`${Number(match[1])}-${Number(match[2])}`;
    entries.push({id,episodeId:episode.id||String(episode.episodeNumber),episode:episode.episodeNumber,scene:Number(match[2]),number:Number(match[3]),sceneId,label,prompt:text,promptHash:bindingHash(text),runId:prompt.generationRunId||'',...(prompt.profileId?{profileId:prompt.profileId}:{}),...(prompt.profileHash?{profileHash:prompt.profileHash}:{}),sceneReady:Boolean(valid&&record.scenes.some(scene=>scene.id===sceneId))});
@@ -58,10 +71,9 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
  const labels=new Map();for(const entry of entries){const group=labels.get(entry.label)||[];group.push(entry.id);labels.set(entry.label,group);}
  for(const entry of entries)entry.duplicateLabel=labels.get(entry.label).length>1;
  const snapshot={voiceCards:projectVoiceCards(project,ledger,{includePending:true}),projectId:project.id,directorProjectId:project.director_project_id||'',name:project.name,cards,entries,issues,invalidEntries};
- const explicitEdition=activeDirectorEditionId(project),editionId=explicitEdition||(project.director_project_id?'original:'+project.director_project_id:null);
  if(editionId){snapshot.editionId=editionId;snapshot.editionName=directorPromptEditions(project).find(row=>row.id===editionId)?.name||'原始版本';}
  if(includeEditions&&editionId)snapshot.promptEditions=(explicitEdition?directorPromptEditions(project):[{id:editionId,name:'原始版本',legacyOriginal:true}]).map(row=>{
-  const source=row.id===editionId?snapshot:bindingSnapshot({...project,episodes:directorEditionEpisodes(project,row.id)},ledger,assets,{cards},false);
+  const source=row.id===editionId?snapshot:bindingSnapshot({...project,episodes:directorEditionEpisodes(project,row.id)},ledger,assets,{...previous,cards},false);
   return {editionId:row.id,editionName:row.name,...(row.legacyOriginal?{legacyOriginal:true}:{}),entries:source.entries,issues:source.issues,invalidEntries:source.invalidEntries};
  });
  snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
@@ -254,7 +266,11 @@ export async function loadFreshBinding({api,projectId,accountId,localSources=[],
  if(!saved?.enabled&&!allowUnbound)throw Error('该项目已关闭联动模式，请重新核对');
  const source=localSources.find(row=>!row.cloudProjectId&&row.id===project.director_project_id);
  const effectiveLedger=structuredClone(ledger||{episodes:{}});effectiveLedger.episodes||={};
- for(const [number,progress] of Object.entries(project.analysis_progress||{}))if(progress.review&&Number(progress.review.version)>Number(effectiveLedger.episodes[number]?.version||0))effectiveLedger.episodes[number]=progress.review;
+ for(const [number,progress] of Object.entries(project.analysis_progress||{}))if(progress.review&&Number(progress.review.version)>Number(effectiveLedger.episodes[number]?.version||0)){
+  const remote=progress.review,local=effectiveLedger.episodes[number];
+  if(remote.sourceContent!==undefined)effectiveLedger.episodes[number]=remote;
+  else if(local&&remote.scenes?.length&&remote.scenes.every(s=>typeof s.source==='string'&&local.scenes.some(l=>l.id===s.id&&l.source===s.source)))effectiveLedger.episodes[number]={...local,...remote,sourceContent:local.sourceContent,voiceAnalysis:remote.voiceAnalysis||local.voiceAnalysis};
+ }
  // Director and cloud collaboration episodes have independent database IDs.
  // Refresh content by episode number while retaining collaboration identity,
  // otherwise every card key/UID is recreated and all saved bindings go stale.

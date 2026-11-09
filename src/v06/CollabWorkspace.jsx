@@ -44,7 +44,7 @@ import {ProjectVideoPool} from './ProjectVideoPool.jsx';
 import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, Plus, X, Users, FileText, Palette, Box, Clapperboard,
+  ArrowLeft, Plus, X, Users, AudioLines, FileText, Palette, Box, Clapperboard,
   UserPlus, BarChart3, MessagesSquare, Sparkles, RefreshCw, Send,
   Image as ImageIcon, Upload, Download, Trash2, Check, Film, AtSign, Loader2, PencilLine, Save, ClipboardCheck,
 } from 'lucide-react';
@@ -64,7 +64,7 @@ import '../art-workbench.css';
 import ArtWorkflowControl from './ArtWorkflowControl.jsx';
 import {artWorkflowState} from '../../core/artWorkflow.js';
 
-const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, voices: Users, assets: Box, storyboard: Clapperboard, 'video-pool': Film, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
+const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, voices: AudioLines, assets: Box, storyboard: Clapperboard, 'video-pool': Film, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
 const collabAnalysisRuns = new Map();
 function currentAnalysisJob(key){
@@ -134,11 +134,7 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
 }
 
 export function ReviewSection(props){
- const tabKey=`xz-review-tab:${props.accountId}:${props.project.id}`;
- const [tab,setTab]=useState(()=>localStorage.getItem(tabKey)||'art');
- const onlyVoice=props.project.myRole==='collaborator',active=onlyVoice?'voices':tab;
- const choose=value=>{setTab(value);localStorage.setItem(tabKey,value);};
- return <><nav className="review-section-tabs" aria-label="清单核实类型"><button className={active==='voices'?'active':''} onClick={()=>choose('voices')}>音色</button><button className={active==='art'?'active':''} disabled={onlyVoice} onClick={()=>choose('art')}>核实分发</button></nav>{active==='voices'?<ProjectVoices {...props}/>:<ArtReviewEntry {...props}/>}</>;
+ return <ArtReviewEntry {...props}/>;
 }
 
 function ArtReviewEntry(props){
@@ -1537,7 +1533,7 @@ export function CollabWorkspace({ state, api, account }) {
     const cachedAssets = readCache(`assets-${lastId}`);
     if (cachedProject) {
       setProject(cachedProject); setAssets(prepareAssets(cachedProject,cachedAssets || []));
-      let lastSection = localStorage.getItem('xz-collab-last-section');if(lastSection==='voices'){lastSection='art-review';localStorage.setItem(`xz-review-tab:${account?.id}:${cachedProject.id}`,'voices');}
+      let lastSection = localStorage.getItem('xz-collab-last-section');if(lastSection==='art-review'&&(cachedProject.myRole==='collaborator'||localStorage.getItem(`xz-review-tab:${account?.id}:${cachedProject.id}`)==='voices')){lastSection='voices';localStorage.removeItem(`xz-review-tab:${account?.id}:${cachedProject.id}`);}
       setSection(lastSection && sectionsForRole(cachedProject.myRole).includes(lastSection) ? lastSection : sectionsForRole(cachedProject.myRole)[0]);
     }
     // 后台校验项目仍可访问并拉取最新数据
@@ -1588,7 +1584,9 @@ export function CollabWorkspace({ state, api, account }) {
       ]);
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
-      p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));
+      let syncIssue='';
+      try{p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));}
+      catch(error){if(String(error?.message||'').includes('project_access_denied'))throw error;syncIssue=error.message||'请稍后重试';}
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
@@ -1597,7 +1595,8 @@ export function CollabWorkspace({ state, api, account }) {
       // Resume missing associations with the fresh Director edition, without
       // tying background model work to the refresh button's network lifetime.
       void getArtDistributionController({api,projectId,accountId:account?.id}).refresh({project:p,store,existingAssets:normalizedAssets,onBindingSaved:data=>notifyBindingSaved(projectId,account?.id,data)}).catch(error=>{if(isCurrentTarget())setRefreshNotice(`提示词已刷新，补充分发未完成：${error.message}`);});
-      if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
+      if(syncIssue)setRefreshNotice(`云端素材已刷新；导演同步未完成：${syncIssue}`);
+      else if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
       return p;
     } catch (error) {
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
@@ -1735,9 +1734,10 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
         {section === 'art-review' && <ReviewSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
+        {section === 'voices' && <ProjectVoices project={project} assets={assets} api={api} state={state} accountId={account?.id} canEdit={canEditArt}/> }
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
-        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} accountId={account?.id} />}
+        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} accountId={account?.id} onOpenStoryboard={row=>{rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'storyboard'},{episodeNumber:row.episode,sceneId:row.scene,shotId:row.shotId});setSection('storyboard');}} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
         {section === 'group' && <GroupSection project={project} api={api} account={account} />}

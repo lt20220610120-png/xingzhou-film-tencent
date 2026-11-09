@@ -11,6 +11,7 @@ export const COLLAB_SECTIONS = [
   ['art-review', '清单核实'],
   ['art', '美术'],
   ['assets', '资产'],
+  ['voices', '音色'],
   ['storyboard', '分镜'],
   ['video-pool', '视频池'],
   ['invite', '邀请协作'],
@@ -19,10 +20,10 @@ export const COLLAB_SECTIONS = [
 ];
 
 const ROLE_SECTIONS = {
-  producer: ['info', 'art-review', 'art', 'assets', 'storyboard', 'video-pool', 'invite', 'stats', 'group'],
-  artist: ['info', 'art-review', 'art', 'assets', 'group'],
-  collaborator: ['art-review', 'storyboard', 'video-pool', 'group'],
-  artist_collaborator: ['info', 'art-review', 'art', 'assets', 'storyboard', 'video-pool', 'group'],
+  producer: ['info', 'art-review', 'art', 'assets', 'voices', 'storyboard', 'video-pool', 'invite', 'stats', 'group'],
+  artist: ['info', 'art-review', 'art', 'assets', 'voices', 'group'],
+  collaborator: ['voices', 'storyboard', 'video-pool', 'group'],
+  artist_collaborator: ['info', 'art-review', 'art', 'assets', 'voices', 'storyboard', 'video-pool', 'group'],
 };
 
 export const sectionsForRole = (role) => ROLE_SECTIONS[role] || ['group'];

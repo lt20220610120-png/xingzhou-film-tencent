@@ -15,7 +15,7 @@ export default function PromptPublicationProgress({api,accountId,projectId,refre
  const failed=(state.items||[]).filter(i=>i.phase==='failed'),completed=(state.items||[]).filter(i=>i.phase==='complete'),queued=(state.items||[]).filter(i=>i.phase==='queued').length;
  const seconds=state.running?elapsed:Math.floor(((state.finishedAt||Date.now())-state.startedAt)/1000);
  return <section className="prompt-publication-progress" aria-label="提示词发布进度">
-  <header><b>{state.running?'正在后台发布':state.error||failed.length?'发布有未完成项':'发布完成'}</b><span>已完成 {state.done||0}/{state.total||0} 条 · {completed.length}/{state.items?.length||0} 集</span><span>并发 {state.active?.length||0}/4 · 排队 {queued} 集 · {seconds} 秒</span><small>不调用大模型</small></header>
+  <header><b>{state.running?'正在后台发布':state.error||failed.length?'发布有未完成项':'发布完成'}</b><span>已完成 {state.done||0}/{state.total||0} 条 · {completed.length}/{state.items?.length||0} 集</span>{state.running&&<span>并发 {state.active?.length||0}/4 · 排队 {queued} 集 · {seconds} 秒</span>}</header>
   <progress aria-label="已发布提示词" max={state.total||1} value={state.done||0}/>
   {!!state.active?.length&&<p role="status">{state.active.map(i=>`第 ${i.episode} 集：${phases[i.phase]||i.phase}`).join('；')}</p>}
   {state.error&&<p role="alert">{state.error}</p>}

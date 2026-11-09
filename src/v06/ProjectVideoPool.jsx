@@ -1,10 +1,12 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {Film,ArrowUpRight,RefreshCw,Download} from 'lucide-react';
 import {projectVideoRows,filterProjectVideos,videoLabelCompare} from '../../core/projectVideoPool.js';
 import {generationMediaProfiles} from '../../core/canvasStore.js';
 import {GenerationResults} from './GenerationResults.jsx';
 import './ProjectVideoPool.css';
-export function ProjectVideoPool({project,api,state,accountId}){
+export function ProjectVideoPool({project,api,state,accountId,onOpenStoryboard}){
  const [rows,setRows]=useState([]),[episode,setEpisode]=useState(''),[scene,setScene]=useState(''),[automatic,setAutomatic]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
+ const [status,setStatus]=useState('all'),[page,setPage]=useState(1);
  const loading=useRef(false),epoch=useRef(0),latest=useRef({state,project});latest.current={state,project};
  useEffect(()=>{const ticket=++epoch.current;let disposed=false,mediaPending=false,cloudMedia=[],mediaAt=0;const querying=new Set();loading.current=false;setRows([]);setEpisode('');setScene('');setError('');
   const display=tasks=>{if(disposed||ticket!==epoch.current)return;const cloud=latest.current.project,source=latest.current.state.directorProjects?.find(p=>p.id===cloud.director_project_id);setRows(projectVideoRows(source?{...cloud,episodes:source.episodes}:cloud,tasks,cloudMedia));};
@@ -20,13 +22,16 @@ export function ProjectVideoPool({project,api,state,accountId}){
   void load();const timer=automatic?setInterval(load,4000):null;window.addEventListener('xz-video-pool-refresh',load);
   return()=>{disposed=true;clearInterval(timer);window.removeEventListener('xz-video-pool-refresh',load);};
  },[project.id,accountId,automatic]);
- const shown=filterProjectVideos(rows,{episode,scene}),successful=shown.filter(r=>r.status==='success');
+ const scoped=filterProjectVideos(rows,{episode,scene}),successful=scoped.filter(r=>r.status==='success');
+ const groups=[['all','全部',()=>true],['success','已完成',r=>r.status==='success'],['active','生成中',r=>['submitted','submitting','downloading'].includes(r.status)],['failed','待处理',r=>['failed','uncertain'].includes(r.status)],['not-started','未生成',r=>r.status==='not-started']];
+ const shown=scoped.filter(groups.find(g=>g[0]===status)[2]),pages=Math.max(1,Math.ceil(shown.length/60)),currentPage=Math.min(page,pages),visible=shown.slice((currentPage-1)*60,currentPage*60);
+ useEffect(()=>setPage(1),[episode,scene,status,project.id]);
  const download=async()=>{setBusy(true);setError('');try{const result=await api.projectVideoExport({projectId:project.id,ids:successful.map(r=>({jobId:r.mediaId?undefined:r.id,mediaId:r.mediaId}))});if(result)setNotice(`已下载 ${result.completed} 条${result.errors.length?`，${result.errors.length} 条未完成：${result.errors.join('；')}`:''}`);}catch(e){setError(e.message);}finally{setBusy(false);}};
- return <section className="project-video-pool"><header><div><h2>视频池</h2></div><button onClick={()=>window.dispatchEvent(new Event('xz-video-pool-refresh'))}>刷新状态</button></header>
- <div className="video-pool-toolbar"><label>集数<select value={episode} onChange={e=>{setEpisode(e.target.value);setScene('');}}><option value="">整个剧</option>{[...new Set(rows.map(r=>r.episode).filter(Boolean))].sort((a,b)=>a-b).map(ep=><option key={ep} value={ep}>第 {ep} 集</option>)}</select></label><label>场景<select value={scene} disabled={!episode} onChange={e=>setScene(e.target.value)}><option value="">全部场景</option>{[...new Set(filterProjectVideos(rows,{episode}).map(r=>r.scene).filter(Boolean))].sort(videoLabelCompare).map(s=><option key={s}>{s}</option>)}</select></label><label className="video-pool-check"><input type="checkbox" checked={automatic} onChange={e=>setAutomatic(e.target.checked)}/>每 4 秒自动监测</label><button className="primary" disabled={busy||!successful.length} onClick={download}>{busy?'正在下载…':`一键下载${scene?'本场':episode?'本集':'全剧'}（${successful.length}）`}</button></div>
- <div className="video-pool-counts"><span>共 {shown.length} 条</span><span>已成功 {successful.length}</span><span>生成中 {shown.filter(r=>['submitted','submitting','downloading'].includes(r.status)).length}</span><span>失败 / 待核对 {shown.filter(r=>['failed','uncertain'].includes(r.status)).length}</span><span>未生成 {shown.filter(r=>r.status==='not-started').length}</span></div>
+ return <section className="project-video-pool"><header><h2>视频池</h2><div className="video-pool-header-actions"><label className="video-pool-check"><input type="checkbox" checked={automatic} onChange={e=>setAutomatic(e.target.checked)}/>自动刷新</label><button aria-label="刷新视频状态" onClick={()=>window.dispatchEvent(new Event('xz-video-pool-refresh'))}><RefreshCw size={15}/>刷新</button><button className="primary" disabled={busy||!successful.length} onClick={download}><Download size={15}/>{busy?'正在下载…':`下载${scene?'本场':episode?'本集':'全剧'}（${successful.length}）`}</button></div></header>
+ <div className="video-pool-toolbar"><div className="video-pool-status-tabs" role="group" aria-label="视频状态">{groups.map(([key,label,matches])=><button key={key} aria-pressed={key===status} onClick={()=>setStatus(key)}>{label}<span>{scoped.filter(matches).length}</span></button>)}</div><label>集数<select aria-label="视频池集数" value={episode} onChange={e=>{setEpisode(e.target.value);setScene('');}}><option value="">全剧</option>{[...new Set(rows.map(r=>r.episode).filter(Boolean))].sort((a,b)=>a-b).map(ep=><option key={ep} value={ep}>第 {ep} 集</option>)}</select></label><label>场景<select aria-label="视频池场景" value={scene} disabled={!episode} onChange={e=>setScene(e.target.value)}><option value="">全部场景</option>{[...new Set(filterProjectVideos(rows,{episode}).map(r=>r.scene).filter(Boolean))].sort(videoLabelCompare).map(s=><option key={s}>{s}</option>)}</select></label></div>
  {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
- {!rows.length&&<p>当前项目暂无分镜或生成结果。</p>}
- {shown.map(row=><article className="video-pool-row" key={row.id}><h3>{row.label}</h3>{row.status==='not-started'?<p>尚未生成，请在分镜中生成，或由管理员制作工作流接续。</p>:<GenerationResults tasks={[row]} api={api} onRefresh={()=>window.dispatchEvent(new Event('xz-video-pool-refresh'))}/>}</article>)}
+ {!shown.length&&<div className="video-pool-empty"><Film size={30} aria-hidden="true"/><p>{!rows.length?'暂无分镜':'没有符合筛选的视频'}</p></div>}
+ <div className="video-pool-grid">{visible.map(row=><article className={`video-pool-row${row.status==='not-started'?' video-pool-row--waiting':''}`} key={row.id}>{row.status==='not-started'?<><button className="video-pool-placeholder" aria-label={`打开分镜 ${row.label}`} disabled={!onOpenStoryboard} onClick={()=>onOpenStoryboard?.(row)}><Film size={27} aria-hidden="true"/>{onOpenStoryboard&&<span>前往分镜<ArrowUpRight size={14}/></span>}</button><header><h3>{row.label}</h3><span>未生成</span></header></>:<><h3>{row.label}</h3><GenerationResults tasks={[row]} api={api} onRefresh={()=>window.dispatchEvent(new Event('xz-video-pool-refresh'))}/></>}</article>)}</div>
+ {pages>1&&<nav className="video-pool-pagination" aria-label="视频池分页"><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>上一页</button><span>{currentPage} / {pages}</span><button disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>下一页</button></nav>}
  </section>;
 }
