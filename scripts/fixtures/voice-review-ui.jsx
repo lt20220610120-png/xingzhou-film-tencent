@@ -1,4 +1,4 @@
-import React from 'react';import {createRoot} from 'react-dom/client';import {ReviewSection} from '../../src/v06/CollabWorkspace.jsx';
+import React from 'react';import {createRoot} from 'react-dom/client';import ProjectVoices from '../../src/v06/ProjectVoices.jsx';
 import {newArtReview} from '../../core/artReview.js';
 import '../../src/styles.css';import '../../src/v06.css';import '../../src/ocean-theme.css';
 const names=['小林','小王','老周'],episodes=[1,2,3].map(n=>({episodeNumber:n,id:'ep'+n,title:`第${n}集`,content:`${n}-1 日 内\n小林：回家。\n小王：走吧。\n老周：好。\n${n===1?'幼年的沈清澜：我会回来的。\n路人甲：借过。':'成年的沈清澜：我终于回来了。'}\n围观群众：好。`}));
@@ -7,5 +7,6 @@ let ledger={episodes:Object.fromEntries(episodes.map(e=>{const n=e.episodeNumber
 for(const episode of episodes){const record=ledger.episodes[episode.episodeNumber];ledger.episodes[episode.episodeNumber]={...newArtReview(episode),...record,roster:record.scenes.flatMap(scene=>scene.items),unassigned:[],status:'candidate'};}
 window.voiceQA={requests:[],exports:[],reads:[],deleted:[],ledger,active:0,maxActive:0,delay:30};
 const api={artReviewLoadLocal:async()=>ledger,artReviewSaveLocal:async({data})=>{ledger=structuredClone(data);window.voiceQA.ledger=ledger;},analysisLoad:async()=>null,artReviewList:async()=>[],promptArtStatus:async()=>({enabled:false}),audioGenerate:async p=>{const qa=window.voiceQA;qa.requests.push(p);qa.active++;qa.maxActive=Math.max(qa.maxActive,qa.active);await new Promise(r=>setTimeout(r,qa.delay));qa.active--;return {id:'generated-'+qa.requests.length,url:'data:audio/wav;base64,UklGRg==',duration:2};},audioResultRetain:async p=>({id:p.id,url:'data:audio/wav;base64,UklGRg=='}),audioResultDelete:async({id})=>{window.voiceQA.deleted.push(id);},mediaExportFile:async p=>{window.voiceQA.exports.push(p);return 'D:/export.wav';},mediaImportFiles:async()=>[{url:'data:audio/wav;base64,UklGRg==',name:'本地音频'}],aiChat:async p=>{window.voiceQA.reads.push(p);const data=JSON.parse(p.messages[1].content),quote=data.existing?.quote||'回家。';return JSON.stringify({quote,evidence:'小林：回家。',sampleQuote:quote+'大家都在等我们，别让他们等得太着急了。',language:'Chinese'});}};
-localStorage.setItem('xz-review-tab:qa:voice-review-qa','voices');
-createRoot(document.getElementById('root')).render(<main style={{marginLeft:230,padding:20,minWidth:0}}><ReviewSection project={project} assets={[]} api={api} state={state} accountId="qa" canEdit={true}/></main>);
+const originalSave=api.artReviewSaveLocal;api.artReviewSaveLocal=async args=>{if(window.voiceQA.failSave)throw Error('模拟保存失败，请重试');return originalSave(args);};
+function Harness(){const [canEdit,setCanEdit]=React.useState(true);window.voiceQA.setCanEdit=setCanEdit;return <main style={{marginLeft:230,padding:20,minWidth:0}}><ProjectVoices project={project} assets={[]} api={api} state={state} accountId="qa" canEdit={canEdit}/></main>;}
+createRoot(document.getElementById('root')).render(<Harness/>);
