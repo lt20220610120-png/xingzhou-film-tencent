@@ -56,6 +56,7 @@ export function Dialog({ open, title, children, onClose,className='' }) {
     const focusables = () => [...(modalRef.current?.querySelectorAll('button:not(:disabled), input, select, textarea, [tabindex="0"]') || [])];
     focusables()[0]?.focus();
     const onKey = event => {
+      if(document.querySelector('.delete-confirm-veil:not([hidden])'))return;
       if (event.key === 'Escape') { event.stopPropagation(); closeRef.current(); }
       if (event.key !== 'Tab') return;
       const nodes = focusables(), first = nodes[0], last = nodes.at(-1);

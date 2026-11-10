@@ -539,6 +539,12 @@ ipcMain.handle('project-video-export',async(_,p)=>{
  await guard();const media=await collabService.listMedia({projectId:project.id});
  return require('./project-video-export.cjs').exportProjectVideos({project,ids:p.ids,jobs:jobs().list({includeArchived:true}),media,folder:result.filePaths[0],mediaRoot:mediaDir(),download:require('./media-service.cjs').downloadToFile,guard});
 });
+ipcMain.handle('project-video-delete',async(event,p)=>{
+ const account=await accessService.session();if(!account?.id)throw Error('请先登录');
+ const guard=async()=>{const current=await accessService.session();if(current?.id!==account.id)throw Error('账号已切换，删除已停止');const project=await collabService.getProject({projectId:p.projectId});if(event.securitySignal?.aborted||String(readCloudSession()?.account?.id||'')!==String(account.id))throw Error('账号已切换，删除已停止');if(project.locked||!['producer','collaborator','artist_collaborator'].includes(project.myRole))throw Error('项目已锁定或没有删除权限');return project;};
+ const project=await guard(),media=await collabService.listMedia({projectId:project.id});
+ return require('./project-video-delete.cjs').deleteProjectVideos({project,ids:p.ids,jobs:jobs().list({includeArchived:true}),media,deleteMedia:payload=>collabService.deleteMedia(payload),hideJobs:payload=>jobs().hideProjectVideos(payload),guard});
+});
 let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});protectWindow(canvasWindow,{allowUrl:canvasPage,openExternal:url=>shell.openExternal(url)});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:LOCAL_MEDIA_PRIVILEGES},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);

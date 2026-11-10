@@ -10,3 +10,7 @@
 
 .generation-results.generation-results-compact .generation-result-select{flex-direction:row;flex-shrink:0;white-space:nowrap;min-width:max-content}
 .video-pool-results-dialog .generation-results>header{justify-content:flex-end}.video-pool-results-dialog .generation-results>header>div:first-child{display:none}
+
+.generation-results.generation-results-compact .generation-result-grid{align-items:stretch;grid-auto-rows:280px}.generation-results.generation-results-compact .generation-result-grid>article{height:280px;max-height:280px;overflow:auto;box-sizing:border-box;min-height:0}.generation-results.generation-results-compact .generation-result-preview,.generation-results.generation-results-compact .generation-result-placeholder{flex:none}.video-pool-row .video-pool-delete{padding:3px;min-height:24px;line-height:0;border:1px solid #edd8dc;border-radius:4px;background:#fff7f7;color:#aa4b58}.video-pool-row>header h3{margin-right:auto}
+
+.generation-results.generation-results-compact .generation-result-grid article>header{height:26px;min-height:26px;max-height:26px;flex:none;flex-wrap:nowrap}.generation-results.generation-results-compact .generation-result-select{margin:0;padding:0;line-height:16px;min-height:0;height:20px}

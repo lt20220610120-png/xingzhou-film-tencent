@@ -1,11 +1,12 @@
 const {normalizeStoryboardEpisodes}=require('./storyboard-identity.cjs');
 const {episodeNumber,unitHeaders}=require('./collab-episodes.cjs');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const {applySettings,settingsFor}=require('./storyboard-settings.cjs');
 function mergeDirectorEpisodes(current=[],incoming=[]) {
  const originals=(Array.isArray(current)?current:[]).filter(ep=>ep&&typeof ep==='object');
  current=normalizeStoryboardEpisodes(originals).map((ep,index)=>ep.collabOnly?structuredClone(originals[index]):ep);
  incoming=normalizeStoryboardEpisodes(incoming);
- const usedEpisodes=new Set();
+ const usedEpisodes=new Set(),projectDefaults=current.find(ep=>ep.storyboardDefaultSettings?.global)?.storyboardDefaultSettings?.global;
  // Older collaboration copies omitted IDs that still exist in the director
  // source. Match a unique episode identity before adding a second copy.
  const identityCache=new Map();
@@ -18,6 +19,7 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
   }
   if(old?.collabOnly){usedEpisodes.add(old);return old;}
   old=old||{};usedEpisodes.add(old);
+  if(!old.storyboardDefaultSettings&&projectDefaults)old={...old,storyboardDefaultSettings:{global:projectDefaults,scenes:{}}};
   // Director drafts remain available to the review page. The storyboard has
   // its own published working copy, initialized once for older projects.
   const storyboardPrompts=old.storyboardPrompts||((old.prompts||[]).length?structuredClone(old.prompts):null);
@@ -60,7 +62,9 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
  return merged;
 }
 function patchShot(episodes,payload) {
- const next=normalizeStoryboardEpisodes(structuredClone(episodes||[])),ep=next.find(e=>payload.operation==='publish'?episodeNumber(e)===Number(payload.episodeNumber):e.id===String(payload.episodeId));
+ const next=normalizeStoryboardEpisodes(structuredClone(episodes||[]));
+ if(payload.operation==='settings')return applySettings(next,payload);
+ const ep=next.find(e=>payload.operation==='publish'?episodeNumber(e)===Number(payload.episodeNumber):e.id===String(payload.episodeId));
  if(!ep)throw Object.assign(new Error('分集已变更，请刷新后重试'),{status:409});
  if(payload.operation==='publish'){
   const scenes=payload.sceneIds,prompts=payload.prompts;
@@ -68,7 +72,7 @@ function patchShot(episodes,payload) {
   const previous=ep.storyboardPrompts||ep.prompts||[];
   if(prompts.every(p=>previous.some(s=>s.sourcePromptId===p.id&&s.storyboardPublicationId===payload.publicationId&&s.sourceContent===p.content)))return next;
   const retained=previous.filter(p=>!scenes.includes(String(p.label).split('-').slice(0,2).join('-')));
-  const rows=prompts.map(p=>{const old=previous.find(s=>s.id===p.id)||previous.find(s=>s.label===p.label);return {id:old?.id||p.id,sourcePromptId:p.id,label:p.label,content:p.generationConfig?.bindingCompiledPrompt||p.content,sourceContent:p.content,storyboardPublicationId:payload.publicationId,generationConfig:{...old?.generationConfig,...p.generationConfig,autoReferenceExclusions:[],autoReferenceSignature:null,storyboardRemovedReferences:[],storyboardReferenceBaseline:undefined,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:payload.publicationId},manual:false};});
+  const rows=prompts.map(p=>{const old=previous.find(s=>s.id===p.id)||previous.find(s=>s.label===p.label),defaults=settingsFor(ep,p.label);return {id:old?.id||p.id,sourcePromptId:p.id,label:p.label,content:p.generationConfig?.bindingCompiledPrompt||p.content,sourceContent:p.content,storyboardPublicationId:payload.publicationId,generationConfig:{...defaults?.settings,...(defaults?{storyboardDefaultsRevision:defaults.revision}:{}),...old?.generationConfig,...p.generationConfig,autoReferenceExclusions:[],autoReferenceSignature:null,storyboardRemovedReferences:[],storyboardReferenceBaseline:undefined,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:payload.publicationId},manual:false};});
   if(rows.some(p=>retained.some(s=>s.id===p.id)))throw Object.assign(Error('发布的分镜编号重复'),{status:400});
   ep.storyboardPrompts=[...retained,...rows].sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
   ep.storyboardWorkspacePolicy='published';
@@ -101,7 +105,8 @@ function patchShot(episodes,payload) {
   if(ep.prompts.some(p=>p.id===payload.shotId))return finish();
   const max=Math.max(0,ep.shotCounters?.[payload.scene]||0,...ep.prompts.filter(p=>p.label?.startsWith(payload.scene+'-')).map(p=>Number(p.label.split('-')[2])||0));
   ep.shotCounters={...ep.shotCounters,[payload.scene]:max+1};
-  ep.prompts.push({id:payload.shotId,label:`${payload.scene}-${max+1}`,content:'',manual:true});
+  const defaults=settingsFor(ep,payload.scene+'-'+(max+1));
+  ep.prompts.push({id:payload.shotId,label:`${payload.scene}-${max+1}`,content:'',manual:true,...(defaults?{generationConfig:{...defaults.settings,storyboardDefaultsRevision:defaults.revision}}:{})});
  }else if(payload.operation==='delete'){
   const shot=ep.prompts.find(p=>p.id===payload.shotId);
   if(!shot){if((ep.deletedPromptIds||[]).includes(payload.shotId))return finish();throw Object.assign(new Error('分镜已变更，请刷新核对'),{status:409});}
@@ -114,7 +119,8 @@ function patchShot(episodes,payload) {
   const shot=ep.prompts.find(p=>p.id===payload.shotId);if(!shot)throw Object.assign(new Error('分镜已变更'),{status:409});
   for(const key of ['content','generationConfig'])if(key in (payload.updates||{})){
    if(payload.editPolicy!=='direct'&&!equal(shot[key]??null,payload.base?.[key]??null)&&!equal(shot[key],payload.updates[key]))throw Object.assign(new Error('这条分镜已被其他协作者修改，草稿已保留；请刷新并核对云端内容后保存'),{status:409});
-   shot[key]=payload.updates[key];
+   const defaults=key==='generationConfig'&&payload.editPolicy==='direct'?settingsFor(ep,shot.label):null;
+   shot[key]=defaults&&payload.updates[key]?.storyboardDefaultsRevision!==defaults.revision?{...payload.updates[key],...defaults.settings,storyboardDefaultsRevision:defaults.revision}:payload.updates[key];
   }
   shot.edited_at=new Date().toISOString();
   delete shot.sourceConflict;

@@ -1746,7 +1746,7 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'voices' && <ProjectVoices project={project} assets={assets} api={api} state={state} accountId={account?.id} canEdit={canEditArt}/> }
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
-        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} accountId={account?.id} onOpenStoryboard={row=>{rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'storyboard'},{episodeNumber:row.episode,sceneId:row.scene,shotId:row.shotId});setSection('storyboard');}} />}
+        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} canDelete={canEditBoard} accountId={account?.id} onOpenStoryboard={row=>{rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'storyboard'},{episodeNumber:row.episode,sceneId:row.scene,shotId:row.shotId});setSection('storyboard');}} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
         {section === 'group' && <GroupSection project={project} api={api} account={account} />}

@@ -4,8 +4,9 @@ export function projectVideoRows(project,tasks=[],media=[]){
  const shots=new Map();
  (project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传').forEach((ep,i)=>{for(const shot of ep.storyboardPrompts||ep.prompts||[])shots.set(shot.id,{shotId:shot.id,label:shot.label,episode:Number(String(shot.label||'').match(/^(\d+)-/)?.[1])||inferDirectorEpisodeNumber(ep,i+1),scene:String(shot.label||'').split('-').slice(0,2).join('-')});});
  for(const shot of [...shots.values()]){const original=(project.episodes||[]).flatMap(e=>e.storyboardPrompts||e.prompts||[]).find(s=>s.id===shot.shotId);if(original?.sourcePromptId)shots.set(original.sourcePromptId,shot);}
- const local=tasks.filter(t=>t.projectId===project.id&&t.kind==='video').map(t=>({...t,localResult:true,...shots.get(t.shotId),label:shots.get(t.shotId)?.label||t.shotLabel||t.promptLabel||t.scene||'未标号'}));
- const seen=new Set(local.map(t=>t.mediaId).filter(Boolean));
+ const recorded=tasks.filter(t=>t.projectId===project.id&&t.kind==='video').map(t=>({...t,localResult:true,...shots.get(t.shotId),label:shots.get(t.shotId)?.label||t.shotLabel||t.promptLabel||t.scene||'未标号'}));
+ const local=recorded.filter(t=>!t.projectVideoDeleted);
+ const seen=new Set(recorded.map(t=>t.mediaId).filter(Boolean));
  const cloud=media.filter(m=>m.kind==='video'&&(!m.projectId||m.projectId===project.id)&&(!m.project_id||m.project_id===project.id)&&!seen.has(m.id)).flatMap(m=>{
   const id=String(m.note||'').match(/\[shot:([^\]]+)\]/)?.[1];
   const shot=shots.get(id)||[...shots.values()].find(s=>s.label===m.note&&s.scene===m.scene&&s.episode===Number(m.episode));

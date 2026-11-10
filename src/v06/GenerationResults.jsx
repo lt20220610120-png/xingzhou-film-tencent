@@ -15,7 +15,7 @@ function storageSize(bytes = 0) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
-export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onClear, compact=tasks.every(t=>t.kind==='video'),selectedIds=[],onSelect,latestId }) {
+export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onDeleteMany, onClear, compact=tasks.every(t=>t.kind==='video'),selectedIds=[],onSelect,latestId }) {
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const [menuOpen,setMenuOpen]=useState(false),menu=useRef(null),trigger=useRef(null);
@@ -33,9 +33,9 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     if (busy || !cleanup?.rows.length) return;
     setBusy(true); setError('');
     try {
-      const result = await onClear(cleanup.rows.map(task => task.id),{includeActive:cleanup.includeActive});
+      const result = onDeleteMany?await onDeleteMany(cleanup.rows):onClear?await onClear(cleanup.rows.map(task => task.id),{includeActive:cleanup.includeActive}):await onDelete(cleanup.rows[0]);
       setCleanup(null);
-      setNotice(`已清理 ${result.removed} 条，释放 ${storageSize(result.bytesFreed)}。${result.warning||''}`);
+      setNotice(onDeleteMany||onDelete?`已删除 ${result?.removed??cleanup.rows.length} 条。${result?.errors?.join('；')||''}`:`已清理 ${result.removed} 条，释放 ${storageSize(result.bytesFreed)}。${result.warning||''}`);
     } catch (cause) { setError(cause.message || '清理失败，请重试'); }
     finally { setBusy(false); }
   };
@@ -58,6 +58,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     <header><div><h3>生成结果 <small>{tasks.length}</small></h3></div>
       <div className="generation-result-actions">
         <button className="secondary" disabled={busy} onClick={async () => { setError(''); try { await onRefresh(); } catch (cause) { setError(cause.message); } }}><RefreshCw size={15}/>刷新结果</button>
+        {(onClear||onDeleteMany)&&<button className="danger" disabled={busy||!tasks.length} onClick={()=>askClear(tasks,'删除全部生成记录',true)}><Trash2 size={15}/>删除全部</button>}
         {onClear && <div className="generation-cleanup" ref={menu} onKeyDown={e=>{if(e.key==='Escape'){setMenuOpen(false);trigger.current?.focus();}if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const buttons=[...menu.current.querySelectorAll('[role="menuitem"]:not(:disabled)')],index=buttons.indexOf(document.activeElement),next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;buttons[next]?.focus();}}}>
           <button ref={trigger} className="danger" disabled={busy||!tasks.length} aria-haspopup="menu" aria-expanded={menuOpen} onClick={()=>setMenuOpen(open=>!open)}><Trash2 size={15}/>清理结果<ChevronDown size={14}/></button>
           {menuOpen&&<div className="generation-cleanup-menu" role="menu" aria-label="清理生成结果">{cleanupChoices.map(choice=><button type="button" role="menuitem" key={choice.label} disabled={!choice.rows.length} className={choice.includeActive?'cleanup-all':''} onClick={()=>askClear(choice.rows,choice.label,choice.includeActive)}><span>{choice.label}</span><b>{choice.rows.length}</b></button>)}</div>}
@@ -81,13 +82,13 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
         {task.libtvCanvasUrl&&<button className="secondary" onClick={()=>api.openExternal(task.libtvCanvasUrl)}>LibTV 原画布</button>}
         {onReuse && <button className="secondary" onClick={() => onReuse(task)}><Copy size={14}/>复用</button>}
         {(task.filePath || task.url) && <button className="secondary" onClick={() => download(task)}><Download size={14}/>下载</button>}
-        {(onClear && clearable(task) || onDelete && task.status === 'success') && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => onClear ? askClear([task]) : onDelete(task)}><Trash2 size={15}/></button>}
+        {(onClear || onDelete || onDeleteMany) && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => askClear([task],'删除这条生成记录',!clearable(task))}><Trash2 size={15}/></button>}
       </div>{task.costYuan != null && <small>¥{Number(task.costYuan).toFixed(2)}</small>}</footer>
     </article>)}</div>
     {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p></div>}
     {preview && <MediaPreview key={preview.id} item={preview} onClose={closePreview} onDownload={exportTask}/>}
     <DeleteConfirm open={!!cleanup} title={`${cleanup?.label||'清理结果'}（${cleanup?.rows.length||0} 条）？`}
-      detail={cleanup?.includeActive?'清空当前界面所有卡片。运行中和待核对任务仅从界面隐藏，后台继续处理；已完成和失败结果清理本地缓存。另存文件与共享素材保留。':`仅清理选中的 ${cleanup?.rows.length||0} 条。待核对项保留原任务记录；已完成或失败结果清理本地缓存，另存文件与共享素材保留。`}
-      confirmLabel="确认清除" busy={busy} error={error} onCancel={() => { if (!busy) { setCleanup(null); setError(''); } }} onConfirm={confirmClear}/>
+      detail={onDeleteMany||onDelete?'删除所选生成记录及对应云端视频，不删除分镜提示词，本机已保存文件保留。已提交的生成任务无法在此撤回，后台仍可能继续处理和计费。':`移除所选 ${cleanup?.rows.length||0} 条记录。运行中及待核对任务继续在后台处理；已完成和失败结果清理本地缓存。另存文件与共享素材保留。`}
+      confirmLabel="确认删除" busy={busy} error={error} onCancel={() => { if (!busy) { setCleanup(null); setError(''); } }} onConfirm={confirmClear}/>
   </section>;
 }

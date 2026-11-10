@@ -2,6 +2,7 @@ const { pathToFileURL } = require('node:url');
 const identityChanges = new Set(['auth-login', 'auth-register', 'auth-logout', 'auth-recover', 'auth-unlock-role']);
 const onlineChannels = new Set(['ai-chat', 'test-ai-connection', 'discover-models', 'generation-submit', 'generation-refresh', 'media-generate-image', 'media-generate-video', 'media-retry-image-download', 'collab-generate-asset-image', 'collab-generate-video']);
 onlineChannels.add('audio-generate');
+onlineChannels.add('project-video-delete');
 onlineChannels.add('muse-local-connect');
 onlineChannels.add('codex-local-catalog');
 for(const c of ['like-status','like-pairing','like-bind','like-open-project'])onlineChannels.add(c);

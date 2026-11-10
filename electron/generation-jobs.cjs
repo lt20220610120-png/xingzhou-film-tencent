@@ -31,7 +31,7 @@ function createGenerationJobs(dir,options={}) {
     if(changed){atomic(file,repaired);}
   }
   const read = () => { if (!fs.existsSync(file)) return []; return readJobs(file); };
-  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); atomic(file,rows); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
+  const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive,projectVideoDeleted:rows[index].projectVideoDeleted}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); atomic(file,rows); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
   const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
@@ -40,6 +40,7 @@ function createGenerationJobs(dir,options={}) {
   const libtvFailed=raw=>libtvNodes(raw).some(n=>{const status=n?.data?.taskInfo?.status??n?.data?.status??n?.taskInfo?.status??n?.status;return status===3||['failed','error','canceled','cancelled'].includes(String(status).toLowerCase());});
   return {
     list: ({includeArchived=false}={}) => read().filter(j=>includeArchived===true||!j.archived),
+    hideProjectVideos({projectId,ids}){const selected=new Set(ids),rows=read();let count=0;for(const job of rows)if(job.projectId===projectId&&job.kind==='video'&&selected.has(job.id)){job.archived=true;job.projectVideoDeleted=true;job.archivedAt=new Date().toISOString();count++;}if(count)atomic(file,rows);return count;},
     async waitForCompletion(id){if(libtvRunning.has(id))await libtvRunning.get(id);const job=read().find(r=>r.id===id);if(job?.status!=='success')throw Error(job?.warning||job?.error||'LibTV 原任务已保留，请在图视生成结果中刷新或打开原画布');return job;},
     archive({id}) {const job=read().find(j=>j.id===id);if(!job)return; if(['submitting','submitted','downloading'].includes(job.status))throw new Error('运行中的任务请等待完成后移除');save({...job,archived:true});},
     clear({ ids = [], retainedPaths = [], includeActive = false } = {}) {
@@ -107,7 +108,7 @@ function createGenerationJobs(dir,options={}) {
       await options.beforeSubmit?.();const dispatchGuard=async()=>{try{await options.beforeDispatch?.(input);}catch(e){e.beforeSubmission=true;throw e;}};
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
-      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
+      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','projectVideoDeleted','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
       const job = { ...snapshot, ...((input.kind==='video'||fnko.isFnkoEndpoint(endpoint))?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
       if(input.provider==='likeai'){

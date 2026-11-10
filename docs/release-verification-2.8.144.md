@@ -18,4 +18,19 @@
 - 证据scripts/verify-media-layout-144-ui.cjs、qa/media-layout-144.*、output/playwright/media-2.8.144/。UI生成、云读取和下载接口均模拟，未提交付费模型请求或写用户真实项目。
 - 全量测试及构建、打包、公开下载校验见发布补充。
 
-纯客户端更新，无云端代码或schema部署。公开包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.144.exe
+新增：范围参数持久化需要云端storyboard-merge及storyboard-settings模块配套；无schema变更。公开包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.144.exe
+
+
+## 用户追加要求
+
+- 结果卡片统一280px高，不随任务状态/媒体是否存在改变大小；任务详情在固定卡片内展开滚动。
+- 分镜和视频池的单条/范围全部删除均经过DeleteConfirm；取消/Escape不调用删除，嵌套确认不关闭底层结果弹窗。视频池删除受当前集/场/状态筛选限制，按确认时捕获的ID清单执行，新到结果不会被误删。只删除记录与对应云视频，保留本机文件，后台未完任务不重新提交且继续追踪；保存projectVideoDeleted墓碑，异步完成不复活。重开、云回执去重和readonly/锁定/账号切换都核验。
+- 顶部全场景/全剧由真实storyboard-patch settings操作落库，白名单参数只更新generationConfig，不改提示词与素材；全剧覆盖全部集场并清除之前的场景覆盖，场景只更新其本场。未渲染分镜与旧本地草稿通过revision生效，过期在途保存不能盖回旧参数，后续同revision手动单条参数仍可修改。新建分镜与新导演分集继承范围默认。
+- 扩展真实React UI调用实际云端patchShot纯函数模拟路由，跨2集/3场验证范围隔离、切换、重开；生成中单删、全部删除、确认前0调用、取消/Escape保留数据和后台不复活均有覆盖。所有网络/删除目标都为隔离夹具。
+
+
+## 配套部署与最终回归
+
+- 全量2897/2897（13 suites），output/144-tests-final-all.log；早期旧静态入口检查仍匹配已替换的collabDeleteMedia，已更新为专用projectVideoDelete并覆盖实际删除功能，14/14回归与全量通过。
+- 云端只部署storyboard-merge.cjs及新增storyboard-settings.cjs，阶段13/13、健康检查与systemd active；无schema变更。备份/opt/xingzhou-backups/storyboard-settings-2.8.144-20261110T110640Z。
+- 线上SHA256：merge 85f2b73ba872cb05d3b6950b0e83f319102acf9a485af5ad62b41e6020a81875；settings a1a723d61a2f53cade57cea794940978080e9279a1549950a0878791e6037a70。

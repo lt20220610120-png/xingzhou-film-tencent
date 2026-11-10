@@ -143,6 +143,7 @@ test('分镜复用画布媒体入口、按场景展示剧本并提供视频历�
   const server = read('cloud-backend/src/repository-extras.cjs');
   assert.match(ui,/GenerationComposer/);
   assert.match(ui,/GenerationResults/);
-  assert.match(ui,/collabDeleteMedia/);
+  assert.match(ui,/projectVideoDelete/);
+  assert.match(read('electron/project-video-delete.cjs'),/deleteMedia/);
   assert.match(ui,/parseDirectorScenes/);
 });
