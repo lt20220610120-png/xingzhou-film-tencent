@@ -43,3 +43,45 @@
 .storyboard-generation-tools .storyboard-batch-controls label{min-width:160px}
 @media(max-width:1300px){.storyboard-tools-toggle{gap:10px}.storyboard-tools-content{padding:14px}.storyboard-tools-summary{max-width:42vw}}
 @media(prefers-reduced-motion:reduce){.storyboard-tools-toggle>svg:last-child{transition:none}}
+
+/* Compact operation panel: consistent controls, grouped parameter actions,
+   and one visually primary action for paid batch generation. */
+.storyboard-generation-tools{border-color:#e5dfef;box-shadow:0 3px 14px #40335d05;border-radius:14px}
+.storyboard-generation-tools .storyboard-tools-toggle{min-height:58px;background:linear-gradient(110deg,#f9f7fd 0%,#fff 80%);padding:10px 18px;gap:14px}
+.storyboard-tools-title{font-size:14px;color:#493b62;gap:10px;letter-spacing:.2px}
+.storyboard-tools-title i{display:grid;place-items:center;width:32px;height:32px;background:#eee8f8;border:1px solid #e6dcf4;border-radius:10px;color:#7a5bb1;font-style:normal}
+.storyboard-tools-summary{background:#f6f4f9;border:1px solid #eeebf3;padding:5px 10px;border-radius:20px;color:#70677e}
+.storyboard-tools-toggle>svg:last-child{box-sizing:content-box;background:white;border:1px solid #e9e4f0;padding:6px;border-radius:9px;color:#857298;width:14px;height:14px}
+.storyboard-tools-progress{background:#f0eaf9;border-radius:20px;color:#71519b;padding:5px 10px;font-weight:550}
+.storyboard-tools-content{padding:18px 20px 16px;border-color:#f0ecf5}
+.storyboard-generation-tools .storyboard-defaults{grid-template-columns:repeat(6,minmax(0,1fr));column-gap:12px;row-gap:14px}
+.storyboard-generation-tools .storyboard-defaults>label:nth-of-type(1),.storyboard-generation-tools .storyboard-defaults>label:nth-of-type(2){grid-column:span 2}
+.storyboard-generation-tools .storyboard-defaults label{font-size:12px;color:#7a7288;font-weight:500;gap:7px}
+.storyboard-generation-tools .storyboard-defaults select,.storyboard-generation-tools .storyboard-defaults input{height:40px;border-radius:9px;border:1px solid #e5e1ed;background:#fdfcfe;padding:8px 11px;color:#3d354c;transition:border-color .15s,box-shadow .15s}
+.storyboard-generation-tools select:hover,.storyboard-generation-tools input:hover{border-color:#cdbfe2}
+.storyboard-generation-tools select:focus-visible,.storyboard-generation-tools input:focus-visible{outline:0;border-color:#a78bcf;box-shadow:0 0 0 3px #8b66bc18}
+.storyboard-parameter-apply{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding-top:2px}
+.storyboard-parameter-apply>span{font-size:12px;color:#8a8295;white-space:nowrap}
+.storyboard-parameter-apply>div{display:flex;flex-wrap:wrap;gap:8px}
+.storyboard-generation-tools .storyboard-parameter-apply button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:7px 13px;border:1px solid #e7e2ef;background:#f8f6fb;color:#756188;border-radius:9px;font-size:12px;font-weight:550;box-shadow:none;cursor:pointer}
+.storyboard-generation-tools .storyboard-parameter-apply button:hover:not(:disabled){background:#f0eaf8;border-color:#cfc0e4;color:#684894}
+.storyboard-generation-tools .storyboard-batch{margin-top:16px;padding-top:16px;border-color:#eeeaf4}
+.storyboard-generation-tools .storyboard-batch-controls{display:flex;align-items:center;gap:10px;background:#f8f6fb;border:1px solid #eee9f5;border-radius:12px;padding:12px}
+.storyboard-generation-tools .storyboard-batch-controls label{display:flex;flex-direction:row;align-items:center;gap:10px;min-width:0;color:#7b6d8b;font-size:12px}
+.storyboard-generation-tools .storyboard-batch-controls select{height:40px;min-width:126px;padding:8px 12px;border-radius:9px;background:white;border-color:#e3daee;color:#5a496f}
+.storyboard-generation-tools .storyboard-batch-controls button{min-height:40px;gap:7px;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid #dfd3ed;transition:background .15s,box-shadow .15s,transform .15s}
+.storyboard-generation-tools .storyboard-batch-controls .secondary{color:#7956a5;background:#fff;box-shadow:0 1px 2px #45305705}
+.storyboard-generation-tools .storyboard-batch-controls .secondary:hover:not(:disabled){background:#f0eaf9;border-color:#bfa9db;box-shadow:0 2px 5px #75549d0c}
+.storyboard-generation-tools .storyboard-batch-controls .primary{background:linear-gradient(135deg,#9170c5,#7653b0);border-color:#7e5ab4;color:white;box-shadow:0 3px 8px #7350a52c}
+.storyboard-generation-tools .storyboard-batch-controls .primary:hover:not(:disabled){background:linear-gradient(135deg,#8861bf,#6e47a8);box-shadow:0 4px 10px #7350a542}
+.storyboard-generation-tools button:active:not(:disabled){transform:translateY(1px)}
+.storyboard-generation-tools button:disabled{opacity:.48;box-shadow:none;cursor:default}
+.storyboard-generation-tools button:focus-visible{outline:2px solid #a98bcf;outline-offset:3px}
+.collab-stage .storyboard-save-actions button,.collab-stage .storyboard-reference-actions>button,.collab-stage .storyboard-reference-actions summary{border-radius:9px;min-height:36px;font-weight:550;border-color:#e8e2ef;background:#fdfcfe;transition:background .15s,border-color .15s}
+.collab-stage .storyboard-save-actions button:hover:not(:disabled),.collab-stage .storyboard-reference-actions>button:hover:not(:disabled){background:#f5effc;border-color:#cdbbe2}
+.collab-stage .storyboard-save-actions button.danger{background:#fff8f7;border-color:#f1ddda;color:#bc6b68}
+.collab-stage .storyboard-save-actions button.danger:hover:not(:disabled){background:#fff0ee;border-color:#e8c4be}
+@media(min-width:1700px){.storyboard-generation-tools .storyboard-defaults{grid-template-columns:repeat(8,minmax(0,1fr))}}
+@media(max-width:1100px){.storyboard-generation-tools .storyboard-defaults{grid-template-columns:repeat(4,minmax(0,1fr))}.storyboard-tools-summary{max-width:34vw}}
+@media(max-width:760px){.storyboard-generation-tools .storyboard-defaults{grid-template-columns:repeat(2,minmax(0,1fr))}.storyboard-generation-tools .storyboard-defaults>label:nth-of-type(1),.storyboard-generation-tools .storyboard-defaults>label:nth-of-type(2){grid-column:span 1}.storyboard-tools-summary{display:none}.storyboard-parameter-apply{align-items:flex-start;flex-direction:column;gap:8px}.storyboard-generation-tools .storyboard-batch-controls{align-items:stretch}}
+@media(prefers-reduced-motion:reduce){.storyboard-generation-tools *, .collab-stage .storyboard-save-actions button,.collab-stage .storyboard-reference-actions>button{transition:none!important}}
