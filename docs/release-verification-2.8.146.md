@@ -7,11 +7,11 @@
 - 建议时长元数据贯通导演快照/发布/分镜，旧稿仅准确来源ID及原文匹配恢复，不按标签推测。建议时长按scene/episode/project范围逐条应用，支持小数；不支持/缺失保留标记并阻止生成，不向默认值回退。统一参数模式和按集应用保留；默认参数变化只对准确默认delta安全重设dirty草稿基线，正文或引用差异继续冲突保护。
 - 顶部单一生成设置面板：紫色主操作/浅色辅助按钮/参数应用图标组、统一圆角与焦点反馈；接口/参数/建议/队列同容器，收起约54px；记住账号+项目的状态，键盘可展开，收起显示模型/默认时长/批量进度。1280/1700/2232无横向溢出。
 - OFF官网IP健康检查改回CA/证书指纹正确链路；官方和COS安全只读可自动绑定物理网卡备用，不影响模型。写入不因模糊失败重试；缓冲同对象PUT可安全处理，流式上传单次。
-- LibTV bundled Node CLI在当前WiFi复现ECONNRESET（api2.liblib.art/api.liblib.tv），Chromium和CLI不共享代理。命令前无凭据TLS探测普通/系统代理/物理线路；有随机认证的本机CONNECT仅转发LibLib官方域名443，TLS端到端验证，记录实际验证成功的DNS IP。每个原生命令只启动一次，失败仅输出安全域名/错误码。开关文案TUN模式兼容；不更改Clash/TUN/用户代理或凭据。
+- LibTV bundled Node CLI在当前WiFi复现ECONNRESET（api2.liblib.art/api.liblib.tv），Chromium和CLI不共享代理。命令前无凭据TLS探测普通/系统代理/物理线路；有随机认证的本机CONNECT仅转发LibLib官方域名及核实的指定OSS桶/canva.xingliu.art的443端口，TLS端到端验证，记录实际验证成功的DNS IP。每个原生命令只启动一次，失败仅输出安全域名/错误码。开关文案TUN模式兼容；不更改Clash/TUN/用户代理或凭据。
 
 ## 验证证据
 
-- npm test：2987/2987，13 suites，output/146-tests-final.log；构建output/146-build-final.log通过。
+- npm test：2991/2991，13 suites，output/146-tests-final.log；构建output/146-build-final.log通过。
 - scripts/verify-storyboard146-ui.cjs：实际React+原生queue host+backend merge，桥接仅隔离fixture，真实API/付费调用0。自己的素材删除/保护/确认失败重试/Escape/取消；12/17秒分别精确应用、unsupported阻止提交、missing报告、uniform重置；scene/episode/drama、草稿、跳过、排队/生成/完成、stop/resume；折叠<64px、键盘、重开状态及三宽通过。报告及截图output/playwright/storyboard-2.8.146。
 - 网络只读output/146-network-readonly-after.json：OFF健康200、项目12/资产279，实际COS image1,576,015字节，Chromium/物理/自动读取200。
 - output/146-libtv-readonly-after.json：当前WiFi实际原设置enabled=true，测试注入OFF而不修改设置；OFF账号、视频模型37/图24、live schema、项目列表、画布370nodes（10.59s）、已有视频任务query（6s）成功。无系统代理子路径账号成功、ON兼容账号成功。设置/加密凭据哈希不变；0生成/上传/项目写入。未假称测试前用户TUN状态；不是热点替代验证。
@@ -24,6 +24,10 @@
 
 ## 安装包与公开发布
 
-最终NSIS安装包运行验收通过：qa/packaged-smoke-2.8.146-1794334232311/report.json。本地包release/2.8.146/Xingzhou-Film-Tencent-Setup-2.8.146.exe，104082996字节，SHA256 `be8899aeac4d608d77bb338a2b919661eb00608184d7e51a2b5cc31c4bcbb619`。独立最终复核24/24通过，无阻塞问题。公开验收待补充。
+最终NSIS安装包运行验收通过：qa/packaged-smoke-2.8.146-1794335160301/report.json。本地包release/2.8.146/Xingzhou-Film-Tencent-Setup-2.8.146.exe，104083650字节，SHA256 `8cf0151c8044a9feffb50b1dc854b195d2d17080bdf2f7fef9428eef9da72766`。独立最终复核24/24通过，无阻塞问题。公开验收待补充。
 
 - 公开清单切换前收到用户追加按钮美化，暂停首次上传并重新制作最终包；最终按钮/生成设置标题/三宽UI再次通过，2987再次全绿，最终NSIS运行通过，旧构建未进入更新清单。
+
+- 最后网络回归补齐官方CLI上传bridge、精确OSS桶和canva.xingliu.art分支；动态媒体TLS预检并保留verifiedIP。其他桶、内网端点、其他xingliu域名/伪后缀拒绝；针对70/70、最终全量2991/2991通过。最终NSIS包重制并运行通过。
+- 真实已完成1-6-1在当前WiFi注入OFF路径：query13.16s、CLI download31.82s，MP4 9,585,882字节，SHA256 3dd88c1576eb7ff9b0588a0acae56165fa52a304c630af80748e052727da285a；与145原片导出逐字节相同，ffprobe17.056s/H264/AAC。证据output/146-libtv-verified-download.json、output/review-146/download-validation.json。首轮空节点明确无可下载资源，未误归因为网络失败。
+- 两个精确OSS上传目标只读HEAD：CONNECT200、TLS有效、服务端403（匿名无签名），证明通道可到服务端；没有真实PUT上传或付费生成。证据output/146-libtv-upload-transport-readonly.json。原账号凭据保持。
