@@ -7,3 +7,6 @@
 .generation-results.generation-results-compact .generation-result-prompt{min-height:32px;max-height:32px;line-height:16px;-webkit-line-clamp:2;font-size:11px}
 .generation-results.generation-results-compact .generation-result-grid article>header{min-height:22px;flex-wrap:wrap;gap:4px}.generation-results.generation-results-compact .generation-result-grid article>footer{padding-top:6px}.generation-results.generation-results-compact .generation-card-actions{gap:4px;flex-wrap:wrap}
 .generation-results.generation-results-compact .generation-card-actions button{padding:0 5px!important;height:28px}.generation-results.generation-results-compact .generation-result-error{padding:5px;font-size:11px}.generation-results.generation-results-compact .generation-result-select{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#68519b}.generation-result-select input{width:14px;height:14px;margin:0}
+
+.generation-results.generation-results-compact .generation-result-select{flex-direction:row;flex-shrink:0;white-space:nowrap;min-width:max-content}
+.video-pool-results-dialog .generation-results>header{justify-content:flex-end}.video-pool-results-dialog .generation-results>header>div:first-child{display:none}
