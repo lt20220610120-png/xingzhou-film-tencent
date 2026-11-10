@@ -8,7 +8,7 @@ async function exportProjectVideos({project,ids,jobs,media,folder,mediaRoot,down
   const source=item.mediaId?media.find(m=>m.id===item.mediaId&&m.kind==='video'):job;
   if(!source)throw Error('视频不存在或尚未完成');
   const episode=Number(source.episode);if(!Number.isInteger(episode)||episode<1)throw Error('视频缺少有效集数');
-  const shotId=source.shotId||String(source.note||'').match(/\[shot:([^\]]+)\]/)?.[1],shot=(project.episodes||[]).flatMap(e=>e.storyboardPrompts||e.prompts||[]).find(s=>s.id===shotId||s.sourcePromptId===shotId);
+  const shotId=source.shotId||String(source.note||'').match(/\[shot:([^\]]+)\]/)?.[1],shot=shotId?(project.episodes||[]).flatMap(e=>e.storyboardPrompts||e.prompts||[]).find(s=>s.id===shotId||s.sourcePromptId===shotId):null;
   const label=shot?.label||source.shotLabel||source.promptLabel||source.note||source.scene||source.id;
   let input=source.filePath;
   if(!input||!fs.existsSync(input)){if(!/^https?:\/\//i.test(source.url||''))throw Error('视频下载地址不可用');input=await download(source.url,base,'mp4');}

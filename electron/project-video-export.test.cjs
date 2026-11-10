@@ -12,5 +12,6 @@ test('latest-only and all-result selections export the exact requested files onc
   const options={project:{id:'p',name:'剧',episodes:[{storyboardPrompts:[{id:'s',label:'1-5-1'}]}]},jobs,media:[],folder,mediaRoot};
   let result=await exportProjectVideos({...options,ids:[{jobId:'new'}]});assert.equal(result.completed,1);const target=path.join(folder,'剧','第1集');assert.deepEqual(fs.readdirSync(target),['1-5-1-new.mp4']);assert.equal(fs.readFileSync(path.join(target,'1-5-1-new.mp4'),'utf8'),'new');
   result=await exportProjectVideos({...options,ids:[{jobId:'old'},{jobId:'new'},{jobId:'new'}]});assert.equal(result.completed,2);assert.deepEqual(result.errors,[]);assert.equal(fs.readFileSync(path.join(target,'1-5-1-old.mp4'),'utf8'),'old');
+  jobs.push({...jobs[0],id:'legacy',shotId:undefined,shotLabel:'1-7-2'});result=await exportProjectVideos({...options,ids:[{jobId:'legacy'}]});assert.equal(result.completed,1);assert(fs.existsSync(path.join(target,'1-7-2-legacy.mp4')));
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
