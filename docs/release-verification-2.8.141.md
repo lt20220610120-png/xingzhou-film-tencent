@@ -11,3 +11,15 @@
 首轮全量2873通过/1失败：旧endpoint-fallback测试只mock global.fetch，2.8.140新增原生IP备用传输实际访问生产并返回401，导致测试假token被清；已补mock https.request模拟完整网络中断，不改生产鉴权或连接策略。专项5/5通过，最终全套另记。
 
 构建通过，既有chunk大小提示保留。真实Muse新生成及30秒成片未测试，不消耗额度。最终打包/发布/本机安装执行后补记。
+
+
+## 最终验收与发布
+
+- 最终2874/2874全量测试通过；三宽旧接口→批量30→单卡30→模拟提交30通过；NSIS及packaged runtime通过，报告qa/packaged-smoke-2.8.141-1794285908817。
+- 源码09fe4e6已推送。官网与GitHub已发布，Release 439956056；包104055455字节，SHA256 b862653ef1e8b62be8e742054843f087354dabb062d4b15af3d40d3338f0c8b4。
+- 三份公开latest.json一致且签名通过；官网公开Range206、固定主机SSH重算服务器整包hash、GitHub资产size/digest一致；客户端生产更新检测命中官网IP2.8.141。证据output/review-141/public-verification.json和in-app-update-official.json。
+- 本机正常关闭窗口后静默安装到原D盘目录，exe版本2.8.141.0。关闭客户端状态下，先备份原资料到D:/行舟影视/repair-backups/muse-duration-2.8.141-1794286004959，再同函数定向修复旧Muse接口；capabilities与modelCatalog最大30、最小4、共27项，非mediaProfiles数据逐项比对一致。没有改写项目、草稿或默认接口；用户下次打开即可使用，无需重新接入。
+- 官网发布复用本机临时DIRECT通道，未改全局代理，任务结束停止临时进程。纯客户端，无云代码或schema更新。真实30秒产片仍未实测，不宣称上游一定按请求长度输出。
+
+官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.141.exe
+本机安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.141/Xingzhou-Film-Tencent-Setup-2.8.141.exe
