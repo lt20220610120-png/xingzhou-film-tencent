@@ -46,6 +46,10 @@ test('published manual text and references are preserved without any comparison 
  const result=storyboardPromptValue({error:'新导演稿读取失败'},shot[0],value,'u');assert.equal(result.prompt,value.prompt);assert.deepEqual(result.references,value.references);assert.equal(result.bindingIssue,'');validateCompiledBinding(result,['image','audio']);
  assert.equal(storyboardSaveUpdates(result).content,value.prompt);
  assert.deepEqual(assetPromptUsage({publishedStoryboards:shot},{id:'asset'}).promptIds,['1-1-1']);
+ const ungenerated={...shot[0],generationConfig:{references:[],bindingAssets:[{assetId:null,name:'【新角色】',category:'character'}]}};
+ assert.deepEqual(assetPromptUsage({publishedStoryboards:[ungenerated]},{id:'new-asset',name:'【新角色】',category:'character'}).promptIds,['1-1-1']);
+ assert.deepEqual(assetPromptUsage({publishedStoryboards:[ungenerated]},{id:'other',name:'【新角色】',category:'prop'}).promptIds,[]);
+
 });
 test('real review service publishes the selected prompt snapshot only on explicit publish',async()=>{
  const f=fixture(),writes=[];f.api.collabPatchStoryboard=async p=>writes.push(p);const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
@@ -53,5 +57,5 @@ test('real review service publishes the selected prompt snapshot only on explici
  const store={updateMany:async()=>{},publish:async()=>{}};
  await reviewPromptScope({service,store,scope:{sceneId:'1-1'},actor:'u',action:'approve'});assert.equal(writes.length,0);
  await reviewPromptScope({service,store,scope:{sceneId:'1-1'},actor:'u',action:'publish'});assert.equal(writes.length,1);assert.equal(writes[0].operation,'publish');assert.equal(writes[0].prompts.length,3);
- const state=await service.read(),payload=storyboardPublicationPayload(state.snapshot,state.decisions,state.snapshot.entries);assert.equal(payload.versionId,state.snapshot.versionId);assert(payload.prompts.every(p=>p.generationConfig.referenceBindingMode==='storyboard'));
+ const state=await service.read(),payload=storyboardPublicationPayload(state.snapshot,state.decisions,state.snapshot.entries);assert.equal(payload.versionId,state.snapshot.versionId);assert(payload.prompts.every(p=>p.generationConfig.referenceBindingMode==='storyboard'));assert(payload.prompts.every(p=>p.generationConfig.bindingAssets.length>0));
 });
