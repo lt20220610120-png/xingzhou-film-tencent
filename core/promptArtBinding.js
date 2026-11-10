@@ -253,6 +253,7 @@ export function linkedPromptBook(snapshot,decisions,accountId,options={}){
  return {id:`linked:${accountId}:${snapshot.projectId}${snapshot.versionId?':'+snapshot.versionId:''}`,name:`${snapshot.name} · 联动美术`,accountId,linkedProjectId:snapshot.projectId,bindingVersionId:snapshot.versionId||'',bindingSourceSignature:snapshot.signature,entries,drafts,episodeMedia:{},sceneMedia:{},selectedEntryId:entries[0].id};
 }
 export function validateCompiledBinding(value,allowedKinds){
+ if(value.referenceBindingMode==='storyboard')return;
  if(value.referenceBindingMode==='pending')throw Error(value.bindingIssue||'请先完成本条素材关联');
  if(value.referenceBindingMode!=='confirmed')return;
  if(value.prompt!==value.bindingCompiledPrompt)throw Error('联动提示词已修改，请返回关联页面重新确认');

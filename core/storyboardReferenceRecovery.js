@@ -22,9 +22,9 @@ export function rememberStoryboardRemoval(previous,next){
  return {...next,storyboardRemovedReferences:removed,storyboardReferenceBaseline:removed.length?(previous.storyboardReferenceBaseline||{prompt:previous.prompt,references:previous.references||[]}):undefined};
 }
 export function storyboardRecoveryBaseline(shot,value,sceneReferences,linked){
- if(linked)return linked;
+ if(linked&&linked.referenceBindingMode!=='storyboard')return linked;
  const source=value.storyboardReferenceBaseline||shot.generationConfig?.storyboardReferenceBaseline;
- const baseline=source||{prompt:shot.content||'',references:shot.generationConfig?.references??sceneReferences};
+ const baseline=source||linked||{prompt:shot.content||'',references:shot.generationConfig?.references??sceneReferences};
  const refs=[...new Map([...(baseline.references||[]),...(value.storyboardRemovedReferences||[])].map(r=>[generationReferenceKey(r),r])).values()];
  return {...value,prompt:baseline.prompt,references:refs};
 }

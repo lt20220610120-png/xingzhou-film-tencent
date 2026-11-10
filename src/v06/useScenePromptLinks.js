@@ -24,7 +24,7 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
  const current=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
  const {snapshot,decisions}=useMemo(()=>selectBindingVersion(current,saved,bindingVersionOptions(current,saved).some(row=>row.id===versionId)?versionId:undefined),[current,saved,versionId]);
  const store=getArtReviewStore({api,projectId:project.id,accountId});
- const service=useMemo(()=>getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets}),onSaved:data=>notifyBindingSaved(project.id,accountId,data)}),[api,project.id,accountId]);
+ const service=useMemo(()=>getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets}),onPublished:published=>window.dispatchEvent(new CustomEvent('xingzhou-storyboard-published',{detail:{accountId,project:published}})),onSaved:data=>notifyBindingSaved(project.id,accountId,data)}),[api,project.id,accountId]);
  service.configure(()=>({project,ledger:store.snapshot(),assets}));
  const distributionController=useMemo(()=>getArtDistributionController({api,projectId:project.id,accountId}),[api,project.id,accountId]);
  distributionController.configure({project,store,existingAssets:assets,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data)});

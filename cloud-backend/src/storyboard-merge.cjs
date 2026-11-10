@@ -18,6 +18,9 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
   }
   if(old?.collabOnly){usedEpisodes.add(old);return old;}
   old=old||{};usedEpisodes.add(old);
+  // Director drafts remain available to the review page. The storyboard has
+  // its own published working copy, initialized once for older projects.
+  const storyboardPrompts=old.storyboardPrompts||((old.prompts||[]).length?structuredClone(old.prompts):null);
   const editions=[...(old.collaborationEditions||[])],legacy=(ep.promptEditions||[]).find(row=>String(row.id).startsWith('original:'))?.id||'legacy';
   const oldEdition=old.promptEditionId||legacy,nextEdition=ep.promptEditionId||legacy;
   if(oldEdition!==nextEdition){
@@ -47,7 +50,7 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
     }
     prompts.push(kept);
   }
-  return {...old,...ep,...(editions.length?{collaborationEditions:editions.filter(row=>row.id!==nextEdition)}:{}),...(old.collabOnly?{title:old.title,content:old.content,episodeNumber:old.episodeNumber,number:old.number,collabOnly:true,origin:old.origin}:{}),id:old.id||ep.id,prompts,deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
+  return {...old,...ep,...(editions.length?{collaborationEditions:editions.filter(row=>row.id!==nextEdition)}:{}),...(old.collabOnly?{title:old.title,content:old.content,episodeNumber:old.episodeNumber,number:old.number,collabOnly:true,origin:old.origin}:{}),id:old.id||ep.id,prompts,storyboardPrompts:storyboardPrompts||structuredClone(prompts),deletedPromptIds:[...deleted],shotCounters:{...ep.shotCounters,...old.shotCounters}};
  });
  for(const ep of current)if(!usedEpisodes.has(ep)){
   const before=ep.collabOnly?merged.findIndex(item=>episodeNumber(item)>episodeNumber(ep)):-1;
@@ -56,9 +59,25 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
  return merged;
 }
 function patchShot(episodes,payload) {
- const next=normalizeStoryboardEpisodes(structuredClone(episodes||[])),ep=next.find(e=>e.id===String(payload.episodeId));
+ const next=normalizeStoryboardEpisodes(structuredClone(episodes||[])),ep=next.find(e=>payload.operation==='publish'?episodeNumber(e)===Number(payload.episodeNumber):e.id===String(payload.episodeId));
  if(!ep)throw Object.assign(new Error('分集已变更，请刷新后重试'),{status:409});
- if(payload.promptEditionId!==undefined&&payload.promptEditionId!==(ep.promptEditionId||'legacy'))throw Object.assign(new Error('提示词版本已切换，草稿已保留；请刷新后核对版本'),{status:409});
+ if(payload.operation==='publish'){
+  const scenes=payload.sceneIds,prompts=payload.prompts;
+  if(!payload.publicationId||!Array.isArray(scenes)||!scenes.length||!Array.isArray(prompts)||!prompts.length||new Set(prompts.map(p=>p.id)).size!==prompts.length||new Set(prompts.map(p=>p.label)).size!==prompts.length||scenes.some(id=>!new RegExp('^'+episodeNumber(ep)+'-\\d+$').test(id))||prompts.some(p=>!p.id||typeof p.content!=='string'||!/^\d+-\d+-\d+$/.test(p.label)||!scenes.includes(p.label.split('-').slice(0,2).join('-')))||scenes.some(id=>!prompts.some(p=>p.label.startsWith(id+'-'))))throw Object.assign(Error('发布的提示词或场景无效'),{status:400});
+  const previous=ep.storyboardPrompts||ep.prompts||[];
+  if(prompts.every(p=>previous.some(s=>s.sourcePromptId===p.id&&s.storyboardPublicationId===payload.publicationId&&s.sourceContent===p.content)))return next;
+  const retained=previous.filter(p=>!scenes.includes(String(p.label).split('-').slice(0,2).join('-')));
+  const rows=prompts.map(p=>{const old=previous.find(s=>s.id===p.id)||previous.find(s=>s.label===p.label);return {id:old?.id||p.id,sourcePromptId:p.id,label:p.label,content:p.generationConfig?.bindingCompiledPrompt||p.content,sourceContent:p.content,storyboardPublicationId:payload.publicationId,generationConfig:{...old?.generationConfig,...p.generationConfig,autoReferenceExclusions:[],autoReferenceSignature:null,storyboardRemovedReferences:[],storyboardReferenceBaseline:undefined,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:payload.publicationId},manual:false};});
+  if(rows.some(p=>retained.some(s=>s.id===p.id)))throw Object.assign(Error('发布的分镜编号重复'),{status:400});
+  ep.storyboardPrompts=[...retained,...rows].sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
+  return next;
+ }
+ if(!ep.storyboardPrompts&&payload.promptEditionId!==undefined&&payload.promptEditionId!==(ep.promptEditionId||'legacy'))throw Object.assign(new Error('提示词版本已切换，草稿已保留；请刷新后核对版本'),{status:409});
+ if(payload.editPolicy==='direct'&&ep.storyboardPrompts){
+  const published=ep.storyboardPrompts;
+  if(payload.operation!=='create'&&published.find(s=>s.id===payload.shotId)?.storyboardPublicationId!==(payload.storyboardPublicationId||undefined))throw Object.assign(Error('清单已发布新版本，请刷新项目'),{status:409});
+  ep.prompts=published;
+ }
  ep.prompts=ep.prompts||[];
  if(payload.operation==='create'){
   if(!String(payload.shotId||'').trim())throw Object.assign(new Error('分镜编号缺失，请重新创建'),{status:400});
@@ -84,11 +103,13 @@ function patchShot(episodes,payload) {
  }else{
   const shot=ep.prompts.find(p=>p.id===payload.shotId);if(!shot)throw Object.assign(new Error('分镜已变更'),{status:409});
   for(const key of ['content','generationConfig'])if(key in (payload.updates||{})){
-   if(!equal(shot[key]??null,payload.base?.[key]??null)&&!equal(shot[key],payload.updates[key]))throw Object.assign(new Error('这条分镜已被其他协作者修改，草稿已保留；请刷新并核对云端内容后保存'),{status:409});
+   if(payload.editPolicy!=='direct'&&!equal(shot[key]??null,payload.base?.[key]??null)&&!equal(shot[key],payload.updates[key]))throw Object.assign(new Error('这条分镜已被其他协作者修改，草稿已保留；请刷新并核对云端内容后保存'),{status:409});
    shot[key]=payload.updates[key];
   }
   shot.edited_at=new Date().toISOString();
+  delete shot.sourceConflict;
  }
+ if(payload.editPolicy==='direct'&&ep.storyboardPrompts){ep.storyboardPrompts=ep.prompts;ep.prompts=structuredClone((episodes||[]).find(e=>e.id===ep.id)?.prompts||[]);}
  return next;
 }
 module.exports={mergeDirectorEpisodes,patchShot};

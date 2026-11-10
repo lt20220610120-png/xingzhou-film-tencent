@@ -176,7 +176,7 @@ function extendRepository(pool) {
       try {await client.query('BEGIN');
         await client.query("set local lock_timeout='3s'");
         await client.query("set local statement_timeout='6s'");
-        const row=await lockAuthorizedProject(client,pid,uid,['producer','collaborator','artist_collaborator']);
+        const row=await lockAuthorizedProject(client,pid,uid,payload.operation==='publish'?['producer','artist','artist_collaborator']:['producer','collaborator','artist_collaborator']);
         if(!editableCollab(row)){await client.query('ROLLBACK');return null;}
         const episodes=patchShot(row.episodes,payload);
         const saved=(await client.query('update collab_projects set episodes=$2,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes)])).rows[0];

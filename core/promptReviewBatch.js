@@ -132,8 +132,10 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
    const state=await service.read(initial.snapshot.versionId);check(state,group.entries);
    const marks=state.saved?.versions?.[state.snapshot.versionId]?.reviews||{},record=store.snapshot?.().episodes?.[group.episode];
    const already=group.entries.every(e=>marks[e.id]?.published&&marks[e.id]?.signature===signatures.get(e.id))&&(!record||!record.pending&&[...group.ids].every(id=>record.published?.[id]?.signature===reviewSceneSignature(record.scenes.find(s=>s.id===id))));
-   if(already){skipped+=group.entries.length;published+=group.entries.length;cloudDone+=group.entries.length;item.phase='complete';item.skipped=true;report();continue;}
+   if(already){await service.publishStoryboards?.(state,group.entries);skipped+=group.entries.length;published+=group.entries.length;cloudDone+=group.entries.length;item.phase='complete';item.skipped=true;report();continue;}
    guard();await store.publish(group.episode,[...group.ids],{onProgress:phase=>{item.phase=phase;report();}});
+   const publishedState=await service.read(initial.snapshot.versionId);check(publishedState,group.entries);
+   await service.publishStoryboards?.(publishedState,group.entries);
    cloudDone+=group.entries.length;item.phase='checkpoint';report();
    await service.mutate(initial.snapshot.versionId,current=>{
     check(current,group.entries);const data=saveBindingVersion(current.saved,current.snapshot,current.decisions),row=data.versions[current.snapshot.versionId];row.reviews={...row.reviews};

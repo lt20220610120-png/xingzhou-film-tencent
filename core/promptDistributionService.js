@@ -7,6 +7,7 @@ import {runBindingRepair} from './importedArtBinding.js';
 import {getArtModelQueue,requestArtModel} from './artModelQueue.js';
 import {createTaskPool} from './asyncTaskPool.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
+import {storyboardPublicationPayload} from './storyboardPublication.js';
 import {automaticEntryAssociation,calibratedEntryAssociation} from './automaticArtAssociation.js';
 
 export function sceneReadyForPromptDistribution(project,ledger,sceneId){
@@ -18,8 +19,8 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
 // Media adoption hydrates signatures; only semantic decisions signal a human edit.
 const decisionFingerprint=decision=>{if(!decision)return bindingHash(null);const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
 
-export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,concurrency}){
- let context=getContext,writer=Promise.resolve(),generation=0,notice='',paused=false;
+export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,onPublished,concurrency}){
+ let context=getContext,publishedListener=onPublished,writer=Promise.resolve(),generation=0,notice='',paused=false;
  // Bound preparation/persistence too. Hundreds of queued entries must not all
  // read, claim and rewrite the complete version archive before the first reply.
  const tasks=new Map(),maintenance=new Set(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=createTaskPool(concurrency||5);
@@ -44,7 +45,12 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   });writer=task.catch(()=>{});return task;
  };
  const service={
-  configure(fn){context=fn;},read,mutate,getContext:()=>context(),
+  configure(fn,onPublish){context=fn;if(onPublish)publishedListener=onPublish;},read,mutate,getContext:()=>context(),
+  async publishStoryboards(state,entries){
+   if(!api.collabPatchStoryboard)return;
+   const project=await api.collabPatchStoryboard({projectId,...storyboardPublicationPayload(state.snapshot,state.decisions,entries)});
+   publishedListener?.(project);
+  },
   async withSceneMaintenance(sceneId,fn){
    if(maintenance.has(sceneId))throw Error('本场正在补充，请完成后再试');
    maintenance.add(sceneId);emit();
@@ -151,5 +157,5 @@ const registries=new WeakMap();
 export function getPromptDistributionService(options){
  const {api,projectId,accountId}=options;let registry=registries.get(api);if(!registry){registry=new Map();registries.set(api,registry);}
  const key=accountId+':'+projectId;if(!registry.has(key))registry.set(key,createPromptDistributionService(options));
- const service=registry.get(key);if(options.getContext)service.configure(options.getContext);return service;
+ const service=registry.get(key);if(options.getContext)service.configure(options.getContext,options.onPublished);return service;
 }

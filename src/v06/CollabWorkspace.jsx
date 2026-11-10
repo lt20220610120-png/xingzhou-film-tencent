@@ -1617,6 +1617,11 @@ export function CollabWorkspace({ state, api, account }) {
     refreshInFlight.current=work;try{return await work;}finally{refreshInFlight.current=null;}
   }, [project, api, account?.id, loadProjects, state.directorProjects]);
 
+  useEffect(()=>{
+    const accept=event=>{const detail=event.detail;if(detail?.accountId===account?.id&&detail.project?.id===project?.id){refreshRequestRef.current++;applyProject(detail.project);}};
+    window.addEventListener('xingzhou-storyboard-published',accept);return()=>window.removeEventListener('xingzhou-storyboard-published',accept);
+  },[account?.id,project?.id]);
+
   // 实时刷新：进入项目后轮询云端
   useEffect(() => {
     if (!project?.id || section === 'art-review') return;

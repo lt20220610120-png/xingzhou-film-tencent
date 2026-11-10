@@ -21,5 +21,5 @@ export default function useProjectPromptBinding({api,project,assets,accountId,lo
   void load();const sync=event=>{if(event.detail.projectId===project.id&&event.detail.accountId===accountId)void load();};
   window.addEventListener(BINDING_SAVED_EVENT,sync);return()=>window.removeEventListener(BINDING_SAVED_EVENT,sync);
  },[cache,api,project.id,project.episodes,project.analysis_progress,project.director_project_id,assets,source,accountId]);
- return value;
+ return {...value,data:value.data?{...value.data,publishedStoryboards:project.episodes?.some(ep=>ep.storyboardPrompts)?project.episodes.flatMap(ep=>ep.storyboardPrompts||[]):null}:value.data};
 }

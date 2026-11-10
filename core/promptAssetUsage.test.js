@@ -32,7 +32,7 @@ test('分镜只挂载本条已选图片，保存空references也可补回，模�
  assert.equal(value.references.length,0);assert.equal(f.shot.content,f.entries[0].prompt);
  const updates=storyboardSaveUpdates(result);assert.equal(updates.content,f.entries[0].prompt);assert.match(updates.generationConfig.bindingCompiledPrompt,/@image1/);
  const edited=storyboardSaveUpdates({...result,prompt:result.prompt+'\n用户修改的动作'});
- assert.equal(edited.content,result.prompt+'\n用户修改的动作');assert.equal(edited.generationConfig.referenceBindingMode,'pending');
+ assert.equal(edited.content,result.prompt+'\n用户修改的动作');assert.equal(edited.generationConfig.referenceBindingMode,'storyboard');
  assert.equal(storyboardSaveUpdates({prompt:'手工编辑分镜',references:[]}).content,'手工编辑分镜');
  const second=storyboardPromptValue(f.binding,{...f.entries[1],content:f.entries[1].prompt},{prompt:f.entries[1].prompt},'u');
  assert.deepEqual(second.references.map(r=>r.assetId),['a','b','s','p']);
@@ -44,7 +44,7 @@ test('无关联旧项目沿用场景；有关联但过期/漏图/改词不把整
  const fresh=fixture();fresh.cards[0].images=[];
  assert.equal(storyboardPromptValue(fresh.binding,fresh.shot,{prompt:fresh.shot.content},'u').references.length,0);
  const edited=fixture(),draft={prompt:'用户未保存的新词',references:[{id:'manual',kind:'image'}]};
- const result=storyboardPromptValue(edited.binding,edited.shot,draft,'u');assert.equal(result.referenceBindingMode,'pending');assert.equal(result.prompt,draft.prompt);
+ const result=storyboardPromptValue(edited.binding,edited.shot,draft,'u');assert.equal(result.referenceBindingMode,'storyboard');assert.equal(result.prompt,draft.prompt);
 });
 test('旧版本同编号不同内容及歧义编号不被错误绑定',()=>{
  const f=fixture(),shot={...f.shot,id:'cloud-copy',content:'不同版本正文'};

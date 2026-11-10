@@ -143,7 +143,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'storyboard-patch') {
     if(await repo.isProjectLocked(projectId))return LOCKED;
     const role=await roleOf(projectId,user,repo);
-    if(!['producer','collaborator','artist_collaborator'].includes(role))return DENY;
+    if(!(payload.operation==='publish'?['producer','artist','artist_collaborator']:['producer','collaborator','artist_collaborator']).includes(role))return DENY;
     try{const saved=await repo.patchStoryboard(projectId,payload,user.id);return saved?ok(await attachRole(saved,user,repo)):DENY;}
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
   }

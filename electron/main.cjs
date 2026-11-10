@@ -430,7 +430,12 @@ ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[..
 ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
 async function submitGeneration(event,p){
  let input,accountId;try{
- if(p.referenceBindingMode){
+ if(p.storyboardEdit){
+  const {validateStoryboardSubmission}=await import('../core/storyboardPublication.js');
+  const compiled=await validateStoryboardSubmission({getProject:payload=>collabService.getProject(payload),value:p,accountId:String(readCloudSession()?.account?.id||'')});
+  p={...p,references:compiled.references};
+ }else if(p.referenceBindingMode){
+  if(p.referenceBindingMode==='storyboard')throw Error('分镜提交缺少项目身份');
   await workflowAdmin();
   if(!promptArtEnabled())throw Error('当前版本未启用提示词联动美术');
   const {validateCompiledBinding,validateLinkedSubmission}=await import('../core/promptArtBinding.js');
