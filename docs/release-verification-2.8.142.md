@@ -28,3 +28,16 @@
 最终2883/2883通过（并发2，output/142-tests-verified.log）；前一轮并发4时原Windows后台浏览器CDP测试1项连接失败，独立4/4复测与最终全套通过，未修改其断言或生产浏览器功能。最终构建通过；NSIS及打包运行时通过，qa/packaged-smoke-2.8.142-1794289267350。流式上传专项8/8，真实四次连续保存及保存中键入回归通过。独立复核补齐了真实userData切换后的配置初始化、COS流式body、保存途中键入基线、普通自动音色重复引用四项遗漏。
 
 公开发布与本机安装另行补记。
+
+
+## 公开发布及本机状态
+
+源码f48bc2a已推送；Release439990178，官网及GitHub2.8.142已发布。包104044719字节，SHA256 deab4aa7b96f29a1a336df783f8df2759a439e8087cf602992529d648a9f1349。三份公开latest.json相同且Ed25519签名验证通过，官网Range206与本地字节一致，固定SSH主机信任重算服务器整包SHA256一致，GitHub资产size/digest/state一致；客户端生产更新检测命中官方IP2.8.142。证据output/review-142/public-verification.json及in-app-update-official.json。
+
+本机安装尚未完成：安装程序已启动，但Windows consent/UAC安全桌面需要用户确认，工具无法抓取该安全桌面；已通过异步输入提示用户在2.8.142权限确认窗口点击“是”。最后检查已安装exe仍为2.8.141.0，不能报告已安装142。已有桌面快捷方式和原资料保留。用户回复确认后复核ProductVersion、网络设置与启动情况。观察到早先2.8.141遗留安装进程，未强杀安装器或绕过权限确认。
+
+国内网络偏好已保存至实际userData/network-routing.json（enabled:true,interfaceName:WLAN）。未改Clash全局设置；仅为发布使用的临时17997DIRECT实例任务结束关闭。未修改真实项目/分镜/音色或重发旧任务，真实付费生成与真实COS上传未测试。
+
+官方安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.142.exe
+GitHub安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.142/Xingzhou-Film-Tencent-Setup-2.8.142.exe
+本机安装包：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.142/Xingzhou-Film-Tencent-Setup-2.8.142.exe
