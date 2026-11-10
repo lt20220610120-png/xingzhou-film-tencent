@@ -22,7 +22,7 @@ test('explicit publication controls storyboard defaults, source sync cannot repl
 });
 test('stale same-shot bases do not prevent direct edits; legacy and deletion protection remain',()=>{
  let rows=initial();rows=patchShot(rows,{episodeId:'ep',shotId:'source',editPolicy:'direct',base:{content:'wrong'},updates:{content:'用户修改'}});
- assert.equal(rows[0].prompts[0].content,'用户修改');assert.throws(()=>patchShot(rows,{episodeId:'ep',shotId:'source',base:{content:'wrong'},updates:{content:'旧客户端'}}),/协作者/);
+ assert.equal(storyboardShots(rows[0])[0].content,'用户修改');assert.throws(()=>patchShot(rows,{episodeId:'ep',shotId:'source',base:{content:'wrong'},updates:{content:'旧客户端'}}),/协作者/);
  assert.throws(()=>patchShot(rows,{episodeId:'ep',shotId:'source',operation:'delete',base:{content:'wrong'}}),/删除/);
 });
 test('new publication replaces only its scene, supports changed prompt counts, and duplicate delivery preserves subsequent edits',()=>{

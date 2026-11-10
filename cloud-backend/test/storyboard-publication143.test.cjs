@@ -10,6 +10,11 @@ test('legacy initialization and later director editions cannot rewrite published
  assert.equal(rows[0].storyboardPrompts[0].content,'分镜手改');assert.equal(rows[0].prompts[0].content,'未分发的新稿');
  assert.equal(patchShot(rows,publish())[0].storyboardPrompts[0].content,'分镜手改','same receipt is idempotent');
  assert.equal(patchShot(rows,{...publish(),publicationId:'next'})[0].storyboardPrompts[0].content,'清单核实版本');
+ const changed=ep();changed[0].prompts[0].content='导演的更新正文';const synced=mergeDirectorEpisodes(rows,changed);assert.equal(synced[0].prompts[0].content,'导演的更新正文');assert.equal(synced[0].storyboardPrompts[0].content,'分镜手改');
+ const before=structuredClone(rows[0].prompts),create={editPolicy:'direct',operation:'create',episodeId:'ep',scene:'1-1',shotId:'manual'};
+ rows=patchShot(rows,create);rows=patchShot(rows,create);assert.deepEqual(rows[0].prompts,before);assert.equal(rows[0].storyboardPrompts.length,2);
+ const remove={editPolicy:'direct',operation:'delete',episodeId:'ep',shotId:'manual',base:{content:''}};rows=patchShot(rows,remove);rows=patchShot(rows,remove);assert.deepEqual(rows[0].prompts,before);assert.equal(rows[0].storyboardPrompts.length,1);assert(rows[0].storyboardDeletedPromptIds.includes('manual'));assert(!rows[0].deletedPromptIds?.includes('manual'));
+
 });
 test('publication and direct saves retain separate membership permissions and project lock enforcement',async()=>{
  let writes=0;const repo=role=>({getProject:async()=>({id:'p',owner_id:role==='producer'?'u':'owner'}),findMembership:async()=>({role}),isProjectLocked:async()=>false,patchStoryboard:async()=>{writes++;return {id:'p',owner_id:'u'};}});

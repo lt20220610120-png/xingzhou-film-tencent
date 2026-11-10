@@ -3,9 +3,9 @@ set -euo pipefail
 live=/opt/xingzhou-cloud-backend
 stage=/home/ubuntu/xingzhou-storyboard-2.8.143-stage
 backup=/opt/xingzhou-backups/storyboard-publication-2.8.143-$(date -u +%Y%m%dT%H%M%SZ)
-test "$(sha256sum "$live/src/storyboard-merge.cjs" | cut -d' ' -f1)" = 3d471350a92315d0a33df576d517a8b93aa824c87aec35b00cddd4f47b2d20c1
-test "$(sha256sum "$live/src/collab.cjs" | cut -d' ' -f1)" = f64295faad6ce8da25e16abed69b41c3dd5f1bf2c4e28730e0c3bac00cffce82
-test "$(sha256sum "$live/src/repository-extras.cjs" | cut -d' ' -f1)" = 625beff1f780191e57e4d1721b936ad6857b0a8be1ca0c4cab47936fda619266
+test "$(sha256sum "$live/src/storyboard-merge.cjs" | cut -d' ' -f1)" = b78bc22e7b132380f7e2bc7430e6e4161606a527013166b19fe32baa093497ed
+test "$(sha256sum "$live/src/collab.cjs" | cut -d' ' -f1)" = 23d3dc5be3f1870f0417217911f0563ec405dd29b030cd6a4d670c99e35b9128
+test "$(sha256sum "$live/src/repository-extras.cjs" | cut -d' ' -f1)" = 3a1ed40586bba066f5b0930f1049b10d145575eb3e18256fa5b6e8a3259d46dd
 for name in storyboard-merge collab repository-extras; do node --check "$stage/src/$name.cjs"; done
 node --test "$stage/test/storyboard-publication143.test.cjs" "$stage/test/storyboard-v220.test.cjs" "$stage/test/storyboard-v222.test.cjs" "$stage/test/prompt-editions134.test.cjs"
 mkdir -p "$backup/src"

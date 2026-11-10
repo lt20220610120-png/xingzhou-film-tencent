@@ -36,13 +36,14 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
     if(candidates.length===1&&(ep.prompts||[]).filter(p=>p.label===source.label).length===1)previous=candidates[0];
    }
    if(!previous)return {...source,sourceContent:source.content||'',generationConfig:undefined,manual:false};
+   if(old.storyboardWorkspacePolicy==='published')return {...source,sourceContent:source.content||'',generationConfig:undefined,manual:false};
    const baseline=previous.sourceContent ?? previous.content;
    const edited=previous.content!==baseline;
    return {...source,id:previous.id,content:edited?previous.content:source.content,sourceContent:source.content||'',generationConfig:previous.generationConfig,
     ...(edited&&source.content!==previous.content?{sourceConflict:source.content}:{}),manual:false};
   });
   // Preserve manually created shots, and retain removed source shots rather than deleting work/results.
-  for(const previous of old.prompts||[])if(!prompts.some(p=>p.id===previous.id)){
+  for(const previous of old.prompts||[])if(old.storyboardWorkspacePolicy!=='published'&&!prompts.some(p=>p.id===previous.id)){
     const kept={...previous,...(!previous.manual?{sourceRemoved:true}:{})};
     if(kept.manual&&prompts.some(p=>p.label===kept.label)){
       const scene=kept.label.split('-').slice(0,2).join('-');
@@ -70,13 +71,22 @@ function patchShot(episodes,payload) {
   const rows=prompts.map(p=>{const old=previous.find(s=>s.id===p.id)||previous.find(s=>s.label===p.label);return {id:old?.id||p.id,sourcePromptId:p.id,label:p.label,content:p.generationConfig?.bindingCompiledPrompt||p.content,sourceContent:p.content,storyboardPublicationId:payload.publicationId,generationConfig:{...old?.generationConfig,...p.generationConfig,autoReferenceExclusions:[],autoReferenceSignature:null,storyboardRemovedReferences:[],storyboardReferenceBaseline:undefined,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:payload.publicationId},manual:false};});
   if(rows.some(p=>retained.some(s=>s.id===p.id)))throw Object.assign(Error('发布的分镜编号重复'),{status:400});
   ep.storyboardPrompts=[...retained,...rows].sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
+  ep.storyboardWorkspacePolicy='published';
+  ep.deletedPromptIds=(ep.deletedPromptIds||[]).filter(id=>!prompts.some(p=>p.id===id||'source-label:'+p.label===id));
   return next;
  }
+ if(payload.editPolicy==='direct'&&!ep.storyboardPrompts)ep.storyboardPrompts=structuredClone(ep.prompts||[]);
  if(!ep.storyboardPrompts&&payload.promptEditionId!==undefined&&payload.promptEditionId!==(ep.promptEditionId||'legacy'))throw Object.assign(new Error('提示词版本已切换，草稿已保留；请刷新后核对版本'),{status:409});
- if(payload.editPolicy==='direct'&&ep.storyboardPrompts){
+ const sourceWork={prompts:ep.prompts,deletedPromptIds:ep.deletedPromptIds,shotCounters:ep.shotCounters};
+ const separate=payload.editPolicy==='direct'&&ep.storyboardPrompts;
+ const finish=()=>{if(separate){ep.storyboardPrompts=ep.prompts;ep.storyboardDeletedPromptIds=ep.deletedPromptIds;ep.storyboardShotCounters=ep.shotCounters;Object.assign(ep,sourceWork);ep.storyboardWorkspacePolicy='published';}return next;};
+ if(separate){
   const published=ep.storyboardPrompts;
-  if(payload.operation!=='create'&&published.find(s=>s.id===payload.shotId)?.storyboardPublicationId!==(payload.storyboardPublicationId||undefined))throw Object.assign(Error('清单已发布新版本，请刷新项目'),{status:409});
+  const target=published.find(s=>s.id===payload.shotId);
+  if(target&&payload.operation!=='create'&&target.storyboardPublicationId!==(payload.storyboardPublicationId||undefined))throw Object.assign(Error('清单已发布新版本，请刷新项目'),{status:409});
   ep.prompts=published;
+  ep.deletedPromptIds=ep.storyboardDeletedPromptIds||[];
+  ep.shotCounters=ep.storyboardShotCounters||{};
  }
  ep.prompts=ep.prompts||[];
  if(payload.operation==='create'){
@@ -88,13 +98,13 @@ function patchShot(episodes,payload) {
   const hasNumberEvidence=scriptScenes.length||unitHeaders(ep.title).length||unitHeaders(ep.content).length||['episodeNumber','number','episode','episode_number'].some(key=>ep[key]!==undefined&&ep[key]!==null&&ep[key]!=='');
   if((hasNumberEvidence&&!number)||(number&&Number(payload.scene.split('-')[0])!==number)||(scenes.size&&!scenes.has(payload.scene)))
     throw Object.assign(new Error('场景不属于当前分集，请刷新核对'),{status:400});
-  if(ep.prompts.some(p=>p.id===payload.shotId))return next;
+  if(ep.prompts.some(p=>p.id===payload.shotId))return finish();
   const max=Math.max(0,ep.shotCounters?.[payload.scene]||0,...ep.prompts.filter(p=>p.label?.startsWith(payload.scene+'-')).map(p=>Number(p.label.split('-')[2])||0));
   ep.shotCounters={...ep.shotCounters,[payload.scene]:max+1};
   ep.prompts.push({id:payload.shotId,label:`${payload.scene}-${max+1}`,content:'',manual:true});
  }else if(payload.operation==='delete'){
   const shot=ep.prompts.find(p=>p.id===payload.shotId);
-  if(!shot){if((ep.deletedPromptIds||[]).includes(payload.shotId))return next;throw Object.assign(new Error('分镜已变更，请刷新核对'),{status:409});}
+  if(!shot){if((ep.deletedPromptIds||[]).includes(payload.shotId))return finish();throw Object.assign(new Error('分镜已变更，请刷新核对'),{status:409});}
   for(const key of ['content','generationConfig'])if(!equal(shot[key]??null,payload.base?.[key]??null))throw Object.assign(new Error('此分镜已被协作者修改，请刷新核对后再删除'),{status:409});
   const scene=shot.label.split('-').slice(0,2).join('-'),number=Number(shot.label.split('-')[2])||0;
   ep.shotCounters={...ep.shotCounters,[scene]:Math.max(ep.shotCounters?.[scene]||0,number)};
@@ -109,7 +119,6 @@ function patchShot(episodes,payload) {
   shot.edited_at=new Date().toISOString();
   delete shot.sourceConflict;
  }
- if(payload.editPolicy==='direct'&&ep.storyboardPrompts){ep.storyboardPrompts=ep.prompts;ep.prompts=structuredClone((episodes||[]).find(e=>e.id===ep.id)?.prompts||[]);}
- return next;
+ return finish();
 }
 module.exports={mergeDirectorEpisodes,patchShot};
