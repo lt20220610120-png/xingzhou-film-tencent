@@ -12,10 +12,10 @@
 
 ## 验证
 
-- 全量2891/2891，13 suites，通过（node --test --test-concurrency=2，scripts/test.cjs同一套源测试）。`output/143-tests-final.log`。
+- 全量2891/2891，13 suites，通过（node --test --test-concurrency=2，scripts/test.cjs同一套源测试）。`output/143-tests-release-final.log`。
 - 真实 React + Edge，1280/1700/2232：连续保存、请求中继续输入、旧base与sourceConflict不拦生成、明确新发布替换默认、旧草稿不覆盖、重进保留手改、协作者读取对方修改并直接生成。3次模拟生成，0付费调用。脚本 `scripts/verify-storyboard-publication-ui.cjs`，证据 `output/playwright/storyboard-2.8.143/report.json`。
 - 独立复核23/23、最终云端全套253/253与阶段12/12通过。修复工作副本创建/删除的重放及计数/删除标记隔离；启用新策略后导演源同步始终使用真实来源正文。
-- 构建通过，NSIS与打包后真实运行smoke通过，qa/packaged-smoke-2.8.143-1794302656530/report.json。安装包104046886字节，SHA256 f2aec8e085afbe61776457d07c115703d99e262d41e4566b2574e68b73f4551e。复核后只有未打入客户端的云端源码/测试和部署脚本变化，沿用已验证客户端包。
+- 构建通过，NSIS与打包后真实运行smoke通过，qa/packaged-smoke-2.8.143-1794303289164/report.json。安装包104046323字节，SHA256 375e38f354db43dc8d096d02508b6e0bedd2331b65054bd06275b95114184cdc。首轮候选在公开发布前补齐无图/新建资产的语义映射，重新构建、打包并运行验收；旧候选未发布更新清单。最终补充33项与三宽/协作者UI复测通过。
 
 ## 云端
 
@@ -29,4 +29,15 @@ SHA256：storyboard-merge 01c10c1de64562ec6bf27e40e9f1f90b64a7246a3624c4460e28ff
 
 ## 发布与安装
 
-客户端实现ac43cd3已推送；公开发布中。官方包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.143.exe
+客户端实现ac43cd3、云端分离复核37f6bfa、新增素材使用范围807cf91均已推送；已公开发布。
+
+本机已安装最终候选2.8.143并启动，ASAR全SHA与验证包一致（5bdee386e827c5903f3d7ad059d271b71906ce0b6a069fa3aad4d56d0ff06b9f）；桌面快捷方式有效，WLAN路由配置保留且健康检查200/1905ms。未付费生成、未重发旧未知任务。官方包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.143.exe
+
+
+公开发布完成：Release440159415，官网及GitHub安装包大小/完整SHA256一致；官网Range206首65536字节与本机一致，三份公开latest清单一致并验签通过。生产更新检测实际命中官方IP源、返回2.8.143且较2.8.142为新版本，保留CA/指纹/签名验证。最终全量2891/2891再次通过，公开验证见output/review-143/public-verification.json、in-app-update-official.json。
+
+- 官网：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.143.exe
+- GitHub：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.143/Xingzhou-Film-Tencent-Setup-2.8.143.exe
+- 本机：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.143/Xingzhou-Film-Tencent-Setup-2.8.143.exe
+
+最终客户端已安装并启动，桌面快捷方式有效。仅关闭本次QA Vite与绑定WLAN的临时DIRECT实例，不改变用户Clash/TUN。未提交真实付费生成、未重发旧未知任务。
