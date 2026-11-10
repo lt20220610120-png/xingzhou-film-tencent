@@ -4,6 +4,7 @@ import models from '../../core/feituo-models.json';
 import { mediaSource } from '../../core/generationReferences.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { MediaPreview } from './MediaPreview.jsx';
+import './GenerationResults.css';
 
 const names = { submitting: '提交中', submitted: '排队 / 生成中', downloading: '已生成 · 下载中', success: '已成功', failed: '失败', uncertain: '待核对' };
 const clearable = task => ['success', 'failed', 'uncertain'].includes(task.status);
@@ -14,7 +15,7 @@ function storageSize(bytes = 0) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
-export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onClear }) {
+export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onClear, compact=tasks.every(t=>t.kind==='video'),selectedIds=[],onSelect,latestId }) {
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const [menuOpen,setMenuOpen]=useState(false),menu=useRef(null),trigger=useRef(null);
@@ -53,7 +54,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     try { if (await exportTask(task)) setNotice('文件已保存'); }
     catch (cause) { setError(cause.message); }
   };
-  return <section className="generation-results generation-results-refined">
+  return <section className={`generation-results generation-results-refined${compact?' generation-results-compact':''}`}>
     <header><div><h3>生成结果 <small>{tasks.length}</small></h3></div>
       <div className="generation-result-actions">
         <button className="secondary" disabled={busy} onClick={async () => { setError(''); try { await onRefresh(); } catch (cause) { setError(cause.message); } }}><RefreshCw size={15}/>刷新结果</button>
@@ -66,7 +67,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     {error && !cleanup && <p className="collab-error" role="alert">{error}</p>}
     {notice && <p className="generation-cleanup-notice" role="status">{notice}</p>}
     <div className="generation-result-grid">{tasks.map(task => <article key={task.id}>
-      <header><span className={`status-${task.status}`}>{names[task.status] || task.status}</span><small>{task.kind === 'video' ? `${task.duration || ''} 秒` : '图片'}</small></header>
+      <header>{onSelect&&task.status==='success'&&<label className="generation-result-select"><input type="checkbox" aria-label={`选择结果 ${task.id}`} checked={selectedIds.includes(task.id)} onChange={()=>onSelect(task)}/>{latestId===task.id?'最新':'选择'}</label>}<span className={`status-${task.status}`}>{names[task.status] || task.status}</span><small>{task.kind === 'video' ? `${task.duration || ''} 秒` : '图片'}</small></header>
       {(task.filePath || task.url) ? <button className="generation-result-preview" aria-label="预览生成结果" onClick={() => setPreview(task)}>
         {task.kind === 'image' ? <img loading="lazy" decoding="async" src={mediaSource(task)} alt="生成图片"/> : <video src={mediaSource(task)} preload="none" muted/>}<span>点击预览</span>
       </button> : <div className="generation-result-placeholder"><Film/><span>{names[task.status]}</span></div>}

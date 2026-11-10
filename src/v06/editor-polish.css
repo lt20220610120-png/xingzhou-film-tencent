@@ -35,3 +35,10 @@
 .storyboard-conflict .storyboard-conflict-actions button{display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:5px 10px;border:1px solid #e4a1a9;border-radius:5px;background:#fff;color:#a82d3c;font-size:12px;font-weight:600;cursor:pointer}
 .storyboard-conflict .storyboard-conflict-actions button:disabled{opacity:.5;cursor:default}
 .storyboard-conflict-preview{max-height:220px;overflow:auto;overscroll-behavior:contain;border-top:1px solid #f0c7cc;padding:10px;background:white;font-size:13px;color:#4e5869}
+
+/* Extra control height belongs to the prompt, while references keep their natural rows at the bottom. */
+.generation-composer .generation-editor .generation-prompt-area,.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-prompt-area{align-self:stretch;display:flex;flex-direction:column;min-height:0}
+.generation-composer .generation-editor .generation-textarea-wrap,.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-textarea-wrap{flex:1 0 auto;height:340px;min-height:270px;resize:vertical;overflow:hidden;box-sizing:border-box}
+.generation-composer .generation-editor .generation-textarea-wrap>textarea,.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-textarea-wrap>textarea{height:100%;min-height:0;resize:none;box-sizing:border-box;display:block}
+.generation-composer .generation-editor .generation-references,.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-references{flex:0 0 auto;height:auto;min-height:0;max-height:260px;overflow:auto;align-content:flex-start;box-sizing:border-box}
+.generation-composer .generation-editor .generation-controls{align-self:stretch}
