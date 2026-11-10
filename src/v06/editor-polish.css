@@ -42,3 +42,5 @@
 .generation-composer .generation-editor .generation-textarea-wrap>textarea,.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-textarea-wrap>textarea{height:100%;min-height:0;resize:none;box-sizing:border-box;display:block}
 .generation-composer .generation-editor .generation-references,.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-references{flex:0 0 auto;height:auto;min-height:0;max-height:260px;overflow:auto;align-content:flex-start;box-sizing:border-box}
 .generation-composer .generation-editor .generation-controls{align-self:stretch}
+
+.generation-composer .generation-editor .generation-textarea-wrap:has(.generation-mention-menu),.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-textarea-wrap:has(.generation-mention-menu){overflow:visible;resize:none}
