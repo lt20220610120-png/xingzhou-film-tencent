@@ -19,4 +19,10 @@
 
 ## 安装包与公开发布
 
-验证和发布收尾中，最终安装包大小、SHA256、签名清单及公开地址将在核验后补记。
+- 最终包 D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.145/Xingzhou-Film-Tencent-Setup-2.8.145.exe，104067939字节，SHA256 `b02a5528dd8fb650f26dab92ccacb19a14995f2692ca17bd7baca8878452604c`。NSIS及实际运行验收 qa/packaged-smoke-2.8.145-1794316011788/report.json通过；真实打包运行视频/音频播放、下载字节一致、画布渲染通过。
+- 首轮打包受下载运行时临时目录rename EPERM影响；最终使用已有本机Electron43.2.0运行时构建并通过相同完整运行验收，未改应用逻辑或权限。
+- 实现6919a45已推送；GitHub Release 440376596 安装包uploaded，资产digest与本机一致。官网及两个GitHub公开latest.json逐字一致并验签通过，官网完整文件服务器SHA256及公开Range206/65536字节一致。
+- 生产更新读取逻辑检测到2.8.145，来源https://106.55.41.128/api/updates/latest.json，保留签名、CA、证书指纹校验。证据output/review-145/public-verification.json及in-app-update.json。
+- 官网包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.145.exe
+- GitHub包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.145/Xingzhou-Film-Tencent-Setup-2.8.145.exe
+- 发布期间仅使用本机TLS内的GitHub凭据，SSH透传通道不解密GitHub TLS；本轮临时通道与QA服务器用毕关闭，用户Clash/TUN与软件网络配置保留。
