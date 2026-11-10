@@ -169,6 +169,7 @@ async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x102
     return saveGeneratedImage(result.resultUrls[0],destDir);
   }
   const base = normalizeBase(endpoint);
+  if((await import('../core/videoProviderConfig.js')).isMuseLocal(endpoint)){size=ratio||({'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4'}[size])||'1:1';}
   const headers = authHeaders(apiKey);
   let body;
   if (references.length) {
@@ -219,6 +220,8 @@ function buildVideoContent({ prompt, ratio, duration, resolution, audioEnabled, 
 }
 
 async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration, resolution, audioEnabled, firstFramePath, firstFrameUrl, references = [], destDir, signal, onStatus = () => {} }) {
+  if((await import('../core/videoProviderConfig.js')).isMuseLocal(endpoint)){const provider=require('./video-provider.cjs');const input={endpoint,apiKey,model,prompt,ratio:ratio||'16:9',duration:duration||5,resolution:resolution||'720p',references:references.length?references:firstFramePath?[{kind:'image',filePath:firstFramePath}]:firstFrameUrl?[{kind:'image',url:firstFrameUrl}]:[],signal};let result=await provider.submit(input);const deadline=Date.now()+20*60*1000;while(!['success','failed'].includes(result.status)&&Date.now()<deadline){await waitForPoll(5000,signal);result=await provider.status({...input,jobId:result.jobId});onStatus(result.status);}if(result.status==='failed')throw Error(result.errorMessage||'Muse 视频生成失败');if(result.status!=='success')throw Error('Muse 视频仍在处理，请在号池核对原任务，避免重复提交');return provider.download({...input,jobId:result.jobId,url:result.videoUrl},apiKey,destDir);}
+
   if (!endpoint?.trim()) throw new Error('请先在画布中配置视频生成 API');
   if (!prompt?.trim()) throw new Error('请填写视频描述');
   if(references.length>1 || references.some(r=>r.kind!=='image'))throw new Error('当前自定义视频接口仅支持一张首帧参考，请切换飞拓接口使用多素材参考');

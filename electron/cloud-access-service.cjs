@@ -84,12 +84,12 @@ function requestPinnedHttps(url, init = {}) {
     request.end();
   });
 }
-async function requestGateway(url, init) {
+async function requestGateway(url, init, safeRead = false) {
   try { return await fetch(url, init); } catch (error) {
     // Tests and future builds may provide a working fetch implementation. Only
     // use the native pinned transport after the normal request fails on the IP.
     const tlsFailure = /CERT|TLS|certificate|SELF_SIGNED|UNABLE_TO_VERIFY|ALTNAME/i.test(String(error?.message || '') + String(error?.cause?.code || error?.code || ''));
-    if (isPinnedIpUrl(url) && tlsFailure) {
+    if (isPinnedIpUrl(url) && (tlsFailure || safeRead && isNetworkFailure(error))) {
       return requestPinnedHttps(url, init);
     }
     throw error;
@@ -117,14 +117,14 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     try {
       const pending=(async()=>{
         const decorated=licenseDecorator&&action!=='license-challenge'?await licenseDecorator(action,payload,token):payload;
-        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({...decorated,action}),signal:controller.signal});
+        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({...decorated,action}),signal:controller.signal},readAction(action));
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if (![502,503,504].includes(response.status)) activeUrl=url;
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,transient:[502,503,504].includes(response.status)});
         activeUrl=url;return snapshots.resolve(snapshot,data);
       })();
-      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},timeoutMs);});
+      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},options.timeoutMs||(!index&&readAction(action)?12000:timeoutMs));});
       return await Promise.race([pending,deadline]);
     } catch(error) {
       const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));

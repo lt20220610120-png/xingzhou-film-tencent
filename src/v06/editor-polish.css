@@ -9,3 +9,20 @@
 .director-rail .project-directory-scroll>button.director-episode-row{grid-template-columns:26px minmax(0,1fr) max-content;gap:7px}.director-episode-row .rail-index{box-sizing:border-box;border:1px solid #e2ddeb;background:#faf9fd;transition:border-color .2s,box-shadow .2s}.director-episode-row .rail-index.is-complete{border-color:#8e76bf;box-shadow:inset 0 0 0 1px #a58ac754;background:#eee8f7;color:#654a97}
 @media(prefers-reduced-motion:reduce){.director-episode-row .rail-index{transition:none}}
 @media(max-width:760px){.generation-prompt-heading>div{gap:6px}.storyboard-save-actions{flex-wrap:wrap}.storyboard-scope-row>span{min-width:48px}}
+
+/* 2.8.140: grid columns stretch together; native resizing belongs to the wrapper. */
+.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-prompt-area{align-self:stretch;min-height:0}
+.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-textarea-wrap{display:block;flex:1 0 auto;height:340px;min-height:270px;resize:vertical;overflow:hidden;box-sizing:border-box}
+.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-textarea-wrap>textarea{display:block;box-sizing:border-box;height:100%;min-height:0;resize:none}
+.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-references{flex:1 0 170px;height:auto;min-height:170px}
+.collab-stage .collab-shot-card .generation-editor--reference-viewport .generation-controls{align-self:stretch}
+.generation-controls .libtv-project-actions{display:flex;flex-wrap:nowrap;gap:4px}
+.generation-controls .libtv-project-actions button{white-space:nowrap;font-size:11px;padding:4px;min-width:0;min-height:30px;border-radius:6px;flex-shrink:0}
+.generation-controls .libtv-project-actions button:nth-child(2){flex:1}
+.storyboard-defaults{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;gap:12px}
+.storyboard-defaults>label,.storyboard-defaults>label:first-of-type,.storyboard-defaults>label:nth-of-type(2){min-width:0}
+.storyboard-defaults>.libtv-generation-params{display:contents}
+.storyboard-defaults .libtv-generation-params>label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;color:#656e7c}
+.storyboard-defaults>.primary{height:36px}
+
+.generation-textarea-wrap.prompt-highlight-editor:has(.generation-mention-menu){overflow:visible;resize:none}

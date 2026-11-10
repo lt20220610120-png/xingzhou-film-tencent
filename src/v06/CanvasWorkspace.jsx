@@ -1,3 +1,4 @@
+import {saveMuseProfiles} from '../../core/museLocal.js';
 import {LikeConnection} from './LikeConnection.jsx';
 import {FnkoImageConfiguration} from './FnkoImageConfiguration.jsx';
 import {cleanClient} from '../../core/clientDistribution.js';
@@ -82,7 +83,7 @@ export function MediaApiSettings({ state, setState, onClose }) {
   return (
     <Dialog open title="生成接口设置" onClose={onClose}>
       <div className="media-api-settings">
-        <div className="media-api-modes">{!cleanClient(state)&&state.ftConnectionsVersion!==1&&<button className={mode === 'feituo' ? 'active' : ''} onClick={() => { setMode('feituo'); setError(''); setNotice(''); }}><KeyRound size={15} />FT快捷接入</button>}<button className={mode === 'custom' ? 'active' : ''} onClick={() => { setMode('custom'); setError(''); setNotice(''); }}>自定义接口</button><button className={mode==='libtv'?'active':''} onClick={()=>setMode('libtv')}>连接 LibTV</button><button className={mode==='like'?'active':''} onClick={()=>setMode('like')}>连接 Like画布</button></div>
+        <div className="media-api-modes"><button onClick={async()=>{setError('');try{const connection=await window.xingzhou.museLocalConnect();setState(s=>saveMuseProfiles(s,connection));setNotice('本机 Muse 图片与视频接口已接入，共用 MuseCanvas 号池。');}catch(e){setError(e.message);}}}>连接本机 Muse</button>{!cleanClient(state)&&state.ftConnectionsVersion!==1&&<button className={mode === 'feituo' ? 'active' : ''} onClick={() => { setMode('feituo'); setError(''); setNotice(''); }}><KeyRound size={15} />FT快捷接入</button>}<button className={mode === 'custom' ? 'active' : ''} onClick={() => { setMode('custom'); setError(''); setNotice(''); }}>自定义接口</button><button className={mode==='libtv'?'active':''} onClick={()=>setMode('libtv')}>连接 LibTV</button><button className={mode==='like'?'active':''} onClick={()=>setMode('like')}>连接 Like画布</button></div>
         {mode === 'feituo' ? <form className="media-feituo-connection" onSubmit={saveFeituo}>
           <header><div><strong>一个 Key，所有FT模型</strong><p>保存一次，在生成界面直接切换模型，无需重复配置。</p></div><span className={credential ? 'connected' : ''}>{credential ? '已保存 Key' : '待填写 Key'}</span></header>
           <label htmlFor="feituo-api-key">FT API Key</label><input id="feituo-api-key" aria-label="FT API Key" placeholder="粘贴你的FT API Key" type="password" autoComplete="off" value={feituoKey} onChange={(event) => { setFeituoKey(event.target.value); setNotice(''); setError(''); }} />
