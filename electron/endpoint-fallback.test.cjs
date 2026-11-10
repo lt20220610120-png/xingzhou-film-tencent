@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const cfg = require('./cloud-config.public.cjs');
+// Endpoint unit tests must not discover or contact the developer's live adapters.
+const os=require('node:os');
+const originalInterfaces=os.networkInterfaces;
+test.before(()=>{os.networkInterfaces=()=>({});});
+test.after(()=>{os.networkInterfaces=originalInterfaces;});
 
 // 事故背景：xingzhoufilm.cn 备案未完成期间被腾讯云拦截，
 // Electron/Node 的 TLS 连接被 RST，客户端写死单一域名 => 每次退出后都登录不上。

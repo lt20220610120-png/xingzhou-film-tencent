@@ -135,7 +135,7 @@ function createGenerationJobs(dir,options={}) {
       if(fnko.isFnkoEndpoint(endpoint)){
         save(job);
         try{
-          const result=await fnko.submit({...input,idempotencyKey:job.id});
+          if(options.beforeDispatch)await dispatchGuard();const result=await fnko.submit({...input,idempotencyKey:job.id});
           const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.status==='success'?'downloading':'submitted',url:result.videoUrl,urls:result.resultUrls,error:result.errorMessage,costYuan:result.costYuan,nextPollAt:Date.now()+30000});
           if(result.status==='success'&&result.resultUrls?.length){try{const files=[];for(const url of result.resultUrls)files.push(await fnko.download({...saved,apiKey,url},dir));return save({...saved,status:'success',filePath:files[0],files});}catch{return save({...saved,warning:'原任务已完成，下载未完成；刷新仅下载原结果，不重新生成。'});}}
           return saved;
@@ -147,7 +147,7 @@ function createGenerationJobs(dir,options={}) {
         save(job);
         try{
           let prepared=input;try{await provider.preflight(input,{allowLocal:!!options.prepareVideoReferences});if(options.prepareVideoReferences)prepared=await options.prepareVideoReferences({...input,referenceTaskId:job.id});await provider.preflight(prepared);}catch(e){const detail=String(e.message||'素材准备失败').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);save({...job,status:'failed',submissionAttempted:false,error:detail});throw Object.assign(new Error(detail),{beforeSubmission:true});}
-          if(options.beforeDispatch)await dispatchGuard();const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
+          if(options.beforeDispatch)await dispatchGuard();const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,remoteStatus:result.remoteStatus||result.status,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
           if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
         }catch(e){if(e.beforeSubmission){if(read().find(r=>r.id===job.id)?.status!=='failed')save({...job,status:'failed',submissionAttempted:false,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});throw e;}const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
       }
@@ -174,7 +174,14 @@ function createGenerationJobs(dir,options={}) {
       } catch(error) { if(error.downloadReceiptId)return save({...job,status:'downloading',downloadReceiptId:error.downloadReceiptId,error:error.message}); save({...job,status:'failed',error:error.message}); throw error; }
     },
     async refresh({id,apiKey,endpoint,accountId}) {
-      if(libtvRunning.has(id))return read().find(r=>r.id===id);
+      if(libtvRunning.has(id)){
+        const current=read().find(r=>r.id===id);if(!current?.storyboardBatchRunId)return current;
+        try{const raw=await libtv().query(accountId,current),live=read().find(r=>r.id===id);if(!live||['success','failed'].includes(live.status))return live;
+         const states=libtvNodes(raw).map(n=>String(n?.data?.taskInfo?.status??n?.data?.status??n?.taskInfo?.status??n?.status??'').toLowerCase());
+         const remoteStatus=states.find(s=>/^(running|processing|in_progress|generating|queued|pending|waiting)$/.test(s));
+         return save({...live,...(remoteStatus?{remoteStatus}:{}),...(libtvResult(raw,live)?{remoteStatus:'success'}:{}),checkedAt:new Date().toISOString(),nextPollAt:Date.now()+5000});
+        }catch{return read().find(r=>r.id===id);}
+      }
       if (inFlight.has(id)) return inFlight.get(id);
       const work = (async () => {
         let job=read().find(r=>r.id===id);
@@ -223,7 +230,7 @@ function createGenerationJobs(dir,options={}) {
         try {
           if(job.kind==='image' && job.urls?.length) {const files=[];for(const url of job.urls)files.push(await downloadToFile(url,dir,'png'));return save({...job,status:'success',filePath:files[0],files,warning:''});}
           const result=generic?await require('./video-provider.cjs').status({...job,apiKey}):await client.status({jobId:job.jobId,apiKey});
-          job={...job,checkedAt:result.checkedAt || new Date().toISOString(),costYuan:result.costYuan ?? job.costYuan};
+          job={...job,remoteStatus:result.remoteStatus||result.status,checkedAt:result.checkedAt || new Date().toISOString(),costYuan:result.costYuan ?? job.costYuan};
           if (result.status === 'failed') return save({...job,status:'failed',error:result.errorMessage || '生成失败'});
           if (result.status !== 'success') return save({...job,status:'submitted',nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000,warning:result.warning || '',error:''});
           if (!result.videoUrl) throw new Error('任务完成但视频地址尚未返回');

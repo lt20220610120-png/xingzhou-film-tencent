@@ -1,0 +1,27 @@
+# 2.8.146 发布验收（2026-11-11）
+
+## 需求及最终实现
+
+- ProjectResourcePicker：只有当前账号有编辑权的本地参考上传允许确认删除。保护项目已采用图/音色、对象别名、他人媒体、发布来源、活动任务和待发送队列引用；账号/项目锁定/来源在服务端事务再次核验。记录删后发COS DELETE，清当前引用；取消选择弹窗不复活已删素材。删除失败保留卡片；对象清理失败明确返回warning。
+- 主进程持久化storyboard批量队列：场景/分集/全剧；每条保留正文及引用，上方参数共用；跳过已有成功/活动/待核对任务，费用确认后发送。停止仅未发送，恢复显式操作，重启准备中标uncertain而非自动重发；原生最终dispatch及Fnko付费边界核验。逐条保存有requireExactBase事务基线，防schema等待期间覆盖协作者工作。历史批次不会清新草稿，已跳过条目不清草稿。
+- 建议时长元数据贯通导演快照/发布/分镜，旧稿仅准确来源ID及原文匹配恢复，不按标签推测。建议时长按scene/episode/project范围逐条应用，支持小数；不支持/缺失保留标记并阻止生成，不向默认值回退。统一参数模式和按集应用保留；默认参数变化只对准确默认delta安全重设dirty草稿基线，正文或引用差异继续冲突保护。
+- 顶部单一生成工作台：接口/参数/建议/队列同容器，收起约54px；记住账号+项目的状态，键盘可展开，收起显示模型/默认时长/批量进度。1280/1700/2232无横向溢出。
+- OFF官网IP健康检查改回CA/证书指纹正确链路；官方和COS安全只读可自动绑定物理网卡备用，不影响模型。写入不因模糊失败重试；缓冲同对象PUT可安全处理，流式上传单次。
+- LibTV bundled Node CLI在当前WiFi复现ECONNRESET（api2.liblib.art/api.liblib.tv），Chromium和CLI不共享代理。命令前无凭据TLS探测普通/系统代理/物理线路；有随机认证的本机CONNECT仅转发LibLib官方域名443，TLS端到端验证，记录实际验证成功的DNS IP。每个原生命令只启动一次，失败仅输出安全域名/错误码。开关文案TUN模式兼容；不更改Clash/TUN/用户代理或凭据。
+
+## 验证证据
+
+- npm test：2987/2987，13 suites，output/146-tests-final.log；构建output/146-build-final.log通过。
+- scripts/verify-storyboard146-ui.cjs：实际React+原生queue host+backend merge，桥接仅隔离fixture，真实API/付费调用0。自己的素材删除/保护/确认失败重试/Escape/取消；12/17秒分别精确应用、unsupported阻止提交、missing报告、uniform重置；scene/episode/drama、草稿、跳过、排队/生成/完成、stop/resume；折叠<64px、键盘、重开状态及三宽通过。报告及截图output/playwright/storyboard-2.8.146。
+- 网络只读output/146-network-readonly-after.json：OFF健康200、项目12/资产279，实际COS image1,576,015字节，Chromium/物理/自动读取200。
+- output/146-libtv-readonly-after.json：当前WiFi实际原设置enabled=true，测试注入OFF而不修改设置；OFF账号、视频模型37/图24、live schema、项目列表、画布370nodes（10.59s）、已有视频任务query（6s）成功。无系统代理子路径账号成功、ON兼容账号成功。设置/加密凭据哈希不变；0生成/上传/项目写入。未假称测试前用户TUN状态；不是热点替代验证。
+- 独立复核修复队列旧基线、Fnko付费guard、重启不确定状态、历史确认清新稿以及事务保存竞态；最终复核见后续收尾。
+
+## 云端部署
+
+- 增量6文件 media.cjs/postgres-repository.cjs/reference-upload-delete.cjs/storyboard-merge.cjs/storyboard-settings.cjs/prompt-duration.cjs；备份 /opt/xingzhou-backups/storyboard-2.8.146-20261110T175520Z。阶段43/43通过并health active。
+- 追加原子基线merge补丁，备份 /opt/xingzhou-backups/storyboard-atomic-2.8.146-20261110T175644Z；阶段44/44通过，health active。日志output/146-cloud-deploy.log、146-cloud-atomic.log。原线上与HEAD差别仅CRLF已核对；原始哈希前置保护，失败自动回滚。无schema迁移，无真实删除或生成。
+
+## 安装包与公开发布
+
+最终NSIS安装包运行验收通过：qa/packaged-smoke-2.8.146-1794333601482/report.json。本地包release/2.8.146/Xingzhou-Film-Tencent-Setup-2.8.146.exe，104082184字节，SHA256 `26db5a2318fe781abf41ce36cc7c6f0a7ee0563c7898a99e176d748cf98d564b`。独立最终复核24/24通过，无阻塞问题。公开验收待补充。

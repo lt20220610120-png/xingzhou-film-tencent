@@ -84,9 +84,9 @@ function requestPinnedHttps(url, init = {}) {
     request.end();
   });
 }
-async function requestGateway(url, init, safeRead = false) {
-  const route=require('./cloud-network.cjs');if(route.shouldRoute(url))return route.directFetch(url,init);
-  try { return await fetch(url, init); } catch (error) {
+async function requestGateway(url, init, safeRead = false, safeRetry = safeRead) {
+  const route=require('./cloud-network.cjs');
+  return route.routeFetch(url,init,async(url,init)=>{try { return await fetch(url, init); } catch (error) {
     // Tests and future builds may provide a working fetch implementation. Only
     // use the native pinned transport after the normal request fails on the IP.
     const tlsFailure = /CERT|TLS|certificate|SELF_SIGNED|UNABLE_TO_VERIFY|ALTNAME/i.test(String(error?.message || '') + String(error?.cause?.code || error?.code || ''));
@@ -94,7 +94,7 @@ async function requestGateway(url, init, safeRead = false) {
       return requestPinnedHttps(url, init);
     }
     throw error;
-  }
+  }},{safeToRetry:safeRetry});
 }
 const pendingReads = new Map();
 let licenseDecorator=null;
@@ -118,7 +118,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     try {
       const pending=(async()=>{
         const decorated=licenseDecorator&&action!=='license-challenge'?await licenseDecorator(action,payload,token):payload;
-        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({...decorated,action}),signal:controller.signal},readAction(action));
+        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({...decorated,action}),signal:controller.signal},readAction(action),retryable);
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if (![502,503,504].includes(response.status)) activeUrl=url;
@@ -130,10 +130,11 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     } catch(error) {
       const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));
       if(!network&&!error.transient)throw error;
+      if(readAction(action))require('./cloud-network.cjs').reportReadFailure(url,error);
       if(activeUrl===url)activeUrl=null;
-      // A connection reset before any response may be a blocked hostname.
-      // Preserve fallback for this case, but do not replay an ambiguous write.
-      const preConnection=!response&&!error.timeout&&/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS/.test(String(error.cause?.code||error.code||''));
+      // DNS/refused/TLS errors prove no HTTP write was delivered. A reset can
+      // occur after the server committed it, so it never authorizes write replay.
+      const preConnection=!response&&!error.timeout&&/^(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT[^ ]*|ERR_TLS[^ ]*|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE)$/.test(String(error.cause?.code||error.code||''));
       if(index+1<attempts.length&&(retryable||preConnection))continue;
       throw new Error(['license-route','license-check','license-challenge'].includes(action)?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
     } finally {clearTimeout(timer);}

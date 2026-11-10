@@ -42,7 +42,8 @@ const { createWorkBuddyPanel, assertTrustedFrame } = require('./workbuddy-panel.
 const isDev = !app.isPackaged;
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
 let productionHost;
-const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();libtvService?.close().catch(()=>{});winAiPanel?.revoke().catch(()=>{});workflowEngine?.pauseAll();void productionHost?.stop();}});
+let storyboardBatchHost=null,storyboardBatchRoot='';
+const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();libtvService?.close().catch(()=>{});winAiPanel?.revoke().catch(()=>{});workflowEngine?.pauseAll();void productionHost?.stop();storyboardBatchHost?.stopAll();}});
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
@@ -159,7 +160,7 @@ let selectedDataDirectory=null;
 async function chooseDataDirectory(){selectedDataDirectory=null;const r=await dialog.showOpenDialog({title:'选择行舟影视资料保存位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;selectedDataDirectory=r.filePaths[0];return selectedDataDirectory;}
 async function applyDataDirectory(currentState){
  if(directoryMigration)throw new Error('资料目录正在迁移，请等待完成');
- if(ipcMain.hasActiveOnlineWork()||libtvService?.hasRunning())throw new Error('仍有生成任务正在运行，请任务完成后切换资料目录');
+ if(ipcMain.hasActiveOnlineWork()||libtvService?.hasRunning()||storyboardBatchHost?.hasActive())throw new Error('仍有生成任务正在运行，请任务完成后切换资料目录');
  if(!selectedDataDirectory)throw new Error('请先选择资料保存位置');
  const next=ensureDir(selectedDataDirectory);selectedDataDirectory=null;
  directoryMigration=true;
@@ -401,7 +402,13 @@ ipcMain.handle('collab-list-media',(_,payload)=>collabService.listMedia(payload)
 ipcMain.handle('collab-generate-video',async(event,payload)=>{const filePath=payload.provider==='libtv'?(await libtvDirect({...payload,kind:'video'},event.securitySignal)).filePath:require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?await completedFnkoFile({...payload,kind:'video'},event.securitySignal):await generateVideo({endpoint:payload.endpoint,apiKey:payload.apiKey,model:payload.model,prompt:payload.prompt,ratio:payload.ratio,duration:payload.duration,firstFramePath:payload.firstFramePath,destDir:mediaDir(),signal:event.securitySignal,onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}});return collabService.uploadMedia({projectId:payload.projectId,episode:payload.episode,scene:payload.scene,kind:'video',filePath,note:payload.note||''})});
 ipcMain.handle('collab-upload-media',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'上传素材（图片/音频/视频）',properties:['openFile'],filters:[{name:'素材文件',extensions:['png','jpg','jpeg','webp','gif','mp3','wav','m4a','mp4','mov','webm']}]});if(r.canceled||!r.filePaths[0])return null;const ext=path.extname(r.filePaths[0]).toLowerCase();const kind=['.mp4','.mov','.webm'].includes(ext)?'video':(['.mp3','.wav','.m4a'].includes(ext)?'audio':'image');return collabService.uploadMedia({projectId:payload.projectId,episode:payload.episode,scene:payload.scene,kind,filePath:r.filePaths[0],note:payload.note||''})});
 ipcMain.handle('collab-record-generated-media',(_,payload)=>collabService.recordGeneratedMedia(payload));
-ipcMain.handle('collab-delete-media',(_,payload)=>collabService.deleteMedia(payload));
+ipcMain.handle('collab-delete-media',async(_,payload)=>{
+ if(payload.purpose==='reference-upload'){
+  const accountId=String(readCloudSession()?.account?.id||'');const media=(await collabService.listMedia({projectId:payload.projectId})).find(m=>m.id===payload.mediaId);
+  require('./reference-upload-guard.cjs').assertReferenceUploadDelete({accountId:payload.accountId,currentAccountId:accountId,media,ledger:artReviewStore().load({projectId:payload.projectId,accountId}),jobs:jobs().list({includeArchived:true}),batchUsesMedia:storyboardBatchHost?.usesMedia(payload.mediaId)});
+ }
+ return collabService.deleteMedia(payload);
+});
 ipcMain.handle('collab-list-messages',(_,payload)=>collabService.listMessages(payload));
 ipcMain.handle('collab-send-message',(_,payload)=>collabService.sendMessage(payload));
 ipcMain.handle('collab-send-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'发送图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp','gif']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.sendMessage({projectId:payload.projectId,content:payload.content||'',imagePath:r.filePaths[0]})});
@@ -410,7 +417,7 @@ function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
 const audioResults=()=>require('./audio-results.cjs').createAudioResultStore({dataDir:getDataDir(),resultsDir:()=>path.join(mediaDir(),'语音生成')});
 const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
 const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>accessService.readSession()});
-const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),beforeDispatch:input=>productionHost.assertSubmission(input),libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
+const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),beforeDispatch:async input=>{await storyboardBatchHost?.assertDispatch(input);await productionHost.assertSubmission(input);},libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
 const jobs=()=>generationManagers(mediaDir());
 async function manageGenerationReferences(action,payload={}){
  const session=readCloudSession();if(!session?.token||!session.account?.id)throw Error('请先登录行舟账号');
@@ -429,6 +436,7 @@ ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
 ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
 async function submitGeneration(event,p){
+ if(p.storyboardEdit&&!p.storyboardBatchRunId&&storyboardBatchHost?.hasPending(p.projectId,p.shotId))throw Error('此分镜已在批量队列中');
  let input,accountId;try{
  if(p.storyboardEdit){
   const {validateStoryboardSubmission}=await import('../core/storyboardPublication.js');
@@ -459,6 +467,14 @@ async function submitGeneration(event,p){
  return jobs().submit({...input,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal});
 }
 ipcMain.handle('generation-submit',submitGeneration);
+function currentStoryboardBatch(){
+ const root=path.join(mediaDir(),'storyboard-batch-queue');
+ if(storyboardBatchHost&&storyboardBatchRoot===root)return storyboardBatchHost;
+ storyboardBatchHost?.stopAll();storyboardBatchRoot=root;
+ storyboardBatchHost=require('./storyboard-batch-host.cjs').createStoryboardBatchHost({directory:root,owner:()=>String(readCloudSession()?.account?.id||''),license:()=>licenseClient.requireActive(),getProject:p=>collabService.getProject(p),listMedia:p=>collabService.listMedia(p),listJobs:()=>jobs().list({includeArchived:true}),getState:()=>readJson(dataFile(),{}),schema:(id,model)=>getLibTV().schema(id,model,'video'),patchShot:p=>collabService.patchStoryboard(p),submit:p=>submitGeneration({securitySignal:new AbortController().signal},p)});
+ return storyboardBatchHost;
+}
+for(const action of ['start','list','stop','resume'])ipcMain.handle('storyboard-batch-'+action,async(_,p)=>{if(p.accountId!==String(readCloudSession()?.account?.id||''))throw Error('账号已变化');if(directoryMigration)throw Error('资料目录正在迁移');if(action==='start'||action==='resume')await licenseClient.requireActive();if(action==='list'){await collabService.getProject({projectId:p.projectId});return currentStoryboardBatch().list(p);}return currentStoryboardBatch()[action](p);});
 ipcMain.handle('generation-refresh',async(_,p)=>jobs().refresh({...p,accountId:jobs().list({includeArchived:true}).find(j=>j.id===p.id)?.provider==='libtv'?await libtvAccountId():undefined}));
 const workflowFolders=new Set();
 function currentWorkflow(){

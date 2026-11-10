@@ -4,6 +4,14 @@ const referenceNames = item => [...new Set([item.name,item.displayName,...(item.
 export const isProjectGenerationReference=(ref,projectId)=>
  ['image','audio','video'].includes(ref.kind)&&
  (!ref.projectId||ref.projectId===projectId)&&(!ref.project_id||ref.project_id===projectId);
+const referenceStorageKeys=ref=>[ref.objectKey,ref.object_path,ref.url,ref.filePath].filter(Boolean).map(value=>{
+ try{return decodeURIComponent(/^https?:/.test(value)?new URL(value).pathname:String(value).split('?')[0]).replace(/^\//,'');}catch{return String(value).split('?')[0];}
+});
+export const canDeleteUploadedReference=(ref,{projectId,accountId,canEdit,protectedReferences=[]})=>Boolean(
+ canEdit&&accountId&&ref.id&&(ref.projectId||ref.project_id)===projectId&&
+ (ref.userId||ref.user_id)===accountId&&['image','audio','video'].includes(ref.kind)&&
+ /^参考素材\s/.test(ref.note||'')&&!ref.assetId&&!ref.asset_id&&!ref.adoptedVoice&&!ref.published&&!String(ref.id).startsWith('voice:')&&
+ !protectedReferences.some(item=>item.id===ref.id||String(item.id||'').endsWith(':'+ref.id)||referenceStorageKeys(item).some(key=>referenceStorageKeys(ref).includes(key))));
 export function numberedReferences(references) {
   const counts = {};
   return references.map(r => ({ ...r, alias: `@${r.kind}${counts[r.kind] = (counts[r.kind] || 0) + 1}` }));

@@ -9,6 +9,7 @@ import {isReviewCurrent,isSceneVerified,reviewSceneSignature} from './artReview.
 import {numberedReferences} from './generationReferences.js';
 import {selectBindingVersion} from './promptBindingVersions.js';
 import {activeDirectorEditionId,directorPromptEditions,directorEditionEpisodes} from './directorPromptEditions.js';
+import {promptTimingMetadata} from './promptDisplay.js';
 
 const categories={人物:'character',场景:'scene',道具:'prop'};
 const clean=text=>String(text||'').normalize('NFKC').replace(/[【】\[\]\s]/g,'');
@@ -62,7 +63,7 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
    const id=String(alias?.id||prompt.id);
    if(seen.has(id)||promptIds.has(id)){invalid(`提示词身份重复：${label}`);continue;}seen.add(id);promptIds.add(id);
    const sceneId=`${Number(match[1])}-${Number(match[2])}`;
-   entries.push({id,episodeId:episode.id||String(episode.episodeNumber),episode:episode.episodeNumber,scene:Number(match[2]),number:Number(match[3]),sceneId,label,prompt:text,promptHash:bindingHash(text),runId:prompt.generationRunId||'',...(prompt.profileId?{profileId:prompt.profileId}:{}),...(prompt.profileHash?{profileHash:prompt.profileHash}:{}),sceneReady:Boolean(valid&&record.scenes.some(scene=>scene.id===sceneId))});
+   entries.push({id,episodeId:episode.id||String(episode.episodeNumber),episode:episode.episodeNumber,scene:Number(match[2]),number:Number(match[3]),sceneId,label,prompt:text,...promptTimingMetadata(prompt),promptHash:bindingHash(text),runId:prompt.generationRunId||'',...(prompt.profileId?{profileId:prompt.profileId}:{}),...(prompt.profileHash?{profileHash:prompt.profileHash}:{}),sceneReady:Boolean(valid&&record.scenes.some(scene=>scene.id===sceneId))});
   }
  }
  // Director batches belong to individual scenes, not to an entire project's version.

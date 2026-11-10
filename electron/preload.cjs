@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('xingzhou',{
  generationDeleteBookMedia:p=>ipcRenderer.invoke('generation-delete-book-media',p),
  generationClear:p=>ipcRenderer.invoke('generation-clear',p),
  generationReferenceList:()=>ipcRenderer.invoke('generation-reference-list'),generationReferenceCleanup:p=>ipcRenderer.invoke('generation-reference-cleanup',p),
+ storyboardBatchStart:p=>ipcRenderer.invoke('storyboard-batch-start',p),storyboardBatchList:p=>ipcRenderer.invoke('storyboard-batch-list',p),storyboardBatchStop:p=>ipcRenderer.invoke('storyboard-batch-stop',p),storyboardBatchResume:p=>ipcRenderer.invoke('storyboard-batch-resume',p),
  generationList:p=>ipcRenderer.invoke('generation-list',p),generationSubmit:p=>ipcRenderer.invoke('generation-submit',p),generationRefresh:p=>ipcRenderer.invoke('generation-refresh',p),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
  projectVideoExport:p=>ipcRenderer.invoke('project-video-export',p),
  projectVideoDelete:p=>ipcRenderer.invoke('project-video-delete',p),

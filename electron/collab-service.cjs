@@ -34,7 +34,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
-function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket} = {}) {
+function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, fetchFn=(...args)=>require('./cloud-network.cjs').routeFetch(...args)} = {}) {
   const session = () => getSession() || {};
   const account = () => { const a = session().account || session(); if (!a?.id) throw new Error('请先登录账号'); return a; };
   const call = (action, payload = {}) => callGateway(action, payload, session().token || '');
@@ -84,7 +84,19 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     listMedia: (p) => call('media-list', p),
     uploadMedia: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, p.kind, session().token || ''); return call('media-record', { ...p, ...uploaded }); },
     recordGeneratedMedia: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, p.kind || 'media', session().token || ''); return call('media-record', { ...p, ...uploaded }); },
-    deleteMedia: (p) => call('media-delete', p), listMessages: (p) => call('messages-list', p), sendMessage: async (p) => { const uploaded = p.imagePath ? await uploadToBucket(p.projectId, p.imagePath, 'chat', session().token || '') : null; return call('message-send', { ...p, imageUrl:uploaded?.url||'' }); }, getStats: (p) => call('stats-get', p),
+    deleteMedia: async ({accountId:expected,...p}) => {
+      if(expected!==undefined&&String(account().id)!==String(expected))throw Error('账号已切换，删除已停止');
+      const result=await call('media-delete',p);
+      // The record is already gone: report cleanup separately so callers always
+      // remove stale draft references even when COS is temporarily unreachable.
+      if(!result?.remove?.url)return result;
+      try {
+        const response=await fetchFn(result.remove.url,{method:'DELETE',headers:{Authorization:result.remove.authorization},redirect:'error',signal:AbortSignal.timeout(15000)});
+        await response.body?.cancel?.();
+        if(!response.ok&&response.status!==404)throw Error('object cleanup failed');
+        return {...result,objectDeleted:true};
+      } catch {return {...result,objectDeleted:false,cleanupWarning:'素材记录已删除，云端文件清理暂未完成'};}
+    }, listMessages: (p) => call('messages-list', p), sendMessage: async (p) => { const uploaded = p.imagePath ? await uploadToBucket(p.projectId, p.imagePath, 'chat', session().token || '') : null; return call('message-send', { ...p, imageUrl:uploaded?.url||'' }); }, getStats: (p) => call('stats-get', p),
     _account: account,
   };
 }

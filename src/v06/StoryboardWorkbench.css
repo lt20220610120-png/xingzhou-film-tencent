@@ -26,3 +26,20 @@
 
 .generation-binding-notice{font-size:12px;color:#986232;align-self:flex-start;max-width:100%}.generation-binding-notice summary{display:inline-flex;align-items:center;gap:5px;cursor:pointer;list-style:none;border:1px solid #ead8bf;border-radius:6px;padding:5px 8px;background:#fffaf3;font-weight:500}.generation-binding-notice summary:after{content:'⌄';margin-left:4px}.generation-binding-notice[open] summary:after{content:'⌃'}.generation-binding-notice ul{margin:7px 0 2px;padding:0 0 0 18px;line-height:1.7;color:#826c54}
 .asset-image-adopt{border:1px solid #d9d0ec;border-radius:5px;background:#f4effb;color:#6b50a1;padding:5px 9px;font-size:12px}.asset-image-adopt.adopted{background:#eef7f3;border-color:#cfe6db;color:#437b68;opacity:1}
+
+.storyboard-generation-tools{min-width:0;margin-bottom:16px;border:1px solid #e1ddec;border-radius:12px;background:#fff;overflow:clip}
+.storyboard-generation-tools .storyboard-tools-toggle{display:flex;align-items:center;gap:16px;width:100%;min-height:54px;padding:12px 18px;border:0;border-radius:0;background:linear-gradient(110deg,#f7f4fc,#fff);text-align:left;color:#5d487e;cursor:pointer}
+.storyboard-tools-title{display:flex;align-items:center;gap:9px;flex-shrink:0;font-size:14px;font-weight:650}
+.storyboard-tools-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8b8398;font-size:12px}
+.storyboard-tools-toggle>svg:last-child{margin-left:auto;flex-shrink:0;transition:transform .15s}
+.storyboard-tools-toggle>svg.expanded:last-child{transform:rotate(180deg)}
+.storyboard-tools-progress{margin-left:auto;white-space:nowrap;font-size:12px;color:#6d5596}
+.storyboard-tools-toggle:focus-visible{outline:2px solid #9e83ce;outline-offset:-3px}
+.storyboard-tools-content{border-top:1px solid #eee9f5;padding:16px 18px 14px}
+.storyboard-tools-content[hidden]{display:none}
+.storyboard-generation-tools .storyboard-defaults{padding:0;margin:0;border:0;border-radius:0;background:none;gap:12px}
+.storyboard-generation-tools .storyboard-batch{padding:14px 0 0;margin:14px 0 0;border:0;border-top:1px solid #eee9f5;border-radius:0;background:none}
+.storyboard-generation-tools .storyboard-batch-controls{align-items:end;gap:10px}
+.storyboard-generation-tools .storyboard-batch-controls label{min-width:160px}
+@media(max-width:1300px){.storyboard-tools-toggle{gap:10px}.storyboard-tools-content{padding:14px}.storyboard-tools-summary{max-width:42vw}}
+@media(prefers-reduced-motion:reduce){.storyboard-tools-toggle>svg:last-child{transition:none}}

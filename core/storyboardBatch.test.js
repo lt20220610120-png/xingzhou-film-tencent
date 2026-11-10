@@ -1,0 +1,17 @@
+import test from 'node:test';import assert from 'node:assert/strict';import * as mod from './storyboardBatch.js';
+const project={id:'p',episodes:[{id:'e1',episodeNumber:1,storyboardPrompts:[{id:'a',label:'1-1-1',content:'原词A',storyboardPublicationId:'pub',generationConfig:{references:[{id:'voice:a',kind:'audio',filePath:'D:/a.wav'}]}},{id:'b',label:'1-2-1',content:'原词B'}]},{id:'e2',episodeNumber:2,storyboardPrompts:[{id:'c',label:'2-1-1',content:'原词C'}]}]};
+test('batch scope selects real published rows across episodes and keeps dirty prompt/references with top settings',()=>{const common={project,accountId:'owner',settings:{profileId:'v',duration:30},assets:[],media:[],readDraft:key=>key.includes(':a:pub')?{dirty:true,value:{prompt:'手改原词',references:[{id:'manual',kind:'audio',url:'https://fixture/voice.wav'}]}}:null};let rows=mod.storyboardBatchItems({...common,scope:'scene',episodeId:'e1',sceneId:'1-1'});assert.deepEqual(rows.map(r=>r.shotId),['a']);assert.equal(rows[0].value.prompt,'手改原词');assert.equal(rows[0].value.duration,30);assert.equal(rows[0].value.references[0].id,'manual');assert.deepEqual(mod.storyboardBatchItems({...common,scope:'episode',episodeId:'e1'}).map(r=>r.shotId),['a','b']);assert.deepEqual(mod.storyboardBatchItems({...common,scope:'project'}).map(r=>r.shotId),['a','b','c']);});
+test('batch input resolves selected profile capabilities and preserves original prompt plus media aliases',async()=>{const state={activeVideoApiId:'v',mediaProfiles:[{id:'v',kind:'video',endpoint:'https://fixture/v1',apiKey:'fixture-only',model:'movie',videoProtocol:'videos-json',capabilities:{ratios:['16:9'],durations:[5,30],resolutions:['720p'],maxAudios:1}}]};const input=await mod.storyboardGenerationInput({state,value:{profileId:'v',model:'movie',prompt:'测试参考@audio1',duration:30,references:[{id:'a',kind:'audio',url:'https://fixture/a.wav'}]}});assert.equal(input.duration,30);assert.equal(input.originalPrompt,'测试参考@audio1');assert.equal(input.references[0].id,'a');assert.equal(input.profileId,'v');assert.equal(input.ratio,'16:9');assert.equal(input.resolution,'720p');});
+
+test('recommended mode retains each shot duration instead of top uniform duration',()=>{
+ const p=structuredClone(project);p.episodes[0].storyboardDefaultSettings={global:{revision:'timing',durationMode:'recommended',settings:{profileId:'v',model:'movie',duration:30},recommendedDurations:{a:12,b:17},recommendedDurationSecondsByShot:{a:12,b:17}}};
+ const rows=mod.storyboardBatchItems({project:p,scope:'episode',episodeId:'e1',settings:{duration:30},accountId:'owner'});
+ assert.deepEqual(rows.map(r=>r.value.duration),[12,17]);assert.ok(rows.every(r=>r.value.durationMode==='recommended'));
+});
+test('recommended generation never rounds unsupported duration or fills missing recommendation',async()=>{
+ const state={mediaProfiles:[{id:'v',kind:'video',endpoint:'https://fixture/v1',apiKey:'fixture',model:'movie',capabilities:{ratios:['16:9'],durations:[5,12,30],resolutions:['720p']}}]};
+ const value={profileId:'v',model:'movie',prompt:'测试',references:[],durationMode:'recommended',recommendedDurationSeconds:17,duration:17};
+ await assert.rejects(mod.storyboardGenerationInput({state,value}),/建议时长 17/);
+ await assert.rejects(mod.storyboardGenerationInput({state,value:{...value,recommendedDurationSeconds:null}}),/缺少建议/);
+ const input=await mod.storyboardGenerationInput({state,value:{...value,duration:12,recommendedDurationSeconds:12}});assert.equal(input.duration,12);
+});

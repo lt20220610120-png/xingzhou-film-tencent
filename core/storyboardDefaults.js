@@ -6,7 +6,23 @@ export function saveStoryboardDefaults(scope,settings,storage=globalThis.localSt
  if(!value.settings.profileId||!value.settings.model||!value.settings.ratio||!Number.isFinite(value.settings.duration)||value.settings.duration<=0||value.settings.duration>3600||!value.settings.resolution)throw Error('请补全默认生成设置');
  storage.setItem(storageKey(scope),JSON.stringify(value));return value;
 }
-export function applyStoryboardDefaults(value,defaults){
+export function applyStoryboardDefaults(value,defaults,shotId){
  if(!defaults||value.storyboardDefaultsRevision===defaults.revision)return value;
- return {...value,libtvMode:'auto',libtvParams:{},...defaults.settings,storyboardDefaultsRevision:defaults.revision};
+ const next={...value,libtvMode:'auto',libtvParams:{},...defaults.settings,durationMode:defaults.durationMode==='recommended'?'recommended':'uniform',storyboardDefaultsRevision:defaults.revision};
+ if(next.durationMode==='recommended'){
+  next.duration=value.duration;
+  next.recommendedDurationSeconds=defaults.recommendedDurationSecondsByShot?.[shotId]??defaults.recommendedDurations?.[shotId]??null;
+  if(Number.isFinite(defaults.recommendedDurations?.[shotId]))next.duration=defaults.recommendedDurations[shotId];
+ }else delete next.recommendedDurationSeconds;
+ return next;
+}
+
+// Rebase only the acknowledged default-setting delta; unrelated cloud edits
+// must continue to trigger optimistic concurrency checks.
+export function rebaseStoryboardDefaultsDraft(draft,shot,defaults){
+ if(!draft?.base||!defaults||draft.base.content!==shot.content)return draft;
+ const expected=applyStoryboardDefaults(draft.base.generationConfig||{},defaults,shot.id);
+ const stable=value=>JSON.stringify(value,(_key,row)=>row&&typeof row==='object'&&!Array.isArray(row)?Object.fromEntries(Object.keys(row).sort().map(k=>[k,row[k]])):row);
+ if(stable(expected)!==stable(shot.generationConfig||{}))return draft;
+ return {...draft,base:{...draft.base,generationConfig:shot.generationConfig}};
 }

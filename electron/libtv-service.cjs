@@ -40,9 +40,17 @@ async function installBinary(root,fetchFn=fetch){
  fs.unlinkSync(zip);fs.unlinkSync(extracted);fs.rmdirSync(path.dirname(extracted));fs.rmdirSync(stage);
  return dest;
 }
-function spawnCLI(binary,args,{configDir,cwd,onStderr,signal,children}){
+function cliFailure(text){
+ const code=/(?:\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|UND_ERR_[A-Z_]+|ERR_TLS_[A-Z_]+|CERT_[A-Z_]+|DEPTH_ZERO_SELF_SIGNED_CERT)\b)/.exec(text)?.[0];
+ const candidate=/\b(?:host|hostname)\s*:\s*['"]([a-z0-9.-]+)['"]/i.exec(text)?.[1];
+ const host=candidate&&require('./libtv-network.cjs').officialHost(candidate)?candidate:'';
+ const auth=/\b(?:status\s*:\s*|request fail:\s*)(?:401|403)\b|unauthorized|未登录|登录.*失效/i.test(text);
+ if(code||/fetch failed|network|socket|TLS|timeout|net::ERR_/i.test(text)||/request fail/i.test(text)&&!auth)return Object.assign(Error('LibTV 网络连接失败'+(host?' · '+host:'')+(code?'（'+code+'）':'')+'，请检查当前网络后重试'),{code:'LIBTV_NETWORK',...(code?{networkCode:code}:{}),...(host?{host}:{})});
+ const message=auth?'LibTV 登录失效或账号无权限，请重新连接':/余额|积分|算力|credit/i.test(text)?'LibTV 积分或账号额度不足，请在官网核对':/schema|parameter|参数|model|模型/i.test(text)?'LibTV 拒绝了模型参数，请刷新模型与参数后核对':'LibTV 命令未完成，请检查网络、账号或原画布任务';return Error(message);
+}
+function spawnCLI(binary,args,{configDir,cwd,onStderr,signal,children,networkEnv={}}){
  if(args.join(' ').length>28000)throw Error('LibTV 本机命令长度超限，请缩短当前镜头提示词或参考路径');
- const env={...process.env};for(const k of Object.keys(env))if(/^LIBTV_/i.test(k))delete env[k];env.LIBTV_CONFIG_DIR=configDir;
+ const env={...process.env,...networkEnv};for(const key of Object.keys(env))if(env[key]==null)delete env[key];for(const k of Object.keys(env))if(/^LIBTV_/i.test(k))delete env[k];env.LIBTV_CONFIG_DIR=configDir;
  for(const k of ['LIBTV_LOGIN_WEB_URL','LIBTV_LOGIN_WEB_PATH','LIBTV_ACCESS_KEY','LIBLIB_ACCESS_KEY','LIBLIB_SECRET_KEY','NODE_OPTIONS'])delete env[k];
  return new Promise((resolve,reject)=>{
   const child=spawn(binary,args,{cwd,env,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});children.add(child);
@@ -53,13 +61,14 @@ function spawnCLI(binary,args,{configDir,cwd,onStderr,signal,children}){
   child.on('error',()=>reject(Error('LibTV 连接器无法启动，请重新安装连接器')));
   child.on('close',code=>{children.delete(child);signal?.removeEventListener('abort',abort);
    if(signal?.aborted)return reject(Error('本地等待已停止，官方任务可能仍在运行；请查询原画布，不要重复生成'));
-   if(code!==0){try{const terminal=parseCLIJSON(stdout);if(terminal.status===3)return resolve(terminal);}catch{}const message=/401|403|unauthorized|未登录|登录.*失效/i.test(errorText)?'LibTV 登录失效或账号无权限，请重新连接':/余额|积分|算力|credit/i.test(errorText)?'LibTV 积分或账号额度不足，请在官网核对':/schema|parameter|参数|model|模型/i.test(errorText)?'LibTV 拒绝了模型参数，请刷新模型与参数后核对':'LibTV 命令未完成，请检查网络、账号或原画布任务';return reject(Error(message));}
+   if(code!==0){try{const terminal=parseCLIJSON(stdout);if(terminal.status===3)return resolve(terminal);}catch{}return reject(cliFailure(errorText));}
    if(args[0]==='download')return resolve({ok:true});
    try{resolve(parseCLIJSON(stdout));}catch{if(args[0]==='login'||args[0]==='logout')resolve({ok:true});else reject(Error('LibTV 返回格式暂无法识别，请查看官方画布'));}
   });
  });
 }
-function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,fetchFn=fetch,readReference}={}){
+function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,fetchFn=fetch,readReference,network}={}){
+ let transport=network||(runCLI?null:require('./libtv-network.cjs').createLibTVNetwork());
  const children=new Set(),sessions=new Map(),schemaCache=new Map(),modelNamesCache=new Map();let installer,epoch=0;
  const binary=()=>ensureBinary?ensureBinary():(installer||(installer=installBinary(root,fetchFn).catch(e=>{installer=null;throw e;})));
  const ownerKey=id=>{if(typeof id!=='string'||!id)throw Error('请先登录行舟影视账号');return digest(id).slice(0,32);};
@@ -71,7 +80,8 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
  async function command(id,args,options={}){
   const s=session(id),expected=epoch,exe=await binary();if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本机连接已停止，请重新操作');unseal(s);s.leases++;
   const cwd=path.join(s.dir,'work');fs.mkdirSync(cwd,{recursive:true});
-  try{const result=await (runCLI?runCLI(args,{...options,configDir:s.dir,cwd}):spawnCLI(exe,args,{...options,configDir:s.dir,cwd,children}));if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本地等待已停止，请查询原画布，不要重复生成');return args[0]==='download'?{ok:true}:parseCLIJSON(result);}
+  try{if(!runCLI&&!transport)transport=require('./libtv-network.cjs').createLibTVNetwork();const networkEnv=transport?(await transport.environment()).env:{};if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本机连接已停止，未提交命令');const result=await (runCLI?runCLI(args,{...options,configDir:s.dir,cwd}):spawnCLI(exe,args,{...options,configDir:s.dir,cwd,children,networkEnv}));if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本地等待已停止，请查询原画布，不要重复生成');return args[0]==='download'?{ok:true}:parseCLIJSON(result);}
+  catch(error){if(error?.code==='LIBTV_NETWORK')transport?.invalidate?.();throw error;}
   finally{s.leases--;seal(s);}
  }
  const hasCredential=s=>fs.existsSync(path.join(s.dir,'credentials.enc'))||fs.existsSync(path.join(s.dir,'credentials.json'));
@@ -178,8 +188,8 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
     }
    }
    const files=fs.readdirSync(dir).filter(mediaName).map(n=>path.join(dir,n)).filter(file=>fs.lstatSync(file).isFile()&&!fs.lstatSync(file).isSymbolicLink());if(!files.length)throw Error('LibTV 结果尚未可下载，请打开原画布核对后刷新');return{filePath:files[0],files};}finally{scope.runs--;}},
-  async close(){epoch++;for(const s of sessions.values())s.loginController?.abort();for(const child of children)child.kill();await new Promise(resolve=>{if(!children.size)return resolve();const timer=setTimeout(resolve,5000);let left=children.size;for(const child of children)child.once('close',()=>{if(!--left){clearTimeout(timer);resolve();}});});for(const s of sessions.values())if(!s.leases)seal(s);},
+  async close(){epoch++;const oldTransport=transport;transport=null;await oldTransport?.close();for(const s of sessions.values())s.loginController?.abort();for(const child of children)child.kill();await new Promise(resolve=>{if(!children.size)return resolve();const timer=setTimeout(resolve,5000);let left=children.size;for(const child of children)child.once('close',()=>{if(!--left){clearTimeout(timer);resolve();}});});for(const s of sessions.values())if(!s.leases)seal(s);},
   hasRunning:()=>[...sessions.values()].some(s=>s.runs>0||s.leases>0||s.pendingLogin||s.switching),
  };
 }
-module.exports={createLibTVService,parseCLIJSON,loginURL,installBinary,libtvResultURLs};
+module.exports={createLibTVService,parseCLIJSON,loginURL,installBinary,libtvResultURLs,spawnCLI,cliFailure};

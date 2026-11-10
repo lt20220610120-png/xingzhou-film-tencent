@@ -2,6 +2,13 @@ const {normalizeStoryboardEpisodes}=require('./storyboard-identity.cjs');
 const {episodeNumber,unitHeaders}=require('./collab-episodes.cjs');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const {applySettings,settingsFor}=require('./storyboard-settings.cjs');
+const {recommendedStoryboardTiming,promptTimingMetadata}=require('./prompt-duration.cjs');
+function restoreShotTiming(shot,sources){
+ const timing=recommendedStoryboardTiming({snapshot:{entries:(sources||[]).map(source=>({...source,prompt:source.content}))}},shot);
+ if(!timing)return shot;
+ const edited=shot.sourceContent&&shot.content!==(shot.generationConfig?.bindingCompiledPrompt||shot.sourceContent);
+ return {...shot,...promptTimingMetadata(timing),...(edited?{durationStatus:'needs-review'}:{})};
+}
 function mergeDirectorEpisodes(current=[],incoming=[]) {
  const originals=(Array.isArray(current)?current:[]).filter(ep=>ep&&typeof ep==='object');
  current=normalizeStoryboardEpisodes(originals).map((ep,index)=>ep.collabOnly?structuredClone(originals[index]):ep);
@@ -22,7 +29,8 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
   if(!old.storyboardDefaultSettings&&projectDefaults)old={...old,storyboardDefaultSettings:{global:projectDefaults,scenes:{}}};
   // Director drafts remain available to the review page. The storyboard has
   // its own published working copy, initialized once for older projects.
-  const storyboardPrompts=old.storyboardPrompts||((old.prompts||[]).length?structuredClone(old.prompts):null);
+  const existingStoryboard=old.storyboardPrompts||((old.prompts||[]).length?structuredClone(old.prompts):null);
+  const storyboardPrompts=existingStoryboard?.map(shot=>restoreShotTiming(shot,[...(old.prompts||[]),...(ep.prompts||[])]));
   const editions=[...(old.collaborationEditions||[])],legacy=(ep.promptEditions||[]).find(row=>String(row.id).startsWith('original:'))?.id||'legacy';
   const oldEdition=old.promptEditionId||legacy,nextEdition=ep.promptEditionId||legacy;
   if(oldEdition!==nextEdition){
@@ -72,7 +80,7 @@ function patchShot(episodes,payload) {
   const previous=ep.storyboardPrompts||ep.prompts||[];
   if(prompts.every(p=>previous.some(s=>s.sourcePromptId===p.id&&s.storyboardPublicationId===payload.publicationId&&s.sourceContent===p.content)))return next;
   const retained=previous.filter(p=>!scenes.includes(String(p.label).split('-').slice(0,2).join('-')));
-  const rows=prompts.map(p=>{const old=previous.find(s=>s.id===p.id)||previous.find(s=>s.label===p.label),defaults=settingsFor(ep,p.label);return {id:old?.id||p.id,sourcePromptId:p.id,label:p.label,content:p.generationConfig?.bindingCompiledPrompt||p.content,sourceContent:p.content,storyboardPublicationId:payload.publicationId,generationConfig:{...defaults?.settings,...(defaults?{storyboardDefaultsRevision:defaults.revision}:{}),...old?.generationConfig,...p.generationConfig,autoReferenceExclusions:[],autoReferenceSignature:null,storyboardRemovedReferences:[],storyboardReferenceBaseline:undefined,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:payload.publicationId},manual:false};});
+  const rows=prompts.map(p=>{const old=previous.find(s=>s.id===p.id)||previous.find(s=>s.label===p.label),defaults=settingsFor(ep,p.label,old?.id||p.id),timed=restoreShotTiming({...p,sourcePromptId:p.id,sourceContent:p.content},ep.prompts);return {id:old?.id||p.id,sourcePromptId:p.id,label:p.label,content:p.generationConfig?.bindingCompiledPrompt||p.content,sourceContent:p.content,...promptTimingMetadata(timed),storyboardPublicationId:payload.publicationId,generationConfig:{...defaults?.settings,...(defaults?{storyboardDefaultsRevision:defaults.revision}:{}),...old?.generationConfig,...p.generationConfig,autoReferenceExclusions:[],autoReferenceSignature:null,storyboardRemovedReferences:[],storyboardReferenceBaseline:undefined,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:payload.publicationId},manual:false};});
   if(rows.some(p=>retained.some(s=>s.id===p.id)))throw Object.assign(Error('发布的分镜编号重复'),{status:400});
   ep.storyboardPrompts=[...retained,...rows].sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
   ep.storyboardWorkspacePolicy='published';
@@ -105,7 +113,7 @@ function patchShot(episodes,payload) {
   if(ep.prompts.some(p=>p.id===payload.shotId))return finish();
   const max=Math.max(0,ep.shotCounters?.[payload.scene]||0,...ep.prompts.filter(p=>p.label?.startsWith(payload.scene+'-')).map(p=>Number(p.label.split('-')[2])||0));
   ep.shotCounters={...ep.shotCounters,[payload.scene]:max+1};
-  const defaults=settingsFor(ep,payload.scene+'-'+(max+1));
+  const defaults=settingsFor(ep,payload.scene+'-'+(max+1),payload.shotId);
   ep.prompts.push({id:payload.shotId,label:`${payload.scene}-${max+1}`,content:'',manual:true,...(defaults?{generationConfig:{...defaults.settings,storyboardDefaultsRevision:defaults.revision}}:{})});
  }else if(payload.operation==='delete'){
   const shot=ep.prompts.find(p=>p.id===payload.shotId);
@@ -118,10 +126,11 @@ function patchShot(episodes,payload) {
  }else{
   const shot=ep.prompts.find(p=>p.id===payload.shotId);if(!shot)throw Object.assign(new Error('分镜已变更'),{status:409});
   for(const key of ['content','generationConfig'])if(key in (payload.updates||{})){
-   if(payload.editPolicy!=='direct'&&!equal(shot[key]??null,payload.base?.[key]??null)&&!equal(shot[key],payload.updates[key]))throw Object.assign(new Error('这条分镜已被其他协作者修改，草稿已保留；请刷新并核对云端内容后保存'),{status:409});
-   const defaults=key==='generationConfig'&&payload.editPolicy==='direct'?settingsFor(ep,shot.label):null;
+   if((payload.requireExactBase===true||payload.editPolicy!=='direct')&&!equal(shot[key]??null,payload.base?.[key]??null)&&!equal(shot[key],payload.updates[key]))throw Object.assign(new Error('这条分镜已被其他协作者修改，草稿已保留；请刷新并核对云端内容后保存'),{status:409});
+   const defaults=key==='generationConfig'&&payload.editPolicy==='direct'?settingsFor(ep,shot.label,shot.id):null;
    shot[key]=defaults&&payload.updates[key]?.storyboardDefaultsRevision!==defaults.revision?{...payload.updates[key],...defaults.settings,storyboardDefaultsRevision:defaults.revision}:payload.updates[key];
   }
+  if(Object.hasOwn(payload.updates||{},'content')&&shot.recommendedDurationSeconds)shot.durationStatus='needs-review';
   shot.edited_at=new Date().toISOString();
   delete shot.sourceConflict;
  }

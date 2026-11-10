@@ -84,6 +84,22 @@ function createRepository(databaseUrl, deps = {}) {
     async createMedia(pid,row,uid) { const r=await pool.query('insert into collab_media(project_id,asset_id,episode,scene,kind,url,object_path,filename,mime,note,user_id,username) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *',[pid,row.asset_id,row.episode,row.scene,row.kind,row.url||'',row.object_path,row.filename,row.mime,row.note,uid,row.username]); return r.rows[0]; },
     async findMedia(id,uid) { const r=await pool.query('select media.* from collab_media media join collab_projects p on p.id=media.project_id left join collab_members m on m.project_id=p.id where media.id=$1 and (p.owner_id=$2 or m.user_id=$2) limit 1',[id,uid]); return r.rows[0]||null; },
     async deleteMedia(id,uid) { const r=await pool.query('delete from collab_media media using collab_projects p where media.project_id=p.id and media.id=$1 and (media.user_id=$2 or p.owner_id=$2) returning media.*',[id,uid]); return r.rows[0]||null; },
+    async deleteReferenceUpload(pid,id,uid) { return transaction(async client=>{
+      const project=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
+      if(!project||project.deleted_at||/\[(?:PROJECT_LOCKED|DIRECTOR_PROJECT|RECYCLE_UNTIL:)/.test(project.genre||''))return null;
+      if(project.owner_id!==uid){
+        const membership=(await client.query("select 1 as ok from collab_members where project_id=$1 and user_id=$2 and role in ('producer','collaborator','artist_collaborator') for share",[pid,uid])).rows[0];
+        if(!membership)return null;
+      }
+      const media=(await client.query('select * from collab_media where project_id=$1 and id=$2 for update',[pid,id])).rows[0];
+      const {validReferenceObject,publishedReferenceUses}=require('./reference-upload-delete.cjs');
+      if(!media||media.project_id!==pid||media.user_id!==uid||media.asset_id||!/^参考素材\s/.test(media.note||'')||!['image','audio','video'].includes(media.kind)||!validReferenceObject(media)||publishedReferenceUses(project,media))return null;
+      // An ordinary upload record must never delete a shared adopted object.
+      const adopted=(await client.query(`select 1 as ok from collab_assets a where a.image_url=$1 or a.image_url=$2 or right(split_part(a.image_url,'?',1),length($1)+1)='/'||$1
+        union all select 1 as ok from collab_media m where m.id<>$3 and m.object_path=$1 limit 1`,[media.object_path,media.url||media.object_path,media.id])).rows[0];
+      if(adopted)return null;
+      return (await client.query('delete from collab_media where project_id=$1 and id=$2 and user_id=$3 returning *',[pid,id,uid])).rows[0]||null;
+    }); },
     ...extendRepository(pool),
     async close() { await pool.end(); },
   };
