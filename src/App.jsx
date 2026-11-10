@@ -1,3 +1,4 @@
+import {upgradeMuseProfiles} from '../core/museLocal.js';
 import {LogoutConfirm} from './components/LogoutConfirm.jsx';
 import {SettingsUtilityCards} from './components/SettingsUtilityCards.jsx';
 import './temporary-references.css';
@@ -1218,7 +1219,7 @@ function App() {
       const [saved, directorProjects, info] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null), api.storageInfo()]);
       const cachedDirectory=localStorage.getItem(STORAGE+'-data-dir');
       const recoverRecycle=!cachedDirectory||cachedDirectory===info.dataDir;
-      setState(current => initializeClientDistribution(recoverCreatorTasks(mergePersistedState(current, mergeDirectorSnapshot(saved,directorProjects),{recoverRecycle})),{fresh:saved===null&&directorProjects===null&&!localStorage.getItem(STORAGE)}));
+      setState(current => initializeClientDistribution(upgradeMuseProfiles(recoverCreatorTasks(mergePersistedState(current, mergeDirectorSnapshot(saved,directorProjects),{recoverRecycle}))),{fresh:saved===null&&directorProjects===null&&!localStorage.getItem(STORAGE)}));
       try { localStorage.setItem(STORAGE+'-data-dir',info.dataDir); } catch { /* disk remains primary */ }
       setStorageLoadError('');
       setInitialized(true);

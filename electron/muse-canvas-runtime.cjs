@@ -1,5 +1,5 @@
 const videoScript=`if(videos.length||audios.length)throw Error('当前 Muse 适配仅支持图片参考');
-const task=await http.post('/v1/videos',{model:'muse-video',prompt,images,duration:Number(params.seconds)||5,size:params.ratio||'16:9'});
+const task=await http.post('/v1/videos',{model:'muse-video',prompt,images,duration:Number(params.seconds)||5,seconds:Number(params.seconds)||5,size:params.ratio||'16:9'});
 if(!task.id)throw Error('Muse 未返回任务编号，请核对号池任务，避免重复提交');
 return await poll(()=>http.get('/v1/videos/'+encodeURIComponent(task.id)),r=>{if(['failed','error','cancelled'].includes(r.status))throw Error(r.error?.message||r.error||'Muse 视频失败');if(!['succeeded','completed'].includes(r.status))return null;return http.get('/v1/videos/'+encodeURIComponent(task.id)+'/content',{responseType:'blob'});},{intervalMs:5000,timeoutMs:1200000});`;
 const imageScript=`const r=await http.post('/v1/images/generations',{model:'muse-image',prompt,images,size:params.size||'1:1',n:1,response_format:'url'});return r.data;`;

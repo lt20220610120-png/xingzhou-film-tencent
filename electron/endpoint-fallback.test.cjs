@@ -58,9 +58,12 @@ test('云端暂时不可用时 session 不删除本地 Token', async () => {
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'xz-session-'));
   fs.writeFileSync(path.join(dir, 'cloud-session.json'), JSON.stringify({ token: 'keep-me' }));
   const realFetch = global.fetch;
+  const https = require('node:https'), realRequest = https.request;
+  // An outage must cover both fetch and the native IP fallback, without contacting production.
+  https.request = () => { const request = new (require('node:events').EventEmitter)(); request.write = () => {}; request.end = () => queueMicrotask(() => request.emit('error', Object.assign(new Error('offline'), {code:'ECONNRESET'}))); request.destroy = error => queueMicrotask(() => request.emit('error', error)); return request; };
   global.fetch = async () => { const e = new Error('fetch failed'); e.cause = { code: 'ECONNRESET' }; throw e; };
   try {
     assert.equal(await svc.createCloudAccessService(dir).session(), null);
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'cloud-session.json'), 'utf8')).token, 'keep-me');
-  } finally { global.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally { global.fetch = realFetch; https.request = realRequest; fs.rmSync(dir, { recursive: true, force: true }); }
 });
