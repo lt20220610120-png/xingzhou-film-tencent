@@ -1,6 +1,7 @@
 // Chromium net.fetch rejects manual redirects in Electron. Use net.request's
 // redirect event for media GETs so the caller can re-evaluate credentials per hop.
 function createMediaReadFetch(net){return (url,options={})=>{
+ const route=require('./cloud-network.cjs');if(route.shouldRoute(url))return route.directFetch(url,options);
  if(options.redirect!=='manual')return net.fetch(url,options);
  return new Promise((resolve,reject)=>{let delivered=false,ended=false,bodyController;const request=net.request({url:String(url),method:'GET',redirect:'manual',useSessionCookies:false});
   const cleanup=()=>options.signal?.removeEventListener('abort',abort),abort=()=>{request.abort();if(!delivered)reject(options.signal?.reason||Error('媒体下载已取消'));cleanup();};

@@ -1,3 +1,4 @@
+import {inlineVoiceAliases} from './inlineVoiceAliases.js';
 import {adoptedAssetImage} from './adoptedAssetImage.js';
 import {numberedReferences,isProjectGenerationReference} from './generationReferences.js';
 
@@ -80,7 +81,7 @@ function matchScore(subject,ref) {
  }));
 }
 
-function fingerprint(data,version='basic-v2') {
+function fingerprint(data,version='basic-v3') {
  const text=JSON.stringify(data);let a=2166136261,b=5381;
  for(let i=0;i<text.length;i++){a=Math.imul(a^text.charCodeAt(i),16777619);b=Math.imul(b,33)^text.charCodeAt(i);}
  return `${version}:${text.length}:${a>>>0}:${b>>>0}`;
@@ -137,7 +138,7 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
  if(value.autoReferenceSignature===signature(references))return value;
  // Repair cached empty placeholders once on upgrade, without recreating tags
  // the user deliberately erased or changing their existing manual references.
- if(value.autoReferenceSignature===signature(references,'basic-v1')&&!subjects.some(subject=>/^[ \t]*[（(]参考[ \t]*@[ \t]*[）)]/.test(originalPrompt.slice(subject.end))))return {...value,autoReferenceSignature:signature(references)};
+ if([signature(references,'basic-v1'),signature(references,'basic-v2')].includes(value.autoReferenceSignature)&&!subjects.some(subject=>/^[ \t]*[（(]参考[ \t]*@[ \t]*[）)]/.test(originalPrompt.slice(subject.end))))return {...value,autoReferenceSignature:signature(references)};
  const matched=new Map(subjects.map(s=>[s,[]]));
  for(const ref of pool) {
   if(excluded.has(generationReferenceKey(ref))||!allowedKinds.includes(ref.kind)||ref.assetAdopted===false&&!references.some(r=>generationReferenceKey(r)===generationReferenceKey(ref)))continue;
@@ -155,6 +156,7 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
  const updatedSubjects=basicSubjects(prompt),aliases=new Map(after.map(r=>[r.key,r.alias]));
  for(let i=updatedSubjects.length-1;i>=0;i--) {
   const subject=updatedSubjects[i],found=matched.get(subjects[i])||[];
+  if(subject.field==='音色')continue;
   if(!found.length)continue;
   const rest=prompt.slice(subject.end);
   const group=/^[ \t]*[（(]参考[ \t]*((?:@(?:image|audio|video)\d+\s*)*|@)[）)]/.exec(rest);
@@ -164,6 +166,8 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
   const tag=`（参考${all.join(' ')}）`;
   prompt=replacePromptRange(prompt,subject.end,subject.end+(group?.[0].length||direct?.[0].length||0),tag,onPromptEdit);
  }
+ const voices=[];for(let i=0;i<subjects.length;i++)if(subjects[i].field==='音色'){const found=matched.get(subjects[i])||[],tags=[...new Set(found.map(r=>aliases.get(generationReferenceKey(r))).filter(Boolean))];if(tags.length&&!voices.some(c=>c.name===subjects[i].name))voices.push({uid:subjects[i].name,name:subjects[i].name,alias:tags.join(' ')});}
+ prompt=inlineVoiceAliases(prompt,voices,{onPromptEdit});
  return {...value,prompt,references,autoReferenceOrder:after,autoReferenceSignature:signature(references)};
 }
 

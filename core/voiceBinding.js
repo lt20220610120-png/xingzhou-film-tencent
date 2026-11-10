@@ -1,3 +1,4 @@
+import {inlineVoiceAliases,voiceSettingSlots} from './inlineVoiceAliases.js';
 import {numberedReferences} from './generationReferences.js';
 import {explicitDialogueLines,uniqueDialogueIdentity} from './explicitDialogue.js';
 export const entryVoiceCards=(snapshot,entry)=>(snapshot.voiceCards||[]).filter(v=>v.sceneIds.includes(entry.sceneId)&&(!v.entryIds||v.entryIds.includes(entry.id)));
@@ -43,8 +44,10 @@ export function compileVoiceBinding(snapshot,entry,decision,compiled){
  const checked=applyVoiceBinding(snapshot,entry,decision,decision?.speakers),references=[...compiled.references];
  const selected=checked.speakers.map(s=>({...entryVoiceCards(snapshot,entry).find(c=>c.uid===s.voiceUid),evidence:s.evidence}));
  for(const card of selected)if(card.pendingAudio||!card.reference?.url&&!card.reference?.filePath&&!card.reference?.objectKey)throw Error(`${card.name}音色尚未生成并采用`);
+ // Explicit voice clauses are identity declarations; reuse the same card for normal/OS clauses.
+ for(const slot of voiceSettingSlots(compiled.prompt,entryVoiceCards(snapshot,entry).filter(c=>!c.pendingAudio&&(c.reference?.url||c.reference?.filePath||c.reference?.objectKey))))if(!selected.some(c=>c.uid===slot.card.uid))selected.push(slot.card);
  for(const c of selected)if(!references.some(r=>r.id===c.reference.id))references.push({...c.reference,kind:'audio',characterName:c.name});
  const aliases=new Map(numberedReferences(references).map(r=>[r.id,r.alias]));
- const text=selected.length?'\n【人物正常对白音色参考】\n'+selected.map(c=>`${c.name}：使用 ${aliases.get(c.reference.id)} 的音色；对白仍按本条剧本。`).join('\n'):'';
- return {...compiled,prompt:compiled.prompt+text,references};
+ const prompt=inlineVoiceAliases(compiled.prompt,selected.map(c=>({...c,alias:aliases.get(c.reference.id)})));
+ return {...compiled,prompt,references};
 }

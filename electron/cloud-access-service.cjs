@@ -10,7 +10,7 @@ const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
 // 一旦某个端点成功，就记住它，后续请求不再逐个重试。
 const CANDIDATES = typeof gatewayUrls === 'function' ? gatewayUrls() : [EDGE_FUNCTION_URL];
 let activeUrl = null;
-const orderedUrls = () => (activeUrl ? [activeUrl, ...CANDIDATES.filter((u) => u !== activeUrl)] : [...CANDIDATES]);
+const orderedUrls = () => (require('./cloud-network.cjs').settings().enabled ? [...CANDIDATES].sort((a,b)=>Number(isPinnedIpUrl(b))-Number(isPinnedIpUrl(a))) : activeUrl ? [activeUrl, ...CANDIDATES.filter((u) => u !== activeUrl)] : [...CANDIDATES]);
 const isNetworkFailure = (error) => {
   const code = String(error?.cause?.code || error?.code || '');
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
@@ -85,6 +85,7 @@ function requestPinnedHttps(url, init = {}) {
   });
 }
 async function requestGateway(url, init, safeRead = false) {
+  const route=require('./cloud-network.cjs');if(route.shouldRoute(url))return route.directFetch(url,init);
   try { return await fetch(url, init); } catch (error) {
     // Tests and future builds may provide a working fetch implementation. Only
     // use the native pinned transport after the normal request fails on the IP.

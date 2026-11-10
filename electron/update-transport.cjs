@@ -3,6 +3,7 @@ const {Readable}=require('node:stream');
 const {IP_TLS_CA_FILE,IP_TLS_CERT_FINGERPRINT}=require('./cloud-config.public.cjs');
 const UPDATE_MIRRORS=['https://106.55.41.128/api/updates','https://xingzhoufilm.cn/api/updates'];
 function createUpdateFetch(systemFetch=fetch){return (url,init={})=>{
+ const route=require('./cloud-network.cjs');if(route.shouldRoute(url))return route.directFetch(url,init);
  const parsed=new URL(url);if(parsed.hostname!=='106.55.41.128')return systemFetch(url,init);
  return new Promise((resolve,reject)=>{
   const request=https.request(url,{method:'GET',headers:{'Accept-Encoding':'identity',...(init.headers||{})},ca:fs.readFileSync(path.join(__dirname,IP_TLS_CA_FILE)),servername:'',rejectUnauthorized:true},response=>{

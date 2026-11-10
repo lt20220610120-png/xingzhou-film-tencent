@@ -1,3 +1,4 @@
+import {inlineVoiceAliases} from './inlineVoiceAliases.js';
 import {numberedReferences} from './generationReferences.js';
 import {compileEntryBinding,entryBindingSignature} from './promptArtBinding.js';
 import {auditedBindingNeeds} from './scenePromptAssignments.js';
@@ -23,15 +24,16 @@ export function storyboardPromptValue(binding,shot,value,accountId){
   const voices=(binding.snapshot.voiceCards||[]).filter(c=>c.sceneIds.includes(sceneId)&&!c.pendingAudio);
   if(!voices.length&&!value.sceneVoiceAssociation)return null;
   const references=[...(value.references||[]).filter(r=>!String(r.id).startsWith('voice:')),...voices.map(c=>c.reference)],aliases=new Map(numberedReferences(references).map(r=>[r.id,r.alias]));
-  const prompt=String(value.prompt||'').split('\n【场景人物音色参考】')[0]+(voices.length?'\n【场景人物音色参考】\n':'')+voices.map(c=>`${c.name}：使用 ${aliases.get(c.reference.id)} 的音色；对白仍按本条剧本。`).join('\n');
-  return {...value,prompt,references,sceneVoiceAssociation:sceneId};
+  const base=value.prompt===value.sceneVoiceCompiledPrompt&&typeof value.sceneVoiceSourcePrompt==='string'?value.sceneVoiceSourcePrompt:String(value.prompt||'').split('\n【场景人物音色参考】')[0];
+  const prompt=inlineVoiceAliases(base,voices.map(c=>({...c,alias:aliases.get(c.reference.id)})));
+  return {...value,prompt,references,sceneVoiceAssociation:sceneId,sceneVoiceSourcePrompt:base,sceneVoiceCompiledPrompt:prompt};
  }
  if(!binding?.saved?.enabled||!binding.snapshot?.entries?.length)return null;
  const {snapshot,decisions}=binding,exact=snapshot.entries.filter(entry=>entry.id===(shot.sourcePromptId||shot.id));
  const rows=exact.length?exact:snapshot.entries.filter(entry=>entry.label===shot.label&&entry.prompt===shot.content);
  if(rows.length!==1)return pending('当前分镜的提示词版本未匹配，请返回清单核实检查本条关联');
  const entry=rows[0];
- if(entry.label!==shot.label||entry.prompt!==shot.content)return pending('提示词正文已变化，请返回清单核实重新分发');
+ if(entry.label!==shot.label||entry.prompt!==storyboardSourcePrompt(shot))return pending('提示词正文已变化，请返回清单核实重新分发');
  try{
   const compiled=compileEntryBinding(snapshot,entry,decisions?.[entry.id],{preview:true});
   const generated=value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===entry.prompt;
@@ -56,3 +58,5 @@ export function storyboardSaveUpdates(value){
  const linkedPreview=value.referenceBindingMode==='pending'&&typeof value.bindingSourcePrompt==='string'&&prompt===value.bindingCompiledPrompt;
  return {content:value.referenceBindingMode==='confirmed'||linkedPreview?value.bindingSourcePrompt:prompt,generationConfig};
 }
+
+export function storyboardSourcePrompt(shot){const config=shot.generationConfig;return typeof config?.bindingSourcePrompt==='string'&&shot.content===config.bindingCompiledPrompt?config.bindingSourcePrompt:shot.content;}

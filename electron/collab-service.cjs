@@ -20,7 +20,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const put = await fetch(signed.url, {
+      const put = await require('./cloud-network.cjs').routeFetch(signed.url, {
         method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
         body, signal: AbortSignal.timeout(120000),
       });

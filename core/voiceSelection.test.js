@@ -26,5 +26,5 @@ test('chosen profile retains scene-level pending identity and exact normal dialo
  ledger.voiceProfiles.小林.confirmed={id:'fixed',filePath:'D:/fixed.wav'};
  const cards=projectVoiceCards(project,ledger),entry={id:'entry',sceneId:'1-2',prompt:'小林：走吧。'};
  const compiled=compileVoiceBinding({voiceCards:cards},entry,{speakers:[{voiceUid:cards[0].uid,evidence:entry.prompt,kind:'dialogue'}]},{prompt:entry.prompt,references:[]});
- assert.equal(compiled.references.length,1);assert.match(compiled.prompt,/人物正常对白音色参考/);assert.match(compiled.prompt,/@audio1/);
+ assert.equal(compiled.references.length,1);assert.doesNotMatch(compiled.prompt,/人物正常对白音色参考/);assert.match(compiled.prompt,/@audio1/);
 });

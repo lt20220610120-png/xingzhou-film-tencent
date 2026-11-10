@@ -27,7 +27,7 @@ test('basic subjects bind named local media, variants, locations, props and voic
  assert.match(next.prompt,/出租屋厨房内（参考@image2）/);
  assert.match(next.prompt,/三明治两个（参考@image6）（盛在盘中）/);
  assert.match(next.prompt,/林清雪的书包（参考@image5）/);
- assert.match(next.prompt,/音色：苏洲（参考@audio1），成年男声；林清雪，少女声线/);
+ assert.match(next.prompt,/音色：苏洲，成年男声（参考@audio1）；林清雪，少女声线/);
  assert.doesNotMatch(next.prompt,/@image[789]/);
  assert.equal(next.references.length,refs.length);
  assert.strictEqual(matchBasicReferences(next,refs,options),next);
@@ -153,7 +153,7 @@ test('升级自动修复旧签名缓存下的空引用，保留人工删掉的�
  const refs=[image('a','刘娜-职业装.png'),image('b','刘娜-杯子.png')];
  const value={prompt:'【基础设定】\n人物：刘娜（参考@）。',references:refs,autoReferenceExclusions:['image:b']};
  const initial=matchBasicReferences(value,refs,options);
- const legacy={...initial,prompt:value.prompt,autoReferenceSignature:initial.autoReferenceSignature.replace('basic-v2:','basic-v1:')};
+ const legacy={...initial,prompt:value.prompt,autoReferenceSignature:initial.autoReferenceSignature.replace(/basic-v[23]:/,'basic-v1:')};
  const next=matchBasicReferences(legacy,refs,options);
  assert.match(next.prompt,/刘娜（参考@image1）/);assert.doesNotMatch(next.prompt,/@image2/);
  const removed={...legacy,prompt:'【基础设定】\n人物：刘娜。'};
