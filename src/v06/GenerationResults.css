@@ -14,3 +14,11 @@
 .generation-results.generation-results-compact .generation-result-grid{align-items:stretch;grid-auto-rows:280px}.generation-results.generation-results-compact .generation-result-grid>article{height:280px;max-height:280px;overflow:auto;box-sizing:border-box;min-height:0}.generation-results.generation-results-compact .generation-result-preview,.generation-results.generation-results-compact .generation-result-placeholder{flex:none}.video-pool-row .video-pool-delete{padding:3px;min-height:24px;line-height:0;border:1px solid #edd8dc;border-radius:4px;background:#fff7f7;color:#aa4b58}.video-pool-row>header h3{margin-right:auto}
 
 .generation-results.generation-results-compact .generation-result-grid article>header{height:26px;min-height:26px;max-height:26px;flex:none;flex-wrap:nowrap}.generation-results.generation-results-compact .generation-result-select{margin:0;padding:0;line-height:16px;min-height:0;height:20px}
+
+.generation-results.generation-results-square .generation-result-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),240px));grid-auto-rows:244px;gap:12px}
+.generation-results.generation-results-square .generation-result-grid>article{height:244px;max-height:244px;overflow:visible;gap:6px;padding:8px;border-radius:10px}
+.generation-results.generation-results-square .generation-result-prompt{min-height:16px;max-height:16px;line-height:16px;-webkit-line-clamp:1;margin:0}
+.generation-results.generation-results-square .generation-result-preview,.generation-results.generation-results-square .generation-result-placeholder{width:100%;aspect-ratio:16/9}
+.generation-results.generation-results-square .generation-card-actions{flex-wrap:nowrap;gap:6px}.generation-results.generation-results-square .generation-card-actions button{flex:none;min-width:28px;justify-content:center}
+.generation-results.generation-results-square .generation-result-grid article>header>small{margin-left:auto;white-space:nowrap}.generation-results.generation-results-square .generation-result-grid article>header .hover-info-trigger{min-height:24px;padding:3px}
+.generation-results.generation-results-square .generation-result-grid article>footer{flex-wrap:nowrap;gap:4px}.generation-results.generation-results-square .generation-result-grid article>footer>small{white-space:nowrap;font-size:10px}

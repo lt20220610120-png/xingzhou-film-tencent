@@ -6,14 +6,13 @@ import './StoryboardWorkbench.css';
 import {readCollabNavigation,rememberCollabNavigation} from '../../core/collabNavigation.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
 import {storyboardPromptValue,storyboardSaveUpdates,canRefreshStoryboardBinding} from '../../core/promptAssetUsage.js';
-import {displayAssetName} from '../../core/collabStore.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {queueDraft,readQueuedDraft} from '../editing.js';
-import CloudAssetImage from './CloudAssetImage.jsx';
+import ResourcePicker from './ProjectResourcePicker.jsx';
+import {notifyBindingSaved} from './useScenePromptLinks.js';
 import React,{useState,useEffect,useRef,useMemo,useLayoutEffect} from 'react';
 import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard,RotateCcw,Trash2} from 'lucide-react';
 import {DeleteConfirm} from './DeleteConfirm.jsx';
-import {Dialog} from './GlobalTools.jsx';
 import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
 import {referenceName,refreshAssetReferences,isProjectGenerationReference,mediaSource} from '../../core/generationReferences.js';
 import {cleanStoryboardReferenceValue} from '../../core/storyboardReferences.js';
@@ -21,15 +20,6 @@ import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
 import {projectReferenceCandidates, removeGenerationReference, generationReferenceKey} from '../../core/automaticReferences.js';
 
-function ResourcePicker({api,projectId,assets,media,selected,onClose,onSelect,onUpload,onRefresh,initialTab}) {
- const [tab,setTab]=useState(initialTab==='audio'||initialTab==='video'?initialTab:'character'),[query,setQuery]=useState(''),[picked,setPicked]=useState(selected),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const categories=[['character','角色'],['prop','物品'],['scene','场景'],['image','参考图'],['audio','音频'],['video','视频']];
- const assetRows=assets.flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:displayAssetName(a,assets),nameAliases:a.nameAliases,filename:i.filename,category:a.category})));
- const rows=['character','prop','scene'].includes(tab)?assetRows.filter(a=>a.category===tab):media.filter(m=>m.kind===tab).map(m=>({...m,name:m.filename||m.note||'参考素材'}));
- const shown=rows.filter(r=>[r.name,r.displayName].filter(Boolean).some(name=>name.toLowerCase().includes(query.toLowerCase())));
- const upload=async()=>{setBusy(true);setError('');try{const item=await onUpload(tab);if(item)setPicked(current=>[...current,item]);}catch(e){setError(e.message);}finally{setBusy(false);}};
- return <Dialog open title="选择项目参考素材" onClose={onClose}><div className="generation-resource-tabs">{categories.map(([k,n])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{n}</button>)}<button onClick={onRefresh}><RefreshCw size={14}/>刷新图片</button></div><input aria-label="搜索资源名称" placeholder="搜索资源名称" value={query} onChange={e=>setQuery(e.target.value)}/><div className="generation-resource-grid"><button onClick={upload} disabled={busy}><Plus/><span>{busy?'上传中…':'上传本地素材'}</span></button>{shown.map(r=><button key={r.id} className={picked.some(p=>p.id===r.id)?'selected':''} onClick={()=>setPicked(current=>current.some(p=>p.id===r.id)?current.filter(p=>p.id!==r.id):[...current,r])}>{r.kind==='image'?<CloudAssetImage api={api} projectId={projectId} assetId={r.assetId} image={{...r,id:r.imageId||r.id}} alt={r.name} />:r.kind==='video'?<video src={r.url} preload="none"/>:<span>♫ 音频</span>}<small>{r.displayName||r.name}</small></button>)}</div>{error&&<p className="collab-error">{error}</p>}<footer className="generation-resource-tabs"><span>已选择 {picked.length} 项</span><button onClick={onClose}>取消</button><button className="primary" onClick={()=>onSelect(picked)}>确认引用</button></footer></Dialog>;
-}
 
 function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId,defaults}) {
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
@@ -84,7 +74,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   if(!item)return null;const all=await api.collabListMedia({projectId:project.id});await loadMedia();const found=all.find(m=>m.id===item.id);return found?{...found,name:found.filename||found.note}:null;
  };
  const deletedMediaIds=new Set(tasks.filter(t=>t.projectVideoDeleted).map(t=>t.mediaId));
- const cloudVideos=media.filter(m=>!deletedMediaIds.has(m.id)&&m.kind==='video'&&(m.note?.includes(`[shot:${shot.id}]`)||m.note===shot.label)&&m.scene===scene).map(m=>({...m,mediaId:m.id,localResult:false,status:'success',prompt:shot.content}));
+ const cloudVideos=media.filter(m=>!deletedMediaIds.has(m.id)&&m.kind==='video'&&(m.note?.includes(`[shot:${shot.id}]`)||m.note===shot.label)&&m.scene===scene).map(m=>({...m,mediaId:m.id,shotLabel:shot.label,localResult:false,status:'success',prompt:shot.content}));
  const localTasks=tasks.filter(t=>t.projectId===project.id&&t.shotId===shot.id&&!t.archived&&!t.projectVideoDeleted).map(t=>({...t,localResult:true}));
  const results=[...localTasks,...cloudVideos.filter(m=>!localTasks.some(t=>t.mediaId===m.id))];
  return <><article className="collab-shot-card" data-shot-id={shot.id}><header><b className="collab-shot-badge">{shot.label}</b><div className="storyboard-reference-actions"><button type="button" disabled={!canEdit||!baseline.references?.length} onClick={()=>restore()}><RefreshCw size={14}/>重新载入本条关联素材</button>{!!removedReferences.length&&<details><summary><RotateCcw size={14}/>恢复素材（{removedReferences.length}）</summary><div className="storyboard-reference-recovery"><button disabled={!canEdit} onClick={()=>restore()}>全部恢复</button>{removedReferences.map(ref=><button key={generationReferenceKey(ref)} disabled={!canEdit} onClick={()=>restore([generationReferenceKey(ref)])}>{ref.kind==='image'&&<img src={mediaSource(ref)} alt=""/>}{ref.name}</button>)}</div></details>}</div><div className="storyboard-save-actions"><span ref={setNoticeTarget} className="storyboard-notice-slot"/><button disabled={!canEdit||!draft.dirty||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}><Trash2 size={14}/>删除分镜</button></div></header><GenerationComposer api={api} state={state} referenceViewport bindingNoticeTarget={noticeTarget} timing={shot} referenceCandidates={referenceCandidates} value={{...draft.value,references:resolveRefs(draft.value.references||[])}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
@@ -93,7 +83,7 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return (input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
   if(unresolved.length)throw new Error(`以下引用尚未选择图片：${unresolved.map(a=>a.name).join('、')}`);
   await api.generationSubmit({...input,storyboardEdit:true,storyboardPublicationId:shot.storyboardPublicationId||'',projectId:project.id,episode:epNumber,scene,shotId:shot.id,shotLabel:shot.label});window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();
- }}></GenerationComposer>{error&&<p className="collab-error">{error}</p>}{!!results.length&&<GenerationResults tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDeleteMany={canEdit?async rows=>{const result=await api.projectVideoDelete({projectId:project.id,ids:rows.map(videoExportId)});await loadMedia();window.dispatchEvent(new Event('xz-video-pool-refresh'));return result;}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/>}</article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{await refresh();await loadMedia();}}/>}</>;
+ }}></GenerationComposer>{error&&<p className="collab-error">{error}</p>}{!!results.length&&<GenerationResults square tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDeleteMany={canEdit?async rows=>{const result=await api.projectVideoDelete({projectId:project.id,ids:rows.map(videoExportId)});await loadMedia();window.dispatchEvent(new Event('xz-video-pool-refresh'));return result;}:undefined} onReuse={t=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:t.references||[]})}/>}</article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} voiceCards={(promptBinding?.currentSnapshot||promptBinding?.snapshot)?.voiceCards||[]} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{notifyBindingSaved(project.id,accountId,null);await refresh();await loadMedia();}}/>}</>;
 }
 
 export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange,accountId}) {

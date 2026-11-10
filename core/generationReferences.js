@@ -31,6 +31,17 @@ export function autoReferences(prompt, assets) {
 }
 export const mediaSource = item => item.filePath ? `xzmedia://local/${encodeURIComponent(item.filePath)}` : (item.url || '').replace(/^xzmedia:\/\/\//, 'xzmedia://local/');
 
+// The voice ledger stores adopted samples separately from uploaded project media.
+// Reuse binding identities so selecting an adopted voice never creates a second alias.
+export function projectAudioReferences(media,voiceCards,projectId) {
+ const adopted=(voiceCards||[]).filter(card=>!card.pendingAudio).map(card=>({...card.reference,adoptedVoice:true}));
+ const seen=new Set();
+ return [...adopted,...media].filter(ref=>{
+  if(ref.kind!=='audio'||!isProjectGenerationReference(ref,projectId)||!(ref.url||ref.filePath)||seen.has(ref.id))return false;
+  seen.add(ref.id);return true;
+ }).map(ref=>({...ref,name:ref.adoptedVoice?ref.name:ref.filename||ref.note||ref.name||'参考音频'}));
+}
+
 export function appendImportedReferences(existing, files, kind, caps = {}) {
   const capKey = {image:'maxImages',audio:'maxAudios',video:'maxVideos'}[kind];
   if (!capKey) throw new Error('不支持的参考素材类型');

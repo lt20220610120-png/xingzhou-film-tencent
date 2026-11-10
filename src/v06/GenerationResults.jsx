@@ -1,5 +1,6 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { RefreshCw, Download, Copy, Film, Trash2, ChevronDown } from 'lucide-react';
+import { RefreshCw, Download, Copy, Film, Trash2, ChevronDown, ExternalLink, CircleAlert } from 'lucide-react';
+import HoverInfo from './HoverInfo.jsx';
 import models from '../../core/feituo-models.json';
 import { mediaSource } from '../../core/generationReferences.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
@@ -15,7 +16,7 @@ function storageSize(bytes = 0) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
-export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onDeleteMany, onClear, compact=tasks.every(t=>t.kind==='video'),selectedIds=[],onSelect,latestId }) {
+export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onDeleteMany, onClear, compact=tasks.every(t=>t.kind==='video'),square=false,selectedIds=[],onSelect,latestId }) {
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const [menuOpen,setMenuOpen]=useState(false),menu=useRef(null),trigger=useRef(null);
@@ -43,7 +44,8 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     let saved = false;
     const files = task.files?.length ? task.files : [task.filePath];
     for (const [index, filePath] of files.entries()) {
-      const result = await api.mediaExportFile({ filePath, url: task.urls?.[index] || task.url, kind: task.kind });
+      const label=task.shotLabel||task.promptLabel;
+      const result = await api.mediaExportFile({ filePath, url: task.urls?.[index] || task.url, kind: task.kind, ...(label?{filename:label+(files.length>1?`-${index+1}`:'')}:{}) });
       if (!result) break;
       saved = true;
     }
@@ -54,7 +56,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     try { if (await exportTask(task)) setNotice('文件已保存'); }
     catch (cause) { setError(cause.message); }
   };
-  return <section className={`generation-results generation-results-refined${compact?' generation-results-compact':''}`}>
+  return <section className={`generation-results generation-results-refined${compact?' generation-results-compact':''}${square?' generation-results-square':''}`}>
     <header><div><h3>生成结果 <small>{tasks.length}</small></h3></div>
       <div className="generation-result-actions">
         <button className="secondary" disabled={busy} onClick={async () => { setError(''); try { await onRefresh(); } catch (cause) { setError(cause.message); } }}><RefreshCw size={15}/>刷新结果</button>
@@ -68,19 +70,19 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     {error && !cleanup && <p className="collab-error" role="alert">{error}</p>}
     {notice && <p className="generation-cleanup-notice" role="status">{notice}</p>}
     <div className="generation-result-grid">{tasks.map(task => <article key={task.id}>
-      <header>{onSelect&&task.status==='success'&&<label className="generation-result-select"><input type="checkbox" aria-label={`选择结果 ${task.id}`} checked={selectedIds.includes(task.id)} onChange={()=>onSelect(task)}/>{latestId===task.id?'最新':'选择'}</label>}<span className={`status-${task.status}`}>{names[task.status] || task.status}</span><small>{task.kind === 'video' ? `${task.duration || ''} 秒` : '图片'}</small></header>
+      <header>{onSelect&&task.status==='success'&&<label className="generation-result-select"><input type="checkbox" aria-label={`选择结果 ${task.id}`} checked={selectedIds.includes(task.id)} onChange={()=>onSelect(task)}/>{latestId===task.id?'最新':'选择'}</label>}<span className={`status-${task.status}`}>{names[task.status] || task.status}</span>{square&&(task.error||task.warning)&&<HoverInfo label="查看任务提示" content={task.error||task.warning}><CircleAlert size={14}/></HoverInfo>}<small>{task.kind === 'video' ? task.duration?`${task.duration} 秒`:'' : '图片'}</small></header>
       {(task.filePath || task.url) ? <button className="generation-result-preview" aria-label="预览生成结果" onClick={() => setPreview(task)}>
-        {task.kind === 'image' ? <img loading="lazy" decoding="async" src={mediaSource(task)} alt="生成图片"/> : <video src={mediaSource(task)} preload="none" muted/>}<span>点击预览</span>
+        {task.kind === 'image' ? <img loading="lazy" decoding="async" src={mediaSource(task)} alt="生成图片"/> : <video src={mediaSource(task)} preload={square?'metadata':'none'} muted/>}<span>点击预览</span>
       </button> : <div className="generation-result-placeholder"><Film/><span>{names[task.status]}</span></div>}
       <p className="generation-result-prompt" title={task.originalPrompt || task.prompt}>{task.originalPrompt || task.prompt}</p>
-      <small>{models.find(model => model.id === task.model)?.name || task.model}</small>
+      {!square&&<><small>{models.find(model => model.id === task.model)?.name || task.model}</small>
       {task.jobId && <small title={task.jobId}>任务 {task.jobId}</small>}
       {task.checkedAt&&<small>最近检测 {new Date(task.checkedAt).toLocaleTimeString('zh-CN',{hour12:false})}{task.status==='success'?' · 视频池下载好':''}</small>}
-      {(task.error || task.warning) && <details className="generation-result-error"><summary>{task.status === 'failed' ? '查看失败原因' : '查看任务提示'}</summary><p>{task.error || task.warning}</p></details>}
+      {(task.error || task.warning) && <details className="generation-result-error"><summary>{task.status === 'failed' ? '查看失败原因' : '查看任务提示'}</summary><p>{task.error || task.warning}</p></details>}</>}
       <footer><div className="generation-card-actions">
-        {task.likeCanvasUrl&&<button className="secondary" onClick={()=>api.openExternal(task.likeCanvasUrl)}>Like 原画布</button>}
-        {task.libtvCanvasUrl&&<button className="secondary" onClick={()=>api.openExternal(task.libtvCanvasUrl)}>LibTV 原画布</button>}
-        {onReuse && <button className="secondary" onClick={() => onReuse(task)}><Copy size={14}/>复用</button>}
+        {task.likeCanvasUrl&&<button className="secondary" aria-label="Like 原画布" title="Like 原画布" onClick={()=>api.openExternal(task.likeCanvasUrl)}>{square?<ExternalLink size={14}/>:'Like 原画布'}</button>}
+        {task.libtvCanvasUrl&&<button className="secondary" aria-label="LibTV 原画布" title="LibTV 原画布" onClick={()=>api.openExternal(task.libtvCanvasUrl)}>{square?<ExternalLink size={14}/>:'LibTV 原画布'}</button>}
+        {onReuse && <button className="secondary" aria-label="复用" title="复用" onClick={() => onReuse(task)}><Copy size={14}/>{!square&&'复用'}</button>}
         {(task.filePath || task.url) && <button className="secondary" onClick={() => download(task)}><Download size={14}/>下载</button>}
         {(onClear || onDelete || onDeleteMany) && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => askClear([task],'删除这条生成记录',!clearable(task))}><Trash2 size={15}/></button>}
       </div>{task.costYuan != null && <small>¥{Number(task.costYuan).toFixed(2)}</small>}</footer>

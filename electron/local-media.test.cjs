@@ -28,3 +28,27 @@ test('download preserves original bytes, recovers missing local copy from URL, a
  assert.equal(await exportMediaFile({filePath:file},{...deps,showSaveDialog:async()=>({canceled:true})}),null);
  await assert.rejects(exportMediaFile({url:'file:///private' },deps),/下载地址无效/);
 });
+
+test('renaming a video to its shot number preserves playable extension and bytes',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-export-name-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const source=path.join(root,'source.mp4'),dest=path.join(root,'1-6-1');fs.writeFileSync(source,Buffer.from('0000ftypisom-original-video'));
+ let options;const deps={showSaveDialog:async o=>{options=o;return {filePath:dest};},mediaDir:()=>root};
+ const saved=await exportMediaFile({filePath:source,kind:'video',filename:'1-6-1'},deps);
+ assert.equal(saved,dest+'.mp4');assert.deepEqual(fs.readFileSync(saved),fs.readFileSync(source));
+ assert.equal(options.defaultPath,'1-6-1.mp4');assert.deepEqual(options.filters[0].extensions,['mp4']);
+});
+
+test('format filters preserve original MOV, audio and image types, including canvas calls without kind',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-export-types-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ for(const ext of ['mov','webm','wav','aac','flac','png']){
+  const source=path.join(root,'source.'+ext),dest=path.join(root,'renamed-'+ext);fs.writeFileSync(source,ext+' original bytes');
+  assert.equal(await exportMediaFile({filePath:source},{showSaveDialog:async()=>({filePath:dest}),mediaDir:()=>root}),dest+'.'+ext);
+ }
+});
+
+test('adding a missing extension never silently overwrites another saved video',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-export-exists-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const source=path.join(root,'source.mp4'),dest=path.join(root,'1-6-1.mp4');fs.writeFileSync(source,'new');fs.writeFileSync(dest,'keep');
+ await assert.rejects(exportMediaFile({filePath:source,kind:'video'},{showSaveDialog:async()=>({filePath:dest.slice(0,-4)}),mediaDir:()=>root}),/已存在/);
+ assert.equal(fs.readFileSync(dest,'utf8'),'keep');
+});

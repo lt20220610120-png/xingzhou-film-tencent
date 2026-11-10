@@ -4,7 +4,7 @@ const {Readable}=require('node:stream');
 
 // Standard origins are required for Chromium's MP4 demuxer to seek to a tail moov atom.
 const LOCAL_MEDIA_PRIVILEGES={standard:true,secure:true,supportFetchAPI:true,stream:true};
-const types={'.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime','.wav':'audio/wav','.mp3':'audio/mpeg','.m4a':'audio/mp4','.ogg':'audio/ogg','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'};
+const types={'.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime','.wav':'audio/wav','.mp3':'audio/mpeg','.m4a':'audio/mp4','.aac':'audio/aac','.flac':'audio/flac','.ogg':'audio/ogg','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'};
 const inside=(root,file)=>{const relative=path.relative(root,file);return !!relative&&relative!=='..'&&!relative.startsWith(`..${path.sep}`)&&!path.isAbsolute(relative);};
 function createLocalMediaHandler(getDataDir){
  return async request=>{
@@ -42,16 +42,28 @@ function createLocalMediaHandler(getDataDir){
   }catch(error){return new Response(null,{status:['ENOENT','ENOTDIR'].includes(error.code)?404:500});}
  };
 }
-async function exportMediaFile({filePath,url,kind},{showSaveDialog,downloadToFile,mediaDir}){
+async function exportMediaFile({filePath,url,kind,filename},{showSaveDialog,downloadToFile,mediaDir}){
  if(!filePath||!fs.existsSync(filePath)){
   if(!url)throw new Error('素材文件不存在，请刷新结果或检查本地资料目录');
   if(!/^https?:\/\//i.test(url))throw new Error('下载地址无效');
-  filePath=await downloadToFile(url,mediaDir(),kind==='image'?'png':'mp4');
+  filePath=await downloadToFile(url,mediaDir(),kind==='image'?'png':kind==='audio'?'wav':'mp4');
  }
  if(!filePath||!fs.existsSync(filePath)||!fs.statSync(filePath).isFile())throw new Error('素材文件不存在');
- const result=await showSaveDialog({defaultPath:path.basename(filePath)});
- if(result.canceled)return null;
- if(path.resolve(filePath)!==path.resolve(result.filePath))await fs.promises.copyFile(filePath,result.filePath);
- return result.filePath;
+ const sourceExt=path.extname(filePath).toLowerCase(),ext=types[sourceExt]?sourceExt:kind==='image'?'.png':kind==='audio'?'.wav':'.mp4';
+ const withExtension=name=>{
+  const current=path.extname(name).toLowerCase();
+  return current===ext?name:(types[current]?name.slice(0,-current.length):name)+ext;
+ };
+ const name=filename?String(filename).replace(/[\\/:*?"<>|\x00-\x1f]/g,'_'):path.basename(filePath);
+ const result=await showSaveDialog({defaultPath:withExtension(name),filters:[{name:ext.slice(1).toUpperCase()+' 文件',extensions:[ext.slice(1)]}]});
+ if(result.canceled||!result.filePath)return null;
+ const destination=withExtension(result.filePath);
+ if(path.resolve(filePath)!==path.resolve(destination)){
+  // Electron only confirmed overwrite of the exact path returned by the dialog.
+  // If we added/repaired its extension, refuse an unconfirmed collision atomically.
+  try{await fs.promises.copyFile(filePath,destination,destination!==result.filePath?fs.constants.COPYFILE_EXCL:0);}
+  catch(error){if(error.code==='EEXIST')throw Error('同名文件已存在，请选择其他文件名');throw error;}
+ }
+ return destination;
 }
 module.exports={LOCAL_MEDIA_PRIVILEGES,createLocalMediaHandler,exportMediaFile};
