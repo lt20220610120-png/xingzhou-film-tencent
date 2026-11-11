@@ -70,37 +70,43 @@ else:
     rid = json.loads(b)['id']
     print(f'release created id={rid}')
 
-# 2) Upload asset (delete stale/partial asset with same name first; retry on network hiccups)
+# 2) Upload asset (reuse a complete asset; delete stale/partial asset with same name first; retry on network hiccups)
 st, b = req(f'https://api.github.com/repos/{REPO}/releases/{rid}/assets')
+existing = None
 if st == 200:
     for asset in json.loads(b):
-        if asset['name'] != ASSET:
+        if asset['name'] == ASSET and asset['state'] == 'uploaded':
+            existing = asset
+        elif asset['name'] != ASSET:
             req(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', 'DELETE')
             print(f'removed stale asset {asset["id"]}: {asset["name"]}')
 size = os.path.getsize(SRC)
-print(f'uploading {size} bytes...')
-last_error = None
-for attempt in range(3):
-    try:
-        with open(SRC, 'rb') as f:
-            st, b = req(f'https://uploads.github.com/repos/{REPO}/releases/{rid}/assets?name={ASSET}', 'POST', f.read(),
-                        'application/octet-stream')
-        if st == 201:
-            break
-        last_error = f'{st} {b[:300]}'
-    except Exception as exc:  # network reset mid-upload leaves a partial asset — delete and retry
-        last_error = str(exc)
-    print(f'upload attempt {attempt + 1} failed: {last_error}; retrying...')
-    st2, b2 = req(f'https://api.github.com/repos/{REPO}/releases/{rid}/assets')
-    if st2 == 200:
-        for asset in json.loads(b2):
-            if asset['name'] == ASSET:
-                req(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', 'DELETE')
+if existing and existing['size'] == size:
+    dl = existing['browser_download_url']
+    print(f'existing asset is complete, skipping upload: {dl}')
 else:
-    sys.exit(f'Upload failed after retries: {last_error}')
-assert st == 201, f'Upload failed: {st} {b[:300]}'
-dl = json.loads(b)['browser_download_url']
-print('uploaded:', dl)
+    print(f'uploading {size} bytes...')
+    last_error = None
+    for attempt in range(3):
+        try:
+            with open(SRC, 'rb') as f:
+                st, b = req(f'https://uploads.github.com/repos/{REPO}/releases/{rid}/assets?name={ASSET}', 'POST', f.read(),
+                            'application/octet-stream')
+            if st == 201:
+                break
+            last_error = f'{st} {b[:300]}'
+        except Exception as exc:  # network reset mid-upload leaves a partial asset — delete and retry
+            last_error = str(exc)
+        print(f'upload attempt {attempt + 1} failed: {last_error}; retrying...')
+        st2, b2 = req(f'https://api.github.com/repos/{REPO}/releases/{rid}/assets')
+        if st2 == 200:
+            for asset in json.loads(b2):
+                if asset['name'] == ASSET:
+                    req(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', 'DELETE')
+    if st != 201:
+        sys.exit(f'Upload failed after retries: {last_error}')
+    dl = json.loads(b)['browser_download_url']
+    print('uploaded:', dl)
 
 # 3) Update latest.json on both the dedicated update repo and the source repo.
 # Older clients read the source repo; the dedicated repo is the canonical release
