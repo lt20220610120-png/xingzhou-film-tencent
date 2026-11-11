@@ -18,9 +18,9 @@
 - 复现证据：无账号、无写入的 12 MB 请求返回正常 JSON 401；16/18 MB 返回 Nginx 502 HTML；18 MB 未压缩请求耗时约 54 秒。
 - 修复：云端上限提升至 64 MiB；超过上限返回明确 JSON 413；超过 1 MiB 的客户端请求自动 gzip 压缩，服务端限制压缩前后 64 MiB 并解压。
 - 真实验证：临时协作项目写入 300 万字符，保存 680 ms，回读长度一致，已删除；压缩 18 MB 请求公开网络 348 ms 返回 401。真实“神明”项目只读，未改写。
-- 回归：`cloud-backend/test/server.test.cjs`、`server-large-payload.test.cjs`、`electron/cloud-timeout.test.cjs`；全量 **3017/3017**。
+- 回归：`cloud-backend/test/server.test.cjs`、`server-large-payload.test.cjs`、`electron/cloud-timeout.test.cjs`、`electron/libtv-network.test.cjs`；全量 **3018/3018**。
 - 云端部署：`server.cjs` 已备份并部署，备份 `/opt/xingzhou-backups/large-project-2.8.149-20261111T131532Z`，服务 active。
-- LibTV：当前网络连续 5 次真实账号只读均成功，未复现连接失败；失败提示仍保留安全 host/error code 诊断，不做无证据的再改分流。
+- LibTV：确认原实现要求四个官方域名全部预检成功，任一辅助域名（如 `bridge.liblib.art`）瞬时时超时便整体报“LibTV 网络连接失败”。现改为只剔除失败域名、保留可用线路，实际使用该域名时再按需探测。当前网络连续 5 次真实账号只读此前均成功；故障注入回归已覆盖单域名超时不再阻断账号连接。
 
 ## 2.8.148 已完成内容
 

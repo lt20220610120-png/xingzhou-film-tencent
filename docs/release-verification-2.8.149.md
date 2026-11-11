@@ -20,12 +20,13 @@
 ## 测试
 
 - 定向测试：`cloud-backend/test/server.test.cjs`、`cloud-backend/test/server-large-payload.test.cjs`、`electron/cloud-timeout.test.cjs`，覆盖 17 MiB、超 64 MiB、gzip 大型保存和非幂等写入不重放。
-- 全量：**3017/3017** 通过。
+- 全量：**3018/3018** 通过。
 - 构建：`npm run build` 通过。
 - 安装包运行时：`packagedRuntime: PASS`。
 - 真实写入：临时协作项目写入 300 万字符，保存 **680 ms**，回读长度一致，随后已删除。
 - 公开网络压缩 18 MB 请求：**348 ms** 返回 JSON 401（原 54 秒/502）。
-- LibTV 当前网络真实账号只读连续 **5/5** 成功，未复现连接失败。
+- LibTV 当前网络真实账号只读连续 **5/5** 成功；同时修复四个官方域名“全量预检任一失败即整体断连”的偶发故障，现保留可用线路并只在实际使用失败域名时按需重探。
+- LibTV 回归：故障注入 `bridge.liblib.art` 超时仍允许账号连接；相关定向测试 **22/22** 通过。
 
 ## 云端部署
 
