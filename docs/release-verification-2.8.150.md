@@ -41,4 +41,8 @@
 
 - 安装包：`release/2.8.150/Xingzhou-Film-Tencent-Setup-2.8.150.exe`，**104,034,096 字节**，SHA256 `442442c963cceee0437c773e78fa8ec9289382192c82ee47503f067812d9db5e`。
 - 打包运行时 `packagedRuntime: PASS`；最终 ASAR 已核验 `core/generationReferences.js`、`core/libtv.js`、`electron/generation-jobs.cjs` 均包含素材类型迁移。
-- 官网/GitHub 下载、三份签名清单、软件内更新和本机安装一致性在发布后补充。
+- GitHub Release `441917816`：资产状态 `uploaded`，大小 104,034,096 字节，digest `sha256:442442c963cceee0437c773e78fa8ec9289382192c82ee47503f067812d9db5e`，与本地包一致。
+- 官网镜像：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.150.exe` 已发布并通过 `UPDATE_MIRROR_VERIFIED`。
+- 三份 `latest.json` 已更新；软件内正式更新检测已读取 2.8.150，并确认 2.8.149 可升级。
+- 公开核验通过：官网整包 SHA256 与本地一致；Range 请求 206，首 65,536 字节逐字节一致；三份 `latest.json` 内容一致并逐份通过 Ed25519 验签；GitHub 资产 `uploaded` 且 digest 一致。记录 `output/review-150/public-verification.json`。
+- 本机当前运行的仍是 2.8.149；软件内更新已能发现 2.8.150，安装由用户在客户端检查更新完成。未强制关闭或替换正在使用的客户端。
