@@ -40,6 +40,7 @@
 - 大小：104,033,725 字节
 - SHA256：`31cf27e2cb77bd07db6115b61392321f47778c654c81e1912fabea3500032201`
 - 本机：`D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.149/Xingzhou-Film-Tencent-Setup-2.8.149.exe`
+- 本机客户端已安装并运行 2.8.149；安装目录 `D:/行舟影视客户端/Xingzhou Film Tencent Edition`，其 `app.asar` 与最终包 `win-unpacked/resources/app.asar` 完全一致：22,681,344 字节，SHA256 `d915029c020c2673f466c5889fccb30fc20d12492e24637612da672dcd8ae89c`，且已确认含 gzip 上传与 LibTV 按需探测修复。
 
 ## 发布核验
 
