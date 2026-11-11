@@ -5,12 +5,3 @@ test('stream yields bytes and signal cancellation after headers rejects body rea
  const g=fixture(),ok=g.fetch('https://cdn.invalid/a',{redirect:'manual'}),res=new EventEmitter();res.statusCode=200;res.headers={};g.request.emit('response',res);const value=await ok;res.emit('data',Buffer.from('done'));res.emit('end');assert.equal(await value.text(),'done');});
 test('request errors and response interruptions are recoverable read failures',async()=>{const f=fixture(),pending=f.fetch('https://cdn.invalid/a',{redirect:'manual'});f.request.emit('error',Error('network'));await assert.rejects(pending,/network/);const g=fixture(),p=g.fetch('https://cdn.invalid/a',{redirect:'manual'}),res=new EventEmitter();res.statusCode=200;res.headers={};g.request.emit('response',res);const r=await p;res.emit('error',Error('interrupted'));await assert.rejects(r.arrayBuffer(),/interrupted/);});
 test('request failure after headers also rejects body consumption',{timeout:1000},async()=>{const f=fixture(),p=f.fetch('https://cdn.invalid/a',{redirect:'manual'}),res=new EventEmitter();res.statusCode=200;res.headers={};f.request.emit('response',res);const r=await p,body=r.arrayBuffer();f.request.emit('error',Error('socket failed'));await assert.rejects(body,/socket failed/);});
-
-test('OFF domestic media GET automatically uses physical fallback after Chromium network failure',async t=>{
- const os=require('node:os'),https=require('node:https'),route=require('./cloud-network.cjs'),{PassThrough}=require('node:stream');
- const originalInterfaces=os.networkInterfaces,originalRequest=https.request;os.networkInterfaces=()=>({WLAN:[{family:'IPv4',internal:false,address:'192.168.0.248'}]});route.configure({});
- https.request=(url,options,callback)=>{assert.equal(options.localAddress,'192.168.0.248');const request=new EventEmitter();request.setTimeout=()=>{};request.end=()=>{const response=new PassThrough();response.headers={};response.statusCode=200;callback(response);response.end('repaired-image');};return request;};
- t.after(()=>{os.networkInterfaces=originalInterfaces;https.request=originalRequest;route.configure({});});
- const fetch=createMediaReadFetch({fetch:async()=>{throw Error('net::ERR_CONNECTION_RESET');}});
- assert.equal(await(await fetch('https://bucket.cos.ap-guangzhou.myqcloud.com/a')).text(),'repaired-image');
-});

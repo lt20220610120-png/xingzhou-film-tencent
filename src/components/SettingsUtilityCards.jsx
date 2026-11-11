@@ -1,4 +1,3 @@
-import {NetworkRoutingSettings} from './NetworkRoutingSettings.jsx';
 import React from 'react';
 import {Cloud, BadgeCheck,RefreshCw} from 'lucide-react';
 import {TemporaryReferenceManager} from './TemporaryReferenceManager.jsx';
@@ -16,6 +15,5 @@ export function SettingsUtilityCards({api, version}) {
    <div className="settings-utility-copy"><span className="settings-utility-kicker">行舟影视 · 桌面客户端</span><h2>当前版本</h2></div>
    <div className="settings-version-badge"><span>已安装版本</span><strong>v{version}</strong><button className="secondary" onClick={()=>window.dispatchEvent(new CustomEvent('xingzhou-check-update'))}><RefreshCw size={15}/>检查更新</button></div>
   </section>
- <NetworkRoutingSettings api={api}/>
  </div>;
 }

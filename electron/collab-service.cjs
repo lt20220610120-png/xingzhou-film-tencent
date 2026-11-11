@@ -20,7 +20,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const put = await require('./cloud-network.cjs').routeFetch(signed.url, {
+      const put = await fetch(signed.url, {
         method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
         body, signal: AbortSignal.timeout(120000),
       });
@@ -34,7 +34,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
-function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, fetchFn=(...args)=>require('./cloud-network.cjs').routeFetch(...args)} = {}) {
+function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, fetchFn=fetch} = {}) {
   const session = () => getSession() || {};
   const account = () => { const a = session().account || session(); if (!a?.id) throw new Error('请先登录账号'); return a; };
   const call = (action, payload = {}) => callGateway(action, payload, session().token || '');

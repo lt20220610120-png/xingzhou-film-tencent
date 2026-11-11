@@ -20,7 +20,7 @@ function createCloudMediaService(readToken, userDataDir) {
     const token = readToken();
     const signed = await gateway('media-upload-url', { projectId, filename, kind, mime }, token);
     const body = fs.readFileSync(filePath);
-    const put = await require('./cloud-network.cjs').routeFetch(signed.url, {
+    const put = await fetch(signed.url, {
       method: 'PUT',
       headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
       body,
@@ -32,7 +32,7 @@ function createCloudMediaService(readToken, userDataDir) {
   const download = async ({ mediaId }) => {
     const token = readToken();
     const signed = await gateway('media-download-url', { mediaId }, token);
-    const response = await require('./cloud-network.cjs').routeFetch(signed.url);
+    const response = await fetch(signed.url);
     if (!response.ok) throw new Error(`媒体下载失败（${response.status}）`);
     fs.mkdirSync(cacheDir, { recursive: true });
     const target = path.join(cacheDir, `${mediaId}-${signed.filename || 'media'}`);
@@ -45,7 +45,7 @@ function createCloudMediaService(readToken, userDataDir) {
     const result = await gateway('media-delete', { mediaId }, token);
     // 服务端返回受限签名，由客户端完成对象删除。
     if (result?.remove?.url) {
-      await require('./cloud-network.cjs').routeFetch(result.remove.url, { method: 'DELETE', headers: { Authorization: result.remove.authorization } }).catch(() => {});
+      await fetch(result.remove.url, { method: 'DELETE', headers: { Authorization: result.remove.authorization } }).catch(() => {});
     }
     return { ok: true };
   };

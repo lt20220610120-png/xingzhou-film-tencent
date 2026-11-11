@@ -8,6 +8,12 @@ exports.verify = async (exe,version,dependencies={}) => {
   const bundled = JSON.parse(asar.extractFile(archive,'package.json').toString());
   assert.equal(bundled.version,version);
   const entries=asar.listPackage(archive);
+  const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication'];
+  for(const name of requiredProjectModules){
+    const relative=path.join('cloud-backend','src',name+'.cjs');
+    assert.ok(entries.some(entry=>entry.replace(/^[\\/]/,'').replaceAll('\\','/')===relative.replaceAll('\\','/')),`Packaged project module missing: ${name}`);
+    assert.ok(asar.extractFile(archive,relative).length>0,`Packaged project module is empty: ${name}`);
+  }
   const extension=JSON.parse(asar.extractFile(archive,path.join('browser-extension','like-connector','manifest.json')));assert.equal(extension.manifest_version,3);for(const name of ['background.js','content.js','main.js','popup.html','popup.js'])assert(asar.extractFile(archive,path.join('browser-extension','like-connector',name)).length>0);assert(!extension.permissions.some(p=>['cookies','history','webRequest','nativeMessaging'].includes(p)));
   assert.ok(!entries.some(name=>/(?:^|[\\/])(?:xingzhou-data\.json|director-projects\.json|local-provider-migration\.json|protected-skill-vault-2850)(?:$|[\\/])/.test(name)),'Private workspace data must not ship');
   const vault=path.resolve(__dirname,'../output/protected-skill-vault-2850');

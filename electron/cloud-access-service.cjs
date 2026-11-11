@@ -10,7 +10,7 @@ const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
 // 一旦某个端点成功，就记住它，后续请求不再逐个重试。
 const CANDIDATES = typeof gatewayUrls === 'function' ? gatewayUrls() : [EDGE_FUNCTION_URL];
 let activeUrl = null;
-const orderedUrls = () => (require('./cloud-network.cjs').settings().enabled ? [...CANDIDATES].sort((a,b)=>Number(isPinnedIpUrl(b))-Number(isPinnedIpUrl(a))) : activeUrl ? [activeUrl, ...CANDIDATES.filter((u) => u !== activeUrl)] : [...CANDIDATES]);
+const orderedUrls = () => activeUrl ? [activeUrl, ...CANDIDATES.filter((u) => u !== activeUrl)] : [...CANDIDATES];
 const isNetworkFailure = (error) => {
   const code = String(error?.cause?.code || error?.code || '');
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
@@ -85,24 +85,15 @@ function requestPinnedHttps(url, init = {}) {
     request.end();
   });
 }
-async function requestGateway(url, init, {read, retryable}) {
-  const route = require('./cloud-network.cjs');
-  const normalFetch = async (url, options) => {
-    try {
-      return await fetch(url, options);
-    } catch (error) {
-      if (isPinnedIpUrl(url) && (certificateFailure(error) || read && isNetworkFailure(error))) {
-        return requestPinnedHttps(url, options);
-      }
-      throw error;
+async function requestGateway(url, init, {read}) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    if (isPinnedIpUrl(url) && (certificateFailure(error) || read && isNetworkFailure(error))) {
+      return requestPinnedHttps(url, init);
     }
-  };
-  if (retryable) return route.routeFetch(url, init, normalFetch, {safeToRetry:true});
-
-  // With compatibility disabled, writes use the normal route and the gateway's
-  // full deadline. A failed or slow response cannot confirm whether a write ran.
-  if (route.shouldRoute(url)) return route.directFetch(url, init);
-  return normalFetch(url, init);
+    throw error;
+  }
 }
 const pendingReads = new Map();
 let licenseDecorator=null;
@@ -134,7 +125,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
           body:JSON.stringify({...decorated,action}),
           signal:controller.signal,
           ...(!retryable?{redirect:'error'}:{}),
-        },{read,retryable});
+        },{read});
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if (![502,503,504].includes(response.status)) activeUrl=url;
@@ -146,7 +137,6 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     } catch(error) {
       const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));
       if(!network&&!error.transient)throw error;
-      if(read)require('./cloud-network.cjs').reportReadFailure(url,error);
       if(activeUrl===url)activeUrl=null;
       // DNS/refused/TLS errors prove no HTTP write was delivered. A reset can
       // occur after the server committed it, so it never authorizes write replay.

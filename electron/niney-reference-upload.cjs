@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MIME={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4','.flac':'audio/flac'};
-function createNineyReferenceUploader({getSession,gateway=require('./cloud-access-service.cjs').gateway,fetchFn=(url,init)=>require('./cloud-network.cjs').routeFetch(url,init),now=Date.now}){
+function createNineyReferenceUploader({getSession,gateway=require('./cloud-access-service.cjs').gateway,fetchFn=fetch,now=Date.now}){
  const cache=new Map(),pending=new Map();
  const prepare=async input=>{
   const {effectiveVideoProtocol}=await import('../core/videoProviderConfig.js');if(input.kind==='image'||!['niney','autodl'].includes(effectiveVideoProtocol(input))||!input.references?.some(r=>r.filePath&&!/^https:\/\//i.test(r.url||'')))return input;

@@ -16,12 +16,3 @@
 @media(max-width:760px){.settings-utilities .settings-utility{gap:13px;padding:19px;flex-wrap:wrap}.settings-utility-copy{flex-basis:calc(100% - 70px)}.settings-utility-action{margin-left:65px}.settings-version-badge{margin-left:65px;padding:0;border:0;text-align:left}.settings-version-badge strong{font-size:23px}}
 
 .settings-version-badge .secondary{display:flex;align-items:center;justify-content:center;gap:7px;margin:12px 0 0 auto;padding:8px 12px;min-height:38px;font-size:12px;border:1px solid #ddd4ed;border-radius:8px;background:#faf8fe;color:#7560a5;cursor:pointer}
-
-.settings-network-controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:14px}
-.settings-network-controls label{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#4d5267;white-space:nowrap;flex-shrink:0}
-.settings-network-controls select{max-width:220px;padding:7px 10px;border:1px solid #ddd7ec;border-radius:6px;background:white;color:#44395d}
-.settings-network-controls button[role=switch]{display:inline-flex;align-items:center;justify-content:flex-start;width:40px;height:24px;min-height:24px;min-width:40px;padding:3px;border:0;border-radius:15px;background:#c7c8d2;cursor:pointer}
-.settings-network-controls button[role=switch][aria-checked=true]{background:#7962bd;justify-content:flex-end}
-.settings-network-controls button[role=switch]>span{width:18px;height:18px;flex:none;border-radius:50%;background:white;box-shadow:0 1px 3px #0002}
-.settings-network-controls>.secondary{display:inline-flex;gap:6px;align-items:center;min-height:34px;padding:6px 10px;border:1px solid #d6cbea;border-radius:6px;background:#faf8ff;color:#6c51a6;font-size:12px}
-.settings-network .settings-network-error{color:#b73f4b}

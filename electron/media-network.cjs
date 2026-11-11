@@ -24,7 +24,7 @@ let mediaFetch;
 // Electron's Chromium network stack follows the desktop's system proxy/PAC.
 // Node fetch does not, which can make generation succeed but result GETs fail.
 function configureMediaFetch(fetcher) { mediaFetch = fetcher; }
-function fetchMedia(url,options) { return require('./cloud-network.cjs').routeFetch(url,options,mediaFetch||globalThis.fetch); }
+function fetchMedia(url,options) { return (mediaFetch||globalThis.fetch)(url,options); }
 let cacheScope = () => '';
 function configureMediaCache(cache, scope) { imageCache = cache; cacheScope = scope || (()=>''); }
 async function readMediaBytes(url, options = {}) {
@@ -45,7 +45,7 @@ async function downloadMediaBytes(url, { fetchFn = mediaFetch || globalThis.fetc
     let retryDelay = delayMs * (attempt + 1);
     try {
       // Never forward API credentials to a result/reference image host.
-      const response = await require('./cloud-network.cjs').routeFetch(url, { method: 'GET', signal: controller.signal },fetchFn);
+      const response = await fetchFn(url, { method: 'GET', signal: controller.signal });
       if (!response.ok) {
         const retryAfter = Number(response.headers?.get('retry-after'));
         if (retryAfter > 0) retryDelay = Math.min(2000, retryAfter * 1000);
@@ -57,7 +57,6 @@ async function downloadMediaBytes(url, { fetchFn = mediaFetch || globalThis.fetc
       return { bytes, mime: (response.headers?.get('content-type') || '').split(';')[0].toLowerCase() };
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
-      require('./cloud-network.cjs').reportReadFailure(url,error);
       const retryable = error.retryable || isMediaNetworkError(error) || controller.signal.aborted;
       if (!retryable || attempt + 1 === maxAttempts) {
         if (!retryable || error.status) throw error;

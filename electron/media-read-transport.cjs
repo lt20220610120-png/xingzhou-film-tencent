@@ -13,5 +13,5 @@ function createMediaReadFetch(net){const defaultFetch=(url,options={})=>{
   });
   for(const [key,value]of Object.entries(options.headers||{}))request.setHeader(key,value);request.end();
  });
-};return(url,options={})=>require('./cloud-network.cjs').routeFetch(url,options,defaultFetch);}
+};return defaultFetch;}
 module.exports={createMediaReadFetch};

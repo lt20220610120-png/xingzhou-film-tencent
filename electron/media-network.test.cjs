@@ -30,12 +30,3 @@ test('paid POST is sent once; failed image download resumes from persisted recei
  try{const {generateImage,retryImageDownload}=require('./media-service.cjs');await assert.rejects(generateImage({endpoint:'https://provider.test/v1',apiKey:'secret',model:'image',prompt:'test',destDir:dir}),e=>{receipt=e.downloadReceiptId;return Boolean(receipt);});assert.equal(posts,1);recover=true;const file=await retryImageDownload(receipt,dir);assert.deepEqual(fs.readFileSync(file),png);assert.equal(posts,1);assert.equal(reads,2);}
  finally{globalThis.fetch=original;fs.rmSync(dir,{recursive:true,force:true});}
 });
-
-test('COS response interruption moves the next safe media read to physical transport',async t=>{
- const https=require('node:https'),{EventEmitter}=require('node:events'),{PassThrough}=require('node:stream'),route=require('./cloud-network.cjs');
- const originalInterfaces=os.networkInterfaces,originalRequest=https.request;os.networkInterfaces=()=>({WLAN:[{family:'IPv4',internal:false,address:'192.168.0.248'}]});route.configure({});let defaults=0,native=0;
- https.request=(url,options,callback)=>{native++;const request=new EventEmitter();request.setTimeout=()=>{};request.end=()=>{const response=new PassThrough();response.statusCode=200;response.headers={};callback(response);response.end('complete');};return request;};
- t.after(()=>{os.networkInterfaces=originalInterfaces;https.request=originalRequest;route.configure({});});
- const result=await readMediaBytes('https://bucket.cos.ap-guangzhou.myqcloud.com/a',{attempts:2,delayMs:0,fetchFn:async()=>{defaults++;return{ok:true,arrayBuffer:async()=>{throw Error('terminated');}};}});
- assert.equal(result.bytes.toString(),'complete');assert.equal(defaults,1);assert.equal(native,1);
-});
