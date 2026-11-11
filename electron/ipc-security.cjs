@@ -48,7 +48,7 @@ function protectWindow(win, { entryFile,isDev,allowUrl,allowFrameUrl,openExterna
   win.webContents.setWindowOpenHandler(details=>{if(projectPopup?.consume(details))return {action:'allow',overrideBrowserWindowOptions:{width:1360,height:900,minWidth:940,minHeight:660,autoHideMenuBar:true,backgroundColor:'#f7f6fc',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}}};const {url}=details;try{const safe=safeExternalUrl(url);Promise.resolve(openExternal?.(safe)).catch(()=>{});}catch{}return {action:'deny'};});
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
 }
-function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,getLicenseClient=()=>null,onIdentityChange=()=>{},isStorageLocked=()=>false }) {
+function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,getLicenseClient=()=>null,getLocalAccount=async()=>null,onIdentityChange=()=>{},isStorageLocked=()=>false }) {
   let epoch=0,transitions=0,onlineWork=0;const active=new Set();
   const invalidate=()=>{epoch++;for(const controller of active)controller.abort();onIdentityChange();};
   return {
@@ -68,7 +68,7 @@ function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,ge
           if(onlineChannels.has(channel)) {
             if(transitions)throw new Error('账号正在切换，请稍后使用联网生成');
             const service=getAccessService(),token=service?.token();
-            const account=await service?.session();
+            const account=await getLocalAccount(channel,args[0]) || await service?.session();
             if(expected!==epoch || !token || service.token()!==token)throw new Error('登录状态已变化，请重新操作');
             if(!account?.id || account.banned===true){invalidate();throw new Error('请先登录有效账号，再使用联网生成');}
             assertSender(event,getWindow(),{entryFile,isDev});

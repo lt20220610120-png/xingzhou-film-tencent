@@ -1193,7 +1193,7 @@ function InviteSection({ project, api, refresh }) {
     try {
       const added = await api.collabAddMember({ projectId: project.id, username, role });
       if (added?.id) setMembers((current) => [...current.filter((member) => member.id !== added.id && member.user_id !== added.user_id), added]);
-      setUsername(''); await load();
+      setUsername(''); await load(); await refresh();
       setNotice(`已邀请 ${username}，对方的「项目协作」里会立即出现这个项目。`);
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -1221,14 +1221,14 @@ function InviteSection({ project, api, refresh }) {
       {notice && <div className="collab-notice">{notice}</div>}
       {tab === 'members' && (
         <>
-          <div className="collab-invite-maker">
+          {project.storageMode==='local'&&<p className="collab-invite-local-notice">邀请时将上传本机项目和素材，并开启云端协作。</p>}<div className="collab-invite-maker">
             <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入对方注册的账号名（唯一）" />
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="artist">美术（信息读取 / 美术 / 资产 / 项目群）</option>
               <option value="collaborator">协作者（分镜 / 项目群）</option>
               <option value="artist_collaborator">美术 + 协作者（美术全流程 / 分镜 / 项目群）</option>
             </select>
-            <button className="primary" onClick={invite} disabled={busy || !username.trim()}><UserPlus size={15} /> 邀请进入项目</button>
+            <button className="primary" onClick={invite} disabled={busy || !username.trim()}><UserPlus size={15} /> {busy?'正在同步并邀请…':'邀请进入项目'}</button>
           </div>
           <div className="admin-table collab-members-table">
             <div className="admin-row head"><span>成员</span><span>账号</span><span>身份</span><span>加入时间</span><span>操作</span></div>
@@ -1515,8 +1515,8 @@ export function CollabWorkspace({ state, api, account }) {
   const applyProject=useCallback(saved=>{if(!saved?.id)return;refreshRequestRef.current+=1;setProject(current=>current?.id===saved.id?saved:current);writeCache(`project-${saved.id}`,saved);},[]);
   const [refreshNotice, setRefreshNotice] = useState('');
 
-  const loadProjects = useCallback(async () => {
-    try { const rows = await api.collabListProjects() || []; setProjects(rows); writeCache('projects', rows); setListError(''); }
+  const loadProjects = useCallback(async (options = {}) => {
+    try { const rows = await api.collabListProjects(options) || []; setProjects(rows); writeCache('projects', rows); setListError(''); }
     catch (e) { setListError(String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,'')); }
     finally { setLoading(false); }
   }, []);
@@ -1583,7 +1583,7 @@ export function CollabWorkspace({ state, api, account }) {
         setProject(p);setAssets(normalizedAssets);writeCache(`project-${projectId}`,p);writeCache(`assets-${projectId}`,normalizedAssets);return p;
       }
       let [p, a] = await Promise.all([
-        api.collabGetProject({ projectId }),
+        api.collabGetProject({ projectId, retryLocal:options.manual === true }),
         api.collabListAssets({ projectId }),
       ]);
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
@@ -1599,8 +1599,8 @@ export function CollabWorkspace({ state, api, account }) {
       // Resume missing associations with the fresh Director edition, without
       // tying background model work to the refresh button's network lifetime.
       void getArtDistributionController({api,projectId,accountId:account?.id}).refresh({project:p,store,existingAssets:normalizedAssets,onBindingSaved:data=>notifyBindingSaved(projectId,account?.id,data)}).catch(error=>{if(isCurrentTarget())setRefreshNotice(`提示词已刷新，补充分发未完成：${error.message}`);});
-      if(syncIssue)setRefreshNotice(`云端素材已刷新；导演同步未完成：${syncIssue}`);
-      else if (options.manual) setRefreshNotice('已刷新云端项目、导演提示词与素材');
+      if(syncIssue)setRefreshNotice(`项目资料已刷新，导演同步未完成：${syncIssue}`);
+      else if (options.manual) setRefreshNotice(p.storageMode==='local'?'已读取本机项目与素材':p.localPreparing?'正在下载本机项目副本':'已刷新云端项目与素材');
       return p;
     } catch (error) {
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
@@ -1674,10 +1674,10 @@ export function CollabWorkspace({ state, api, account }) {
     return (
       <div className="collab-hub collab-hub-refined">
         <header>
-          <span className="eyebrow">项目协作 · 云端实时同步</span>
-          <h1>项目协作</h1>
+          <span className="eyebrow">项目制作</span>
+          <h1>项目协作</h1><button className="secondary" onClick={()=>loadProjects({refreshCloud:true})}><RefreshCw size={15}/>同步项目列表</button>
         </header>
-        {listError && <div className="collab-error" role="alert">{listError} <button onClick={loadProjects}>重新连接</button></div>}
+        {listError && <div className="collab-error" role="alert">{listError} <button onClick={()=>loadProjects({refreshCloud:true})}>重新连接</button></div>}
         <div className="resource-grid collab-project-grid">
           {isProducer && (
             <button className="resource-card resource-add" onClick={() => { setCreateError(''); setDialogOpen(true); }}>
@@ -1687,7 +1687,7 @@ export function CollabWorkspace({ state, api, account }) {
           )}
           {projects.filter((p) => !p.deleted_at).map((p) => (
             <article key={p.id} className="resource-card collab-project-card" onClick={() => openProject(p.id)}>
-              <div className="collab-card-heading"><span className="project-card-symbol" aria-hidden="true"><Clapperboard size={21}/></span><span className="collab-card-role">{COLLAB_ROLES[p.myRole]}</span></div>
+              <div className="collab-card-heading"><span className="project-card-symbol" aria-hidden="true"><Clapperboard size={21}/></span><span className="collab-card-role">{p.storageMode==='local'?'本机项目':COLLAB_ROLES[p.myRole]}</span></div>
               <h3 title={p.name}>{p.name}</h3>
               <p className="collab-card-owner"><Users size={14}/>负责人 <strong>{p.owner_name}</strong></p>
               <p className="api-endpoint">最近更新 {fmtTime(p.updated_at)}</p>
@@ -1707,7 +1707,7 @@ export function CollabWorkspace({ state, api, account }) {
         )}
         <DeletedProjects projects={projects.filter((p) => p.deleted_at)} api={api} account={account} onChanged={loadProjects} />
         {deleteError && <div className="collab-error">删除失败：{deleteError}</div>}
-        <DeleteConfirm open={Boolean(deleteTarget)} title="删除协作项目" name={deleteTarget?.name} error={deleteError} detail="项目会进入独立云端三天恢复期，关联导演源在此期间受保护。三天内可恢复；到期后项目及数据库关联记录自动清理，是否确定删除？" onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget||!canManageCloudProject(deleteTarget,account)) return; try { await api.collabDeleteProject({ projectId: deleteTarget.id }); setDeleteTarget(null); await loadProjects(); } catch (err) { setDeleteError(err.message || '云端删除请求失败'); } }} />
+        <DeleteConfirm open={Boolean(deleteTarget)} title="删除协作项目" name={deleteTarget?.name} error={deleteError} detail={deleteTarget?.storageMode==='local'?'项目将移入本机回收站，可从回收站恢复。是否确定删除？':'项目会进入云端三天恢复期，到期后清理项目及关联记录。是否确定删除？'} onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget||!canManageCloudProject(deleteTarget,account)) return; try { await api.collabDeleteProject({ projectId: deleteTarget.id }); setDeleteTarget(null); await loadProjects(); } catch (err) { setDeleteError(err.message || '云端删除请求失败'); } }} />
       </div>
     );
   }
@@ -1734,12 +1734,13 @@ export function CollabWorkspace({ state, api, account }) {
             </button>
           );
         })}
-        {section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>本地核实 · 发布时上传</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : '刷新云端数据'}</button>}
+        {project.storageMode !== 'local' && section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>本地核实 · 发布时上传</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : project.storageMode==='local'?'刷新本机资料':'刷新项目资料'}</button>}
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
         <EpisodeIdentityPanel key={project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
         <PromptPublicationProgress key={`${account?.id}:${project.id}`} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
+        <div className="collab-storage-status" role="status">{project.storageMode==='local'?<><Save size={14}/>本机保存</>:project.localPreparing?<><RefreshCw size={14}/>正在准备本机项目副本</>:<><Users size={14}/>云端协作</>}{project.localPreparationError&&<span>{project.localPreparationError}</span>}</div>
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
         {section === 'art-review' && <ReviewSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}

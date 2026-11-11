@@ -19,7 +19,7 @@ test('main.cjs 注册了全部协作 IPC 通道并初始化服务', () => {
   ]) {
     assert.match(main, new RegExp(`ipcMain\\.handle\\('${channel}'`), `缺少 IPC：${channel}`);
   }
-  assert.match(main, /collabService=createCollabService\(readCloudSession\)/);
+  assert.match(main, /collabService=createProjectCollab\(\)/);
 });
 
 test('preload.cjs 暴露协作 API', () => {

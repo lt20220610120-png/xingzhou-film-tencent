@@ -16,10 +16,11 @@ const isNetworkFailure = (error) => {
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
     || /fetch failed|network|socket hang up/i.test(String(error?.message || ''));
 };
-// Retry reads and idempotent storyboard writes only; ambiguous general writes
-// must be checked by the caller rather than silently repeated.
-const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url'].includes(action);
-const retryableAction = (action, payload) => readAction(action) || ['license-route','license-check','license-challenge'].includes(action) || action==='director-live-sync' || (action==='storyboard-patch' && Boolean(payload.shotId)) || (action==='analysis-publish' && Boolean(payload.fingerprint));
+const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url','project-local-state'].includes(action);
+const licensePreflightActions = new Set(['license-route','license-check','license-challenge']);
+const errorCode = error => String(error?.cause?.code || error?.code || '');
+const certificateFailure = error => /^(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT_LOCALLY|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(errorCode(error));
+const failedBeforeConnection = error => certificateFailure(error) || /^(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT_PIN_MISSING)$/.test(errorCode(error));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
 
@@ -84,17 +85,24 @@ function requestPinnedHttps(url, init = {}) {
     request.end();
   });
 }
-async function requestGateway(url, init, safeRead = false, safeRetry = safeRead) {
-  const route=require('./cloud-network.cjs');
-  return route.routeFetch(url,init,async(url,init)=>{try { return await fetch(url, init); } catch (error) {
-    // Tests and future builds may provide a working fetch implementation. Only
-    // use the native pinned transport after the normal request fails on the IP.
-    const tlsFailure = /CERT|TLS|certificate|SELF_SIGNED|UNABLE_TO_VERIFY|ALTNAME/i.test(String(error?.message || '') + String(error?.cause?.code || error?.code || ''));
-    if (isPinnedIpUrl(url) && (tlsFailure || safeRead && isNetworkFailure(error))) {
-      return requestPinnedHttps(url, init);
+async function requestGateway(url, init, {read, retryable}) {
+  const route = require('./cloud-network.cjs');
+  const normalFetch = async (url, options) => {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      if (isPinnedIpUrl(url) && (certificateFailure(error) || read && isNetworkFailure(error))) {
+        return requestPinnedHttps(url, options);
+      }
+      throw error;
     }
-    throw error;
-  }},{safeToRetry:safeRetry});
+  };
+  if (retryable) return route.routeFetch(url, init, normalFetch, {safeToRetry:true});
+
+  // With compatibility disabled, writes use the normal route and the gateway's
+  // full deadline. A failed or slow response cannot confirm whether a write ran.
+  if (route.shouldRoute(url)) return route.directFetch(url, init);
+  return normalFetch(url, init);
 }
 const pendingReads = new Map();
 let licenseDecorator=null;
@@ -110,7 +118,8 @@ function gateway(action, payload = {}, token = '', options = {}) {
 }
 async function performGateway(action, payload = {}, token = '', options = {}) {
   const snapshot = snapshots.prepare(action,payload,token);
-  const retryable=retryableAction(action,payload),timeoutMs=options.timeoutMs || 30000;
+  const read=readAction(action),licensePreflight=licensePreflightActions.has(action);
+  const retryable=read||licensePreflight,timeoutMs=options.timeoutMs || 30000;
   const urls=orderedUrls(),attempts=retryable?[...urls,urls.at(-1)]:urls;
   for(let index=0;index<attempts.length;index++){
     const url=attempts[index],controller=new AbortController();
@@ -118,25 +127,32 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     try {
       const pending=(async()=>{
         const decorated=licenseDecorator&&action!=='license-challenge'?await licenseDecorator(action,payload,token):payload;
-        response=await requestGateway(url,{method:'POST',headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},body:JSON.stringify({...decorated,action}),signal:controller.signal},readAction(action),retryable);
+        controller.signal.throwIfAborted();
+        response=await requestGateway(url,{
+          method:'POST',
+          headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},
+          body:JSON.stringify({...decorated,action}),
+          signal:controller.signal,
+          ...(!retryable?{redirect:'error'}:{}),
+        },{read,retryable});
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
         if (![502,503,504].includes(response.status)) activeUrl=url;
-        if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,transient:[502,503,504].includes(response.status)});
+        if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,...(typeof data?.code==='string'?{code:data.code}:{}),transient:[502,503,504].includes(response.status)});
         activeUrl=url;return snapshots.resolve(snapshot,data);
       })();
-      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},options.timeoutMs||(!index&&readAction(action)?12000:timeoutMs));});
+      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},options.timeoutMs||(!index&&read?12000:timeoutMs));});
       return await Promise.race([pending,deadline]);
     } catch(error) {
       const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));
       if(!network&&!error.transient)throw error;
-      if(readAction(action))require('./cloud-network.cjs').reportReadFailure(url,error);
+      if(read)require('./cloud-network.cjs').reportReadFailure(url,error);
       if(activeUrl===url)activeUrl=null;
       // DNS/refused/TLS errors prove no HTTP write was delivered. A reset can
       // occur after the server committed it, so it never authorizes write replay.
-      const preConnection=!response&&!error.timeout&&/^(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT[^ ]*|ERR_TLS[^ ]*|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE)$/.test(String(error.cause?.code||error.code||''));
+      const preConnection=!response&&!error.timeout&&failedBeforeConnection(error);
       if(index+1<attempts.length&&(retryable||preConnection))continue;
-      throw new Error(['license-route','license-check','license-challenge'].includes(action)?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
+      throw new Error(licensePreflight?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
     } finally {clearTimeout(timer);}
   }
   throw new Error(NETWORK_ERROR);
@@ -156,7 +172,7 @@ function createCloudAccessService(userDataDir, options = {}) {
   const clearSession = () => {store.clear();options.onInvalidSession?.();};
   const token = () => readSession()?.token || '';
   return {
-    async session() {
+    async session({allowCached} = {}) {
       const expectedEpoch = sessionEpoch;
       const saved = readSession();
       if (!saved?.token) return null;
@@ -170,7 +186,11 @@ function createCloudAccessService(userDataDir, options = {}) {
       } catch (error) {
         // Only an explicit 401 proves that the token is invalid. Temporary
         // network/TLS/5xx failures must not destroy the user's session.
-        if ([401,403].includes(error?.status) && sessionEpoch === expectedEpoch && token() === saved.token) clearSession();
+        if (sessionEpoch !== expectedEpoch || token() !== saved.token) return null;
+        if ([401,403].includes(error?.status)) { clearSession(); return null; }
+        if ((!error?.status || error.status >= 500) && !saved.account?.banned && saved.account?.id && await allowCached?.()) {
+          if (sessionEpoch === expectedEpoch && token() === saved.token) return saved.account;
+        }
         return null;
       }
     },

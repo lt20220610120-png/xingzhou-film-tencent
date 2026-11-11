@@ -93,3 +93,10 @@ test('MaxForAI 兼容外层 success 和 data 任务结果，9Y 失败原因保�
  const max=await client.status({endpoint:'https://maxforai.top/v1',apiKey:'key-fixture',jobId:'wrapped-task'});assert.equal(max.status,'success');assert.equal(max.jobId,'wrapped-task');assert.equal(max.videoUrl,'https://maxforai.top/v1/videos/wrapped-task/content');
  failed=true;const niney=await client.status({endpoint:'https://9yapi.shop/v1',apiKey:'key-fixture',jobId:'failed-task'});assert.equal(niney.status,'failed');assert.match(niney.errorMessage,/quota failure/);assert.ok(!niney.errorMessage.includes('key-fixture'));
 });
+
+test('managed local preview URLs keep multipart file bytes without sending the preview scheme',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-local-video147-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const file=path.join(dir,'frame.png');fs.writeFileSync(file,'frame147');let body;
+ t.mock.method(global,'fetch',async(_url,options)=>{body=options.body;return Response.json({id:'local-task'});});
+ await require('./video-provider.cjs').submit({endpoint:'https://provider.test/v1',apiKey:'fixture',model:'custom-video',prompt:'test',duration:5,ratio:'16:9',resolution:'720p',videoProtocol:'videos-multipart',references:[{kind:'image',filePath:file,url:'xzmedia://local/'+encodeURIComponent(file)}]});
+ assert.equal(await body.get('input_reference').text(),'frame147');assert.doesNotMatch([...body.entries()].filter(([,value])=>typeof value==='string').map(([,value])=>value).join(' '),/xzmedia:/);
+});

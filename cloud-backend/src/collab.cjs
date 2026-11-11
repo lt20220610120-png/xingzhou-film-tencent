@@ -17,7 +17,7 @@ const LOCK_SENTINEL = '[PROJECT_LOCKED]';
 const recycleUntil = (genre) => (String(genre || '').match(/\[RECYCLE_UNTIL:([^\]]+)\]/) || [])[1] || '';
 const collabSource = (genre) => (String(genre || '').match(/\[COLLAB_SOURCE:([^\]]+)\]/) || [])[1] || '';
 const stripInternalGenre = (genre) => String(genre || '')
-  .replace(/\n?\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_LOCAL_SOURCE|COLLAB_SOURCE:[^\]]+|RECYCLE_UNTIL:[^\]]+)\]/g, '')
+  .replace(/\n?\[(?:COLLAB_PROJECT|DIRECTOR_PROJECT|PROJECT_LOCKED|COLLAB_LOCAL_SOURCE|COLLAB_SOURCE:[^\]]+|RECYCLE_UNTIL:[^\]]+|LOCAL_SHARE_(?:PENDING|RECEIPT):[^\]]+)\]/g, '')
   .trim();
 
 // 客户端按 myRole 决定可见功能区：
@@ -90,6 +90,23 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     }
   }
 
+  let localShareMethod;
+  if (action === 'project-local-state') localShareMethod = 'localProjectState';
+  if (action === 'project-local-share-prepare') localShareMethod = 'prepareLocalProjectShare';
+  if (action === 'project-local-share') localShareMethod = 'shareLocalProject';
+  if (localShareMethod) {
+    if (typeof repo[localShareMethod] !== 'function') return STATE_UNAVAILABLE;
+    try {
+      const result = await repo[localShareMethod](payload, user);
+      if (result.project) result.project = present(result.project, 'producer');
+      if (result.completed) result.completed.project = present(result.completed.project, 'producer');
+      return ok(result);
+    } catch (error) {
+      if (error.status) return {status: error.status, body: {error: error.message, ...(error.code ? {code:error.code} : {})}};
+      throw error;
+    }
+  }
+
   // ---- 协作项目 ----
   if (action === 'project-create') {
     try {
@@ -100,7 +117,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'project-list') {
     // 只返回“协作项目”（非导演文档）；含回收站中的项目，客户端据 deleted_at 显示恢复入口。
     const rows = (await repo.listProjects(user.id)) || [];
-    const collabOnly = rows.filter((row) => !String(row.genre || '').includes(DIRECTOR_SENTINEL));
+    const collabOnly = rows.filter((row) => !String(row.genre || '').includes(DIRECTOR_SENTINEL) && !String(row.genre || '').includes('[LOCAL_SHARE_PENDING:'));
     const projects = await Promise.all(collabOnly.map((row) => attachRole(row, user, repo)));
     return ok(payload.summary ? projects.map(({script, episodes, analysis_output, analysis_progress, ...row}) => ({
       ...row, episodeCount: (episodes || []).length,

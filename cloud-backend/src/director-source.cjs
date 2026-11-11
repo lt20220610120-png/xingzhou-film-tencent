@@ -1,6 +1,7 @@
 const directorRow = row => Boolean(row && String(row.genre||'').includes('[DIRECTOR_PROJECT]')
   && !String(row.genre||'').includes('[COLLAB_PROJECT]') && !row.deleted_at
   && !String(row.genre||'').includes('[RECYCLE_UNTIL:'));
+const uuidDirectorId = source => typeof source==='string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(source);
 const localDirectorId = source => typeof source === 'string' && source === source.trim()
   && /^(?:\d{13}-[a-z0-9]{1,12}|[a-z0-9]{8,12}_[a-z0-9]{1,12}_\d+)$/.test(source);
 const directorLookupId = source => typeof source === 'string'
@@ -34,7 +35,10 @@ async function lockReadableDirector(client, source, uid) {
 async function lockDirectorReferences(client, row, uid) {
   // A client-uploaded local snapshot is not a live cloud reference.
   if (String(row.genre||'').includes('[COLLAB_LOCAL_SOURCE]')
-    && !String(row.genre||'').includes('[COLLAB_SOURCE:') && localDirectorId(row.director_project_id)) return true;
+    && !String(row.genre||'').includes('[COLLAB_SOURCE:')) {
+    if(localDirectorId(row.director_project_id))return true;
+    if(uuidDirectorId(row.director_project_id))return !(await client.query('select 1 as found from collab_projects where id::text=$1 or analysis_output=$1 limit 1',[row.director_project_id])).rows.length;
+  }
   const sources = [...new Set([row.director_project_id, ...[...String(row.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1])].filter(Boolean))];
   if (!sources.length) return true;
   const director = await lockReadableDirector(client, sources[0], uid);
@@ -58,11 +62,11 @@ async function lockDirectorReferences(client, row, uid) {
   return true;
 }
 
-async function resolveCreationSource(client, source, uid) {
+async function resolveCreationSource(client, source, uid, {allowLocalUuid=false} = {}) {
   if (!source) return {id:'',local:false};
   const director = await lockReadableDirector(client, source, uid);
   if (director) return {id:directorLookupId(source),local:false};
-  if (uid && localDirectorId(source)) {
+  if (uid && (localDirectorId(source) || allowLocalUuid && uuidDirectorId(source))) {
     // Do not reinterpret a deleted, inaccessible or ambiguous cloud alias as local.
     // The client supplies all snapshot data; no matching cloud content is returned.
     const existing = await client.query('select 1 as found from collab_projects where id::text=$1 or analysis_output=$1 limit 1', [source]);

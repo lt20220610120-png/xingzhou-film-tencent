@@ -30,7 +30,7 @@ export async function requestAssetImage(api, projectId, assetId, payload, {recov
   if(recoveryOnly&&!pending?.filePath&&!pending?.taskId&&!pending?.receiptId)throw new Error('没有待恢复的旧结果，已跳过；未提交新的生图请求。');
   if (pending?.filePath) return pending;
   if (pending?.reason==='expired') throw new Error('服务商结果链接已不可用，请找回原图后上传，或明确放弃旧结果后重新生图。');
-  const result = pending?.taskId ? await api.generationRefresh({id:pending.taskId,endpoint:payload.endpoint,apiKey:payload.apiKey}) : pending?.receiptId ? await api.mediaRetryImageDownload({receiptId:pending.receiptId}) : await api.mediaGenerateImage(payload);
+  const result = pending?.taskId ? await api.generationRefresh({id:pending.taskId,endpoint:payload.endpoint,apiKey:payload.apiKey}) : pending?.receiptId ? await api.mediaRetryImageDownload({receiptId:pending.receiptId,projectId,assetId}) : await api.mediaGenerateImage({...payload,projectId,assetId});
   if(pending?.taskId&&result?.status==='failed'){clearAssetImageRecovery(projectId,assetId);throw Error(result.error||'原任务已确认失败，可再次点击生成新任务');}
   if(result?.pendingGeneration||(pending?.taskId&&result?.status!=='success')){const taskId=result.pendingGeneration?.id||pending.taskId;remember(projectId,assetId,{taskId,reason:result.pendingGeneration?.provider||pending?.reason||'generation'});throw Error(result.error||result.warning||'原任务尚未完成，刷新会继续查询原结果，不会重新生成');}
   if (result?.pendingDownload) {

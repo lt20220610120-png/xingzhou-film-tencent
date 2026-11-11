@@ -2,7 +2,7 @@ import {recommendedPromptDuration,recommendedStoryboardTiming} from '../../core/
 import StoryboardBatchPanel from './StoryboardBatchPanel.jsx';
 import {videoExportId} from '../../core/projectVideoPool.js';
 import {storyboardShots} from '../../core/storyboardPublication.js';
-import {readStoryboardDefaults,applyStoryboardDefaults,rebaseStoryboardDefaultsDraft} from '../../core/storyboardDefaults.js';
+import {readStoryboardDefaults,applyStoryboardDefaults,rebaseStoryboardDefaultsDraft,rebaseLocalStoryboardDraft} from '../../core/storyboardDefaults.js';
 import {missingStoryboardReferences,restoreStoryboardReferences,rememberStoryboardRemoval,storyboardRecoveryBaseline} from '../../core/storyboardReferenceRecovery.js';
 import './StoryboardWorkbench.css';
 import {readCollabNavigation,rememberCollabNavigation} from '../../core/collabNavigation.js';
@@ -45,10 +45,10 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   return {...entry,value,dirty:entry.dirty||cleaned!==entry.value||needsSave};
  };
  const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});
- const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseStoryboardDefaultsDraft(saved,shot,defaults);const value=applyStoryboardDefaults(stored.value,defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
+ const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(stored.value,defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null);
  const current=useRef(draft);current.current=draft;
- useEffect(()=>{const old=rebaseStoryboardDefaultsDraft(current.current,shot,defaults),value=applyStoryboardDefaults(old.value,defaults,shot.id);let next=value===old.value?old:{...old,value,dirty:true};if(!next.dirty)next=cloudDraft();else if(canRefreshStoryboardBinding(next,shot))next=cleanDraft(next);current.current=next;setDraft(next);if(value!==old.value||next.value.storyboardDefaultsRevision&&next.dirty)queueDraft(storageKey,next);},[shot,assets,media,scene,epNumber,promptBinding,defaults]);
+ useEffect(()=>{const old=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(current.current,shot,defaults),shot,project),value=applyStoryboardDefaults(old.value,defaults,shot.id);let next=value===old.value?old:{...old,value,dirty:true};if(!next.dirty)next=cloudDraft();else if(canRefreshStoryboardBinding(next,shot))next=cleanDraft(next);current.current=next;setDraft(next);if(value!==old.value||next.value.storyboardDefaultsRevision&&next.dirty)queueDraft(storageKey,next);},[shot,assets,media,scene,epNumber,promptBinding,defaults]);
  const change=value=>{
   value=editable(cleanStoryboardReferenceValue(value,project.id));
   const previous=current.current.value;

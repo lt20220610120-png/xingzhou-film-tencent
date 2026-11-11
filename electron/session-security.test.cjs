@@ -19,3 +19,20 @@ test('临时断网保留加密会话；明确封禁/失效清理会话并撤销�
  global.fetch=async()=>Response.json({error:'账号停用'},{status:403});assert.equal(await service.session(),null);assert.equal(service.token(),'');assert.equal(revoked,1);
  store.write({token:'synthetic-banned-account-test'});global.fetch=async()=>Response.json({account:{id:'u',banned:true}});assert.equal(await service.session(),null);assert.equal(service.token(),'');
 });
+
+
+test('local projects may restore the cached account during a temporary project-cloud outage only when explicitly allowed',async t=>{
+ const dir=directory(t),storage=encryption(),store=createSessionStore(dir,storage),originalFetch=global.fetch;t.after(()=>global.fetch=originalFetch);
+ const saved={token:'synthetic-cached-local',account:{id:'local-owner',username:'owner',isProducer:true}};store.write(saved);
+ global.fetch=async()=>Response.json({error:'temporary'},{status:503});const service=createCloudAccessService(dir,{safeStorage:storage});
+ assert.equal(await service.session(),null);assert.equal(await service.session({allowCached:async()=>false}),null);
+ assert.deepEqual(await service.session({allowCached:async()=>true}),saved.account);
+ global.fetch=async()=>Response.json({error:'revoked'},{status:401});assert.equal(await service.session({allowCached:async()=>true}),null);assert.equal(service.token(),'');
+});
+
+test('cached local account is not restored after logout while the fallback permission is pending',async t=>{
+ const dir=directory(t),storage=encryption(),store=createSessionStore(dir,storage),originalFetch=global.fetch;t.after(()=>global.fetch=originalFetch);
+ store.write({token:'synthetic-racing-local',account:{id:'local-owner'}});global.fetch=async()=>Response.json({error:'temporary'},{status:503});const service=createCloudAccessService(dir,{safeStorage:storage});
+ let enter,release;const entered=new Promise(r=>enter=r),allowed=new Promise(r=>release=r);
+ const pending=service.session({allowCached:async()=>{enter();await allowed;return true;}});await entered;await service.logout();release();assert.equal(await pending,null);assert.equal(service.token(),'');
+});

@@ -35,3 +35,10 @@ test('upstream 477 remains recoverable without a paid request; only explicit res
  await assert.rejects(requestAssetImage(api,'477','asset',{}),/已过期/);assert.equal(paid,1);assert.equal(reads,1);
  clearAssetImageRecovery('477','asset');assert.equal(paid,1);assert.equal((await requestAssetImage(api,'477','asset',{})).filePath,'new.png');assert.equal(paid,2);clearAssetImageRecovery('477','asset');
 });
+
+test('asset generation and download recovery keep the project identity at the actual provider entrypoint',async()=>{
+ let generated,recovered;
+ const api={mediaGenerateImage:async p=>{generated=p;return {pendingDownload:{id:'receipt147'}};},mediaRetryImageDownload:async p=>{recovered=p;return {filePath:'frame147.png'};}};
+ await assert.rejects(requestAssetImage(api,'local147','asset147',{model:'image'}));await requestAssetImage(api,'local147','asset147',{});
+ assert.equal(generated.projectId,'local147');assert.equal(generated.assetId,'asset147');assert.equal(recovered.projectId,'local147');clearAssetImageRecovery('local147','asset147');
+});

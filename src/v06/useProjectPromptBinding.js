@@ -14,7 +14,7 @@ export default function useProjectPromptBinding({api,project,assets,accountId,lo
  useEffect(()=>{
   const load=()=>cache.load([project.episodes,project.analysis_progress,assets,source,project.director_project_id],async()=>{
    if(!api.promptArtLoad||!api.promptArtStatus)return null;
-   const status=await api.promptArtStatus();
+   const status=await api.promptArtStatus({projectId:project.id});
    const editionId=activeDirectorEditionId(project);
    return status?.enabled?loadFreshBinding({api,projectId:project.id,accountId,localSources:source?[source]:[],versionId:editionId?'edition:'+editionId:undefined,allowUnbound:true}):{snapshot:bindingSnapshot(project,await api.artReviewLoadLocal({projectId:project.id,accountId})||{},assets||[])};
   });

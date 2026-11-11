@@ -48,6 +48,9 @@ function copyDependency(name, from) {
   fs.mkdirSync(staging,{recursive:true});
   for (const folder of ['dist','electron','core','world-simulation','canvas-app','browser-extension','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
   copyTree(path.join(root,'cloud-backend/shared'),path.join(staging,'cloud-backend/shared'));
+  const localProjectModules = ['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication'];
+  fs.mkdirSync(path.join(staging,'cloud-backend/src'),{recursive:true});
+  for (const name of localProjectModules) fs.copyFileSync(path.join(root,'cloud-backend/src',name+'.cjs'),path.join(staging,'cloud-backend/src',name+'.cjs'));
   copyDependency('mammoth',root);
   copyDependency('yjs',root);
   const runtime = process.env.XINGZHOU_ELECTRON_DIST || path.join(root,'qa/electron-runtime');

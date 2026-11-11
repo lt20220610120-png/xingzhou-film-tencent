@@ -3,7 +3,7 @@ import {storyboardShots} from './storyboardPublication.js';
 import {inferDirectorEpisodeNumber} from './scriptImport.js';
 import {storyboardPromptValue,canRefreshStoryboardBinding} from './promptAssetUsage.js';
 import {cleanStoryboardReferenceValue} from './storyboardReferences.js';
-import {applyStoryboardDefaults,storyboardSettingKeys,rebaseStoryboardDefaultsDraft} from './storyboardDefaults.js';
+import {applyStoryboardDefaults,storyboardSettingKeys,rebaseStoryboardDefaultsDraft,rebaseLocalStoryboardDraft} from './storyboardDefaults.js';
 import {projectReferenceCandidates,matchBasicReferences} from './automaticReferences.js';
 import {generationMediaProfiles,activeMediaProfile,videoModelCapabilities,isFeituoEndpoint} from './canvasStore.js';
 import {profileModels} from './videoCatalog.js';
@@ -22,7 +22,7 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
   const episode=inferDirectorEpisodeNumber(ep,index+1);
   return storyboardShots(ep).flatMap(shot=>{
    const scene=String(shot.label||'').split('-').slice(0,2).join('-');if(scope==='scene'&&scene!==sceneId)return [];
-   const key=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`,stored=readDraft(key),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseStoryboardDefaultsDraft(stored,shot,defaults);
+   const key=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`,stored=readDraft(key),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(stored,shot,defaults),shot,project);
    const refs=projectReferenceCandidates(assets,media,project.id,episode,scene).filter(r=>r.assetAdopted!==false).map(r=>r.assetId?{...r,autoAssetImage:true}:r);
    let value=cleanStoryboardReferenceValue(draft?.value||{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||refs},project.id);
    value=applyStoryboardDefaults(value,ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,shot.id);

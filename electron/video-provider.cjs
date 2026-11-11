@@ -63,6 +63,7 @@ async function submitPrepared(input){await preflight(input);const {adapter,base,
  const urls={image:[],video:[],audio:[]};
  for(const r of refs){
   let url=r.url;
+  if(adapter.referenceMode==='multipart'&&r.filePath&&/^xzmedia:/i.test(url||''))url=undefined;
   if(protocol==='muse'&&r.kind==='image'){const file=await require('./media-service.cjs').imageReferenceFile(r,urls.image.length);url='data:'+file.blob.type+';base64,'+Buffer.from(await file.blob.arrayBuffer()).toString('base64');}
   else
   if(adapter.referenceMode==='provider-upload'&&!publicHttpsReference(url))url=await uploadMaxAsset(base,input.apiKey,r,input.signal);

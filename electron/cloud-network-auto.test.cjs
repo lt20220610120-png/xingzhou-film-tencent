@@ -11,3 +11,64 @@ test('fallback deadline stops after response headers so a healthy large COS tran
 test('physical response interruption retains a retryable connection error code',async t=>{fixture(t);const originalRequest=https.request;let stream;https.request=(url,options,callback)=>{const request=new EventEmitter();request.setTimeout=()=>{};request.end=()=>{stream=new PassThrough();stream.statusCode=200;stream.headers={};callback(stream);stream.write('partial');};return request;};const response=await route.directFetch('https://xingzhoufilm.cn/a');const body=response.arrayBuffer();stream.emit('aborted');await assert.rejects(body,error=>error.code==='ECONNRESET');https.request=originalRequest;});
 test('license preflight can safely use automatic physical fallback with the preference OFF',async t=>{const native=fixture(t),original=global.fetch;global.fetch=async()=>{throw reset();};t.after(()=>global.fetch=original);assert.deepEqual(await require('./cloud-access-service.cjs').gateway('license-check',{},'fixture-token'),{ok:true});assert.equal(native[0].options.localAddress,'192.168.0.248');});
 test('failed settings diagnostic names both tested routes and safe error codes',async t=>{fixture(t);https.request=()=>{const request=new EventEmitter();request.setTimeout=()=>{};request.end=()=>queueMicrotask(()=>request.emit('error',Object.assign(Error('socket hang up'),{code:'ECONNRESET'})));return request;};await assert.rejects(route.probe(),error=>/系统网络.*ECONNRESET/.test(error.message)&&/物理网络.*ECONNRESET/.test(error.message)&&error.attempts.length===2);});
+
+test('storyboard save on the normal route can wait longer than four seconds for a response',async t=>{
+ const native=fixture(t),original=global.fetch;
+ t.mock.timers.enable({apis:['setTimeout']});
+ let finish;
+ global.fetch=(_url,{signal})=>new Promise((resolve,reject)=>{
+  finish=()=>resolve(Response.json({savedBy:'normal-route'}));
+  signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+ });
+ t.after(()=>{global.fetch=original;});
+ const save=require('./cloud-access-service.cjs').gateway('storyboard-patch',{operation:'update',shotId:'slow-shot'},'fixture-token');
+ t.mock.timers.tick(4500);
+ finish();
+ assert.deepEqual(await save,{savedBy:'normal-route'});
+ assert.equal(native.length,0);
+});
+
+test('an automatic physical read does not change the normal route for the following storyboard save',async t=>{
+ const native=fixture(t),original=global.fetch,calls=[];
+ global.fetch=async(_url,init)=>{
+  const {action}=JSON.parse(init.body);calls.push(action);
+  if(action==='project-get')throw reset();
+  return Response.json({savedBy:'normal-route'});
+ };
+ t.after(()=>{global.fetch=original;});
+ const {gateway}=require('./cloud-access-service.cjs');
+ await gateway('project-get',{projectId:'fixture-project'},'fixture-token');
+ assert.deepEqual(await gateway('storyboard-patch',{operation:'update',shotId:'fixture-shot'},'fixture-token'),{savedBy:'normal-route'});
+ assert.deepEqual(calls,['project-get','storyboard-patch']);
+ assert.equal(native.length,1);
+});
+
+test('a reset after a storyboard save may have committed and must not resend its signed request',async t=>{
+ const native=fixture(t),original=global.fetch,writes=[],{gateway,setLicenseDecorator}=require('./cloud-access-service.cjs');
+ let challenges=0;
+ setLicenseDecorator(async(_action,payload)=>({...payload,_licenseProof:{nonce:`challenge-${++challenges}`}}));
+ global.fetch=async(_url,init)=>{writes.push(JSON.parse(init.body));throw reset();};
+ t.after(()=>{global.fetch=original;setLicenseDecorator(null);});
+ await assert.rejects(gateway('storyboard-patch',{operation:'update',shotId:'fixture-shot'},'fixture-token'),/未确认本次保存/);
+ assert.equal(writes.length,1);
+ assert.equal(challenges,1);
+ assert.equal(native.length,0);
+});
+
+test('a proven DNS failure permits a fresh proof on the backup endpoint before any save was delivered',async t=>{
+ const native=fixture(t),original=global.fetch,writes=[],{gateway,setLicenseDecorator}=require('./cloud-access-service.cjs');
+ let challenges=0;
+ setLicenseDecorator(async(_action,payload)=>({...payload,_licenseProof:{nonce:`challenge-${++challenges}`}}));
+ global.fetch=async(url,init)=>{
+  writes.push({url,...JSON.parse(init.body)});
+  if(writes.length===1)throw Object.assign(Error('DNS unavailable'),{code:'ENOTFOUND'});
+  return Response.json({saved:true});
+ };
+ t.after(()=>{global.fetch=original;setLicenseDecorator(null);});
+ assert.deepEqual(await gateway('storyboard-patch',{operation:'update',shotId:'fixture-shot'},'fixture-token'),{saved:true});
+ assert.equal(writes.length,2);
+ assert.notEqual(writes[0].url,writes[1].url);
+ assert.deepEqual(writes.map(write=>write.shotId),['fixture-shot','fixture-shot']);
+ assert.deepEqual(writes.map(write=>write._licenseProof.nonce),['challenge-1','challenge-2']);
+ assert.equal(native.length,0);
+});

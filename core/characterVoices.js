@@ -97,6 +97,7 @@ export function confirmVoiceCandidate(profile,id){
  return {...profile,confirmed:{...candidate,confirmedAt:Date.now()}};
 }
 export function projectVoiceCards(project,ledger,{includePending=false}={}){
+ ledger={...ledger,voiceProfiles:{...project.analysis_progress?._sharedVoiceProfiles,...ledger?.voiceProfiles}};
  return projectVoiceRoster(project,ledger).characters.flatMap(c=>{
   const audio=ledger.voiceProfiles?.[c.key]?.confirmed;
   if(!audio&&(!includePending||!c.speakingSceneIds.length))return [];

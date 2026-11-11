@@ -26,3 +26,12 @@ export function rebaseStoryboardDefaultsDraft(draft,shot,defaults){
  if(stable(expected)!==stable(shot.generationConfig||{}))return draft;
  return {...draft,base:{...draft.base,generationConfig:shot.generationConfig}};
 }
+
+export function rebaseLocalStoryboardDraft(draft,shot,project){
+ if(project?.storageMode!=='local'||!draft?.base||draft.base.content!==shot.content)return draft;
+ const transportKeys=new Set(['url','filePath','localPath','mediaId','objectKey','localUnavailable','previewDataUrl','expiresAt']);
+ const canonical=value=>JSON.stringify(value,(_key,row)=>row&&typeof row==='object'&&!Array.isArray(row)
+  ?Object.fromEntries(Object.keys(row).sort().filter(k=>!transportKeys.has(k)).map(k=>[k,row[k]])):row);
+ if(canonical(draft.base.generationConfig||{})!==canonical(shot.generationConfig||{}))return draft;
+ return {...draft,base:{content:shot.content,generationConfig:shot.generationConfig}};
+}
