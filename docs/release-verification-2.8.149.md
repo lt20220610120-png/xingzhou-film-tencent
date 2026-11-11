@@ -43,4 +43,8 @@
 
 ## 发布核验
 
-发布后补充：官网/GitHub 下载、大小、SHA256、三份 Ed25519 清单、软件内从 2.8.148 发现 2.8.149。
+- GitHub Release `441727741`：资产状态 `uploaded`，大小 **104,033,725 字节**，digest `sha256:31cf27e2cb77bd07db6115b61392321f47778c654c81e1912fabea3500032201`，与本机安装包一致。
+- 官网镜像发布：`https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.149.exe`，发布时已通过 `UPDATE_MIRROR_VERIFIED` 校验。
+- 三份 `latest.json`（官网及两个 GitHub main）已更新为 2.8.149。
+- 软件内正式更新检测：官网 IP 更新源读取 `2.8.149` 成功，`newerVersion(2.8.149,2.8.148)` 为真，安装地址、大小、SHA256 与本版一致。证据 `output/review-149/in-app-update.json`。
+- 公开下载完整包 SHA256 与本地一致；Range 请求返回 206，首 65536 字节逐字节一致；三份清单逐份通过 Ed25519 验签且内容一致。证据 `output/review-149/public-verification.json`。

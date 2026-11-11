@@ -5,7 +5,7 @@
 ## 当前状态（2026-11-11）
 
 - 当前执行代理：Hermes。后续修改由 Hermes 直接实施，不要求 Codex 后台进程保持运行。
-- 当前开发/发布版本：**2.8.149**。根因修复、云端部署、真实大项目写入和 3017 项全量测试已通过；安装包构建发布中。
+- 当前开发/发布版本：**2.8.149**。根因修复、云端部署、真实大项目写入、3018 项全量测试、构建打包及官网/GitHub/软件内更新核验均已完成。安装包 **104,033,725 字节**，SHA256 `31cf27e2cb77bd07db6115b61392321f47778c654c81e1912fabea3500032201`，GitHub Release `441727741`。
 - 当前源码工作区：`D:/AI/Qwen3-TTS/xingzhou-release`。
 - 当前分支：`codex/character-voice-workflow`。
 - 2.8.148 实现提交：`cc376a7`；发布文档提交：`eb4eb96`。
@@ -21,6 +21,7 @@
 - 回归：`cloud-backend/test/server.test.cjs`、`server-large-payload.test.cjs`、`electron/cloud-timeout.test.cjs`、`electron/libtv-network.test.cjs`；全量 **3018/3018**。
 - 云端部署：`server.cjs` 已备份并部署，备份 `/opt/xingzhou-backups/large-project-2.8.149-20261111T131532Z`，服务 active。
 - LibTV：确认原实现要求四个官方域名全部预检成功，任一辅助域名（如 `bridge.liblib.art`）瞬时时超时便整体报“LibTV 网络连接失败”。现改为只剔除失败域名、保留可用线路，实际使用该域名时再按需探测。当前网络连续 5 次真实账号只读此前均成功；故障注入回归已覆盖单域名超时不再阻断账号连接。
+- 发布核验：官网镜像、GitHub 资产、三份 `latest.json` 均已为 2.8.149；公开整包 SHA256 一致、Range 206 首 64 KiB 一致、三份 Ed25519 清单验签通过、2.8.148→2.8.149 软件内更新检测通过。验收 `docs/release-verification-2.8.149.md`。
 
 ## 2.8.148 已完成内容
 
