@@ -1,5 +1,6 @@
 const http = require('node:http');
-const { gzip } = require('node:zlib');
+const { gzip, gunzipSync } = require('node:zlib');
+const MAX_JSON_BYTES = 64 * 1024 * 1024;
 const { readConfig } = require('./config.cjs');
 const { createRepository } = require('./postgres-repository.cjs');
 const { createMailer } = require('./mailer.cjs');
@@ -37,12 +38,30 @@ function createServer(env = process.env, deps = {}) {
       return;
     }
     if (request.method === 'POST' && (request.url === '/api/auth/login' || request.url === '/api/gateway')) {
-      let raw = '';
-      // TCP chunks can end inside a Chinese character. StringDecoder, enabled
-      // by setEncoding, preserves partial UTF-8 sequences until the next chunk.
-      request.setEncoding('utf8');
-      request.on('data', (chunk) => { raw += chunk; if(raw.length>16*1024*1024)request.destroy(); });
+      let chunks = [], received = 0, tooLarge = false;
+      request.on('data', (chunk) => {
+        if (tooLarge) return;
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        chunks.push(bytes); received += bytes.length;
+        if (received > MAX_JSON_BYTES) { tooLarge = true; chunks = []; }
+      });
       request.on('end', async () => {
+        if (tooLarge) {
+          response.writeHead(413, { 'content-type': 'application/json; charset=utf-8' });
+          response.end(JSON.stringify({ error: '项目数据过大，请分批保存或精简后重试' }));
+          return;
+        }
+        let rawBuffer = Buffer.concat(chunks), raw = '';
+        try {
+          if (String(request.headers['content-encoding'] || '').toLowerCase() === 'gzip') {
+            rawBuffer = gunzipSync(rawBuffer, { maxOutputLength: MAX_JSON_BYTES });
+          }
+          raw = rawBuffer.toString('utf8');
+        } catch {
+          response.writeHead(413, { 'content-type': 'application/json; charset=utf-8' });
+          response.end(JSON.stringify({ error: '项目数据过大或压缩内容无效，请精简后重试' }));
+          return;
+        }
         const send = (result) => {
           let data = Buffer.from(JSON.stringify(result.body));
           const rawBytes=data.length;

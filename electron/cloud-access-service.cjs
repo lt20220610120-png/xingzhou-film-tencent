@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('node:https');
-const { gunzipSync, inflateSync, brotliDecompressSync } = require('node:zlib');
+const { gunzipSync, inflateSync, brotliDecompressSync, gzipSync } = require('node:zlib');
 const { EDGE_FUNCTION_URL, gatewayUrls, IP_TLS_CA_FILE, IP_TLS_CERT_FINGERPRINT } = require('./cloud-config.public.cjs');
 
 const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
@@ -22,6 +22,13 @@ const errorCode = error => String(error?.cause?.code || error?.code || '');
 const certificateFailure = error => /^(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT_LOCALLY|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(errorCode(error));
 const failedBeforeConnection = error => certificateFailure(error) || /^(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT_PIN_MISSING)$/.test(errorCode(error));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
+const COMPRESS_THRESHOLD = 1024 * 1024;
+function gatewayBody(value) {
+  const text = JSON.stringify(value);
+  if (Buffer.byteLength(text) <= COMPRESS_THRESHOLD) return { body: text, headers: {} };
+  const body = gzipSync(Buffer.from(text));
+  return { body, headers: { 'Content-Encoding': 'gzip', 'Content-Length': String(body.length) } };
+}
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
 
 // The fallback endpoint uses a dedicated certificate because some networks reset
@@ -35,8 +42,8 @@ function requestPinnedHttps(url, init = {}) {
     try { parsed = new URL(url); } catch (error) { reject(error); return; }
     if (!pinnedCa) { reject(Object.assign(new Error('云端备用证书缺失，请更新行舟影视'), { code: 'CERT_PIN_MISSING' })); return; }
     const headers = { 'Accept-Encoding': 'gzip, deflate, br', ...(init.headers || {}) };
-    const body = init.body == null ? '' : String(init.body);
-    if (body) headers['Content-Length'] = Buffer.byteLength(body);
+    const body = init.body == null ? Buffer.alloc(0) : Buffer.isBuffer(init.body) ? init.body : Buffer.from(String(init.body));
+    if (body.length) headers['Content-Length'] = String(body.length);
     const request = https.request({
       hostname: parsed.hostname,
       port: parsed.port || 443,
@@ -119,10 +126,11 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       const pending=(async()=>{
         const decorated=licenseDecorator&&action!=='license-challenge'?await licenseDecorator(action,payload,token):payload;
         controller.signal.throwIfAborted();
+        const encoded=gatewayBody({...decorated,action});
         response=await requestGateway(url,{
           method:'POST',
-          headers:{'Content-Type':'application/json',...snapshot?.headers,...(token?{Authorization: `Bearer ${token}`}:{})},
-          body:JSON.stringify({...decorated,action}),
+          headers:{'Content-Type':'application/json',...snapshot?.headers,...encoded.headers,...(token?{Authorization: `Bearer ${token}`}:{})},
+          body:encoded.body,
           signal:controller.signal,
           ...(!retryable?{redirect:'error'}:{}),
         },{read});
