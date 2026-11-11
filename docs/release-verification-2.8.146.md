@@ -24,10 +24,16 @@
 
 ## 安装包与公开发布
 
-最终NSIS安装包运行验收通过：qa/packaged-smoke-2.8.146-1794335160301/report.json。本地包release/2.8.146/Xingzhou-Film-Tencent-Setup-2.8.146.exe，104083650字节，SHA256 `8cf0151c8044a9feffb50b1dc854b195d2d17080bdf2f7fef9428eef9da72766`。独立最终复核24/24通过，无阻塞问题。公开验收待补充。
+最终NSIS安装包运行验收通过：qa/packaged-smoke-2.8.146-1794335160301/report.json。本地包release/2.8.146/Xingzhou-Film-Tencent-Setup-2.8.146.exe，104083650字节，SHA256 `8cf0151c8044a9feffb50b1dc854b195d2d17080bdf2f7fef9428eef9da72766`。独立最终复核24/24通过，无阻塞问题。公开验收全部通过。
 
 - 公开清单切换前收到用户追加按钮美化，暂停首次上传并重新制作最终包；最终按钮/生成设置标题/三宽UI再次通过，2987再次全绿，最终NSIS运行通过，旧构建未进入更新清单。
 
 - 最后网络回归补齐官方CLI上传bridge、精确OSS桶和canva.xingliu.art分支；动态媒体TLS预检并保留verifiedIP。其他桶、内网端点、其他xingliu域名/伪后缀拒绝；针对70/70、最终全量2991/2991通过。最终NSIS包重制并运行通过。
 - 真实已完成1-6-1在当前WiFi注入OFF路径：query13.16s、CLI download31.82s，MP4 9,585,882字节，SHA256 3dd88c1576eb7ff9b0588a0acae56165fa52a304c630af80748e052727da285a；与145原片导出逐字节相同，ffprobe17.056s/H264/AAC。证据output/146-libtv-verified-download.json、output/review-146/download-validation.json。首轮空节点明确无可下载资源，未误归因为网络失败。
 - 两个精确OSS上传目标只读HEAD：CONNECT200、TLS有效、服务端403（匿名无签名），证明通道可到服务端；没有真实PUT上传或付费生成。证据output/146-libtv-upload-transport-readonly.json。原账号凭据保持。
+
+- 实现1d42416、视觉8320d51及媒体网络f05a683已推送，GitHub Release 440720125，安装包uploaded，资产digest与本机一致。官网/两个GitHub公开latest.json逐字一致并验签，官网服务器完整SHA256及公开Range206前65536字节与本机一致。证据output/review-146/public-verification.json。
+- 生产更新读取已检测到2.8.146，来源https://106.55.41.128/api/updates/latest.json，保留签名/CA/证书指纹校验。证据output/review-146/in-app-update.json。
+- 官方包 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.146.exe
+- GitHub包 https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.146/Xingzhou-Film-Tencent-Setup-2.8.146.exe
+- 发布期间以本机SSH绑定WLAN透传GitHub TLS，凭据始终在本机TLS内，临时QA/上传通道用毕关闭，用户Clash/TUN及本机网络设置保留。未强制关闭或替换用户运行中的客户端。
