@@ -23,15 +23,24 @@ export function libtvParameters(model,mode){
  const keys=bucket=>Array.isArray(bucket)?bucket:bucket?.[mode]||[];
  return [...new Set([...keys(config.settings),...keys(config.advancedSettings)])]
   .filter(k=>!unsafe.has(k)&&properties[k]&&typeof properties[k]==='object')
-  .map(key=>({...properties[key],key,label:properties[key].displayName||({quality:'图片清晰度',enableSound:'生成声音',search_enabled:'联网搜索'}[key])||key,options:libtvEnum(properties[key])}));
+  .map(key=>{
+   const prop=properties[key],cliKey=typeof prop.originalField==='string'&&prop.originalField&&!unsafe.has(prop.originalField)?prop.originalField:key;
+   return {...prop,key,cliKey,label:prop.displayName||({quality:'图片清晰度',enableSound:'生成声音',search_enabled:'联网搜索',searchEnabled:'联网搜索',autoCompliance:'自动合规'}[key])||key,options:libtvEnum(prop)};
+  });
 }
+const modeRejectsReferences=(mode,counts,total)=>mode!=='mixed2video'&&((mode==='text2video'&&total>0)||(/image|frames/.test(mode)&&(counts.video||counts.audio))||(mode==='video2video'&&(counts.image||counts.audio))||(mode==='videoEdit2video'&&counts.audio));
 export function libtvMode(model,references=[],chosen){
  const items=model.schema?.properties?.modeType?.items||{};
  references=normalizeGenerationReferences(references);
  const counts={image:references.filter(r=>r.kind==='image').length,video:references.filter(r=>r.kind==='video').length,audio:references.filter(r=>r.kind==='audio').length};
+ const total=counts.image+counts.video+counts.audio;
  if(model.kind==='image'){if(counts.video||counts.audio)throw Error('图片模型不支持视频或音频参考');if(counts.image&&!items.image2image)throw Error('此模型不支持参考图');return counts.image?'image2image':'text2image';}
- if(chosen&&chosen!=='auto'){if(!Object.hasOwn(items,chosen))throw Error('此模型不支持选定生成模式');return chosen;}
- const options=counts.video||counts.audio?['mixed2video',...(counts.video&&!counts.audio?['video2video','videoEdit2video']:[]),...(counts.audio&&!counts.video?['audio2video']:[])]:counts.image>1?['image2video','frames2video','mixed2video']:counts.image?['singleImage2video','image2video','mixed2video','frames2video']:['text2video'];
+ const options=counts.video||counts.audio?['mixed2video',...(counts.video&&!counts.audio?['video2video','videoEdit2video']:[]),...(counts.audio&&!counts.video&&!counts.image?['audio2video']:[])]:counts.image>1?['image2video','frames2video','mixed2video']:counts.image?['singleImage2video','image2video','mixed2video','frames2video']:['text2video'];
+ if(chosen&&chosen!=='auto'){
+  if(!Object.hasOwn(items,chosen))throw Error('此模型不支持选定生成模式');
+  if(modeRejectsReferences(chosen,counts,total)){const auto=options.find(k=>Object.hasOwn(items,k));if(auto)return auto;}
+  return chosen;
+ }
  const found=options.find(k=>Object.hasOwn(items,k));if(!found)throw Error('此模型不支持当前参考组合，请选择其他模型或调整参考');return found;
 }
 export function libtvGenerationParams(model,input){
@@ -48,13 +57,13 @@ export function libtvGenerationParams(model,input){
  if(!params.prompt.trim())throw Error('请填写提示词');
  if(props.prompt?.maxLength&&params.prompt.length>props.prompt.maxLength)throw Error('提示词超出当前模型限制');
  const definitions=libtvParameters(model,mode);
- for(const key of Object.keys(custom))if(!definitions.some(p=>p.key===key))throw Error('当前模式未声明参数 '+key);
+ for(const key of Object.keys(custom))if(!definitions.some(p=>p.key===key||p.cliKey===key))throw Error('当前模式未声明参数 '+key);
  for(const property of definitions){
-  let value=custom[property.key]??input[property.key]??property.default;
+  let value=custom[property.key]??custom[property.cliKey]??input[property.key]??input[property.cliKey]??property.default;
   if(value==null||value==='')continue;
   if(property.options.length&&!property.options.includes(value))throw Error(property.key+' 不在模型允许值中');
   if(property.min!=null&&(Number(value)<property.min||Number(value)>property.max||!Number.isFinite(Number(value))))throw Error(property.key+' 超出模型范围');
-  params[property.key]=value;
+  params[property.cliKey]=value;
  }
  for(const rule of model.schema?.rules||[]){
   if(rule.forModeTypes?.length&&!rule.forModeTypes.includes(mode))continue;

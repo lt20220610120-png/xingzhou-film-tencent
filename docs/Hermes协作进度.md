@@ -2,14 +2,26 @@
 
 本文件是 Hermes 与 Codex 共用行舟影视项目时的固定交接入口。Codex 开始后续任务前必须读取本文件，并继续核对实际 Git、代码、测试和公开发布状态；不要仅凭本文件快照作结论。
 
-## 当前状态（2026-11-11）
+## 当前状态（2026-11-12）
 
 - 当前执行代理：Hermes。后续修改由 Hermes 直接实施，不要求 Codex 后台进程保持运行。
-- 当前开发/发布版本：**2.8.150**。已修复旧美术素材类型 `asset-image` 导致所有生成接口误判素材格式/数量的根因并完成公开发布。安装包 **104,034,096 字节**，SHA256 `442442c963cceee0437c773e78fa8ec9289382192c82ee47503f067812d9db5e`，GitHub Release `441917816`。
+- 当前开发/发布版本：**2.8.151**。已彻底修复 2.8.150 引入的“生成设置无法切换接口”状态清空回归、顶部默认面板无参考素材误报“此模型不支持当前参考组合”、批量下发 `image2video` 与带音色分镜冲突、LibTV CLI `1.1.3` 的 `originalField`（`search_enabled`）参数兼容，以及 FT 直连本地 `.flac` 音色 MIME 识别，并完成公开发布核验。安装包 **104,037,165 字节**，SHA256 `a9ba6986c013e8197a88d47bcf796989cdf5740e2e7470fd14e8427f4452df62`，GitHub Release `442088045`。
 - 当前源码工作区：`D:/AI/Qwen3-TTS/xingzhou-release`。
 - 当前分支：`codex/character-voice-workflow`。
 - 2.8.148 实现提交：`cc376a7`；发布文档提交：`eb4eb96`。
 - 外层工作区 `C:/Users/11599/Documents/ChatGPT/行舟影视` 保存用户资料、外层约定及 `软件更新记忆.md`，其 `tencent/` 和根目录提交可能落后于独立发布工作区，不得误当成最新源码基线。
+
+## 2.8.151：接口切换失效、LibTV 参考组合/参数兼容与 FT 音色上传修复
+
+- 用户反馈与截图核实：用户已升级运行 `2.8.150`，在分镜工作台顶部“生成设置”点击切换接口后界面无反应（回弹 `LibTV · 视频`），同时顶部面板红字报“此模型不支持当前参考组合，请选择其他模型或调整参考”，单镜 `4-5-2` 在 LibTV 与 FT 直连上仍无法正常生成。
+- 定位到的 5 层真实根因：
+  1. **无法切换接口（2.8.150 回归）**：`core/generationReferences.js` 的 `normalizeGenerationReferences` 对非数组输入返回 `[]`，而 `GenerationComposer.jsx` 第 177 行 `change = patch => onChange(normalizeGenerationReferences({...value, ...patch}))` 把整个草稿/设置对象传入，导致每次改接口/模型/时长都发出 `onChange([])`，`profileId` 丢失回弹默认接口。
+  2. **顶部默认设置面板误报“此模型不支持当前参考组合”**：真实 `Seedance 2.5`（`star-video2.5`）的 `modeType.items` 不含 `text2video`；顶部 `settingsOnly` 默认面板无 `references`（`[]`），`LibTVParameters` 对空参考推导 `text2video` 失败导致常驻误报。
+  3. **批量下发 `image2video` 与带音频分镜冲突**：本地项目 17 集共 588 条分镜批量写入了 `libtvMode: 'image2video'`（其中 477 条同时含人物音色 `audio`），原 `libtvMode` 在非 `auto` 时原样返回 `image2video`，触发 `当前模式不支持这组参考素材`。
+  4. **LibTV CLI `1.1.3` 参数字段名校验失败**：`libtv.exe` 按 Schema 属性的 `originalField` 校验 `-s` 参数，`Seedance 2.5` 的 `searchEnabled` 对应 `originalField: "search_enabled"`；原代码发 `searchEnabled=1` 触发 `Unsupported video parameter "searchEnabled"`。
+  5. **FT 直连本地 `.flac` 音色无 MIME**：`electron/fnko-client.cjs` 本地扩展名映射漏了 `.flac/.aac/.mov/.gif`，导致 `.flac` 音色样本 `mime=undefined`，触发 `参考素材格式与类型不一致`。
+- 修复：`normalizeGenerationReferences` 兼容草稿对象并保留全部非引用字段；`settingsOnly` 下 `LibTVParameters` 开启 `ignoreReferences`；`libtvMode` 在旧预设模式与分镜参考组合冲突时自动升级为模型支持的兼容模式（如 `mixed2video`），且 `libtvGenerationParams` 输出 `originalField` 键名；`fnko-client.cjs` 补齐 `.flac/.aac/.mov/.gif` 标准 MIME。
+- 验证：全量测试 **3026/3026** 通过；真实 Electron BrowserWindow DOM 点击切换接口与拦截提交验证通过；真实 `4-5-2` 任务经 `libtv.exe 1.1.3` 参数预检通过（0 写入、0 付费）；公开三份 Ed25519 清单、官网整包 SHA256 与 Range 206、GitHub 资产 digest 及软件内更新全部核验通过。验收 `docs/release-verification-2.8.151.md`。
 
 ## 2.8.150：旧美术素材类型修复
 
@@ -60,6 +72,6 @@
 
 ## 当前待办
 
-- 2.8.149 已完成并发布；等待用户指定下一项功能或修复需求。
-- Codex 接手时，从本文件和最新实际代码继续，不需要重复 2.8.149 已完成的保存/LibTV 修复。
+- 2.8.151 已完成并公开发布；用户当前运行的客户端（2.8.150）在软件内检查更新即可平滑升级到 2.8.151。
+- Codex 接手时，从本文件和最新实际代码继续，不需要重复 2.8.149–2.8.151 已完成的保存、LibTV、接口切换与参考素材兼容修复。
 - 并行静态审查另发现几项与本次“网络失败”无关的协作写入契约线索，尚未实施、尚未复现，不得直接当结论：成员删除/改角色可能按 `memberId` 与 `userId` 错位；`task-update` 可能被 `upsertTask()` 当成新增；美术协作者创建资产/替换清单可能被仓储层限制为所有者。若用户再报成员、任务或素材权限问题，先写失败测试复现再修。

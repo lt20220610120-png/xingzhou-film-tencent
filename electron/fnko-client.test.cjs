@@ -70,3 +70,10 @@ test('native protected result keeps credentials only at its own content endpoint
  const job={endpoint:'https://fanke2026.xyz/api/open/v1',kind:'video',jobId:'j1',apiKey:'fixture'};assert.equal((await c.status(job)).status,'submitted');
  const file=await c.download({...job,url:'https://fanke2026.xyz/api/open/v1/jobs/j1/content'},dir);assert.deepEqual(fs.readFileSync(file),Buffer.from([1,2,3]));
 });
+test('Fnko local FLAC/AAC audio references upload with standard audio MIME instead of failing kind mismatch',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-flac-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const flac=path.join(dir,'voice.flac');fs.writeFileSync(flac,'fLaC-fixture');
+ const seen=[];const c=createFnkoClient({fetchFn:async(url,o={})=>{seen.push(url);if(url.endsWith('/models'))return Response.json({data:[{id:'v',type:'video',modelVersion:1,capabilities:{ratios:['16:9'],durations:[5],resolutions:['720p'],maxImages:2,maxAudios:2}}]});if(url.endsWith('/assets'))return Response.json({id:'asset-flac'});return Response.json({jobId:'j-flac',status:'queued'});}});
+ const res=await c.submit({endpoint:'https://fanke2026.xyz/api/open/v1',kind:'video',apiKey:'fixture',model:'v',prompt:'test',ratio:'16:9',duration:5,resolution:'720p',references:[{kind:'audio',filePath:flac}]});
+ assert.equal(res.jobId,'j-flac');
+});

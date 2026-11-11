@@ -3,9 +3,14 @@ export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|
 const referenceNames = item => [...new Set([item.name,item.displayName,...(item.nameAliases||[])].map(referenceName).filter(Boolean))];
 // Older art drafts persisted collab_media storage kinds. Providers accept only
 // image/audio/video, so an adopted asset image must cross that boundary as image.
-export const normalizeGenerationReferences = references => (Array.isArray(references)?references:[]).map(ref =>
- ref&&ref.kind==='asset-image'&&(ref.assetId||ref.imageId)?{...ref,kind:'image'}:ref
+const normalizeReferenceList = references => (Array.isArray(references)?references:[]).map(ref =>
+ ref&&ref.kind==='asset-image'&&(ref.assetId&&ref.imageId)?{...ref,kind:'image'}:ref
 );
+export const normalizeGenerationReferences = value => {
+ if (Array.isArray(value)) return normalizeReferenceList(value);
+ if (!value || typeof value !== 'object') return [];
+ return Object.hasOwn(value, 'references') ? {...value, references: normalizeReferenceList(value.references)} : value;
+};
 export const isProjectGenerationReference=(ref,projectId)=>
  ['image','audio','video'].includes(ref.kind)&&
  (!ref.projectId||ref.projectId===projectId)&&(!ref.project_id||ref.project_id===projectId);

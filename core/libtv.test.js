@@ -13,3 +13,12 @@ test('connection updates just LibTV profiles, keeps other defaults and stores no
 
 test('image references explicitly select image2image before CLI creates reference edges',()=>{const model=libtvModel({modelKey:'lib-image-2.5-f',modelName:'Lib Image 2.5 Fast',schema:{properties:{modeType:{items:{text2image:[0,0],image2image:[1,7]}}}}},'image');const p=libtvGenerationParams(model,{prompt:'保持参考人物，替换服装',references:[{kind:'image',filePath:'original.png'}]});assert.equal(p.modeType,'image2image');});
 test('legacy art asset-image references count as images instead of rejecting a valid mixed task',()=>{const model=libtvModel(video,'video'),references=Array.from({length:4},(_,i)=>({id:'i'+i,kind:'asset-image',assetId:'a'+i,imageId:'i'+i}));assert.equal(libtvMode(model,references),'image2video');const p=libtvGenerationParams(model,{prompt:'四个人物',libtvMode:'mixed2video',references});assert.equal(p.modeType,'mixed2video');});
+test('batch-applied image2video auto-upgrades to mixed2video when shot also has audio or video references and uses schema originalField keys',()=>{
+ const seedance=libtvModel({modelKey:'star-video2.5',modelName:'Seedance 2.5',modality:'video',schema:{properties:{modeType:{items:{image2video:[1,30],mixed2video:[1,50]},mixed2videoConfig:{imageMax:30,videoMax:10,audioMax:10}},ratio:{enum:['16:9'],originalField:'ratio'},duration:{min:4,max:30,step:1,default:5,originalField:'duration'},resolution:{enum:['480p','720p'],originalField:'resolution'},enableSound:{enum:['on','off'],default:'on',originalField:'enableSound'},searchEnabled:{default:1,component:'switch',originalField:'search_enabled'},autoCompliance:{default:1,component:'switch'}},config:{settings:{image2video:['ratio','resolution','duration','enableSound'],mixed2video:['ratio','resolution','duration','enableSound']},advancedSettings:['searchEnabled','autoCompliance']}}},'video');
+ const refs=[{kind:'image'},{kind:'image'},{kind:'audio'}];
+ assert.equal(libtvMode(seedance,refs,'image2video'),'mixed2video');
+ const p=libtvGenerationParams(seedance,{prompt:'时江晚醒来',libtvMode:'image2video',ratio:'16:9',duration:17,resolution:'480p',references:refs});
+ assert.equal(p.modeType,'mixed2video');
+ assert.equal(p.search_enabled,1);
+ assert.equal('searchEnabled' in p,false);
+});

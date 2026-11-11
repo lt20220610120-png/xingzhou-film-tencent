@@ -39,3 +39,11 @@ test('refreshing stored asset references also repairs their provider-visible typ
  const refs=refreshAssetReferences([{id:'i',kind:'asset-image',assetId:'a',imageId:'i',url:'expired'}],[{id:'a',images:[{id:'i',url:'fresh'}]}],'p');
  assert.equal(refs[0].kind,'image');assert.equal(refs[0].url,'fresh');
 });
+test('normalizeGenerationReferences preserves draft objects and only normalizes their references array',()=>{
+ const draft={profileId:'libtv-video',model:'star-video2.5',prompt:'镜头',references:[{id:'a:1',kind:'asset-image',assetId:'a',imageId:'1'}]};
+ const normalized=normalizeGenerationReferences(draft);
+ assert.equal(Array.isArray(normalized),false);
+ assert.equal(normalized.profileId,'libtv-video');
+ assert.equal(normalized.prompt,'镜头');
+ assert.equal(normalized.references[0].kind,'image');
+});
