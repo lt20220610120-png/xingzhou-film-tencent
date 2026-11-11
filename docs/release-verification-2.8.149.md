@@ -37,8 +37,8 @@
 
 ## 安装包
 
-- 大小：104,033,298 字节
-- SHA256：`6f2ebe49e9943caa6ce5eeed8511ef9be9a8790610f86d053b01c83b8e4ad4cc`
+- 大小：104,033,725 字节
+- SHA256：`31cf27e2cb77bd07db6115b61392321f47778c654c81e1912fabea3500032201`
 - 本机：`D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.149/Xingzhou-Film-Tencent-Setup-2.8.149.exe`
 
 ## 发布核验
