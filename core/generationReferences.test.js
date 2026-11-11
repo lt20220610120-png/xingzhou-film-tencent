@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {appendImportedReferences,autoReferences,bindReferencePrompt,numberedReferences,mediaSource} from './generationReferences.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {appendImportedReferences,autoReferences,bindReferencePrompt,numberedReferences,mediaSource,normalizeGenerationReferences,refreshAssetReferences} from './generationReferences.js';
 test('local media URL preserves Windows drive and Unicode path for image audio and video previews',()=>{
  const filePath='C:\\Users\\11599\\行舟影视资料\\画布素材\\图片.png';
  const url=mediaSource({filePath});
@@ -28,4 +28,14 @@ test('stored legacy and current picker references acquire renewable identities w
  const refs=refreshAssetReferences([{id:'a',assetId:'a',url:'expired'},{id:'i',assetId:'b',url:'expired'}],assets,'p');
  assert.equal(refs[0].imageId,'legacy');assert.equal(refs[0].url,'new-legacy');
  assert.equal(refs[1].imageId,'i');assert.equal(refs[1].url,'new-image');assert.ok(refs.every(r=>r.projectId==='p'));
+});
+test('stored art asset-image references are normalized to public image references for every provider',()=>{
+ const refs=[{id:'a:1',kind:'asset-image',assetId:'a',imageId:'1',name:'人物',url:'https://x/a.png'},{id:'b',kind:'audio',name:'音色',url:'https://x/b.wav'}];
+ const normalized=normalizeGenerationReferences(refs);
+ assert.equal(normalized[0].kind,'image');assert.equal(normalized[0].assetId,'a');assert.equal(normalized[0].imageId,'1');
+ assert.equal(normalized[1].kind,'audio');
+});
+test('refreshing stored asset references also repairs their provider-visible type',()=>{
+ const refs=refreshAssetReferences([{id:'i',kind:'asset-image',assetId:'a',imageId:'i',url:'expired'}],[{id:'a',images:[{id:'i',url:'fresh'}]}],'p');
+ assert.equal(refs[0].kind,'image');assert.equal(refs[0].url,'fresh');
 });

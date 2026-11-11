@@ -17,7 +17,7 @@ import {profileModels} from '../../core/videoCatalog.js';
 import {normalizeCapabilities} from '../../core/modelCapabilities.js';
 import {effectiveVideoProtocol} from '../../core/videoProviderConfig.js';
 import {activeMediaProfile, generationMediaProfiles, isFeituoEndpoint, videoModelCapabilities, imageModelFormats, IMAGE_FORMATS} from '../../core/canvasStore.js';
-import {numberedReferences, bindReferencePrompt, mediaSource, appendImportedReferences} from '../../core/generationReferences.js';
+import {numberedReferences, bindReferencePrompt, mediaSource, appendImportedReferences, normalizeGenerationReferences} from '../../core/generationReferences.js';
 import {activePromptMention, insertPromptReference, matchingPromptReferences} from '../../core/promptMentions.js';
 import {matchBasicReferences, removeGenerationReference, generationReferenceKey, selectionAfterPromptEdit} from '../../core/automaticReferences.js';
 
@@ -149,10 +149,10 @@ export function GenerationComposer({state,api,kind='video',value,onChange,onSubm
   const resolvedSettings=JSON.stringify({profileId:profile?.id,model:model.id,ratio,duration,resolution,libtvMode:value.libtvMode||'auto',libtvParams:value.libtvParams||{},supportedDurations:declaredDuration?durations:null});
   useEffect(()=>{if(settingsOnly)onSettingsResolved?.(JSON.parse(resolvedSettings));},[settingsOnly,resolvedSettings,onSettingsResolved]);
   const nineyWan=kind==='video'&&!!profile&&effectiveVideoProtocol(profile)==='niney'&&/^官转wan/i.test(model.id);
-  const allRefs=value.references || [];
+  const allRefs=normalizeGenerationReferences(value.references || []);
   const limits=kind==='video'?referencePolicy(feituo,caps):null;
   const limitKey=k=>k==='image'?'maxImages':k==='audio'?'maxAudios':'maxVideos';
-  const audioSelected=kind==='video'?selectAudioReferences(value,caps):value;
+  const audioSelected=kind==='video'?selectAudioReferences({...value,references:allRefs},caps):value;
   const refs=limits&&!libtv?(audioSelected.references||[]).filter(r=>limits[limitKey(r.kind)]!==0):(audioSelected.references||[]);
   const allowedKinds=libtv?(kind==='image'?['image']:['image','audio','video']):['image','audio','video'].filter(k=>!limits||limits[limitKey(k)]!==0);
   const autoOptions={allowedKinds:[...new Set([...allowedKinds,'audio'])]};
@@ -174,7 +174,7 @@ export function GenerationComposer({state,api,kind='video',value,onChange,onSubm
     const count=refs.filter(r=>r.kind===k).length,max=limits[limitKey(k)];
     return max!=null&&count>max?`${label}共 ${count} 个，当前模型最多 ${max} 个，请移除多余参考。`:'';
   }).filter(Boolean).join(' '):'';
-  const change=patch=>onChange({...value,...patch});
+  const change=patch=>onChange(normalizeGenerationReferences({...value,...patch}));
   const latest=useRef({value,caps,feituo});latest.current={value,caps,feituo};
   const importLock=useRef(false);
   const importFile=async mediaKind=>{
@@ -194,7 +194,7 @@ export function GenerationComposer({state,api,kind='video',value,onChange,onSubm
     try{
       if(value.durationMode==='recommended'&&(!recommendedDuration||duration!==recommendedDuration||declaredDuration&&!durations.includes(recommendedDuration)))throw Error(!recommendedDuration?'本条缺少建议生成时长，请先核对导演提示词':`当前模型不支持建议时长 ${recommendedDuration} 秒，请换模型或手动选择统一时长`);
       if(!libtv&&profile?.provider!=='likeai'&&!profile?.apiKey&&!(kind==='video'&&profile?.videoProtocol==='custom'&&profile?.videoAdapter?.authMode==='none'))throw new Error('请先在 API 接口设置中填写 API Key');
-      const input=kind==='video'?matchBasicReferences(value,candidates,autoOptions):value;
+      const input=normalizeGenerationReferences(kind==='video'?matchBasicReferences(value,candidates,autoOptions):value);
       validateCompiledBinding(input,[...new Set([...allowedKinds,'audio'])]);
       const selectedInput=kind==='video'?selectAudioReferences(input,caps):input;
       const submitRefs=(selectedInput.references||[]).filter(r=>allowedKinds.includes(r.kind));

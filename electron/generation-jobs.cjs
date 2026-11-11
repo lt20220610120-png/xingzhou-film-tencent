@@ -105,6 +105,7 @@ function createGenerationJobs(dir,options={}) {
       return result;
     },
     async submit(input) {
+      const {normalizeGenerationReferences}=await import('../core/generationReferences.js');input={...input,references:normalizeGenerationReferences(input.references)};
       await options.beforeSubmit?.();const dispatchGuard=async()=>{try{await options.beforeDispatch?.(input);}catch(e){e.beforeSubmission=true;throw e;}};
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.

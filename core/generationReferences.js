@@ -1,6 +1,11 @@
 import {adoptedAssetImage} from './adoptedAssetImage.js';
 export const referenceName = name => String(name || '').replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|aac|ogg|flac)$/i,'').replace(/^[【\[]|[】\]]$/g, '');
 const referenceNames = item => [...new Set([item.name,item.displayName,...(item.nameAliases||[])].map(referenceName).filter(Boolean))];
+// Older art drafts persisted collab_media storage kinds. Providers accept only
+// image/audio/video, so an adopted asset image must cross that boundary as image.
+export const normalizeGenerationReferences = references => (Array.isArray(references)?references:[]).map(ref =>
+ ref&&ref.kind==='asset-image'&&(ref.assetId||ref.imageId)?{...ref,kind:'image'}:ref
+);
 export const isProjectGenerationReference=(ref,projectId)=>
  ['image','audio','video'].includes(ref.kind)&&
  (!ref.projectId||ref.projectId===projectId)&&(!ref.project_id||ref.project_id===projectId);
@@ -63,7 +68,7 @@ export function appendImportedReferences(existing, files, kind, caps = {}) {
 }
 // Upgrade old stored picker references while preserving the exact selected image.
 export function refreshAssetReferences(references, assets, projectId) {
-  return references.map(ref => {
+ return normalizeGenerationReferences(references).map(ref => {
     if (!ref.assetId) return ref;
     const asset = assets.find(a=>a.id===ref.assetId);
     const imageId = ref.imageId || (ref.id===ref.assetId?'legacy':ref.id) || 'legacy';

@@ -1,3 +1,4 @@
+import {normalizeGenerationReferences} from './generationReferences.js';
 export const LIBTV_ENDPOINT='https://www.liblib.tv';
 export const isLibTV=profile=>profile?.provider==='libtv';
 const modesLabel={text2video:'文生视频',singleImage2video:'单图生视频',frames2video:'首尾帧',image2video:'图片参考',video2video:'视频参考',videoEdit2video:'视频编辑',audio2video:'音频驱动',mixed2video:'全能参考',text2image:'文生图',image2image:'参考图生图'};
@@ -26,6 +27,7 @@ export function libtvParameters(model,mode){
 }
 export function libtvMode(model,references=[],chosen){
  const items=model.schema?.properties?.modeType?.items||{};
+ references=normalizeGenerationReferences(references);
  const counts={image:references.filter(r=>r.kind==='image').length,video:references.filter(r=>r.kind==='video').length,audio:references.filter(r=>r.kind==='audio').length};
  if(model.kind==='image'){if(counts.video||counts.audio)throw Error('图片模型不支持视频或音频参考');if(counts.image&&!items.image2image)throw Error('此模型不支持参考图');return counts.image?'image2image':'text2image';}
  if(chosen&&chosen!=='auto'){if(!Object.hasOwn(items,chosen))throw Error('此模型不支持选定生成模式');return chosen;}
@@ -34,7 +36,7 @@ export function libtvMode(model,references=[],chosen){
 }
 export function libtvGenerationParams(model,input){
  const mode=libtvMode(model,input.references,input.libtvMode),props=model.schema?.properties||{},items=props.modeType?.items||{};
- const refs=input.references||[],count=k=>refs.filter(r=>r.kind===k).length;
+ const refs=normalizeGenerationReferences(input.references),count=k=>refs.filter(r=>r.kind===k).length;
  let n=mode==='mixed2video'?count('image')+count('video'):/audio/.test(mode)?count('audio'):/video2video|videoEdit/.test(mode)?count('video'):count('image');
  if(items[mode]&&(n<items[mode][0]||n>items[mode][1]))throw Error('当前模式的参考素材数量不符合模型要求');
  if(mode==='mixed2video')for(const kind of ['image','video','audio']){const max=props.modeType?.mixed2videoConfig?.[kind+'Max'];if(max!=null&&count(kind)>max)throw Error('当前模式的'+kind+'参考超出上限');}

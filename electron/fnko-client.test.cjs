@@ -28,6 +28,13 @@ test('both image dialects accept legacy size and preserve selected current image
   const result=await client.submit({endpoint:'https://fanke2026.xyz'+(native?'/api/open/v1':'/v1'),kind:'image',apiKey:'fixture',model:'img',prompt:'exam',size:'1280x720',ratio:'16:9',...(native?{}:{resolution:'4K'})});assert.equal(result.jobId,'image-original');assert.equal(paid,1);
  }
 });
+test('persisted art asset-image references reach every video provider as normal images',async t=>{
+ const fnko=require('./fnko-client.cjs'),{createGenerationJobs}=require('./generation-jobs.cjs'),previous=fnko.submit,dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-asset-kind-'));t.after(()=>{fnko.submit=previous;fs.rmSync(dir,{recursive:true,force:true});});
+ let received;fnko.submit=async input=>{received=input;throw Object.assign(Error('stop-before-paid'),{beforeSubmission:true});};
+ const jobs=createGenerationJobs(dir),references=[{id:'a:1',kind:'asset-image',assetId:'a',imageId:'1',url:'https://ref/a.png'},{id:'b:2',kind:'asset-image',assetId:'b',imageId:'2',url:'https://ref/b.png'}];
+ await assert.rejects(jobs.submit({endpoint:'https://fanke2026.xyz/v1',kind:'video',apiKey:'fixture',model:'v',prompt:'x',ratio:'16:9',duration:5,resolution:'720p',references}),/stop-before-paid/);
+ assert.deepEqual(received.references.map(r=>r.kind),['image','image']);assert.equal(received.references[0].assetId,'a');
+});
 test('persisted uncertain and completed Fnko jobs recover original identities without replaying paid POST',async t=>{
  const fnko=require('./fnko-client.cjs'),{createGenerationJobs}=require('./generation-jobs.cjs');
  const previous={submit:fnko.submit,status:fnko.status,download:fnko.download};const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fnko-jobs-'));t.after(()=>{Object.assign(fnko,previous);fs.rmSync(dir,{recursive:true,force:true});});
