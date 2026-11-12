@@ -19,7 +19,7 @@ export function directorPromptCoverage(project){
     /^\s*[（(]\d+[）)]\s*$/mu.test(source)?manual:Array.from({length:Math.max(1,...current.map(p=>Number(p.label.split('-').at(-1))||0))},(_,i)=>scene.label+'-'+(i+1));
    const missingLabels=labels.filter(label=>current.filter(p=>p.label===label&&hasContent(p)).length!==1);
    const count=labels.length-missingLabels.length;
-   const stale=Boolean(ep.activeQuickScenePlanIds?.[scene.label]&&!plan||plan&&(plan.sourceSnapshot!==undefined&&plan.sourceSnapshot!==source||plan.settingsHash&&plan.settingsHash!==directorSettingsHash({project,episode:ep,maxDurationSeconds:plan.maxDurationSeconds}))||current.some(p=>p.sourceHash&&p.sourceHash!==sha256Text(source)));
+   const stale=Boolean(ep.activeQuickScenePlanIds?.[scene.label]&&!plan||plan&&(plan.sourceSnapshot!==undefined&&plan.sourceSnapshot!==source||plan.settingsHash&&plan.settingsHash!==directorSettingsHash({project,episode:ep,maxDurationSeconds:plan.maxDurationSeconds,pace:plan.pace??plan.editorialBudget?.pace}))||current.some(p=>p.sourceHash&&p.sourceHash!==sha256Text(source)));
    return {label:scene.label,count,expected:labels.length,missingLabels,stale,complete:!stale&&labels.length>0&&!missingLabels.length&&current.length===labels.length};
   });
   return {id:ep.id,number,scenes,prompts:(ep.prompts||[]).filter(p=>p.content?.trim()).length,count:scenes.reduce((n,s)=>n+s.count,0),expected:scenes.reduce((n,s)=>n+s.expected,0),complete:scenes.length>0&&scenes.every(s=>s.complete)};

@@ -4,7 +4,7 @@ import {parseDirectorScenes,parseMasterScript} from './scriptImport.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
 import {buildSceneSourceTape,estimateSegmentSeconds} from './directorSegmentation.js';
 import {directorSpeechBoundary} from './directorSpeechBoundaries.js';
-import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDirectorDurationLimit} from './directorDurationPolicy.js';
+import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDirectorDurationLimit,assertDirectorPace,DEFAULT_DIRECTOR_PACE} from './directorDurationPolicy.js';
 import {validateDirectorSegmentTiming} from './directorTiming.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
 import {validateEditorialPlan} from './directorSceneBudget.js';
@@ -58,24 +58,28 @@ export const publicModelConfiguration = (profile) => ({
   contextWindowTokens:profile?.contextWindowTokens || profile?.contextWindow || profile?.maxContextTokens || null,
 });
 
-export function directorSettingsHash({project,episode,maxDurationSeconds}) {
-  return sha256Text(JSON.stringify({maxDurationSeconds,style:project?.style || '',aspectRatio:project?.aspectRatio || '',
+export function directorSettingsHash({project,episode,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE}) {
+  const normalizedPace=assertDirectorPace(pace);
+  return sha256Text(JSON.stringify({maxDurationSeconds,
+    ...(normalizedPace!==DEFAULT_DIRECTOR_PACE?{pace:normalizedPace}:{}),
+    style:project?.style || '',aspectRatio:project?.aspectRatio || '',
     settingText:directorSettingText(project),episodeSourceHash:sha256Text(String(episode?.content ?? '')),rulesVersion:1}));
 }
 
-function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationSeconds,skill,profile}) {
+function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationSeconds,pace,skill,profile}) {
   if(!accountId || !project?.id || !episode?.id || !sceneLabel || !skill?.id || !profile?.id)throw new Error('场景目标、账号、Skill 或模型配置已不存在');
   assertDirectorDurationSelection(maxDurationSeconds);
+  const normalizedPace=assertDirectorPace(pace);
   if(inputText == null)throw new Error('场景原文已不存在');
   const sourceSnapshot=String(inputText),style=project.style || '',aspectRatio=project.aspectRatio || '',settingText=directorSettingText(project),rulesVersion=1;
   return {
     accountId,projectId:project.id,episodeId:episode.id,sceneLabel,sourceSnapshot,promptEditionId:directorEditionKey(project),
     sourceHash:sha256Text(sourceSnapshot),
     episodeSourceHash:sha256Text(String(episode.content ?? '')),
-    settingsHash:directorSettingsHash({project,episode,maxDurationSeconds}),
+    settingsHash:directorSettingsHash({project,episode,maxDurationSeconds,pace:normalizedPace}),
     skillId:skill.id,skillHash:sha256Text(JSON.stringify({name:skill.name || '',context:buildSkillContext(skill)})),
     profileId:profile.id,profileHash:sha256Text(JSON.stringify(publicModelConfiguration(profile))),
-    maxDurationSeconds,style,aspectRatio,settingText,rulesVersion,
+    maxDurationSeconds,pace:normalizedPace,style,aspectRatio,settingText,rulesVersion,
   };
 }
 
@@ -83,7 +87,7 @@ export async function createSceneSnapshot(context) { return snapshotOf(context);
 
 const snapshotFields=['accountId','projectId','episodeId','sceneLabel','sourceHash','episodeSourceHash','settingsHash','skillId','skillHash','profileId','profileHash','rulesVersion'];
 export function snapshotMatchesContext(snapshot,context) {
-  try { const current=snapshotOf({...context,maxDurationSeconds:context.maxDurationSeconds ?? snapshot.maxDurationSeconds});
+  try { const current=snapshotOf({...context,maxDurationSeconds:context.maxDurationSeconds ?? snapshot.maxDurationSeconds,pace:context.pace ?? snapshot.pace});
     return sameDirectorEdition(context.project,snapshot)&&snapshotFields.every(key=>current[key]===snapshot[key]);
   } catch { return false; }
 }
@@ -110,7 +114,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     &&JSON.stringify(current.find(pr=>pr.id===id)?.sceneAuditWarnings||[])===JSON.stringify(quickReviewWarnings(run,i+1))))return {state,applied:true};
   if(ids.some((id,i)=>[history.find(pr=>pr.id===id),current.find(pr=>pr.id===id)].some(pr=>pr&&!belongs(pr,i))))return fail(state,'提示词编号已有不完整或冲突的提交，请核对历史');
   let latest;
-  try { latest=snapshotOf({accountId:state.accountId,project,episode,sceneLabel:snapshot.sceneLabel,inputText:directorSceneInput(project,episode,snapshot.sceneLabel),maxDurationSeconds:snapshot.maxDurationSeconds,
+  try { latest=snapshotOf({accountId:state.accountId,project,episode,sceneLabel:snapshot.sceneLabel,inputText:directorSceneInput(project,episode,snapshot.sceneLabel),maxDurationSeconds:snapshot.maxDurationSeconds,pace:snapshot.pace,
     skill:state.skills?.find(s=>s.id===snapshot.skillId),profile:state.apiProfiles?.find(p=>p.id===snapshot.profileId)}); }
   catch(error){return fail(state,error.message);}
   if(!snapshotFields.every(key=>snapshot[key]===latest[key]))return fail(state,'场景原文、项目设定、Skill 或模型已变化，请重新生成');
@@ -150,7 +154,7 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
     recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
     ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),
-    ...(editorial?{editorialEstimatedSeconds:segment.editorialEstimatedSeconds,sceneEstimatedSeconds:plan.editorialBudget.totalEstimatedSeconds,timingRulesVersion:2}:{}),
+    ...(editorial?{editorialEstimatedSeconds:segment.editorialEstimatedSeconds,sceneEstimatedSeconds:plan.editorialBudget.totalEstimatedSeconds,pace:plan.pace??snapshot.pace,timingRulesVersion:2}:{}),
     sceneAuditStatus:statusFor(segment),
     ...(quickReviewWarnings(run,segment.index).length?{sceneAuditWarnings:quickReviewWarnings(run,segment.index)}:{}),
   }]:[]);

@@ -40,6 +40,7 @@ import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
 import { DirectorQuickControls, DirectorQuickProgress } from './DirectorQuickControls.jsx';
+import { DEFAULT_DIRECTOR_PACE, normalizeDirectorPace } from '../../core/directorDurationPolicy.js';
 import { DirectorBatchPanel } from './DirectorBatchPanel.jsx';
 import { renderNumberedScene } from '../../core/directorSegmentation.js';
 import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
@@ -317,9 +318,9 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     : '';
   const currentVision = currentScene ? getSceneVision(episode, currentScene) : '';
   const currentCreativeSceneContent=segments.find(scene=>scene.label===currentScene)?.content||'';
-  const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-quick-settings:${accountId}:${project.id}`,JSON.stringify({segmentationMode:'manual',maxDurationSeconds:30}));
+  const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-quick-settings:${accountId}:${project.id}`,JSON.stringify({segmentationMode:'manual',maxDurationSeconds:30,pace:DEFAULT_DIRECTOR_PACE}));
   let quickSettings;try{quickSettings=JSON.parse(settingsJson);}catch{quickSettings={};}
-  quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=0&&quickSettings.maxDurationSeconds<=35?quickSettings.maxDurationSeconds:30};
+  quickSettings={segmentationMode:quickSettings.segmentationMode==='auto'?'auto':'manual',maxDurationSeconds:Number.isInteger(quickSettings.maxDurationSeconds)&&quickSettings.maxDurationSeconds>=0&&quickSettings.maxDurationSeconds<=35?quickSettings.maxDurationSeconds:30,pace:normalizeDirectorPace(quickSettings.pace,DEFAULT_DIRECTOR_PACE)};
   const [sourceView,setSourceView]=useState('source');
   const manualOutputRevision=(episode.manualSceneReplies||[]).length;
   const savedReplies=(episode.manualSceneReplies||[]).filter(reply=>reply.sceneLabel===currentScene);
@@ -330,14 +331,14 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const autoRun=localRun||(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
   const autoBusy=isQuickRunActive(localRun);
   const batchBusy=quickGeneration?.isProjectBatchActive(project.id);
-  const autoStale=Boolean(autoRun?.plan&&(autoRun.plan.sourceSnapshot!==currentSceneContent||autoRun.plan.settingsHash!==directorSettingsHash({project,episode,maxDurationSeconds:autoRun.plan.maxDurationSeconds})));
+  const autoStale=Boolean(autoRun?.plan&&(autoRun.plan.sourceSnapshot!==currentSceneContent||autoRun.plan.settingsHash!==directorSettingsHash({project,episode,maxDurationSeconds:quickSettings.maxDurationSeconds,pace:quickSettings.pace})));
   const autoSceneText=autoRun?.plan?renderNumberedScene(autoRun.plan,{sceneHeader:autoRun.plan.sceneHeader,sourceText:autoRun.plan.sourceText}):'';
   const runAutoScene=async()=>{
     setAutoError('');
     try{
       if(!quickGeneration||!directorProfile||!currentSkill)throw new Error('请先选择有效的模型和 Skill');
       if(isSceneRunning(currentScene))throw new Error('当前场景正在生成，请等待完成');
-      await quickGeneration.startScene({project,episode,sceneLabel:currentScene,inputText:currentSceneContent,maxDurationSeconds:quickSettings.maxDurationSeconds,skill:currentSkill,profile:directorProfile});
+      await quickGeneration.startScene({project,episode,sceneLabel:currentScene,inputText:currentSceneContent,maxDurationSeconds:quickSettings.maxDurationSeconds,pace:quickSettings.pace,skill:currentSkill,profile:directorProfile});
     }catch(e){setAutoError(e.message);}
   };
   const resumeAutoScene=async()=>{setAutoError('');try{await quickGeneration.resume(localRun.id);}catch(e){setAutoError(e.message);}};
@@ -524,7 +525,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       <section className="director-config-rack" aria-label="提示词模型与项目设定">
       <div className="director-config-model-row">
       <ModelSelect profiles={state.apiProfiles||[]} value={directorModelId} onChange={setDirectorModelId} label="本集提示词模型"/>
-      {mode==='quick'&&<DirectorBatchPanel key={`${accountId}:${project.id}:${quickSettings.segmentationMode}`} project={project} accountId={accountId} skill={currentSkill} profile={directorProfile} maxDurationSeconds={quickSettings.maxDurationSeconds} segmentationMode={quickSettings.segmentationMode} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked||project.cloudConflict)||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false} sceneBusy={quickGeneration?.runs.some(r=>r.snapshot.projectId===project.id&&isQuickRunActive(r))||directorJobs.entries().some(([key,job])=>key.startsWith(JSON.stringify([accountId,project.id]).slice(0,-1)+',')&&job.status==='running')} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/>}
+      {mode==='quick'&&<DirectorBatchPanel key={`${accountId}:${project.id}:${quickSettings.segmentationMode}`} project={project} accountId={accountId} skill={currentSkill} profile={directorProfile} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} segmentationMode={quickSettings.segmentationMode} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked||project.cloudConflict)||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false} sceneBusy={quickGeneration?.runs.some(r=>r.snapshot.projectId===project.id&&isQuickRunActive(r))||directorJobs.entries().some(([key,job])=>key.startsWith(JSON.stringify([accountId,project.id]).slice(0,-1)+',')&&job.status==='running')} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/>}
       </div>
       {/* 项目设定功能区：风格与画幅（创造/快速模式共用，运行 Skill 前优先注入给大模型） */}
       <div className="project-style-bar">
@@ -665,7 +666,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                     </button>
                   </div>
                 </div>
-                {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
+                {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} sceneText={currentSceneContent} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
                 {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><FormattedText key={index} text={reply.output}/>)}</details>}
                 <FormattedEditor
                   key={episode.id+currentScene+sourceView} commitDelay={1200}

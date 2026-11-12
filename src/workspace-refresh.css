@@ -96,3 +96,191 @@
 .art-review-deferred-list p,.art-review-deferred-list ul { font-size:13px; margin:8px 0 0; overflow-wrap:anywhere; }
 .art-review-deferred-list ul { padding-left:18px; }
 
+/* 2.8.152: Short-drama pace gradient rail & compact quick-segmentation layout */
+.director-stage .quick-scene-card-head {
+  padding:10px 14px;
+  gap:8px;
+}
+.director-stage .quick-scene-card-head .quick-segmentation-settings {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+  flex-wrap:wrap;
+  min-width:0;
+}
+.director-stage .quick-segmentation-settings label {
+  font-size:11.5px;
+  gap:4px;
+  color:#5b657a;
+}
+.director-stage .quick-segmentation-settings select {
+  height:30px;
+  min-height:30px;
+  min-width:68px;
+  max-width:104px;
+  padding:3px 20px 3px 7px;
+  font-size:12px;
+  border-radius:7px;
+  border-color:#dcd7ea;
+}
+.director-pace-rail {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  user-select:none;
+  min-width:0;
+}
+.director-pace-rail.is-disabled {
+  opacity:.55;
+  pointer-events:none;
+}
+.director-pace-caption {
+  font-size:11.5px;
+  color:#5b657a;
+  white-space:nowrap;
+}
+.director-pace-box {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  height:30px;
+  box-sizing:border-box;
+  padding:0 8px;
+  background:#ffffff;
+  border:1px solid #dcd7ea;
+  border-radius:7px;
+}
+.director-pace-pole {
+  font-size:11px;
+  color:#858ea1;
+  white-space:nowrap;
+  transition:color .15s ease,font-weight .15s ease;
+}
+.director-pace-pole.active {
+  color:#344054;
+  font-weight:600;
+}
+.director-pace-track-wrap {
+  position:relative;
+  display:flex;
+  align-items:center;
+  width:clamp(62px,6.2vw,84px);
+  height:18px;
+}
+.director-pace-track-wrap input[type="range"] {
+  -webkit-appearance:none;
+  appearance:none;
+  width:100%;
+  height:3px;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:999px;
+  background:linear-gradient(90deg,#7c65cc 0%,#9480d8 var(--pace-pct,100%),#e4e1ef var(--pace-pct,100%),#e4e1ef 100%);
+  cursor:ew-resize;
+  position:relative;
+  z-index:2;
+}
+.director-pace-track-wrap input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance:none;
+  appearance:none;
+  width:11px;
+  height:11px;
+  border-radius:50%;
+  background:#ffffff;
+  border:2px solid #6e56c2;
+  box-shadow:0 1px 2px rgba(45,35,88,.22);
+  transition:transform .12s ease;
+}
+.director-pace-track-wrap input[type="range"]:hover::-webkit-slider-thumb {
+  transform:scale(1.12);
+}
+.director-pace-track-wrap input[type="range"]:focus-visible {
+  outline:2px solid #8c72d8;
+  outline-offset:3px;
+}
+.director-pace-ticks {
+  position:absolute;
+  inset:0 3px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  pointer-events:none;
+  z-index:1;
+}
+.director-pace-ticks i {
+  width:3px;
+  height:3px;
+  border-radius:50%;
+  background:#cbc5df;
+}
+
+.director-stage .quick-auto-progress {
+  padding:7px 14px;
+  background:#fcfbfe;
+}
+.quick-progress-bar {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  min-height:26px;
+}
+.quick-progress-bar .quick-source-tabs {
+  gap:4px;
+}
+.quick-progress-bar .quick-source-tabs button {
+  min-height:26px;
+  padding:3px 9px;
+  font-size:12px;
+  border-radius:6px;
+}
+.quick-budget-readout {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding-left:10px;
+  border-left:1px solid #e6e3f0;
+  font-size:12px;
+  color:#556075;
+  font-variant-numeric:tabular-nums;
+}
+.quick-budget-readout strong {
+  color:#273142;
+  font-weight:600;
+}
+.quick-budget-dot {
+  color:#b8c0cf;
+}
+.quick-budget-pace {
+  color:#556075;
+}
+.quick-progress-bar .quick-run-status {
+  margin:0 0 0 auto;
+  gap:6px;
+  font-size:12px;
+  color:#6c768a;
+}
+.quick-progress-bar .quick-run-status button {
+  min-height:24px;
+  padding:2px 8px;
+  font-size:11px;
+}
+.quick-progress-note {
+  margin:6px 0 0;
+  font-size:12px;
+  color:#59657b;
+}
+.director-batch-settings .director-pace-box {
+  height:34px;
+}
+@media(max-width:1100px) {
+  .director-stage .quick-scene-card-head .quick-segmentation-settings {
+    justify-content:flex-start;
+  }
+  .quick-progress-bar .quick-run-status {
+    margin-left:0;
+  }
+}
+
