@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('xingzhou',{
   licenseCheck:()=>ipcRenderer.invoke('license-check'),
   licenseRoute:payload=>ipcRenderer.invoke('license-route',payload),
  licensePrepare:p=>ipcRenderer.invoke('license-prepare',p),
+ licenseRememberedCard:()=>ipcRenderer.invoke('license-remembered-card'),
+ licenseForgetCard:()=>ipcRenderer.invoke('license-forget-card'),
  licenseRedeem:()=>ipcRenderer.invoke('license-redeem'),
  licenseAdmin:p=>ipcRenderer.invoke('license-admin',p),
  onLicenseState:callback=>{const listener=(_,value)=>callback(value);ipcRenderer.on('license-state',listener);return()=>ipcRenderer.removeListener('license-state',listener);},

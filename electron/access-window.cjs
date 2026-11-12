@@ -9,8 +9,8 @@ function createAccessWindowController(){
    if(win.isMaximized())win.unmaximize();
    win.setResizable(true);win.setMinimumSize(480,420);win.setSize(520,450);win.setResizable(false);win.center();
   }else if(previous==='lock'||!previous){
-   win.setResizable(true);win.setMinimumSize(1120,720);
-   const old=saved.get(win);if(old){win.setBounds(old.bounds);if(old.maximized)win.maximize();saved.delete(win);}else{win.setSize(1500,940);win.center();}
+   win.setResizable(true);win.setMinimumSize(1000,660);
+   const old=saved.get(win);if(old){win.setBounds(old.bounds);if(old.maximized)win.maximize();saved.delete(win);}else{win.setSize(1320,880);win.center();}
   }
  };
 }

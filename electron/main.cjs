@@ -313,6 +313,8 @@ ipcMain.handle('auth-session',()=>accessService.session({allowCached:()=>collabS
 ipcMain.handle('license-check',()=>licenseClient.check());
 ipcMain.handle('license-route',(_,p)=>licenseClient.route(p?.username));
 ipcMain.handle('license-prepare',(_,p)=>licenseClient.prepare(p?.code));
+ipcMain.handle('license-remembered-card',()=>licenseClient.rememberedCard());
+ipcMain.handle('license-forget-card',()=>licenseClient.forgetCard());
 ipcMain.handle('license-redeem',()=>licenseClient.redeem());
 ipcMain.handle('license-admin',(_,p)=>{const {operation,...payload}=p||{};if(!['overview','issue','order','change'].includes(operation))throw Error('授权管理操作无效');return cloudGateway('admin-license-'+operation,payload,accessService.token());});
 ipcMain.handle('auth-register',async(_,payload)=>{const account=await accessService.register(payload);licenseClient.authenticated();await licenseClient.check();return account;});

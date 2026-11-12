@@ -5,37 +5,46 @@ import {SoftwareUpdatePrompt} from './SoftwareUpdatePrompt.jsx';
 import companyLogo from '../assets/company-logo.png';
 import './software-license.css';
 import './startup-access.css';
-import {RefreshCw,KeyRound,Ticket,ShieldCheck,Clock3,Users,ClipboardList,Plus,Download,Copy,ArrowRight} from 'lucide-react';
+import {RefreshCw,KeyRound,Ticket,ShieldCheck,Clock3,Users,ClipboardList,Plus,Download,Copy,ArrowRight,X} from 'lucide-react';
 import './license-admin.css';
 const readable=e=>String(e?.message||e).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'');
 const fmt=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';
 
 export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
- const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck);
+ const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedCode,setSavedCode]=useState('');
+ const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck),cardInput=useRef(null);
  const apply=next=>{setState(next);if(next.error)setError(readable(next.error));else if(next.allowed||['unchecked','prepared'].includes(next.status))setError('');};
  const check=async()=>{const id=++sequence.current;try{const next=await api.licenseCheck();if(mounted.current&&id===sequence.current)apply(next);return next;}catch(e){if(mounted.current&&id===sequence.current){setError(readable(e));setState({status:'error',allowed:false});}}};
- useEffect(()=>{mounted.current=true;if(supported)void check();const off=api?.onLicenseState?.(next=>{if(mounted.current){sequence.current++;apply(next);if(next.status==='unchecked')void check();}});return()=>{mounted.current=false;sequence.current++;off?.();};},[supported]);
+ useEffect(()=>{mounted.current=true;if(supported)void check();
+  if(supported)Promise.resolve(api.licenseRememberedCard?.()).then(value=>{if(mounted.current&&value)setSavedCode(String(value));}).catch(()=>{});
+  const off=api?.onLicenseState?.(next=>{if(mounted.current){sequence.current++;apply(next);if(next.status==='unchecked')void check();}});return()=>{mounted.current=false;sequence.current++;off?.();};},[supported]);
  const accountReady=state.allowed||['prepared','account'].includes(state.status);
  const workspaceReady=Boolean(state.allowed&&state.authenticated!==false);
  const stage=workspaceReady?'workspace':accountReady?'account':'lock';
  useEffect(()=>{if(supported)Promise.resolve(api.appAccessStage?.(stage)).catch(()=>{});},[stage,supported]);
  if(!supported)return children;
+ const entered=code.trim(),pending=entered||savedCode;
  const activate=async event=>{event.preventDefault();if(busy)return;setBusy(true);setError('');try{
-  if(!code.trim()){await check();return;}
-  await api.licensePrepare({code:code.trim()});setCode('');
+  if(!pending){await check();return;}
+  await api.licensePrepare({code:pending});setCode('');
   const account=await api.authSession();
   if(account)apply(await api.licenseRedeem());else apply({status:'prepared',allowed:false,authenticated:false});
  }catch(e){setError(readable(e));}finally{if(mounted.current)setBusy(false);}};
+ const forget=async()=>{setSavedCode('');setError('');setCode('');try{await api.licenseForgetCard?.();}catch{}requestAnimationFrame(()=>cardInput.current?.focus());};
  const authenticated=async()=>{setError('');await check();};
  const checking=state.status==='unchecked';
  return <>
   {workspaceReady?children:accountReady?<RegistrationScreen initialMode="login" allowRegistration onClose={()=>api.closeAccessWindow?.()} onRegistered={authenticated} onLogin={authenticated}/>:<main className="startup-license-lock" aria-label="软件启动锁">
    <section className="startup-lock-card"><div className="startup-lock-brand"><img src={companyLogo} alt=""/><span>行舟影视<small>XINGZHOU FILM</small></span></div>
-    <h1>激活行舟影视</h1><p>{checking?'正在验证设备授权…':'输入卡密，激活这台电脑上的软件。'}</p>
-    <form onSubmit={activate}><label htmlFor="startup-card">卡密</label><input id="startup-card" autoFocus autoComplete="off" spellCheck={false} maxLength={65} value={code} disabled={busy||checking} aria-invalid={!!error} aria-describedby={error?'startup-card-error':undefined} onChange={e=>{setCode(e.target.value);setError('');}} placeholder="请输入卡密"/>
+    <h1>激活行舟影视</h1>
+    {checking&&<p>正在验证设备授权…</p>}
+    <form onSubmit={activate}><label htmlFor="startup-card">卡密</label>
+     <div className={`startup-card-field${savedCode?' is-remembered':''}`}>
+      <input id="startup-card" ref={cardInput} autoFocus={!savedCode} autoComplete="off" spellCheck={false} maxLength={65} type={savedCode?'password':'text'} readOnly={Boolean(savedCode)} value={savedCode||code} disabled={busy||checking} aria-invalid={!!error} aria-describedby={error?'startup-card-error':undefined} onChange={e=>{setCode(e.target.value);setError('');}} placeholder="请输入卡密"/>
+      {savedCode?<button type="button" className="startup-card-clear" aria-label="更换卡密" title="更换卡密" onClick={forget}><X size={15}/></button>:null}
+     </div>
      {error&&<p className="startup-lock-error" role="alert" id="startup-card-error">{error}</p>}
-     <button type="submit" disabled={checking||busy||(!code.trim()&&state.status!=='error')}>{checking?'正在验证…':busy?'正在激活…':<>验证并激活<ArrowRight size={17}/></>}</button>
+     <button type="submit" disabled={checking||busy||(!pending&&state.status!=='error')}>{checking?'正在验证…':busy?'正在激活…':<>验证并激活<ArrowRight size={17}/></>}</button>
     </form>
    </section>
   </main>}

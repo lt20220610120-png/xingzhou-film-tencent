@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Film, LockKeyhole, MailCheck, ShieldCheck, UserRound, X } from 'lucide-react';
+import { Film, LockKeyhole, UserRound, X } from 'lucide-react';
 import { BrandLogo } from './GlobalTools.jsx';
 
 const roleMeta = {
@@ -90,33 +90,33 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
       </header>
       <div className="auth-layout">
         <section className="auth-intro">
-          <button className="auth-back" onClick={onClose}><ArrowLeft /> 返回上一步</button>
-          <span className="auth-kicker">行舟影视 · 创作空间</span>
           <h1>{mode === 'register' ? '注册账号' : mode === 'login' ? '登录账号' : '找回账号'}</h1>
-          <p>{mode === 'register' ? `注册成功后按邀请码开通的权限进入${meta.destination}。为了避免重复注册，创建账号需要完成邮箱验证码。` : mode === 'login' ? '登录后将按照账号已有权限进入对应工作台。' : '通过注册时绑定的邮箱找回账号，也可以同时设置一个新密码。'}</p>
           {mode === 'register' && requestedRole && <div className="selected-role"><Icon /><span><small>本次选择</small><strong>{meta.label}</strong></span><b>{meta.destination}</b></div>}
-          <div className="auth-security"><ShieldCheck /><span><strong>邀请码控制访问权限</strong><small>普通邀请码只开通一个身份；身份解锁码可在之后增加另一个工作台。</small></span></div>
-          <div className="auth-security"><MailCheck /><span><strong>一个邮箱绑定一个账号</strong><small>邮箱用于接收验证码，也用于日后找回自己的账号。</small></span></div>
         </section>
         <form className="auth-card" onSubmit={submit}>
-          <div className="auth-card-heading"><span className="access-icon"><LockKeyhole size={22}/></span><h2>{mode === 'register' ? '开启你的创作旅程' : mode === 'login' ? '欢迎回来' : '找回你的创作空间'}</h2><p>{mode==='login'?'登录账号，继续你的故事。':'填写以下信息，安全访问你的工作台。'}</p></div>
           <div className="auth-tabs">
             {allowRegistration&&<button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>创建账号</button>}
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>已有账号登录</button>
             <button type="button" className={mode === 'recover' ? 'active' : ''} onClick={() => switchMode('recover')}>找回账号</button>
           </div>
-          <label>账号<input autoFocus value={form.username} onChange={update('username')} placeholder={mode === 'recover' ? '请输入要找回的账号' : '例如 staff001'} autoComplete="username" /></label>
-          {mode === 'register' && <label>姓名或称呼<input value={form.displayName} onChange={update('displayName')} placeholder="例如 张导演" /></label>}
-          {mode !== 'recover' && <label>密码<input type="password" value={form.password} onChange={update('password')} placeholder="至少 6 位" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>}
-          {mode === 'register' && <label>确认密码<input type="password" value={form.confirmPassword} onChange={update('confirmPassword')} placeholder="再次输入密码" autoComplete="new-password" /></label>}
-          {mode !== 'login' && <>
-            <label>邮箱<input type="email" value={form.email} onChange={update('email')} placeholder={mode === 'register' ? '用于接收注册验证码' : '注册时绑定的邮箱'} autoComplete="email" /></label>
+          {mode === 'register' ? <>
+            <div className="auth-field-grid">
+              <label>账号<input autoFocus value={form.username} onChange={update('username')} placeholder="例如 staff001" autoComplete="username" /></label>
+              <label>姓名或称呼<input value={form.displayName} onChange={update('displayName')} placeholder="例如 张导演" /></label>
+              <label>密码<input type="password" value={form.password} onChange={update('password')} placeholder="至少 6 位" autoComplete="new-password" /></label>
+              <label>确认密码<input type="password" value={form.confirmPassword} onChange={update('confirmPassword')} placeholder="再次输入密码" autoComplete="new-password" /></label>
+              <label>邮箱<input type="email" value={form.email} onChange={update('email')} placeholder="用于接收注册验证码" autoComplete="email" /></label>
+              <label>邀请码<input value={form.inviteCode} onChange={update('inviteCode')} placeholder={requestedRole?'请输入邀请码':'请输入管理员发放的邀请码'} autoComplete="off" /></label>
+            </div>
             <label>邮箱验证码<span className="code-row"><input aria-label="邮箱验证码" value={form.emailCode} onChange={update('emailCode')} placeholder="邮箱收到的验证码" inputMode="numeric" maxLength={8} autoComplete="one-time-code" /><SendCodeButton email={form.email} onError={setError} /></span></label>
-          </>}
-          {mode === 'recover' && <label>新密码（可选）<input type="password" value={form.password} onChange={update('password')} placeholder="留空则只找回账号名" autoComplete="new-password" /></label>}
-          {mode === 'register' && <>
-            <label>邀请码<input value={form.inviteCode} onChange={update('inviteCode')} placeholder={requestedRole?`请输入${meta.label}邀请码`:'请输入管理员发放的邀请码'} autoComplete="off" /></label>
-            <p className="invite-note"><LockKeyhole /> 邀请码由管理员发放，并决定账号能够使用的工作台。</p>
+          </> : <>
+            <label>账号<input autoFocus value={form.username} onChange={update('username')} placeholder={mode === 'recover' ? '请输入要找回的账号' : '例如 staff001'} autoComplete="username" /></label>
+            {mode === 'login' && <label>密码<input type="password" value={form.password} onChange={update('password')} placeholder="至少 6 位" autoComplete="current-password" /></label>}
+            {mode === 'recover' && <>
+              <label>邮箱<input type="email" value={form.email} onChange={update('email')} placeholder="注册时绑定的邮箱" autoComplete="email" /></label>
+              <label>邮箱验证码<span className="code-row"><input aria-label="邮箱验证码" value={form.emailCode} onChange={update('emailCode')} placeholder="邮箱收到的验证码" inputMode="numeric" maxLength={8} autoComplete="one-time-code" /><SendCodeButton email={form.email} onError={setError} /></span></label>
+              <label>新密码（可选）<input type="password" value={form.password} onChange={update('password')} placeholder="留空则只找回账号名" autoComplete="new-password" /></label>
+            </>}
           </>}
           {error && <div className="auth-error">{error}</div>}
           {notice && <div className="auth-notice">{notice}</div>}
