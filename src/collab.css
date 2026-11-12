@@ -2,9 +2,10 @@
    collab.css — 项目协作界面样式（v1.6.0）
    ============================================================ */
 .collab-hub{padding:38px 44px;max-width:1180px;margin:0 auto;}
-.collab-hub header{margin-bottom:26px;}
+.collab-hub>header{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;padding:0 0 20px 0;border-bottom:1px solid var(--border);margin-bottom:28px;}
 .collab-hub header .eyebrow{font-size:12px;letter-spacing:.14em;color:#9a8f7c;text-transform:uppercase;}
-.collab-hub header h1{margin:6px 0 8px;font-size:30px;}
+.collab-hub header h1{margin:0;font-size:clamp(23px,2.4vw,28px);font-weight:600;color:var(--foreground);}
+.collab-hub header .collab-sync-button{margin-left:auto;flex-shrink:0;white-space:nowrap;}
 .collab-hub header p{color:#6f6a5f;max-width:640px;}
 .collab-project-card{cursor:pointer}
 .collab-project-card{position:relative}.collab-project-card.deleted{opacity:.72;border-style:dashed}.danger-link{color:#b42318;background:transparent;border:0;cursor:pointer}.collab-project-card .danger-link{position:absolute;right:18px;bottom:14px}.collab-deleted-projects{margin:28px 0;padding:20px;border:1px dashed #c8bca8;border-radius:16px;background:#fffaf1}.collab-deleted-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid #eee5d8}.collab-deleted-row span{display:grid;gap:4px}.collab-deleted-row small{color:#7c7368}.collab-audio-toggle{display:flex;align-items:center;gap:6px;white-space:nowrap}
@@ -13,6 +14,8 @@
 .collab-notice{background:#eef7ee;border:1px solid #bcd9bd;color:#2c6e33;padding:9px 13px;border-radius:10px;font-size:13px;margin:8px 0;}
 .collab-hint{color:#98917f;font-size:12px;}
 .collab-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#9a927e;padding:44px 20px;text-align:center;}
+
+.collab-hub-refined .collab-project-grid>.collab-empty{grid-column:1/-1;min-width:0;min-height:360px;padding:60px 20px;}
 .collab-empty.small{padding:18px 10px;font-size:13px;}
 .collab-empty p{max-width:420px;}
 

@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const { verifyPassword, hashPassword } = require('./password.cjs');
 const { digestInvite, inviteUsable, rolesForInvite, normalizeInviteCode } = require('./invites.cjs');
 const { hashEmailCode, generateEmailCode, codeExpiry, emailCodeValid } = require('./email-code.cjs');
+const registrationValidation = import('../shared/registration-validation.mjs');
 
 const publicAccount = (row) => ({ id: row.id, username: row.username, display_name: row.display_name || row.username, email: row.email || '', avatar_data:row.avatar_data||'',bio:row.bio||'',profile_tags:row.profile_tags||[], roles: row.roles || [], active_role: row.active_role || row.roles?.[0] || 'creator', is_admin: row.is_admin === true, is_producer: row.is_producer === true, banned: row.banned === true, created_at: row.created_at });
 const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -54,8 +55,9 @@ async function register(payload, repository) {
   const password = String(payload?.password || '');
   const requestedRole = ['director','creator'].includes(payload?.requestedRole) ? payload.requestedRole : undefined;
   const inviteCode = normalizeInviteCode(payload?.inviteCode);
-  if (!/^[a-z0-9_]{3,32}$/.test(username) || password.length < 6 || !EMAIL_RE.test(email)) return { status: 400, body: { error: '账号、邮箱或密码格式不正确' } };
-  if (!inviteCode) return { status: 400, body: { error: '请输入管理员发放的邀请码' } };
+  const { validateRegistration } = await registrationValidation;
+  const invalid = validateRegistration(payload);
+  if (invalid) return { status: 400, body: { error: invalid.message } };
   try {
     if (!await verifyEmailCode(repository, email, payload?.emailCode)) return { status: 400, body: { error: '邮箱验证码无效或已过期' } };
     const invite = await repository.findInviteByDigest(digestInvite(inviteCode));

@@ -120,7 +120,17 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(!snapshotFields.every(key=>snapshot[key]===latest[key]))return fail(state,'场景原文、项目设定、Skill 或模型已变化，请重新生成');
   if(!partial && run.checks?.audited!==true)return fail(state,'全场审核尚未完成，结果继续保留为草稿');
   if(['sourceHash','settingsHash','skillHash','sceneLabel','maxDurationSeconds','rulesVersion'].some(key=>plan[key]!==snapshot[key]))return fail(state,'分段计划与生成快照不匹配');
-  if(plan.profileHash!==snapshot.profileHash&&!run.profileTransitions?.some(step=>step?.from===plan.profileHash&&step?.to===snapshot.profileHash))return fail(state,'分段计划与生成模型不匹配');
+  if(plan.profileHash!==snapshot.profileHash){
+    let profile=plan.profileHash;
+    const transitions=run.profileTransitions||[];
+    const start=transitions.findIndex(step=>step?.from===profile);
+    if(start<0)return fail(state,'分段计划与生成模型不匹配');
+    for(const step of transitions.slice(start)){
+      if(!step?.from||!step?.to||step.from!==profile)return fail(state,'生成模型切换记录不连续');
+      profile=step.to;
+    }
+    if(profile!==snapshot.profileHash)return fail(state,'分段计划与生成模型不匹配');
+  }
   if(typeof plan.sourceText!=='string' || typeof plan.sceneHeader!=='string')return fail(state,'分段原文带不完整');
   const tape=buildSceneSourceTape(snapshot.sourceSnapshot);
   if(plan.sourceText!==tape.sourceText || plan.sceneHeader!==tape.sceneHeader)return fail(state,'分段正文与固定原文不匹配，不能发布改写后的计划');

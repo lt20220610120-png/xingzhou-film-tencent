@@ -1675,7 +1675,7 @@ export function CollabWorkspace({ state, api, account }) {
       <div className="collab-hub collab-hub-refined">
         <header>
           <span className="eyebrow">项目制作</span>
-          <h1>项目协作</h1><button className="secondary" onClick={()=>loadProjects({refreshCloud:true})}><RefreshCw size={15}/>同步项目列表</button>
+          <h1>项目协作</h1><button className="secondary collab-sync-button" onClick={()=>loadProjects({refreshCloud:true})}><RefreshCw size={15}/>同步项目列表</button>
         </header>
         {listError && <div className="collab-error" role="alert">{listError} <button onClick={()=>loadProjects({refreshCloud:true})}>重新连接</button></div>}
         <div className="resource-grid collab-project-grid">

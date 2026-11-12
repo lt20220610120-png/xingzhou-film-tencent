@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Film, LockKeyhole, UserRound, X } from 'lucide-react';
 import { BrandLogo } from './GlobalTools.jsx';
+import { USERNAME_HINT, USERNAME_ERROR, validateRegistration } from '../../cloud-backend/shared/registration-validation.mjs';
 
 const roleMeta = {
   creator: { label: '内容创作者', destination: '创作者工作台', icon: UserRound },
@@ -54,19 +55,33 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
   const [mode, setMode] = useState(allowRegistration?initialMode:'login');
   const [form, setForm] = useState({ username: initialUsername, displayName: '', password: '', confirmPassword: '', email: '', emailCode: '', inviteCode: '' });
   const [error, setError] = useState('');
+  const [errorField, setErrorField] = useState('');
+  const formRef = useRef(null);
   const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const meta = roleMeta[requestedRole]||{label:'创作',destination:'对应工作台',icon:UserRound};
   const Icon = meta.icon;
-  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  const switchMode = (next) => { setMode(next); setError(''); setNotice(''); };
+  const update = (key) => (event) => {
+    setForm((current) => ({ ...current, [key]: event.target.value }));
+    if (key === errorField) { setError(''); setErrorField(''); }
+  };
+  const fieldProps = (key) => ({ name: key, 'aria-invalid': errorField === key, 'aria-describedby': errorField === key ? 'registration-error' : undefined });
+  const switchMode = (next) => { setMode(next); setError(''); setErrorField(''); setNotice(''); };
   const submit = async (event) => {
     event.preventDefault();
-    setError(''); setNotice('');
+    setError(''); setErrorField(''); setNotice('');
+    if (mode === 'register') {
+      const invalid = validateRegistration(form) || (form.password !== form.confirmPassword ? { field: 'confirmPassword', message: '两次输入的密码不一致' } : null);
+      if (invalid) {
+        setError(invalid.message); setErrorField(invalid.field);
+        formRef.current?.elements.namedItem(invalid.field)?.focus();
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       if (mode === 'register') {
-        if (form.password !== form.confirmPassword) throw new Error('两次输入的密码不一致');
+
         const account = await window.xingzhou.authRegister({ ...form, ...(requestedRole?{requestedRole}:{}) });
         onRegistered(account);
       } else if (mode === 'login') {
@@ -93,7 +108,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
           <h1>{mode === 'register' ? '注册账号' : mode === 'login' ? '登录账号' : '找回账号'}</h1>
           {mode === 'register' && requestedRole && <div className="selected-role"><Icon /><span><small>本次选择</small><strong>{meta.label}</strong></span><b>{meta.destination}</b></div>}
         </section>
-        <form className="auth-card" onSubmit={submit}>
+        <form ref={formRef} className="auth-card" onSubmit={submit} noValidate={mode === 'register'}>
           <div className="auth-tabs">
             {allowRegistration&&<button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>创建账号</button>}
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>已有账号登录</button>
@@ -101,12 +116,12 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
           </div>
           {mode === 'register' ? <>
             <div className="auth-field-grid">
-              <label>账号<input autoFocus value={form.username} onChange={update('username')} placeholder="例如 staff001" autoComplete="username" /></label>
+              <label>账号<input {...fieldProps('username')} autoFocus value={form.username} onChange={update('username')} placeholder={USERNAME_HINT} title={USERNAME_ERROR} autoComplete="username" autoCapitalize="none" spellCheck={false} /></label>
               <label>姓名或称呼<input value={form.displayName} onChange={update('displayName')} placeholder="例如 张导演" /></label>
-              <label>密码<input type="password" value={form.password} onChange={update('password')} placeholder="至少 6 位" autoComplete="new-password" /></label>
-              <label>确认密码<input type="password" value={form.confirmPassword} onChange={update('confirmPassword')} placeholder="再次输入密码" autoComplete="new-password" /></label>
-              <label>邮箱<input type="email" value={form.email} onChange={update('email')} placeholder="用于接收注册验证码" autoComplete="email" /></label>
-              <label>邀请码<input value={form.inviteCode} onChange={update('inviteCode')} placeholder={requestedRole?'请输入邀请码':'请输入管理员发放的邀请码'} autoComplete="off" /></label>
+              <label>密码<input {...fieldProps('password')} type="password" value={form.password} onChange={update('password')} placeholder="至少 6 位" autoComplete="new-password" /></label>
+              <label>确认密码<input {...fieldProps('confirmPassword')} type="password" value={form.confirmPassword} onChange={update('confirmPassword')} placeholder="再次输入密码" autoComplete="new-password" /></label>
+              <label>邮箱<input {...fieldProps('email')} type="email" value={form.email} onChange={update('email')} placeholder="用于接收注册验证码" autoComplete="email" /></label>
+              <label>邀请码<input {...fieldProps('inviteCode')} value={form.inviteCode} onChange={update('inviteCode')} placeholder={requestedRole?'请输入邀请码':'请输入管理员发放的邀请码'} autoComplete="off" /></label>
             </div>
             <label>邮箱验证码<span className="code-row"><input aria-label="邮箱验证码" value={form.emailCode} onChange={update('emailCode')} placeholder="邮箱收到的验证码" inputMode="numeric" maxLength={8} autoComplete="one-time-code" /><SendCodeButton email={form.email} onError={setError} /></span></label>
           </> : <>
@@ -118,7 +133,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
               <label>新密码（可选）<input type="password" value={form.password} onChange={update('password')} placeholder="留空则只找回账号名" autoComplete="new-password" /></label>
             </>}
           </>}
-          {error && <div className="auth-error">{error}</div>}
+          {error && <div className="auth-error" id="registration-error" role="alert">{error}</div>}
           {notice && <div className="auth-notice">{notice}</div>}
           <button className="auth-submit" disabled={submitting}>{submitting ? '正在处理…' : mode === 'register' ? '创建账号' : mode === 'login' ? '登录账号' : '找回账号'}</button>
         </form>

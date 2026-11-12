@@ -114,8 +114,10 @@ export function createQuickGenerationController({getContext,executeText,executeS
       // HTTP failures may already have reached a paid provider, even when they
       // return no partial body. The verified pre-forward 429 is handled below
       // the IPC boundary by the gateway admission scheduler.
+      const controlFailure=/^(?:STOPPED|PAUSED|ACCOUNT_CHANGED|STALE|FORBIDDEN|UNAUTHORIZED|RATE_LIMITED|ABORT_ERR|SECURITY_SIGNAL_REVOKED)$/.test(e.code||'')||e.name==='AbortError'||[401,403,429].includes(e.status);
+      if(controlFailure)throw e;
       const retryable=/输出被截断|只返回了推理过程|没有返回模型正文/i.test(e.message||'');
-      if(!retryable||payload.recoveryAttempt)throw e;
+      if(!retryable||payload.recoveryAttempt){e.directorRequestFailure=true;throw e;}
       run.recoveries||=[];run.recoveries.push({kind,message:e.message,partialText:e.partialText||'',at:new Date().toISOString()});
       run.retryMessage='接口未完整返回，正在自动重试本次未完成请求';await persist(run);
       return request(run,version,kind,{...payload,recoveryAttempt:1,maxOutputTokens:32768});
@@ -124,7 +126,10 @@ export function createQuickGenerationController({getContext,executeText,executeS
     run.pendingRequestId=null;
     run.retryMessage='';
     const value=response?.output ?? response;
-    if(typeof value!=='string'||!value.trim())throw error('模型没有返回正文','EMPTY_OUTPUT');
+    if(typeof value!=='string'||!value.trim()){
+      const empty=error(kind==='skill'?'模型未返回提示词正文，请保留当前分段设置后重试':'模型未返回有效规划内容，将使用本机规则继续处理','EMPTY_OUTPUT');
+      empty.directorRequestFailure=true;throw empty;
+    }
     return value;
   };
   const auditRanges=run=>{
@@ -158,9 +163,18 @@ export function createQuickGenerationController({getContext,executeText,executeS
           run.phase='planning';await persist(run);
           let assessment=run.editorialAssessment;
           if(!assessment){
-            const output=await request(run,version,'plan',{messages:buildEditorialPlanningMessages({snapshot:run.snapshot,tape,facts}),maxOutputTokens:4096,profileId:run.snapshot.profileId});
-            run.lastPlanningOutput=output;await persist(run);
-            try{assessment=parseStructuredJson(output);}catch{assessment={};}
+            try{
+              const output=await request(run,version,'plan',{messages:buildEditorialPlanningMessages({snapshot:run.snapshot,tape,facts}),maxOutputTokens:4096,profileId:run.snapshot.profileId});
+              run.lastPlanningOutput=output;await persist(run);
+              try{assessment=parseStructuredJson(output);}catch{assessment={};}
+            }catch(e){
+              if(!e.directorRequestFailure)throw e;
+              await assertCurrent(run,version);
+              // The local pace-aware planner already retains all screenplay
+              // characters. Optional AI timing must not gate the actual Skill.
+              assessment={};run.pendingRequestId=null;
+              run.auditWarnings=[...(run.auditWarnings||[]),{code:'PLANNING_UNAVAILABLE',message:'模型估时暂不可用，已按所选节奏在本机完成分段，继续生成提示词。'}];
+            }
             run.editorialAssessment=assessment;await persist(run);
           }
           const plan=planEditorialScene({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,strictModelCap:true,assessment,facts});
@@ -171,6 +185,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             segments:plan.segments.map((s,i)=>({...s,id:`${planId}-segment-${i+1}`,index:i+1}))};
           run.promptIds=plan.segments.map(()=>uid());run.commitKey=run.id;run.planIssues=[];run.lastPlanningOutput='';
           run.planQualityFailures=0;run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];
+          if(run.auditWarnings?.some(w=>w.code==='PLANNING_UNAVAILABLE'))run.plan.planningWarnings.push(...run.auditWarnings.filter(w=>w.code==='PLANNING_UNAVAILABLE'));
           await persist(run);
         }
       }
@@ -397,12 +412,20 @@ export function createQuickGenerationController({getContext,executeText,executeS
           const rangeKey=range.join('-');if(run.checks.ranges[rangeKey])continue;
           const prompts=range.map(index=>run.segmentDrafts[run.plan.segments[index-1].id].prompt);
           const messages=buildSceneAuditMessages({snapshot:run.snapshot,tape,plan:run.plan,prompts,range});
-          let output=await request(run,version,'audit',{messages,profileId:run.snapshot.profileId});
-          let result=parseSceneAudit(output,{plan:run.plan,range});
-          if(!result.ok&&result.issues.every(entry=>entry.code==='INVALID_AUDIT_OUTPUT')){
-            run.lastAuditOutput=output;await persist(run);
-            output=await request(run,version,'audit',{messages:[...messages,{role:'user',content:`请修正核对输出格式或证据，不改变核对范围。只返回完整JSON：${JSON.stringify(result.issues)}`}],profileId:run.snapshot.profileId});
+          let result,output;
+          try{
+            output=await request(run,version,'audit',{messages,profileId:run.snapshot.profileId});
             result=parseSceneAudit(output,{plan:run.plan,range});
+            if(!result.ok&&result.issues.every(entry=>entry.code==='INVALID_AUDIT_OUTPUT')){
+              run.lastAuditOutput=output;await persist(run);
+              output=await request(run,version,'audit',{messages:[...messages,{role:'user',content:`请修正核对输出格式或证据，不改变核对范围。只返回完整JSON：${JSON.stringify(result.issues)}`}],profileId:run.snapshot.profileId});
+              result=parseSceneAudit(output,{plan:run.plan,range});
+            }
+          }catch(e){
+            if(!e.directorRequestFailure)throw e;
+            await assertCurrent(run,version);run.pendingRequestId=null;
+            auditIssue=[...(auditIssue||[]),{code:'AUDIT_UNAVAILABLE',message:'提示词已生成并保存；模型核对暂不可用，请核对本场内容。'}];
+            break;
           }
           if(!result.ok){auditIssue=[...(auditIssue||[]),...result.issues];run.lastAuditOutput=output;continue;}
           run.checks.ranges[rangeKey]=true;await persist(run);

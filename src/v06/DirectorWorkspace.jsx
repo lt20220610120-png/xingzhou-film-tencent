@@ -341,7 +341,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       await quickGeneration.startScene({project,episode,sceneLabel:currentScene,inputText:currentSceneContent,maxDurationSeconds:quickSettings.maxDurationSeconds,pace:quickSettings.pace,skill:currentSkill,profile:directorProfile});
     }catch(e){setAutoError(e.message);}
   };
-  const resumeAutoScene=async()=>{setAutoError('');try{await quickGeneration.resume(localRun.id);}catch(e){setAutoError(e.message);}};
+  const resumeAutoScene=async()=>{setAutoError('');try{await quickGeneration.resume(localRun.id,{profileId:directorProfile?.id});}catch(e){setAutoError(e.message);}};
   useEffect(()=>{setSourceView('source');setAutoError('');},[currentScene]);
 
   const saveSceneVision = (sceneLabel, content) => {
