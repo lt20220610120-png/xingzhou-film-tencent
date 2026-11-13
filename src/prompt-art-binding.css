@@ -282,3 +282,4 @@
 .prompt-art-panel .prompt-art-toolbar .prompt-art-header-actions>button{box-sizing:border-box;height:32px;min-height:32px;padding:6px 10px;border:1px solid #ddd6ec;border-radius:7px;background:#faf8fd;color:#303440;font:400 12px/18px var(--studio-font,"Microsoft YaHei",sans-serif);white-space:nowrap;flex:none}
 .prompt-art-panel .prompt-art-toolbar .prompt-art-header-actions>button:hover:not(:disabled){background:#f0ebf8;border-color:#c9bce0}
 .prompt-art-queue-status{font-variant-numeric:tabular-nums}
+.prompt-art-flow{display:flex;flex-wrap:wrap;gap:8px 24px;padding:10px 0 0;color:var(--text-secondary,#6b6a88);font-size:13px}.prompt-art-flow b{color:var(--text-primary,#302d49);font-variant-numeric:tabular-nums}.prompt-art-flow span{white-space:nowrap}

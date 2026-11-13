@@ -1,4 +1,5 @@
 import {mediaSource} from '../../core/generationReferences.js';
+import {artPipelineProgress} from '../../core/artPipelineProgress.js';
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {bindingSnapshot,bindingImages,sceneInventoryCards,currentEntryBinding,saveDistribution,entryBindingSignature,bindingProblems} from '../../core/promptArtBinding.js';
 import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
@@ -46,18 +47,20 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const saveDecision=next=>persist(saveBindingVersion(saved,snapshot,{...decisions,[entry.id]:saveDistribution(snapshot,entry,next)}));
  const edit=(id,patch)=>saveDecision({...decision,confirmed:false,needs:decision.needs.map(need=>need.id===id?{...need,...patch,locked:true}:need)});
  const ready=Object.fromEntries(Object.values(ledger.episodes||{}).flatMap(record=>(record.scenes||[]).map(scene=>[scene.id,Boolean(scene.mappingReady&&scene.items.length)])));
- const distribution=useScenePromptDistribution({project,ledger,assets,accountId,snapshot,loaded,canEdit,profile,api,setError,setNotice});
+ const distribution=useScenePromptDistribution({project,ledger,assets,accountId,snapshot,sceneId,loaded,canEdit,profile,api,setError,setNotice});
+ const progress=useMemo(()=>artPipelineProgress(project,ledger,snapshot,decisions),[project,ledger,snapshot,decisions]);
  const liveTask=entry&&distribution.entryTasks?.[entry.id],taskCurrent=liveTask&&(!liveTask.versionId||liveTask.versionId===snapshot.versionId);
  const [now,setNow]=useState(Date.now());
  useEffect(()=>{if(!taskCurrent)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[entry?.id,taskCurrent,liveTask?.phase]);
- const phaseText=taskCurrent?({queued:'等待前序任务',preparing:'正在准备清单',waiting:'等待模型请求',retrying:`正在重试（第 ${liveTask.attempt} 次）`,requesting:liveTask.attempt>1?`正在重新关联（第 ${liveTask.attempt} 次）`:'正在关联',saving:'正在保存关联'})[liveTask.phase]:stale?'关联需重新核对':decisions[entry?.id]?.confirmed?(attempt?.status==='calibration-failed'?'已关联 · 模型校准未完成':'已关联'):attempt?.status==='failed'?'关联待核对':attempt?.status==='done'?'已读取，需核对关联':attempt?.status==='running'?'上次关联尚未完成':'尚未开始';
+ const phaseText=taskCurrent?({queued:'排队中',preparing:'正在准备清单',waiting:'等待模型请求',retrying:`正在重试（第 ${liveTask.attempt} 次）`,requesting:liveTask.attempt>1?`等待重新关联响应（第 ${liveTask.attempt} 次）`:'等待模型响应',receiving:'正在接收关联结果',saving:'正在保存关联'})[liveTask.phase]:stale?'关联需重新核对':decisions[entry?.id]?.confirmed?(attempt?.status==='calibration-failed'?'已关联 · 模型校准未完成':'已关联'):attempt?.status==='failed'?'关联待核对':attempt?.status==='done'?'已读取，需核对关联':attempt?.status==='running'?'上次关联尚未完成':distribution.working&&!sceneReady?'等待本场清单补全':distribution.working?'等待对白或关联准备':'尚未开始';
  const toggleCard=(card,checked)=>card.category==='voice'?Promise.resolve():saveDecision(assignSceneCard(snapshot,entry,{...decision,needs:[...auditNeeds,...decision.needs.filter(n=>!n.cardUid)]},card.uid,checked));
  if(!available)return null;
  const disabled=busy||distribution.isBusy(entry?.id)||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
   {entry&&<SceneInventoryDisclosure cards={inventory} needs={displayNeeds} entryLabel={entry.label} disabled={disabled} onToggle={(card,checked)=>act(()=>toggleCard(card,checked))}/>} 
   <header className="prompt-art-toolbar"><div><h2>场景 {sceneId} · 提示词素材关联</h2></div><div className="prompt-art-header-actions">{sceneActions}<button className="prompt-art-entry-retry" title="重新读取当前提示词并关联素材，保留人工选择" disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>重新关联本条</button></div></header>
-  {entry&&<p className="prompt-art-queue-status" role="status">本条 {entry.label}：{phaseText}{taskCurrent?` · ${Math.max(0,Math.floor((now-liveTask.queuedAt)/1000))} 秒`:''}{distribution.working?` · 同时请求 ${distribution.active}/6 · 待处理 ${distribution.queued} 条`:''}</p>}
+  {loaded&&<div className="prompt-art-flow" aria-label="协作处理进度"><span>清单 <b>{progress.read}/{progress.episodes}</b> 集</span><span>场景 <b>{progress.mapped}/{progress.scenes}</b> 场</span><span>已保存关联 <b>{progress.linked}/{progress.entries}</b> 条</span></div>}
+  {entry&&<p className="prompt-art-queue-status" role="status">本条 {entry.label}：{phaseText}{taskCurrent?` · ${Math.max(0,Math.floor((now-(liveTask.phaseAt||liveTask.queuedAt))/1000))} 秒`:''}{distribution.working?` · 请求中 ${distribution.active} 项 · 排队 ${distribution.queued} 项`:''}{distribution.lastCompleted?.versionId===snapshot.versionId?` · 最近完成 ${distribution.lastCompleted.label}`:''}</p>}
   {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {<>
    {!entry?<p>本场尚无已保存提示词，可先核实美术清单；补齐后刷新云端即可自动关联。</p>:<div className="prompt-art-workspace">

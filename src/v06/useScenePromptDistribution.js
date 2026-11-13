@@ -5,15 +5,16 @@ import {getArtReviewStore} from '../../core/artReviewPersistence.js';
 import {notifyBindingSaved} from './useScenePromptLinks.js';
 
 // Mounting subscribes only. AI starts through analysis or an explicit user action.
-export default function useScenePromptDistribution({project,assets,accountId,snapshot,loaded,canEdit,profile,api,setError,setNotice}){
+export default function useScenePromptDistribution({project,assets,accountId,snapshot,sceneId,loaded,canEdit,profile,api,setError,setNotice}){
  const store=getArtReviewStore({api,projectId:project.id,accountId});
  const service=useMemo(()=>getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets}),onSaved:data=>notifyBindingSaved(project.id,accountId,data)}),[api,project.id,accountId]);
  service.configure(()=>({project,ledger:store.snapshot(),assets}));
  const controller=useMemo(()=>getArtDistributionController({api,projectId:project.id,accountId}),[api,project.id,accountId]);
  controller.configure({project,store,existingAssets:assets,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data)});
+ useEffect(()=>{controller.focusScene(sceneId);service.focusScene(sceneId);return()=>{controller.focusScene('');service.focusScene('');};},[controller,service,sceneId]);
  const [,render]=useState(0);useEffect(()=>{const update=()=>render(n=>n+1),a=service.subscribe(update),b=controller.subscribe(update);return()=>{a();b();};},[service,controller]);
  const serviceState=service.status(),controllerState=controller.status();
- const state={...serviceState,...controllerState,working:serviceState.working||controllerState.working,queued:Math.max(serviceState.queued,controllerState.queued)};
+ const state={...serviceState,...controllerState,working:serviceState.working||controllerState.working,queued:serviceState.queued};
  return {...state,service,isBusy:service.isBusy,redistribute:async entry=>{
   if(!loaded||!canEdit)return;setError('');setNotice(`正在让模型重新读取 ${entry.label}…`);
   try{await service.run(entry.id,{profile,manual:true,versionId:snapshot.versionId});setNotice(`已按模型结果分发 ${entry.label}`);}catch(error){setError(error.message);throw error;}

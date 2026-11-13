@@ -53,10 +53,11 @@ function copyDependency(name, from) {
   for (const name of localProjectModules) fs.copyFileSync(path.join(root,'cloud-backend/src',name+'.cjs'),path.join(staging,'cloud-backend/src',name+'.cjs'));
   copyDependency('mammoth',root);
   copyDependency('yjs',root);
+  copyDependency('p-queue',root);
   const runtime = process.env.XINGZHOU_ELECTRON_DIST || path.join(root,'qa/electron-runtime');
   const config = {...pkg.build, electronVersion:require('electron/package.json').version, directories:{output,buildResources:'build'}, npmRebuild:false};
   if (fs.existsSync(path.join(runtime,'electron.exe'))) config.electronDist = runtime;
-  const stagePkg = {...pkg, xingzhouPrivateTrial:process.env.XINGZHOU_PRIVATE_TRIAL==='1', scripts:{}, dependencies:{mammoth:installed.get('mammoth'),yjs:installed.get('yjs')}, devDependencies:{}, build:config};
+  const stagePkg = {...pkg, xingzhouPrivateTrial:process.env.XINGZHOU_PRIVATE_TRIAL==='1', scripts:{}, dependencies:{mammoth:installed.get('mammoth'),yjs:installed.get('yjs'),'p-queue':installed.get('p-queue')}, devDependencies:{}, build:config};
   fs.writeFileSync(path.join(staging,'package.json'),JSON.stringify(stagePkg,null,2));
   fs.writeFileSync(path.join(staging,'runtime-dependencies.json'),JSON.stringify(Object.fromEntries(installed),null,2));
   console.log(`Staging ${installed.size} physical runtime packages in ${staging}`);

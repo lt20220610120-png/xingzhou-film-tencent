@@ -20,7 +20,7 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
 const decisionFingerprint=decision=>{if(!decision)return bindingHash(null);const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
 
 export function createPromptDistributionService({api,projectId,accountId,getContext,onSaved,onPublished,concurrency}){
- let context=getContext,publishedListener=onPublished,writer=Promise.resolve(),generation=0,notice='',paused=false;
+ let context=getContext,publishedListener=onPublished,writer=Promise.resolve(),generation=0,notice='',paused=false,focusedSceneId='',lastCompleted=null;
  // Bound preparation/persistence too. Hundreds of queued entries must not all
  // read, claim and rewrite the complete version archive before the first reply.
  const tasks=new Map(),maintenance=new Set(),listeners=new Set(),modelQueue=getArtModelQueue(api),lane=createTaskPool(concurrency||5);
@@ -46,6 +46,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
  };
  const service={
   configure(fn,onPublish){context=fn;if(onPublish)publishedListener=onPublish;},read,mutate,getContext:()=>context(),
+  focusScene(sceneId=''){focusedSceneId=sceneId;lane.reprioritize();modelQueue.notify();},
   async publishStoryboards(state,entries){
    if(!api.collabPatchStoryboard)return;
    const project=await api.collabPatchStoryboard({projectId,...storyboardPublicationPayload(state.snapshot,state.decisions,entries)});
@@ -62,9 +63,9 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   },
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
   isBusy:id=>tasks.has(id)||maintenance.has(entrySceneId(id)),
-  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],entryTasks:Object.fromEntries([...tasks].map(([id,t])=>[id,{phase:t.phase,attempt:t.attempt,queuedAt:t.queuedAt,startedAt:t.startedAt,versionId:t.versionId}])),notice,paused,...modelQueue.status(),queued:Math.max(modelQueue.status().queued,lane.queued)}),
+  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],entryTasks:Object.fromEntries([...tasks].map(([id,t])=>[id,{phase:t.phase,attempt:t.attempt,queuedAt:t.queuedAt,phaseAt:t.phaseAt,startedAt:t.startedAt,receivedBytes:t.receivedBytes,versionId:t.versionId}])),notice,paused,lastCompleted,...modelQueue.status(),queued:lane.queued+modelQueue.status().queued}),
   resume(){paused=false;emit();},
-  async autoAssociate({versionId,sceneId,voiceEnabled=true,isStopped=()=>false}={}){
+  async autoAssociate({versionId,sceneId,voiceEnabled=true,confirmedOnly=false,isStopped=()=>false}={}){
    return mutate(versionId,state=>{
     if(isStopped())return null;
     const decisions={...state.decisions},attempts={...state.saved?.sceneDistributionAttempts};let changed=false;
@@ -75,6 +76,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      const prior=decisions[entry.id];
      if(prior?.confirmed&&bindingProblems(state.snapshot,entry,prior,{voiceEnabled}).length===0)continue;
      const next=automaticEntryAssociation(state.snapshot,entry,prior,{voiceEnabled});
+     if(confirmedOnly&&!next.confirmed)continue;
      if(JSON.stringify(next)===JSON.stringify(prior))continue;
      decisions[entry.id]=next;changed=true;
      if(next.confirmed)attempts[state.snapshot.versionId+':'+entry.id]={stamp:sceneDistributionStamp(state.snapshot,entry,scene.source),status:'done',label:entry.label,origin:'automatic'};
@@ -89,8 +91,9 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
    if(tasks.has(entryId))return tasks.get(entryId).promise;
    if(paused&&!manual)return Promise.reject(Error('已暂停自动分发'));
    if(!profile)return Promise.reject(Error('请选择分发模型'));
-   const token=generation,task={manual,taskIds:[],phase:'queued',attempt:0,queuedAt:Date.now(),versionId};
-   const phase=value=>{task.phase=value;emit();};
+   const token=generation,task={manual,taskIds:[],phase:'queued',attempt:0,queuedAt:Date.now(),phaseAt:Date.now(),versionId};
+   const priority=()=>sceneId===focusedSceneId?6:0;
+   const phase=value=>{if(task.phase!==value){task.phaseAt=Date.now();task.phase=value;}emit();};
    const stopped=()=>job.cancelled||(!manual&&generation!==token);
    task.promise=(!manual?lane.run:fn=>Promise.resolve().then(fn))(async()=>{
     let claimKey,stamp,owner,selectedId,decisionToken,captured;
@@ -121,7 +124,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId),{voiceEnabled}),onAttempt:attempt=>{task.attempt=attempt;phase(attempt>1?'retrying':'waiting');},call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
       const cardCount=state.snapshot.entries.find(e=>e.id===entryId)?sceneCards(state.snapshot,state.snapshot.entries.find(e=>e.id===entryId)).length:0;
-      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,isStopped:stopped,onStart:()=>{task.startedAt=Date.now();phase('requesting');}});
+      return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,priority,isStopped:stopped,onStart:()=>{task.startedAt=Date.now();task.receivedBytes=0;phase('requesting');},onProgress:status=>{if(stopped())return;if(status.receivedBytes>task.receivedBytes){task.receivedBytes=status.receivedBytes;phase('receiving');}}});
      },isStopped:stopped,validate:raw=>calibratedEntryAssociation(state.snapshot,entry,seed,raw,sceneSource(state.ctx,entry.sceneId),{voiceEnabled})});
      if(stopped())throw Error('任务已停止');
      phase('saving');
@@ -136,7 +139,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
       const decisions={...latest.decisions,[entryId]:saveDistribution(latest.snapshot,current,rebased,{voiceEnabled})};
       return {...saveBindingVersion(latest.saved,latest.snapshot,decisions),sceneDistributionAttempts:{...latest.saved.sceneDistributionAttempts,[claimKey]:{stamp,status:'done',label:entry.label}}};
      });
-     notice=`已分发 ${entry.label}`;return result;
+     lastCompleted={label:entry.label,at:Date.now(),versionId:selectedId};notice=`已分发 ${entry.label}`;return result;
     }catch(error){
      if(captured&&owner)try{await mutate(selectedId,latest=>{
       if(latest.saved?.sceneDistributionAttempts?.[claimKey]?.owner!==owner)throw Error('其他任务已接手');
@@ -145,7 +148,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      });}catch{/* Never overwrite a newer decision just to record failure. */}
      notice=error.message;throw error;
     }
-   });
+   },{priority});
    tasks.set(entryId,task);emit();
    const done=()=>{tasks.delete(entryId);emit();};task.promise.then(done,done);return task.promise;
   }

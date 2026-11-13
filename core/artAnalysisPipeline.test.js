@@ -52,27 +52,27 @@ test('stopping inventory leaves completed upstream scenes distributing, and dist
   return {ok:true,output:`### 第${n}集\n人物：\n- 【旺财-狗】主体类型：生物；物种：犬。黄毛四足，尖耳，完整尾巴。\n场景：\n- 无\n道具：\n- 无\n【逐场资产对应表】\n`+JSON.stringify({scenes:[{sceneId:`${n}-1`,assets:[{category:'character',name:'【旺财-狗】'}]}]})};
  }};
  const store=getArtReviewStore({api,projectId:project.id,accountId:'u'});await store.load(project);const job={};
- const run=runArtAnalysisPipeline({project,api,store,profile:{id:'m'},accountId:'u',job});
+ const run=runArtAnalysisPipeline({project,api,store,profile:{id:'m'},accountId:'u',job,onBindingSaved:data=>{if(data.decisions?.p1?.confirmed)waiting.resolve();}});
  await Promise.all([waiting.promise,inventoryWaiting.promise]);job.cancelled=true;inventoryHold.resolve();hold.resolve();await run;
  const control=getArtDistributionController({api,projectId:project.id,accountId:'u'});await control.idle();
- assert.equal(saved.decisions.p1.confirmed,true,'stopping reading must not stop prompt result');assert.equal(promptCalls,1);
+ assert.equal(saved.decisions.p1.confirmed,true,'stopping reading must retain the saved association');assert.equal(promptCalls,0,'a literal unique identity needs no model calibration');
  await control.stop();assert.equal(control.status().paused,true);
- await control.start();assert.equal(control.status().paused,false);assert.equal(promptCalls,1,'starting saved work reuses completed distribution');
+ await control.start();assert.equal(control.status().paused,false);assert.equal(promptCalls,0,'starting saved work reuses completed distribution');
 });
 test('episode inventory, independent scenes and ready-scene prompts overlap; reopening views is not a trigger',async()=>{
  const project={id:crypto.randomUUID(),episodes:[1,2].map(n=>({id:'ep'+n,episodeNumber:n,title:'第'+n+'集',content:`${n}-1 客厅 日 内\n旺财趴在地上。\n${n}-2 院子 日 外\n旺财奔跑。`,prompts:[1,2].map(s=>({id:`p${n}${s}`,label:`${n}-${s}-1`,content:'【基础设定】\n人物：旺财（参考@），黄毛四足犬。\n场景：无\n道具：无'}))}))};
- let ledger={episodes:{}},binding=null;const events=[],inventory2=gate(),scene2=gate(),promptStarted=gate();
+ let ledger={episodes:{}},binding=null;const events=[],inventory2=gate(),inventory2Started=gate(),scene2=gate(),promptStarted=gate();
  const api={artReviewLoadLocal:async()=>ledger,artReviewSaveLocal:async({data})=>{ledger=structuredClone(data)},analysisLoad:async()=>null,promptArtStatus:async()=>({enabled:true}),promptArtLoad:async()=>structuredClone(binding),promptArtSave:async p=>{assert.equal(p.baseRevision,binding?.revision||0);binding={...structuredClone(p.data),revision:(binding?.revision||0)+1};return structuredClone(binding)},aiChat:async p=>{
   const text=p.messages.map(m=>m.content).join('');
   if(p.messages[0].content.includes('你是剧本场记')){const data=JSON.parse(p.messages[1].content);return JSON.stringify({scenes:data.scenes.map(s=>({sceneId:s.sceneId,speakers:[]}))});}
   if(p.messages[0].content.includes('影视场景清单分发助手')){const data=JSON.parse(p.messages[1].content);events.push('prompt:'+data.label);if(data.label==='1-1-1')promptStarted.resolve();return JSON.stringify({assignments:data.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidence:'旺财',reason:'基础设定明确旺财'})),missing:[]})}
   if(p.messages[0].content.includes('并发场景关联')){const data=JSON.parse(p.messages[1].content);events.push('scene:'+data.sceneId);if(data.sceneId==='1-2')await scene2.promise;return JSON.stringify({scenes:[{sceneId:data.sceneId,assets:[{category:'character',name:'【旺财-狗】'}]}]})}
-  const n=Number(text.match(/当前输出只包含第(\d+)集/)?.[1]);events.push('inventory:'+n);if(n===2)await inventory2.promise;
+  const n=Number(text.match(/当前输出只包含第(\d+)集/)?.[1]);events.push('inventory:'+n);if(n===2){inventory2Started.resolve();await inventory2.promise;}
   return {ok:true,output:`### 第${n}集\n人物：\n- 【旺财-狗】主体类型：生物；物种：犬。黄毛四足，尖耳，完整尾巴。\n场景：\n- 无\n道具：\n- 无\n【逐场资产对应表】\n{"scenes":[]}`};
  }};
  const store=getArtReviewStore({api,projectId:project.id,accountId:'u'});await store.load(project);
- const running=runArtAnalysisPipeline({project,api,store,genre:'现代',profile:{id:'m',model:'mock'},accountId:'u',job:{}});
- await promptStarted.promise;assert(events.includes('inventory:2'));assert(events.includes('scene:1-2'));assert(events.includes('prompt:1-1-1'));
+ const running=runArtAnalysisPipeline({project,api,store,genre:'现代',profile:{id:'m',model:'mock'},accountId:'u',job:{},onBindingSaved:data=>{if(data.decisions?.p11?.confirmed){events.push('associated:1-1-1');promptStarted.resolve();}}});
+ await Promise.all([promptStarted.promise,inventory2Started.promise]);assert(events.includes('inventory:2'));assert(events.includes('scene:1-2'));assert(events.includes('associated:1-1-1'));
  inventory2.resolve();scene2.resolve();const result=await running;assert.deepEqual(result.errors,[]);assert.equal(Object.keys(binding.decisions).length,4);
  const before=events.length;await runArtAnalysisPipeline({project,api,store,genre:'现代',profile:{id:'m',model:'mock'},accountId:'u',job:{}});assert.equal(events.length,before,'explicit continue reuses completed model results');
 });
@@ -86,6 +86,6 @@ test('a completed detail batch immediately dispatches its ready scene while anot
   return {ok:true,output:'### 第1集\n人物：\n'+Array.from({length:7},(_,i)=>`- 【狗${i+1}-狗】（首次）`).join('\n')+'\n场景：\n- 无\n道具：\n- 无\n【逐场资产对应表】\n'+JSON.stringify({scenes:[{sceneId:'1-1',assets:[{category:'character',name:'【狗1-狗】'}]},{sceneId:'1-2',assets:[{category:'character',name:'【狗7-狗】'}]}]})};
  }};
  const store=getArtReviewStore({api,projectId:project.id,accountId:'u'});await store.load(project);
- const running=runArtAnalysisPipeline({project,api,store,genre:'现代',profile:{id:'m'},accountId:'u',job:{}});
+ const running=runArtAnalysisPipeline({project,api,store,genre:'现代',profile:{id:'m'},accountId:'u',job:{},onBindingSaved:data=>{if(data.decisions?.p1?.confirmed)started.resolve();}});
  await Promise.race([started.promise,new Promise((_,reject)=>setTimeout(()=>reject(Error('已完成的详情批次没有触发下游')),300))]);assert(secondWaiting);hold.resolve();await running;
 });

@@ -130,12 +130,12 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
  useEffect(()=>{setAssignment(null);setPromptAssignment(null);setPicker(null);setEditor(null);setConfirmation(null);setError('');setNotice('');},[number,selectedSceneId]);
  const promptLinks=useScenePromptLinks({project,ledger,assets,api,accountId,enabled:promptEnabled,canEdit,versionId:reviewVersion||undefined});
  const episodeRunning=running&&(analysisJob.activeEpisodes?analysisJob.activeEpisodes.includes(number):!analysisJob.targetEpisodeNumbers||analysisJob.targetEpisodeNumbers.includes(number));
- const reviewVersions=bindingVersionOptions(promptLinks.state.currentSnapshot||promptLinks.state.snapshot,promptLinks.state.saved);
+ const reviewVersions=useMemo(()=>bindingVersionOptions(promptLinks.state.currentSnapshot||promptLinks.state.snapshot,promptLinks.state.saved),[promptLinks.state.currentSnapshot,promptLinks.state.snapshot,promptLinks.state.saved]);
  const reviewedVersion=reviewVersions.some(row=>row.id===reviewVersion)?reviewVersion:reviewVersions[0].id;
- const reviewState={...promptLinks.state,...selectBindingVersion(promptLinks.state.currentSnapshot||promptLinks.state.snapshot,promptLinks.state.saved,reviewedVersion)};
+ const reviewState=useMemo(()=>({...promptLinks.state,...selectBindingVersion(promptLinks.state.currentSnapshot||promptLinks.state.snapshot,promptLinks.state.saved,reviewedVersion)}),[promptLinks.state.currentSnapshot,promptLinks.state.snapshot,promptLinks.state.saved,reviewedVersion,project,ledger,assets]);
  const hasScenePrompts=promptEnabled&&reviewState.snapshot.entries.some(entry=>entry.sceneId===selectedSceneId);
  const promptMode=hasScenePrompts&&reviewMode==='prompt';
- const sceneBatch=promptReviewState(reviewState,{sceneId:selectedSceneId}),episodeBatch=promptReviewState(reviewState,{episode:number}),wholeBatch=promptReviewState(reviewState,{});
+ const sceneBatch=useMemo(()=>promptReviewState(reviewState,{sceneId:selectedSceneId}),[reviewState,selectedSceneId]),episodeBatch=useMemo(()=>promptReviewState(reviewState,{episode:number}),[reviewState,number]),wholeBatch=useMemo(()=>promptReviewState(reviewState,{}),[reviewState]);
  const batchHint=batch=>batch.problems.slice(0,3).join("；");
  const batchReady=batch=>promptLinks.loaded&&batch.ready&&!batch.entries.some(entry=>promptLinks.service.isBusy(entry.id));
  const globalBatchReady=promptLinks.loaded&&wholeBatch.reviewableEntries.length>0&&!wholeBatch.reviewableEntries.some(entry=>promptLinks.service.isBusy(entry.id));
