@@ -24,17 +24,18 @@ export async function createDirectorBatchPlan({accountId,project,skill,profile,m
  concurrency=concurrencyOf(concurrency);
  if(!project||project.cloudLocked||project.cloudConflict||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false)throw fault('当前项目不能生成提示词');
  const targets=[];
+ const completeScenes=existingPolicy==='incomplete-only'?new Set(productionCoverage(project).flatMap(e=>e.scenes.filter(s=>s.complete).map(s=>s.label))):null;
  const episodes=(project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传');
  for(const [index,episode] of episodes.entries()){
   for(const scene of parseDirectorScenes(episode.content,index+1)){
    const source=directorSceneInput(project,episode,scene.label);
    const snapshot=await createSceneSnapshot({accountId,project,episode,sceneLabel:scene.label,inputText:source,skill,profile,maxDurationSeconds,pace,timingScale});
    const existing=(episode.prompts||[]).filter(p=>String(p.label||'').startsWith(`${scene.label}-`));
-   const skip=!source?.trim()||(existingPolicy==='missing-only'&&existing.length>0||existingPolicy==='incomplete-only'&&productionCoverage(project).find(e=>e.id===episode.id)?.scenes.find(s=>s.label===scene.label)?.complete);
+   const skip=!source?.trim()||(existingPolicy==='missing-only'&&existing.length>0||completeScenes?.has(scene.label));
    const manualCount=segmentationMode==='manual'&&!skip?manualSceneTasks(source,scene.label).length:0;
    targets.push({episodeId:episode.id,episodeNumber:index+1,episodeTitle:episode.title||`第${index+1}集`,sceneLabel:scene.label,manualCount,
     fingerprint:Object.fromEntries(fingerprintFields.map(key=>[key,snapshot[key]])),existingCount:existing.length,
-    status:skip?'skipped':'pending',reason:!source?.trim()?'场景为空':skip?'已有提示词，跳过；未判定完整性':'',sceneRunId:null});
+    status:skip?'skipped':'pending',reason:!source?.trim()?'场景为空':skip?(completeScenes?.has(scene.label)?'提示词已齐全':'已有提示词，跳过；未判定完整性'):'',sceneRunId:null});
   }
  }
  if(!targets.length)throw fault('项目没有可生成的场景');

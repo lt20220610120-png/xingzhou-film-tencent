@@ -26,6 +26,8 @@ function harness(api, projects = [], reconcile = projects => projects) {
     active: false,selectedProjectId:null,
     cloudActiveRef: { current: false },
     cloudRequestRef: { current: 0 },
+    cloudManagerRef: { current: false },
+    setCloudManagement: value => { state.management=value; },
     useCallback: fn => fn,
     React: { useEffect: fn => { cleanup = fn(); } },
     setInterval: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },

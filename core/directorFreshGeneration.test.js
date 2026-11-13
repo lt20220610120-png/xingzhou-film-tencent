@@ -102,3 +102,14 @@ test('current run survives cloud serialization, old snapshots and edition switch
  assert.deepEqual(branched.episodes.at(-1).activeSceneGenerationRuns,{});
  const restored=switchDirectorPromptEdition(branched,'original:p');assert.equal(restored.episodes.at(-1).activeSceneGenerationRuns['9-3'].runId,run.id);
 });
+
+test('cloud management keeps real source, collaboration and local recovery separate by stable identity',async()=>{
+ const {directorCloudManagementRows,detachUnavailableDirector}=await import('./directorCloudProjects.js');
+ const rows={accountId:'owner',verified:true,cloudProjects:[{id:'live',myRole:'producer',analysis_output:'upload'}],collaborationProjects:[
+  {id:'collab',director_project_id:'upload',owner_id:'owner'},{id:'foreign',director_project_id:'upload',owner_id:'other'},{id:'trash',director_project_id:'upload',owner_id:'owner',deleted_at:'today'}
+ ],directorProjects:[{id:'upload',cloudProjectId:'live'},{id:'orphan',name:'同名',cloudProjectId:'absent',episodes:[{prompts:[{content:'本机已有成果'}]}]}]};
+ const listed=directorCloudManagementRows(rows);
+ assert.deepEqual(listed.map(p=>[p.key,p.canDelete]),[['director:live',undefined],['collab:collab',true],['collab:foreign',false],['collab:trash',false],['local:orphan',undefined]]);
+ assert.equal(directorCloudManagementRows({...rows,verified:false}).some(p=>p.kind==='local'),false);
+ const recovered=detachUnavailableDirector(listed.at(-1));assert.equal(recovered.cloudProjectId,undefined);assert.equal(recovered.episodes[0].prompts[0].content,'本机已有成果');
+});

@@ -37,6 +37,31 @@ export const directorPromptMode = (prompt) => {
 export const creativePromptsForScene = (prompts, sceneLabel) => promptsForScene(prompts, sceneLabel)
   .filter((prompt) => directorPromptMode(prompt) === 'creative');
 
+// Collaboration and production must resolve the same saved batch as the director.
+export function currentDirectorScenePrompts(episode,sceneLabel) {
+ const prompts=(episode.prompts||[]).filter(p=>String(p.label||'').startsWith(sceneLabel+'-'));
+ return currentDirectorEpisodePrompts({...episode,prompts});
+}
+
+export function currentDirectorEpisodePrompts(episode) {
+ const prompts=(episode.prompts||[]).filter(p=>!p.sourceRemoved);
+ const labels=new Map();
+ for(const prompt of prompts){
+  const label=String(prompt.label||'').match(/^(\d+-\d+)-\d+$/)?.[1];
+  if(label&&prompt.generationRunId)labels.set(label,prompt.generationRunId);
+ }
+ return prompts.filter(prompt=>{
+  const label=String(prompt.label||'').match(/^(\d+-\d+)-\d+$/)?.[1];
+  if(!label)return true;
+  const runId=episode.activeSceneGenerationRuns?.[label]?.runId;
+  const planId=episode.activeQuickScenePlanIds?.[label];
+  if(runId&&prompt.generationRunId!==runId)return false;
+  if(planId)return prompt.segmentationPlanId===planId;
+  const latest=runId||labels.get(label);
+  return !latest||prompt.generationRunId===latest;
+ });
+}
+
 const NUMBERED_PROMPT_MARKER = /^\s*[（(](\d+)[）)]\s*(.*)$/;
 const INPUT_SEGMENT_MARKER = /^\s*[（(](\d+)[）)]\s*$/;
 const SCENE_PROMPT_ID_MARKER = /^\s*(?:(?:#{1,6})\s*)?(?:\*\*|__)?(\d+-\d+-\d+)(?:\*\*|__)?\s*$/;

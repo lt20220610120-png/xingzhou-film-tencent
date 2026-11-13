@@ -1,3 +1,4 @@
+import {currentDirectorEpisodePrompts} from './directorCreative.js';
 import {productionIdentity} from './productionIdentity.js';
 import {validateExecutionScope,executionScopeDone} from './productionExecutionScope.js';
 import {modelPolicyIssues} from './productionModelPolicy.js';
@@ -9,6 +10,7 @@ import {videoPolicyIssues} from './productionVideoPolicy.js';
 export {directorPromptCoverage as productionCoverage} from './directorPromptCoverage.js';
 export function productionVideoIssues(c,state){
  let selected;try{selected=JSON.parse(c.videoModel);}catch{return ['请选择有效的视频模型'];}
+ if(!Array.isArray(selected)||selected.length!==2)return ['请选择有效的视频模型'];
  const p=generationMediaProfiles(state,'video').find(p=>p.id===selected[0]),model=p&&profileModels(p,'video').find(m=>m.id===selected[1]);if(!model)return ['所选视频模型已不存在'];
  const caps=normalizeCapabilities(model),issues=[],duration=Number(c.videoDuration);
  if(caps.durations?.length&&!caps.durations.includes(duration)||caps.durationByResolution?.[c.videoResolution]?.length&&!caps.durationByResolution[c.videoResolution].includes(duration))issues.push('视频时长不在所选模型/分辨率的支持范围');
@@ -46,16 +48,13 @@ export function productionIssues(c,{project,models=[],profiles=[],skills=[]}={})
  if(c.endStage!=='archive'&&!c.topazPath)issues.push('请选择 Topaz 软件');
  if(c.endStage==='edit'&&(!c.openFilmPath||!effectiveEditingInstruction(c)))issues.push('请设置 OpenFilm 及每集剪辑指令');
  if(c.endStage==='edit'&&c.tailFrameMode==='custom'&&!c.tailFramePath)issues.push('请选择指定尾帧文件，或改用默认伪帧');
- if(!(Number(c.maxDuration)>0&&Number(c.maxDuration)<=35))issues.push('最高分段时长应在 1–35 秒之间');
+ if(!Number.isInteger(Number(c.maxDuration))||Number(c.maxDuration)<0||Number(c.maxDuration)>35)issues.push('最高分段时长须为 0–35 的整数，0 表示自动估算');
  if(!(Number(c.videoDuration)>0&&Number(c.videoDuration)<=3600))issues.push('视频生成时长无效');
  for(const k of ['imageConcurrency','videoConcurrency','imageAttempts'])if(!Number.isInteger(Number(c[k]))||c[k]<1||c[k]>8)issues.push('并发和尝试次数应在 1–8 之间');
  return issues;
 }
 export function productionExpectedPrompts(project){
- return (project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传').flatMap(ep=>{
-  const latest=new Map();for(const p of ep.prompts||[])if(p.generationRunId)latest.set(String(p.label).split('-').slice(0,2).join('-'),p.generationRunId);
-  return (ep.prompts||[]).filter(p=>{const scene=String(p.label).split('-').slice(0,2).join('-'),plan=ep.activeQuickScenePlanIds?.[scene];return plan?p.segmentationPlanId===plan:!latest.has(scene)||latest.get(scene)===p.generationRunId;});
- });
+ return (project.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传').flatMap(currentDirectorEpisodePrompts);
 }
 export function imageFailureKind(error,pending){
  if(pending||/超时|timeout|network|socket|ECONN|提交.*不明/i.test(error?.message||error))return 'uncertain';
@@ -98,6 +97,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
     }catch(error){guard(run);await log(`监测暂未完成：${error.message}；保留原成果，按原任务凭据接续。`,'warning');}
    }
    for(const stage of ['prompts','information','voices','art']){
+    if(run.stageErrors?.validation)break;
     if(['information','voices','art'].includes(stage)&&run.stages.prompts?.status==='partial'||['voices','art'].includes(stage)&&run.stages.information?.status==='partial'||stage==='art'&&voiceAutomationEnabled(run.config)&&run.stages.voices?.status==='partial')break;
     guard(run);if(stage==='voices'&&!voiceAutomationEnabled(run.config)){run.stages.voices={status:'done',skipped:true};delete run.stageErrors?.voices;run.voiceWarnings=[];await persist(run);continue;}if(run.stages[stage]?.status==='done')continue;if(typeof adapters[stage]!=='function'){run.stages[stage]={status:'done',skipped:true};await persist(run);continue;}
      run.stages[stage]={status:'running'};await log(`开始执行：${PRODUCTION_STAGES.find(([key])=>key===stage)?.[1]||stage}`);

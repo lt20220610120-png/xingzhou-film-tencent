@@ -129,6 +129,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     startBatch:async plan=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');assertNoSingleWork(plan.snapshot.projectId);return batchController.start(plan);},
     resumeBatch:async id=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');const batch=batchController.get(id);if(!batch)throw new Error('找不到整本任务');if(!isDirectorBatchActive(batch))assertNoSingleWork(batch.snapshot.projectId);return batchController.resume(id);},
     pauseBatch:id=>batchController.pause(id),cancelBatch:id=>batchController.cancel(id),
+    getBatch:id=>batchController.get(id),
     getProjectBatch:projectId=>{const row=batches.filter(b=>b.snapshot.projectId===projectId&&sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),b.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?batchController.get(row.id):null;},
     isProjectBatchActive:projectId=>batches.some(b=>b.snapshot.projectId===projectId&&isDirectorBatchActive(b)),
     isCloudSaving:cloudSync.isSaving,getCloudProject:id=>stateRef.current.directorProjects?.find(p=>p.id===id),

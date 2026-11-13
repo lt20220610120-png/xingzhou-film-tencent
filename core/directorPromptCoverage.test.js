@@ -22,3 +22,16 @@ test('empty scripts and a newly added episode are never complete',()=>{
  project.episodes[0]={id:'e',content:'1-1 房间 日 内\n甲开门。',prompts:[prompt('1-1-1')]};assert.equal(directorPromptCoverage(project).every(e=>e.complete),true);
  project.episodes.push({id:'two',content:'2-1 房间 夜 内\n甲关门。'});assert.equal(directorPromptCoverage(project).every(e=>e.complete),false);
 });
+
+test('calibrated plans count as complete, and an empty current run cannot reuse a prior reply',async()=>{
+ const {directorSettingsHash,directorSceneInput}=await import('./directorQuickStore.js');
+ const ep={id:'ep',title:'第1集',content:'1-1 房间 日 内\n甲开门。',activeQuickScenePlanIds:{'1-1':'plan'},activeSceneGenerationRuns:{'1-1':{runId:'new'}},prompts:[
+  prompt('1-1-1',{id:'new-prompt',generationRunId:'new',segmentationPlanId:'plan'}),
+  prompt('1-1-1',{id:'old-prompt',generationRunId:'old',segmentationPlanId:'old-plan'})
+ ]},project={episodes:[ep]},maxDurationSeconds=31,timingScale=.7,pace=-100;
+ ep.quickScenePlans=[{id:'plan',segments:[{index:1}],maxDurationSeconds,pace,editorialBudget:{timingScale},sourceSnapshot:directorSceneInput(project,ep,'1-1'),settingsHash:directorSettingsHash({project,episode:ep,maxDurationSeconds,pace,timingScale})}];
+ assert.equal(directorPromptCoverage(project)[0].complete,true);
+ ep.activeSceneGenerationRuns['1-1'].runId='empty';
+ assert.equal(directorPromptCoverage(project)[0].complete,false);
+ assert.equal(directorPromptCoverage(project)[0].count,0);
+});

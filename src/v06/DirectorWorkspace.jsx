@@ -39,7 +39,7 @@ import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterS
 import { getSceneVision, buildScenePromptRecords, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput,buildCreativeSceneSubmission } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
-import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes } from '../../core/directorCloudProjects.js';
+import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes, directorCloudManagementRows, detachUnavailableDirector } from '../../core/directorCloudProjects.js';
 import { DirectorQuickControls, DirectorQuickProgress } from './DirectorQuickControls.jsx';
 import { DEFAULT_DIRECTOR_PACE, normalizeDirectorPace } from '../../core/directorDurationPolicy.js';
 import { directorSceneCalibration } from '../../core/directorSceneBudget.js';
@@ -94,25 +94,46 @@ function DirectorCollabDialog({ project, cloudProject, canManage, api, onClose, 
   return createPortal(<div className="veil director-collab-veil"><div className="modal director-collab-dialog"><h2>{cloudProject ? '管理导演协作' : '开启导演协作'}</h2><p>《{project.name}》是独立的云端导演文档，不会出现在“项目协作”列表。</p>{cloudProject ? <><div className={`collab-lock-state ${cloudProject.locked ? 'locked' : ''}`}>{cloudProject.locked ? <Lock size={16}/> : <Unlock size={16}/>} {cloudProject.locked ? '项目已锁定，所有人均不可编辑' : '项目允许协作者共同编辑'}</div>{canManage && <button className="secondary" onClick={async () => { setBusy(true); try { await api.directorCollabSetLocked({ projectId: cloudProject.id, locked: !cloudProject.locked }); await onChanged(); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>{cloudProject.locked ? '解除锁定' : '锁住整个项目'}</button>}<div className="director-collab-invite"><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入已注册用户的账号" disabled={!canManage}/><button className="primary" onClick={invite} disabled={!canManage || busy || !username.trim()}><Users size={14}/>邀请协作者</button></div><div className="director-collab-members">{members.map((m) => <div key={m.id}><span>{m.display_name || m.username} · {m.role === 'producer' ? '制片' : '协作者'}</span>{canManage && m.role !== 'producer' && <button className="danger" onClick={async () => { await api.directorRemoveMember({ projectId: cloudProject.id, memberId: m.id }); await load(); }}>踢出</button>}</div>)}</div></> : <p>{canManage ? '开启后可持续邀请多人，已有成员不会被重置。' : '只有管理员授予制片身份后，才能开启导演协作。'}</p>}{error && <div className="collab-error">{error}</div>}<div className="modal-actions"><button className="ghost" onClick={onClose}>关闭</button>{!cloudProject && canManage && <button className="primary" disabled={busy} onClick={async () => { setBusy(true); try { await onChanged('create'); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>开启导演协作</button>}</div></div></div>, document.body);
 }
 
-function DirectorCloudManager({ projects, onBack, onDelete }) {
+function DirectorCloudManager({ projects, onBack, onDelete, onRefresh, verified, loadError }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [error, setError] = useState('');
-  const owned = projects.filter((project) => project.myRole === 'producer');
+  const [busy, setBusy] = useState(false);
+  const owned = projects;
+  const kind=deleteTarget?.kind, recycleLocal=kind==='local'&&deleteTarget.recycleLocal;
+  const confirm=async()=>{
+    if(!deleteTarget||busy)return;
+    setBusy(true);setError('');
+    try{await onDelete(deleteTarget);setDeleteTarget(null);}
+    catch(e){setError(e.message||'操作未完成，请刷新后重试');}
+    finally{setBusy(false);}
+  };
   return <main className="director-cloud-manager">
-    <header><div><span className="eyebrow">导演工作台 · 独立云端</span><h1>云端管理</h1><p>管理已开启导演协作的云端项目。请先到“项目协作”删除对应协作项目，并等待其三天恢复期到期，再删除导演源。</p></div><button className="secondary" onClick={onBack}><ArrowLeft size={16}/> 返回导演工作台</button></header>
-    {error && <div className="collab-error">{error}</div>}
-    <section className="director-cloud-list">
+    <header><div><span className="eyebrow">导演工作台 · 独立云端</span><h1>云端管理</h1></div><div className="director-cloud-actions"><button className="secondary" onClick={onRefresh} disabled={busy}><RefreshCw size={16}/>刷新</button><button className="secondary" onClick={onBack}><ArrowLeft size={16}/> 返回导演工作台</button></div></header>
+    {loadError&&<div className="collab-error" role="alert">{loadError}</div>}
+    <section className="director-cloud-list" aria-busy={!verified&&!loadError}>
       {owned.map((project) => {
+        if(project.kind!=='director'){
+          const local=project.kind==='local',inRecovery=Boolean(project.deleted_at||project.purge_after);
+          const label=local?'旧云端记录':project.storageMode==='local'?'本机协作项目':'云端协作项目';
+          return <article key={project.key} className="director-cloud-row">
+            <div className="director-cloud-row-icon"><Cloud size={22}/></div>
+            <div><h3>{project.name}</h3><p>{label}{inRecovery?' · 回收期内':project.locked?' · 已锁定':''}</p></div>
+            <div className="director-cloud-actions">
+              {local&&<button className="secondary" disabled={!verified} onClick={()=>{setError('');setDeleteTarget(project);}}>移回工作台</button>}
+              <button className="danger" disabled={!verified||!local&&!project.canDelete} onClick={()=>{setError('');setDeleteTarget(local?{...project,recycleLocal:true}:project);}}>{local||project.canDelete?'移入回收站':inRecovery?'回收期内':project.locked?'已锁定':'仅项目所有者可删除'}</button>
+            </div>
+          </article>;
+        }
         const collaborationLinked = Boolean(project.collaborationLinked);
-        return <article key={project.id} className={`director-cloud-row${collaborationLinked ? ' linked' : ''}`}>
+        return <article key={project.key} className={`director-cloud-row${collaborationLinked ? ' linked' : ''}`}>
           <div className="director-cloud-row-icon"><Cloud size={22}/></div>
-          <div><h3>{project.name}</h3><p>{(project.episodes || []).length} 集 · 最近更新 {project.updated_at ? new Date(project.updated_at).toLocaleString('zh-CN', { hour12: false }) : '—'}</p>{collaborationLinked && <small>{project.collaborationProtection==='recycle'?'关联协作项目仍在云端三天恢复期，期间保留导演源以便恢复。':project.collaborationProtection==='unknown'?'关联恢复期限暂时无法确认，保留导演源，请稍后刷新。':'项目协作正在读取此项目，请先到“项目协作”删除对应项目，恢复期到期后再删除导演源。'}</small>}</div>
-          <button className="danger" disabled={collaborationLinked} onClick={() => { setError(''); setDeleteTarget(project); }}><Trash2 size={15}/> {collaborationLinked ? project.collaborationProtection==='recycle'?'三天恢复期内':project.collaborationProtection==='unknown'?'关联待核验':'项目协作使用中' : '删除云端项目'}</button>
+          <div><h3>{project.name}</h3><p>{(project.episodes || []).length} 集 · 最近更新 {project.updated_at ? new Date(project.updated_at).toLocaleString('zh-CN', { hour12: false }) : '—'}</p>{collaborationLinked && <small>{project.collaborationProtection==='recycle'?'关联协作项目仍在云端三天恢复期，期间保留导演源以便恢复。':project.collaborationProtection==='unknown'?'关联恢复期限暂时无法确认，保留导演源，请稍后刷新。':'项目协作正在读取此项目，请先到“项目协作”删除对应项目，也可在本页处理协作项目，待恢复期到期后再删除导演源。'}</small>}</div>
+          <button className="danger" disabled={collaborationLinked} aria-disabled={!verified||project.locked||undefined} onClick={() => { if(!verified||project.locked)return;setError(''); setDeleteTarget(project); }}><Trash2 size={15}/> {collaborationLinked ? project.collaborationProtection==='recycle'?'三天恢复期内':project.collaborationProtection==='unknown'?'关联待核验':'项目协作使用中' : project.locked?'已锁定':'删除云端项目'}</button>
         </article>;
       })}
-      {!owned.length && <div className="collab-empty"><Cloud size={30}/><p>导演工作台暂无已上传的云端项目。</p></div>}
+      {!owned.length && verified && <div className="collab-empty"><Cloud size={30}/><p>导演工作台暂无已上传的云端项目。</p></div>}
     </section>
-    <DeleteConfirm open={Boolean(deleteTarget)} title="删除导演云端项目" name={deleteTarget?.name} detail="只删除导演工作台云端文档，不删除本地项目。删除后不可恢复。" onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget) return; try { await onDelete(deleteTarget); setDeleteTarget(null); } catch (e) { const message = String(e?.message || '网络连接异常'); setError(message.includes('director_project_in_use') ? '该项目仍被项目协作读取，请先到项目协作删除对应项目。' : message.includes('director_project_not_found') ? '该云端项目已不存在，已刷新本地状态。' : `删除失败：${message}`); setDeleteTarget(null); } }}/>
+    <DeleteConfirm open={Boolean(deleteTarget)} title={kind==='local'?(recycleLocal?'移入本机回收站':'移回本机工作台'):kind==='collab'?'删除协作项目':'删除导演云端项目'} name={deleteTarget?.name} detail={kind==='local'?(recycleLocal?'当前账号无法在云端找到对应文档。现有剧本和提示词将随本机记录移入回收站。':'当前账号无法在云端找到对应文档。移回工作台会解除本机旧关联，保留现有剧本和提示词。'):kind==='collab'?(deleteTarget?.storageMode==='local'?'协作项目将移入本机回收站。':'协作项目将进入云端三天恢复期。'):'只删除导演工作台云端文档，不删除本地项目。删除后不可恢复。'} confirmLabel={kind==='local'?(recycleLocal?'移入回收站':'移回工作台'):kind==='collab'?'移入回收站':'删除云端项目'} error={error} busy={busy} onCancel={()=>{setDeleteTarget(null);setError('');}} onConfirm={confirm}/>
   </main>;
 }
 
@@ -889,6 +910,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [cloudProjects, setCloudProjects] = useState([]);
   const [collaborationProjects, setCollaborationProjects] = useState([]);
+  const [cloudManagement,setCloudManagement]=useState({verified:false,error:""});
   const [cloudManagerOpen, setCloudManagerOpen] = useState(false);
   const [isProducer, setIsProducer] = useState(false);
   const [collabTarget, setCollabTarget] = useState(null);
@@ -904,7 +926,8 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const [refreshingCloud, setRefreshingCloud] = useState(false);
   const [cloudRefreshNotice, setCloudRefreshNotice] = useState('');
   const [uploadingCloud,setUploadingCloud]=useState(false),[versionsOpen,setVersionsOpen]=useState(false),[dismissedConflict,setDismissedConflict]=useState('');
-  const cloudActiveRef = useRef(active), cloudRequestRef = useRef(0);
+  const cloudActiveRef = useRef(active), cloudRequestRef = useRef(0), cloudManagerRef=useRef(cloudManagerOpen);
+  cloudManagerRef.current=cloudManagerOpen;
   cloudActiveRef.current = active;
 
   const directorProjects = (state.directorProjects || []).filter((project, index, projects) => projects.findIndex((candidate) => candidate.id === project.id || (project.cloudProjectId && candidate.cloudProjectId === project.cloudProjectId)) === index);
@@ -942,14 +965,15 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   const activeEpisode = selectedProject?.episodes?.find((ep) => ep.id === activePane);
   useEffect(()=>{if(!selectedProject||activePane==='master'||activeEpisode)return;const canonical=selectedProject.episodes?.find(ep=>ep.id.repeat(2)===activePane);setActivePane(canonical?.id||'master');},[selectedProject?.id,selectedProject?.episodes,activePane,activeEpisode]);
 
-  const loadCloudProjects = useCallback(async () => {
+  const loadCloudProjects = useCallback(async (refreshCloud=false) => {
     if (!cloudActiveRef.current) return;
     const requestId = ++cloudRequestRef.current;
+    if(refreshCloud)setCloudManagement({verified:false,error:""});
     try {
       const associations=directorProjectsRef.current.filter(p=>p.collaborationProjectId&&!p.cloudProjectId&&p.sourceType!=='cloud').slice(0,200).map(p=>({projectId:p.id,collaborationProjectId:p.collaborationProjectId}));
       const [response, collaborationRows, producer] = await Promise.all([
         api.directorCollabListProjects({associations}),
-        api.collabListProjects?.() || Promise.resolve([]),
+        api.collabListProjects?.({refreshCloud}) || Promise.resolve([]),
         api.collabIsProducer(),
       ]);
       if (!cloudActiveRef.current || requestId !== cloudRequestRef.current) return;
@@ -959,12 +983,16 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       setCollaborationProjects(collaborationRows);
       setState(current=>({...current,directorProjects:reconcileDirectorLinks(current.directorProjects||[],collaborationRows,Array.isArray(response?.associations)?response.associations:[])}));
       setIsProducer(producer);
-    } catch { /* 网络短暂失败时保留现有云项目与本地投影 */ }
+      if(refreshCloud)setCloudManagement({verified:true,error:''});
+      return {rows,collaborationRows,producer};
+    } catch(error) {
+      if(refreshCloud&&requestId===cloudRequestRef.current)setCloudManagement({verified:false,error:'云端项目未能核验：'+error.message});
+    }
   }, [api]);
   React.useEffect(() => {
     if (!active) return;
     loadCloudProjects();
-    const timer = setInterval(()=>{if(!selectedProjectId)return loadCloudProjects();}, 60000);
+    const timer = setInterval(()=>{if(!selectedProjectId&&!cloudManagerRef.current)return loadCloudProjects();}, 60000);
     return () => { clearInterval(timer); cloudRequestRef.current += 1; };
   }, [active, loadCloudProjects, selectedProjectId]);
   React.useEffect(() => { if(quickGeneration?.isCloudSaving())return; setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
@@ -1140,19 +1168,39 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   };
 
   const handleDeleteCloudProject = async (cloudProject) => {
+    const current=await loadCloudProjects(true);
+    if(!current?.producer)throw Error('云端状态或当前权限未核验，请刷新后重试');
+    const fresh=directorCloudManagementRows({cloudProjects:current.rows,collaborationProjects:current.collaborationRows,directorProjects:directorProjectsRef.current,accountId,verified:true}).find(p=>p.key===cloudProject.key);
+    if(!fresh)throw Error('项目状态已变化，请重新选择');
+    if(fresh.kind==='local'){
+      const jobPrefix=JSON.stringify([accountId,fresh.id]).slice(0,-1)+',';
+      if(directorJobs.entries().some(([key,job])=>key.startsWith(jobPrefix)&&job.status==='running')||quickGeneration?.isProjectBatchActive(fresh.id)||quickGeneration?.runs.some(run=>run.snapshot.projectId===fresh.id&&isQuickRunActive(run)))throw Error('请先停止本项目的生成任务');
+      setState(state=>{
+        const detached={...state,directorProjects:state.directorProjects.map(p=>p.id===fresh.id?detachUnavailableDirector(p):p)};
+        return cloudProject.recycleLocal?deleteDirectorProject(detached,fresh.id):detached;
+      });
+      return;
+    }
+    if(fresh.kind==='collab'){
+      if(!fresh.canDelete)throw Error('协作项目当前无法删除');
+      await api.collabDeleteProject({projectId:fresh.id});
+      await loadCloudProjects(true);
+      return;
+    }
+    if(fresh.collaborationLinked||fresh.locked)throw Error('导演云端项目仍受协作或锁定保护');
     cloudRequestRef.current+=1;
     try {
-      await api.directorCollabDeleteProject({ projectId: cloudProject.id });
+      await api.directorCollabDeleteProject({ projectId: fresh.id });
     } catch (error) {
       if (!String(error?.message || '').includes('director_project_not_found')) throw error;
     }
-    setCloudProjects((rows) => rows.filter((row) => row.id !== cloudProject.id));
-    setState((current) => ({ ...current, directorProjects: removeDirectorCloudProjection(current.directorProjects || [], cloudProject.id) }));
+    setCloudProjects((rows) => rows.filter((row) => row.id !== fresh.id));
+    setState((current) => ({ ...current, directorProjects: removeDirectorCloudProjection(current.directorProjects || [], fresh.id) }));
   };
 
   // 如果没有选中项目，显示项目选择页
   if (!selectedProject) {
-    if (cloudManagerOpen) return <div className="director-shell"><DirectorCloudManager projects={cloudProjects} onBack={() => setCloudManagerOpen(false)} onDelete={handleDeleteCloudProject}/></div>;
+    if (cloudManagerOpen) return <div className="director-shell"><DirectorCloudManager projects={directorCloudManagementRows({cloudProjects,collaborationProjects,directorProjects,accountId,verified:cloudManagement.verified})} verified={cloudManagement.verified} loadError={cloudManagement.error} onRefresh={()=>loadCloudProjects(true)} onBack={() => setCloudManagerOpen(false)} onDelete={handleDeleteCloudProject}/></div>;
     return (
       <div className="director-shell">
         <ProjectCards
@@ -1174,7 +1222,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           onManageCollab={(project) => setCollabTarget({ project, cloud: cloudForProject(project) })}
           canManageCollab={(project) => canManageDirectorCollab(project, isProducer)}
           canDeleteProject={isLocalRecyclableDirector}
-          onOpenCloudManager={isProducer ? () => setCloudManagerOpen(true) : null}
+          onOpenCloudManager={isProducer ? () => {setCloudManagerOpen(true);void loadCloudProjects(true);} : null}
         />
         {collabTarget && <DirectorCollabDialog project={collabTarget.project} cloudProject={collabTarget.cloud} canManage={isProducer && (!collabTarget.cloud || collabTarget.cloud.myRole === 'producer')} api={api} onClose={() => setCollabTarget(null)} onChanged={changeCollab} />}
       </div>

@@ -1,3 +1,5 @@
+import {readRemembered} from '../useRememberedState.js';
+import {assertDirectorTimingScale,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
 import {productionAssignment} from '../../core/productionIdentity.js';
 import {agentDataPage} from '../../core/productionAgentData.js';
 import {episodeAllowed,postStageAllowed} from '../../core/productionExecutionScope.js';
@@ -8,7 +10,7 @@ import {fillArtReviewDetails} from '../../core/artReviewRunner.js';
 import {repairProductionBindings} from '../../core/productionBindingRepair.js';
 import {isFundingError,productionRecoveryGoals,productionRecoveryFingerprint} from '../../core/productionRecovery.js';
 import {supplementPromptMissingReferences} from '../../core/promptMissingSupplement.js';
-import {resolveProductionProject,productionProjectCandidates} from '../../core/productionProject.js';
+import {resolveProductionProject,productionProjectCandidates,matchesProductionDirector} from '../../core/productionProject.js';
 import {productionArtMonitor} from '../../core/productionMonitor.js';
 import {productionIssues,productionCoverage,productionExpectedPrompts,completeEpisode,productionVideoIssues,VOICE_AUTOMATION_RULE,voiceAutomationEnabled,voicePolicyIssues} from '../../core/productionFurnace.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
@@ -30,6 +32,13 @@ import {bindingHash,sceneInventoryCards} from '../../core/promptArtBinding.js';
 import {readProjectVoices} from '../../core/voiceAnalysisRunner.js';
 import {projectVoiceRoster} from '../../core/characterVoices.js';
 import {prepareAutomaticVoice,runVoiceBatch} from '../../core/voiceReview.js';
+export function productionDirectorCalibration(project,accountId) {
+ try {
+  const saved=JSON.parse(readRemembered(`xz-director-calibration:${accountId}:${project.id}`,'null'));
+  if(!saved)return {};
+  return {pace:normalizeDirectorPace(saved.pace),timingScale:assertDirectorTimingScale(saved.timingScale)};
+ } catch {return {};}
+}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const json=text=>JSON.parse(String(text).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));
 export function productionArtResumePlan(project,ledger,binding){
@@ -50,15 +59,17 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
  async function collab(ctx){
   const source=project(ctx.run),stamp=bindingHash([source.id,source.masterScript,source.episodes]);
   if(ctx.collabSnapshot?.stamp===stamp)return ctx.collabSnapshot.project;
-  const saved=await resolveProductionProject({api,source:project(ctx.run),hasVideoJobs:Boolean(ctx.run.items?.length||ctx.run.videoSourceSignature),preferredId:ctx.run.collabProjectId||ctx.run.config.collabProjectId,guard:ctx.guard,log:ctx.log,checkpoint:async id=>{ctx.run.collabProjectId=id;await ctx.checkpoint();}});
-  const result=await syncDirector(saved,source,value=>api.collabUpdateProject(value));ctx.collabSnapshot={stamp,project:result};return result;
+  const saved=await resolveProductionProject({api,source:project(ctx.run),hasVideoJobs:Boolean(ctx.run.items?.length||ctx.run.videoSourceSignature),preferredId:ctx.run.collabProjectId||ctx.run.config.collabProjectId||source.collaborationProjectId,guard:ctx.guard,log:ctx.log,checkpoint:async id=>{ctx.run.collabProjectId=id;await ctx.checkpoint();}});
+  const result=await syncDirector(saved,source,value=>api.collabUpdateProject(value));ctx.guard();
+  if(result.director_sync_warning)throw Error(result.director_sync_warning.message||result.director_sync_warning);
+  ctx.collabSnapshot={stamp,project:result};return result;
  }
  async function readArt(ctx,refresh=false){
   if(ctx.artSnapshot&&!refresh)return ctx.artSnapshot;
   let p;
-  if(ctx.readOnly){const source=project(ctx.run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source.id),id=ctx.run.collabProjectId||ctx.run.config.collabProjectId||candidates[0]?.id;
+  if(ctx.readOnly){const source=project(ctx.run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source),id=ctx.run.collabProjectId||ctx.run.config.collabProjectId||source.collaborationProjectId||candidates[0]?.id;
    p=id&&candidates.some(v=>v.id===id)?await api.collabGetProject({projectId:id}):{id:'',episodes:source.episodes};
-  }else p=await collab(ctx);
+  }else {if(refresh)delete ctx.collabSnapshot;p=await collab(ctx);}
   const assets=p.id?await api.collabListAssets({projectId:p.id}):[];ctx.guard();
   if(!p.id){const monitor=productionArtMonitor(p,{episodes:{}},{snapshot:{entries:[],cards:[]},decisions:{}},[],ctx.run.monitor?.art);ctx.run.monitor={...ctx.run.monitor,checkedAt:Date.now(),art:monitor};await ctx.checkpoint();return {p,assets,monitor};}
   const store=getArtReviewStore({api,projectId:p.id,accountId:getAccount().id});await store.load(p,assets);
@@ -129,16 +140,16 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    await ctx.log?.(`批量监测完成：提示词 ${scenes.filter(s=>s.count).length}/${scenes.length} 场，清单已发布 ${monitor.summary.published}/${monitor.summary.scenes} 场，已有图片 ${monitor.summary.images}/${monitor.summary.assets}；只接续缺项，不重做已完成成果。`);
    const voiceRoster=voiceStore&&voiceAutomationEnabled(ctx.run.config)?projectVoiceRoster(voiceProject,voiceStore.snapshot()):null;
    const voiceDone=!voiceAutomationEnabled(ctx.run.config)||Boolean(voiceRoster?.complete&&voiceRoster.characters.every(x=>voiceStore.snapshot().voiceProfiles?.[x.key]?.confirmed));
-   return {information:Boolean(voiceStore)&&missingInformationEpisodes(voiceProject,voiceStore.snapshot()).length===0&&projectVoiceRoster(voiceProject,voiceStore.snapshot()).complete,prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitorAssets.every(a=>assetHasImages(a)||ctx.run.imageItems?.[a.id]?.status==='skipped')};
+   return {information:Boolean(voiceStore)&&missingInformationEpisodes(voiceProject,voiceStore.snapshot()).length===0&&(!voiceAutomationEnabled(ctx.run.config)||projectVoiceRoster(voiceProject,voiceStore.snapshot()).complete),prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitorAssets.every(a=>assetHasImages(a)||ctx.run.imageItems?.[a.id]?.status==='skipped')};
   },
-  async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source.id);const id=run.collabProjectId||run.config.collabProjectId||candidates[0]?.id;
+  async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source);const id=run.collabProjectId||run.config.collabProjectId||source.collaborationProjectId||candidates[0]?.id;
    let assets=[],cloud;if(id&&candidates.some(p=>p.id===id)){cloud=await api.collabGetProject({projectId:id});assets=await api.collabListAssets({projectId:id});}
    const config=Object.fromEntries(Object.entries(run.config).filter(([key])=>key!=='scriptText'&&!/api.?key|token|secret|password|authorization/i.test(key)));return {assignment:productionAssignment(run),status:run.status,config,executionScope:run.executionScope,director:{id:source.id,name:source.name,coverage:productionCoverage(source)},collabProjectId:id||'',candidates:candidates.map(p=>({id:p.id,name:p.name,updated_at:p.updated_at})),assets:{total:assets.length,withImages:assets.filter(assetHasImages).length},publishedScenes:Object.values(cloud?.analysis_progress||{}).reduce((n,r)=>n+Object.keys(r.review?.published||{}).length,0),stages:run.stages,errors:run.stageErrors||{},items:run.items.map(i=>({label:i.label,status:i.status,error:i.error})).slice(0,60)};
   },
   steering:true,
   async stopChat(run,turnId){await api.productionStopChat({runId:run.id,turnId});},
   async chat(run,{text,attachments,model,history,onDelta,steer,turnId}){return api.productionChat({runId:run.id,text,attachments,model,history,steer,turnId});},
-  async selectCollab(run,id){const rows=await api.collabListProjects();if(!productionProjectCandidates(rows,run.projectId).some(p=>p.id===id))throw Error('只能选择当前导演项目的正常协作项目');return id;},
+  async selectCollab(run,id){const rows=await api.collabListProjects();if(!rows.some(p=>p.id===id&&matchesProductionDirector(p,project(run))))throw Error('只能选择当前导演项目的正常协作项目');return id;},
   async validateScope(run,scope){const numbers=listCollabEpisodes(project(run).episodes).map(e=>e.episodeNumber);if(scope.episodes.some(n=>!numbers.includes(n)))throw Error('指定集数不在当前项目中');},
   async agentProjectTool(run,args){
    if(args.operation==='import_video'){const item=run.items.find(i=>i.id===args.itemId);if(!item)throw Error('请选择当前任务视频条目');const result=await api.productionImportVideo({runId:run.id,itemId:item.id,sourcePath:args.sourcePath});Object.assign(item,result,{status:'downloaded',error:'',warning:''});delete item.upscaleError;const ep=run.episodes.find(e=>e.number===item.episode);if(ep&&ep.stage!=='done'){ep.stage='waiting';delete ep.error;}run.planRevision=(run.planRevision||0)+1;return{status:'imported',label:item.label,outputFile:item.outputFile,sha256:item.sha256,message:'本机原片已验收并纳入制作记录，自动接续超分和剪辑；没有重新生成视频'};}
@@ -161,21 +172,35 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
   async validate(ctx){await this.validateVoicePolicy(ctx.run.config);await getQuick().saveLocal();const problems=productionVideoIssues(ctx.run.config,getState()),checked=await api.productionPreflight(ctx.run.config);if(problems.length||checked.issues.length)throw Error([...problems,...checked.issues].join('；'));ctx.run.name=project(ctx.run).name;await ctx.checkpoint();},
   async validateVideoPolicy(config){const issues=productionVideoIssues(config,getState());if(issues.length)throw Error(issues.join('；'));},
   async prompts(ctx){
-   const {run}=ctx,c=run.config;ctx.guard();let p=project(run);run.name=p.name;await ctx.checkpoint();
+   const {run}=ctx,c=run.config;ctx.guard();let p=project(run);run.name=p.name;run.directorCalibration??=productionDirectorCalibration(p,getAccount().id);await ctx.checkpoint();
    const existingCoverage=productionCoverage(p),existingMissing=existingCoverage.flatMap(e=>e.scenes).filter(s=>!s.complete);
    if(!existingCoverage.length||existingCoverage.some(e=>!e.scenes.length))throw Error('导演项目缺少可识别的场景，请检查分集与场景编号');
    if(!existingMissing.length){run.promptConfigured=true;run.coverage=existingCoverage;run.reusedExisting={...(run.reusedExisting||{}),prompts:true};await ctx.notice('已发现完整提示词，直接复用，不重新生成、不重复审核');return;}
    if(!run.promptConfigured){setState(s=>({...s,directorProjects:s.directorProjects.map(v=>v.id===p.id?{...v,style:c.style,aspectRatio:c.ratio}:v)}));run.promptConfigured=true;await getQuick().saveLocal();await ctx.checkpoint();}
+   if(getQuick().isProjectBatchActive?.(p.id))throw Error('导演工作台已有整本任务运行，等待该任务保存后再接续');
    await runPromptModelChain({ctx,profiles:getState().apiProfiles,remaining:()=>productionCoverage(project(run)).flatMap(e=>e.scenes).filter(s=>!s.complete),generate:async selected=>{
     ctx.guard();p=project(run);const skill=getState().skills.find(s=>s.id===c.promptSkillId);if(!skill)throw Error('提示词 Skill 不存在');
-    const quick=getQuick(),pending=productionCoverage(p).flatMap(e=>e.scenes.filter(s=>!s.complete).map(s=>({...s,episodeId:e.id})));
+    const quick=getQuick(),priorBatch=run.directorBatchId&&(quick.getBatch?.(run.directorBatchId)||quick.getProjectBatch?.(p.id));
+    if(quick.isProjectBatchActive?.(p.id))throw Error('导演工作台已有整本任务运行，等待该任务保存后再接续');
+    const snapshot=priorBatch?.snapshot;
+    if(run.directorBatchId&&priorBatch?.id===run.directorBatchId&&snapshot?.profileId===selected.id&&snapshot.skillId===skill.id
+      &&snapshot.maxDurationSeconds===Number(c.maxDuration)&&['paused','completed-with-errors'].includes(priorBatch.phase)&&quick.resumeBatch){
+     const result=await quick.resumeBatch(priorBatch.id);
+     if(result.phase==='paused')throw Error(result.errors?.at(-1)?.message||'导演整本任务已暂停');
+     p=project(run);
+    }
+    const pending=productionCoverage(p).flatMap(e=>e.scenes.filter(s=>!s.complete).map(s=>({...s,episodeId:e.id})));
     for(const scene of pending){
      const previous=quick.getSceneRun?.(p.id,scene.episodeId,scene.label);
-     if(previous&&quick.resume){ctx.guard();try{await quick.resume(previous.id,{profileId:selected.id,restoreOutput:true});}catch(error){await ctx.log?.(`${scene.label} 接续：${error.message}`,'warning');}}
+     if(previous&&quick.resume&&previous.snapshot?.skillId===skill.id&&['completed','ready-to-commit','paused','failed'].includes(previous.phase)){ctx.guard();try{await quick.resume(previous.id,{profileId:selected.id,restoreOutput:true});}catch(error){await ctx.log?.(`${scene.label} 接续：${error.message}`,'warning');}}
     }
     p=project(run);
-    const plan=await getQuick().previewBatch({project:p,skill,profile:selected,maxDurationSeconds:Number(c.maxDuration),concurrency:4,existingPolicy:'incomplete-only',segmentationMode:'auto'});
-    run.directorBatchId=plan.id;await ctx.checkpoint();await getQuick().startBatch(plan);
+    ctx.guard();
+    if(productionCoverage(p).every(e=>e.complete))return;
+    const plan=await quick.previewBatch({project:p,skill,profile:selected,maxDurationSeconds:Number(c.maxDuration),...run.directorCalibration,concurrency:4,existingPolicy:'incomplete-only',segmentationMode:'auto'});
+    run.directorBatchId=plan.id;await ctx.checkpoint();
+    const result=await quick.startBatch(plan);
+    if(result?.phase==='paused')throw Error(result.errors?.at(-1)?.message||'导演整本任务已暂停');
    }});
    const coverage=productionCoverage(project(run));run.coverage=coverage;await ctx.checkpoint();
    const missing=coverage.flatMap(e=>e.scenes).filter(s=>!s.complete);if(missing.length)throw Error(`仍缺少提示词：${missing.map(s=>s.label).join('、')}`);
@@ -190,9 +215,12 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
     const missing=missingInformationEpisodes(p,store.snapshot());
     if(missing.length){await ctx.notice('信息读取：美术清单、人物身份与关联场景');const analysis=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:readingProfile,existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:false,targetEpisodeNumbers:missing.map(e=>e.episodeNumber),preserveExisting:true,job});if(analysis.errors?.length)throw Error(analysis.errors.join('；'));if(!job.cancelled&&missingInformationEpisodes(p,store.snapshot()).length)throw Error('美术清单或人物场景关联尚未读取完整，保留当前信息后继续补缺');}
     if(job.cancelled)return {partial:true};
-    const result=await readProjectVoices({project:p,store,api,profile:readingProfile,job});ctx.artSnapshot=null;
-    if(result.errors.length)throw Error(result.errors.join('；'));
-    await ctx.notice('人物身份、关联场景和正常对白已读取；继续人物音色');
+    if(voiceAutomationEnabled(c)){
+     const result=await readProjectVoices({project:p,store,api,profile:readingProfile,job});
+     if(result.errors.length)throw Error(result.errors.join('；'));
+    }
+    ctx.artSnapshot=null;
+    await ctx.notice(voiceAutomationEnabled(c)?'清单与正常对白已读取，继续人物音色':'清单已读取，继续美术关联');
    }finally{if(activeJobs.get(run.id)===job)activeJobs.delete(run.id);}
   },
   async validateVoicePolicy(c){if(!voiceAutomationEnabled(c))return;const issues=voicePolicyIssues(c);if(issues.length)throw Error(issues.join('；'));profile(c.voiceCompletionProfileId);profile(c.voiceDistributionProfileId);if(!voiceModelFor(c))throw Error('人物音色模型已不存在');},
@@ -231,7 +259,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    try{await ctx.notice('连续分析清单、补齐描述并按提示词关联');
     const result={errors:[]};
     for(const [numbers,onlyMapping] of [[inventory,false],[mapOnly,true]]){if(!numbers.length)continue;try{
-     const partial=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:profile(c.analysisProfileId),existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:true,targetEpisodeNumbers:numbers,...(onlyMapping?{targetSceneIds:monitor.episodes.flatMap(e=>e.scenes.filter(s=>s.needsMapping).map(s=>s.id))}:{}),mapOnly:onlyMapping,preserveExisting:true,voiceEnabled:voiceAutomationEnabled(c),job,waitForRetry:async(ms,j)=>{ctx.guard();if(j.retryAttempt>=2)throw Error('清单分析两轮未完成，请检查模型或原文');await wait(Math.min(ms,5000));}});result.errors.push(...partial.errors||[]);
+     const partial=await runContinuousArtAnalysis({project:p,api,accountId:getAccount().id,profile:profile(c.analysisProfileId),existingAssets:assets,genre:p.genre||'',workflow:'automatic',pipeline:true,prepareVoices:false,targetEpisodeNumbers:numbers,...(onlyMapping?{targetSceneIds:monitor.episodes.flatMap(e=>e.scenes.filter(s=>s.needsMapping).map(s=>s.id))}:{}),mapOnly:onlyMapping,preserveExisting:true,voiceEnabled:voiceAutomationEnabled(c),job,waitForRetry:async(ms,j)=>{ctx.guard();if(j.retryAttempt>=2)throw Error('清单分析两轮未完成，请检查模型或原文');await wait(Math.min(ms,5000));}});result.errors.push(...partial.errors||[]);
     }catch(error){ctx.guard();result.errors.push(error.message);await ctx.log?.(`未完成清单保留待处理：${error.message}；继续尝试发布就绪场景。`,'warning');}}ctx.guard();
     const state=await readArt(ctx,true),{store,service,binding}=state;
     run.artWarnings=[...result.errors,...state.monitor.warnings];
@@ -321,7 +349,8 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    const {run}=ctx;ctx.guard();
    const post=await topazRecovery(ctx),goals=productionRecoveryGoals(run);
    if(post&&goals.every(g=>g.kind==='post'))return post;
-   if(['prompts','information'].some(k=>run.stages[k]?.status==='partial'))return {retry:true,delay:30000,reason:post?.reason};
+   if(run.stageErrors?.validation)return {retry:true,delay:30000,reason:run.stageErrors.validation};
+   if(['prompts','information',...(voiceAutomationEnabled(run.config)?['voices']:[])].some(k=>run.stages[k]?.status==='partial'))return {retry:true,delay:30000,reason:post?.reason};
    const fingerprint=productionRecoveryFingerprint(goals,run.config),old=run.recovery||{},same=old.fingerprint===fingerprint;
    run.recovery={...old,fingerprint,attempts:same?(old.attempts||0)+1:1,goals:goals.map(g=>({...g,status:'pending'})),lastAt:Date.now()};await ctx.checkpoint();
    await ctx.log?.(`自主接续：${goals.length} 个未完成目标。先补清单/发布和关联，再继续图片、视频和后期；已完成成果保留。`);

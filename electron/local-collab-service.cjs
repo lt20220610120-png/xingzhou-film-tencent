@@ -270,7 +270,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       assertScope(current);
       const local = records.filter(r => !r.shared).map(r => summarize(r.project));
       const localIds = new Set(local.map(r => r.id));
-      const remote = new Map(records.filter(r => r.shared && r.sharedProject).map(r => [r.project.id, r.sharedProject]));
+      const remote = new Map(refreshCloud ? [] : records.filter(r => r.shared && r.sharedProject).map(r => [r.project.id, r.sharedProject]));
       for (const row of cloudRows || []) remote.set(row.id, row);
       return [...local, ...[...remote.values()].filter(r => !localIds.has(r.id))].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
     },

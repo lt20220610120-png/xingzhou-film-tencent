@@ -180,7 +180,7 @@ export async function runArtAnalysisPipeline(args){
   }
   // Even if reading stopped just after saving an inventory, its downstream owns
   // that saved checkpoint. A later explicit stop of distribution still wins.
-  pending.push(control.enqueueEpisode(episode,{...args,prepareVoices:!args.detailsOnly&&!args.focusItem}));
+  pending.push(control.enqueueEpisode(episode,{...args,prepareVoices:args.prepareVoices??(!args.detailsOnly&&!args.focusItem)}));
  }
  const results=await Promise.all(pending);for(const result of results)errors.push(...result);
  if(!job.cancelled)errors.push(...await control.finish());

@@ -7,7 +7,7 @@ const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
 // 1. 云端管理入口仅制片可见
 test('云端管理按钮只对制片显示，受邀用户不可见', () => {
   const director = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(director, /onOpenCloudManager=\{isProducer \? \(\) => setCloudManagerOpen\(true\) : null\}/);
+  assert.match(director, /onOpenCloudManager=\{isProducer \? \(\) => \{setCloudManagerOpen\(true\);void loadCloudProjects\(true\);\} : null\}/);
   assert.match(director, /headerExtra=\{onOpenCloudManager \? /);
 });
 

@@ -17,3 +17,14 @@ test('multiple live projects choose newest deterministically and explicit linked
 test('paid tasks never auto-create replacement project for a deleted original',async()=>{
  let created=0;await assert.rejects(resolveProductionProject({source:{id:'d',episodes:[]},preferredId:'gone',hasVideoJobs:true,api:{collabGetProject:async()=>({id:'gone',director_project_id:'d',deleted_at:'now'}),collabCreateProject:async()=>{created++;}}}),/已有视频任务/);assert.equal(created,0);
 });
+
+test('a resumed cloud director projection retains its original collaboration and video receipts',async()=>{
+ const source={id:'cloud-source',cloudProjectId:'source',sourceId:'legacy-local',episodes:[]};
+ const row={id:'linked',director_project_id:'legacy-local'};
+ let created=0;
+ const result=await resolveProductionProject({source,preferredId:'linked',hasVideoJobs:true,api:{
+  collabGetProject:async()=>row,collabCreateProject:async()=>{created++;}
+ }});
+ assert.equal(result.id,'linked');assert.equal(created,0);
+ assert.deepEqual(productionProjectCandidates([{...row,director_project_id:'unrelated'},row],source),[row]);
+});

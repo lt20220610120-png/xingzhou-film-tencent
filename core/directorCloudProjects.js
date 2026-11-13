@@ -171,3 +171,22 @@ export const canManageDirectorCollab = (project, accountIsProducer = false) => {
 // Edits made while the request was in flight remain local changes.
 export const acknowledgeDirectorCloudSave = (projects, cloud, submitted) => projects.map(project =>
   project.cloudProjectId === cloud.id ? fromCloud(cloud, {...project, cloudBase:submitted}) : project);
+
+export function directorCloudManagementRows({cloudProjects,collaborationProjects,directorProjects,accountId,verified}) {
+ const directorRows=cloudProjects.filter(p=>p.myRole==='producer').map(p=>({...p,key:'director:'+p.id,kind:'director'}));
+ const known=new Set(cloudProjects.flatMap(p=>[p.id,p.analysis_output]).filter(Boolean));
+ const aliases=new Set(directorProjects.flatMap(p=>[p.id,p.cloudProjectId,p.cloudProjectId&&'cloud-'+p.cloudProjectId,p.sourceId]).filter(Boolean));
+ const linkedProjectIds=new Set(directorProjects.map(p=>p.collaborationProjectId).filter(Boolean));
+ const links=collaborationProjects.filter(p=>linkedProjectIds.has(p.id)||aliases.has(p.director_project_id));
+ const collaborationRows=links.map(p=>({...p,key:'collab:'+p.id,kind:'collab',canDelete:p.owner_id===accountId&&!p.deleted_at&&!p.purge_after&&!p.locked}));
+ const linkedIds=new Set(links.map(p=>p.id));
+ const unavailableRows=verified?directorProjects.filter(p=>(p.cloudProjectId||p.sourceType==='cloud'||p.collaborationProjectId)&&!known.has(p.cloudProjectId)&&!known.has(p.id)
+   && !linkedIds.has(p.collaborationProjectId)&&!links.some(row=>[p.id,p.cloudProjectId,p.cloudProjectId&&'cloud-'+p.cloudProjectId,p.sourceId].filter(Boolean).includes(row.director_project_id))
+   ).map(p=>({...p,key:'local:'+p.id,kind:'local'})):[];
+ return [...directorRows,...collaborationRows,...unavailableRows];
+}
+
+export function detachUnavailableDirector(project) {
+ const {cloudProjectId,cloudRole,cloudLocked,cloudBase,cloudRemote,cloudLive,cloudLiveNeedsRepair,cloudConflict,cloudSyncError,cloudUpdatedAt,cloudBaselineMissing,pendingCloudSubmission,collaborationProjectId,canWrite,key,kind,...local}=project;
+ return {...local,sourceType:local.sourceType==='cloud'?'upload':local.sourceType,groupId:'director-workbench'};
+}

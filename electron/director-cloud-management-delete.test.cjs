@@ -11,7 +11,7 @@ test('导演工作台删除确认弹框通过 document.body portal 居中', () =
   assert.match(dialog, /delete-confirm-veil/);
 });
 
-test('导演云端管理提供独立删除动作，不调用项目协作删除动作', () => {
+test('导演云端管理按文档来源调用各自的删除动作', () => {
   const fn = read('supabase/functions/xingzhou-api/index.ts');
   const service = read('electron/collab-service.cjs');
   const main = read('electron/main.cjs');
@@ -22,7 +22,7 @@ test('导演云端管理提供独立删除动作，不调用项目协作删除�
   assert.match(main, /director-collab-delete-project/);
   assert.match(preload, /directorCollabDeleteProject/);
   assert.match(director, /directorCollabDeleteProject/);
-  assert.doesNotMatch(director, /collabDeleteProject/);
+  assert.match(director, /if\(fresh\.kind==='collab'\)\{[\s\S]*?api\.collabDeleteProject/);
 });
 
 test('导演工作台明确区分本地项目与受邀协作项目', () => {
