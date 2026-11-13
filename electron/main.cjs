@@ -17,7 +17,8 @@ const {createUpdateFetch,UPDATE_MIRRORS}=require('./update-transport.cjs');
 const updateFetch=createUpdateFetch((url,options)=>net.fetch(url,options));
 const updateOptions={fetchFn:updateFetch,officialMirrors:UPDATE_MIRRORS.map(base=>base+'/latest.json')};
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
-const { TRUSTED_MANIFEST_URL, validateManifest, newerVersion } = require('./update-trust.cjs');
+const { TRUSTED_MANIFEST_URL } = require('./update-trust.cjs');
+const { registerUpdateHandlers } = require('./update-ipc.cjs');
 const { requestText, testTextConnection } = require('./text-provider.cjs');
 const { createGeminiWebService } = require('./gemini-web.cjs');
 const { createChatGPTWebService } = require('./chatgpt-web.cjs');
@@ -276,30 +277,19 @@ ipcMain.handle('audio-result-retain',(_,payload)=>audioResults().retain(String(p
 ipcMain.handle('audio-result-delete',(_,payload)=>audioResults().remove(String(payload?.id||'')));
 ipcMain.handle('audio-results-clear',()=>audioResults().clear());
 ipcMain.handle('app-version',()=>app.getVersion());
-ipcMain.handle('check-update',async()=>{const {manifest,source}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions);return {configured:true,currentVersion:app.getVersion(),manifest,source}});
-let downloadedInstaller=null,activeDownload=null;
-ipcMain.handle('download-update',async(event,payload)=>{
- if(activeDownload)return activeDownload;
- downloadedInstaller=null;
- activeDownload=(async()=>{
-  // Renderer arguments are a request, never proof of a trusted release.
-  const {manifest}=await fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions);
-  if(payload?.url!==manifest.installerUrl||payload?.version!==manifest.version)throw new Error('更新版本已变化，请重新检查更新');
-  if(!newerVersion(manifest.version,app.getVersion()))throw new Error('不能安装相同版本或旧版本');
+registerUpdateHandlers({ipcMain,getVersion:()=>app.getVersion(),checkManifest:()=>fetchUpdateManifest(TRUSTED_MANIFEST_URL,updateOptions),
+ download:async(manifest,onProgress)=>{
   const dir=ensureDir(path.join(app.getPath('userData'),'updates'));
-  const filePath=await downloadInstaller({url:manifest.installerUrl,...manifest,destinationDir:dir,fetchImpl:updateFetch,mirrors:UPDATE_MIRRORS.map(base=>base+'/Xingzhou-Film-Tencent-Setup-'+manifest.version+'.exe'),onProgress:p=>{if(!event.sender.isDestroyed())event.sender.send('update-progress',p)}});
-  downloadedInstaller={filePath,manifest};await pruneUpdateCache(dir,{protectedFiles:[filePath]}).catch(()=>{});return {filePath};
- })().finally(()=>{activeDownload=null});return activeDownload;
-});
-ipcMain.handle('install-update',async()=>{
- if(!downloadedInstaller)throw new Error('尚未下载更新安装包');
- const {filePath,manifest}=downloadedInstaller;validateManifest(manifest);
- if(!newerVersion(manifest.version,app.getVersion()))throw new Error('不能安装相同版本或旧版本');
- await verifyInstaller(filePath,manifest);
- const child=spawn(filePath,['/S'],{detached:true,stdio:'ignore',windowsHide:true});
- await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
- child.unref();setTimeout(()=>app.quit(),350);return true;
-});
+  const filePath=await downloadInstaller({url:manifest.installerUrl,...manifest,destinationDir:dir,fetchImpl:updateFetch,mirrors:UPDATE_MIRRORS.map(base=>base+'/Xingzhou-Film-Tencent-Setup-'+manifest.version+'.exe'),onProgress});
+  await pruneUpdateCache(dir,{protectedFiles:[filePath]}).catch(()=>{});
+  return filePath;
+ },
+ install:async(filePath,manifest)=>{
+  await verifyInstaller(filePath,manifest);
+  const child=spawn(filePath,['/S'],{detached:true,stdio:'ignore',windowsHide:true});
+  await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
+  child.unref();setTimeout(()=>app.quit(),350);return true;
+ }});
 ipcMain.handle('open-external',(_,url)=>shell.openExternal(safeExternalUrl(url)));
 ipcMain.handle('auth-update-profile',(_,p)=>accessService.updateProfile(p));
 ipcMain.handle('select-profile-avatar',async()=>{

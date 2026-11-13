@@ -4,19 +4,37 @@ import {createQuickGenerationController} from './directorQuickGeneration.js';
 import {commitQuickSceneRun} from './directorQuickStore.js';
 import {promptsForScene} from './directorCreative.js';
 
-function fixture({planFails=false,auditFails=false,skillFails=false,emptyStage='',controlStage='',controlCode='STOPPED',pace=50,maxDurationSeconds=15}={}){
- const source='1-1 餐厅 日 内\n人物：甲、乙\n甲：今天我们终于见面了，我等了你很久。\n乙：我知道，但有些事情必须当面说清楚。\n△甲放下杯子，转头看向门口。';
+function fixture({planFails=false,auditFails=false,skillFails=false,emptyStage='',controlStage='',controlCode='STOPPED',pace=50,maxDurationSeconds=15,assessmentSeconds=12,body='人物：甲、乙\n甲：今天我们终于见面了，我等了你很久。\n乙：我知道，但有些事情必须当面说清楚。\n△甲放下杯子，转头看向门口。'}={}){
+ const source='1-1 餐厅 日 内\n'+body;
  let state={accountId:'account',skills:[{id:'skill',name:'fixture',content:'按每个编号返回完整视频提示词。'}],apiProfiles:[{id:'model',model:'fixture'}],directorProjects:[{id:'project',style:'真人电影级',aspectRatio:'9:16',episodes:[{id:'episode',title:'第1集',content:source}]}]};
- const calls=[],records=new Map();
+ const calls=[],records=new Map(),requests={};
  const context=()=>({accountId:state.accountId,project:state.directorProjects[0],episode:state.directorProjects[0].episodes[0],skill:state.skills[0],profile:state.apiProfiles[0],sceneLabel:'1-1',inputText:source,maxDurationSeconds,pace,permissions:{canGenerate:true}});
  const commit=(run,partial)=>{const result=commitQuickSceneRun(state,run,{partial});state=result.state;return result;};
  const controller=createQuickGenerationController({editorialPlanning:true,groundedTiming:true,getContext:context,
   checkpoints:{save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>records.get(runId),list:async()=>[...records.values()]},
-  executeText:async({messages})=>{const kind=messages[0].content.includes('核对')?'audit':'plan';calls.push(kind);if(kind===controlStage)throw Object.assign(Error('execution control'),{code:controlCode});if(kind===emptyStage)return '';if(kind==='plan'&&planFails||kind==='audit'&&auditFails)throw Error('all accounts are temporarily unavailable, please retry later');return kind==='audit'?'{"ok":true,"issues":[]}':'{"estimatedSceneSeconds":12}';},
-  executeSkill:async request=>{calls.push('skill');if(emptyStage==='skill')return '';if(skillFails)throw Error('all accounts are temporarily unavailable, please retry later');return request.expectedLabels.map(label=>`${label}\n【画面内容】\n完整表演与台词。`).join('\n\n');},
+  executeText:async({messages})=>{const kind=messages[0].content.includes('核对')?'audit':'plan';calls.push(kind);requests[kind]=messages;if(kind===controlStage)throw Object.assign(Error('execution control'),{code:controlCode});if(kind===emptyStage)return '';if(kind==='plan'&&planFails||kind==='audit'&&auditFails)throw Error('all accounts are temporarily unavailable, please retry later');return kind==='audit'?'{"ok":true,"issues":[]}':JSON.stringify({estimatedSceneSeconds:assessmentSeconds});},
+  executeSkill:async request=>{calls.push('skill');requests.skill=request;if(emptyStage==='skill')return '';if(skillFails)throw Error('all accounts are temporarily unavailable, please retry later');return request.expectedLabels.map(label=>`${label}\n【画面内容】\n完整表演与台词。`).join('\n\n');},
   commitProgress:run=>commit(run,true),commitRun:run=>commit(run,false)});
- return{controller,context,calls,get state(){return state;}};
+ return{controller,context,calls,requests,get state(){return state;}};
 }
+
+test('fastest pace changes a long dialogue plan, survives model timing inflation and publishes every card',async()=>{
+ const body=Array.from({length:24},(_,i)=>`${i%2?'乙':'甲'}：这件事情没你想的那么简单，我们现在必须马上赶过去处理清楚！`).join('\n');
+ const compact=fixture({body,pace:0,maxDurationSeconds:30,planFails:true});
+ const fast=fixture({body,pace:-100,maxDurationSeconds:30,assessmentSeconds:180});
+ const previous=await compact.controller.start(compact.context());
+ const run=await fast.controller.start(fast.context());
+ assert.equal(run.phase,'completed',JSON.stringify(run.errors));
+ assert.deepEqual(fast.calls,['plan','skill','audit']);
+ assert.ok(run.plan.editorialBudget.totalEstimatedSeconds<previous.plan.editorialBudget.totalEstimatedSeconds*0.8);
+ assert.ok(run.plan.segments.length<previous.plan.segments.length);
+ assert.equal(run.plan.segments.map(s=>run.plan.sourceText.slice(s.sourceStart,s.sourceEnd)).join(''),body);
+ const cards=promptsForScene(fast.state.directorProjects[0].episodes[0].prompts,'1-1');
+ assert.equal(cards.length,run.plan.segments.length);
+ assert.ok(cards.every(p=>p.pace===-100&&p.recommendedDurationSeconds>0&&p.recommendedDurationSeconds<=30&&p.generationComplete));
+ assert.match(fast.requests.skill.input,/极紧凑.*8\.4字\/秒/);
+ assert.match(fast.requests.audit[1].content,/极紧凑.*8\.4字\/秒/);
+});
 
 test('automatic planning outage falls back locally then generates visible prompts with selected pace and durations',async()=>{
  const f=fixture({planFails:true});const run=await f.controller.start(f.context());

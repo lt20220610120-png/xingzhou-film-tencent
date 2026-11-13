@@ -1,7 +1,7 @@
 import {FormattedText} from '../components/FormattedText.jsx';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
-import { DEFAULT_DIRECTOR_PACE, effectiveDirectorDurationLimit, normalizeDirectorPace, resolveDirectorPaceProfile } from '../../core/directorDurationPolicy.js';
+import { DEFAULT_DIRECTOR_PACE, MIN_DIRECTOR_PACE, effectiveDirectorDurationLimit, normalizeDirectorPace, resolveDirectorPaceProfile } from '../../core/directorDurationPolicy.js';
 import { buildSceneSourceTape } from '../../core/directorSegmentation.js';
 import { buildEditorialSceneFacts, createSceneDurationBudget } from '../../core/directorSceneBudget.js';
 
@@ -10,6 +10,7 @@ export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disa
   const current = useRef({ value: normalizeDirectorPace(value), onChange, disabled });
   current.current = { value: normalizeDirectorPace(value), onChange, disabled };
   const profile = resolveDirectorPaceProfile(value);
+  const position = (profile.pace - MIN_DIRECTOR_PACE) / (DEFAULT_DIRECTOR_PACE - MIN_DIRECTOR_PACE) * 100;
 
   useEffect(() => {
     const node = wrapRef.current;
@@ -31,15 +32,15 @@ export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disa
     <div ref={wrapRef} className={`director-pace-rail${disabled ? ' is-disabled' : ''}`} data-tier={profile.tier} title={`短剧节奏：${profile.tierLabel}（鼠标滚轮或拖动微调）`}>
       <span className="director-pace-caption">节奏</span>
       <div className="director-pace-box">
-        <span className={`director-pace-pole${profile.tier === 'compact' ? ' active' : ''}`}>紧凑</span>
-        <div className="director-pace-track-wrap" style={{ '--pace-pct': `${profile.pace}%` }}>
+        <span className={`director-pace-pole${profile.tier === 'extra-compact' ? ' active' : ''}`}>极紧凑</span>
+        <div className="director-pace-track-wrap" style={{ '--pace-pct': `${position}%` }}>
           <input
             type="range"
-            min="0"
-            max="100"
+            min={MIN_DIRECTOR_PACE}
+            max={DEFAULT_DIRECTOR_PACE}
             step="1"
             aria-label={ariaLabel}
-            aria-valuetext={`${profile.tierLabel}（${profile.pace}%）`}
+            aria-valuetext={`${profile.tierLabel}（滑轨 ${Math.round(position)}%）`}
             disabled={disabled}
             value={profile.pace}
             onChange={e => onChange?.(normalizeDirectorPace(e.target.value))}
@@ -52,16 +53,16 @@ export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disa
   );
 }
 
-export function DirectorQuickControls({settings,onSettingsChange}) {
+export function DirectorQuickControls({settings,onSettingsChange,disabled=false}) {
   const isAuto = settings.segmentationMode === 'auto';
   return <div className="quick-segmentation-settings">
-    <label>分段方式<select aria-label="分段方式" value={settings.segmentationMode} onChange={e=>onSettingsChange({...settings,segmentationMode:e.target.value})}>
+    <label>分段方式<select aria-label="分段方式" disabled={disabled} value={settings.segmentationMode} onChange={e=>onSettingsChange({...settings,segmentationMode:e.target.value})}>
       <option value="manual">人工分段</option><option value="auto">自动分段</option>
     </select></label>
-    <label>最高时长<select aria-label="最高视频时长" disabled={!isAuto} value={settings.maxDurationSeconds} onChange={e=>onSettingsChange({...settings,maxDurationSeconds:Number(e.target.value)})}>
+    <label>最高时长<select aria-label="最高视频时长" disabled={!isAuto||disabled} value={settings.maxDurationSeconds} onChange={e=>onSettingsChange({...settings,maxDurationSeconds:Number(e.target.value)})}>
       {Array.from({length:36},(_,i)=>i).map(n=><option key={n} value={n}>{n===0?'0 · 自动（≤35秒）':`${n} 秒`}</option>)}
     </select></label>
-    {isAuto&&<DirectorPaceRail value={settings.pace ?? DEFAULT_DIRECTOR_PACE} onChange={pace=>onSettingsChange({...settings,pace})}/>}
+    {isAuto&&<DirectorPaceRail disabled={disabled} value={settings.pace ?? DEFAULT_DIRECTOR_PACE} onChange={pace=>onSettingsChange({...settings,pace})}/>}
   </div>;
 }
 

@@ -645,7 +645,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
               <div className="quick-scene-card">
                 <div className="quick-scene-card-head">
                   <span className="scene-card-badge">场景 {currentScene}</span>
-                  <DirectorQuickControls settings={quickSettings} onSettingsChange={value=>{setSettingsJson(JSON.stringify(value));setSourceView('source');}} />
+                  <DirectorQuickControls settings={quickSettings} disabled={autoBusy||batchBusy||isSceneRunning(currentScene)} onSettingsChange={value=>{setSettingsJson(JSON.stringify(value));setSourceView('source');}} />
                   <div className="quick-generation-controls">
                     <label className="mode-skill-picker compact">
                       <span>Skill</span>

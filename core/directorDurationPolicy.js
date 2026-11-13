@@ -8,19 +8,31 @@ export const effectiveDirectorDurationLimit = value => assertDirectorDurationSel
 export const normalizeDirectorDurationSelection = (value, fallback = 30) => Number.isInteger(value) && value >= 0 && value <= 35 ? value : fallback;
 
 export const DEFAULT_DIRECTOR_PACE = 100;
+export const MIN_DIRECTOR_PACE = -100;
 export const normalizeDirectorPace = (value, fallback = DEFAULT_DIRECTOR_PACE) => {
   if (value === undefined || value === null || value === '') return fallback;
   const n = Number(value);
-  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : fallback;
+  return Number.isFinite(n) ? Math.max(MIN_DIRECTOR_PACE, Math.min(DEFAULT_DIRECTOR_PACE, Math.round(n))) : fallback;
 };
 export const assertDirectorPace = value => {
   if (value === undefined) return DEFAULT_DIRECTOR_PACE;
-  if (!Number.isInteger(value) || value < 0 || value > 100) throw new Error('节奏刻度必须为 0～100 的整数');
+  if (!Number.isInteger(value) || value < MIN_DIRECTOR_PACE || value > DEFAULT_DIRECTOR_PACE) throw new Error('节奏刻度必须为 -100～100 的整数');
   return value;
 };
 export function resolveDirectorPaceProfile(value = DEFAULT_DIRECTOR_PACE) {
   const pace = normalizeDirectorPace(value);
-  const f = pace / 100; // 0 = 最紧凑, 0.5 = 适中, 1 = 正常（短剧标准）
+  // Extend the compact side without reinterpreting saved 0–100 settings.
+  if (pace < 0) {
+    const compact=resolveDirectorPaceProfile(0), f=pace/MIN_DIRECTOR_PACE;
+    const lerp=(key,end)=>Math.round((compact[key]+(end-compact[key])*f)*1000)/1000;
+    return {...compact,pace,tier:pace<=-50?'extra-compact':'compact',tierLabel:pace<=-50?'极紧凑':'紧凑',
+      cjkCharsPerSec:lerp('cjkCharsPerSec',8.4),latinWordsPerSec:lerp('latinWordsPerSec',4.25),
+      utteranceBaseSec:lerp('utteranceBaseSec',0.08),punctPauseSec:lerp('punctPauseSec',0.015),
+      visualBeatScale:lerp('visualBeatScale',0.34),unclassifiedBeatSec:lerp('unclassifiedBeatSec',0.42),
+      entranceBeatSec:lerp('entranceBeatSec',0.9),instantVisualSec:lerp('instantVisualSec',0.15),
+      scaleFromNormal:lerp('scaleFromNormal',0.54)};
+  }
+  const f = pace / 100;
   const tier = pace <= 33 ? 'compact' : pace <= 66 ? 'balanced' : 'normal';
   const tierLabel = tier === 'compact' ? '紧凑' : tier === 'balanced' ? '适中' : '正常';
   return {
@@ -38,6 +50,11 @@ export function resolveDirectorPaceProfile(value = DEFAULT_DIRECTOR_PACE) {
     maxModelMultiplier: Math.round((1.05 + 0.10 * f) * 1000) / 1000, // 紧凑 1.05x -> 适中 1.10x -> 正常 1.15x
     scaleFromNormal: Math.round((0.77 + 0.23 * f) * 1000) / 1000,    // 实时预览与梯度缩放系数
   };
+}
+
+export function directorPaceDescription(value) {
+  const {tierLabel,cjkCharsPerSec,latinWordsPerSec}=resolveDirectorPaceProfile(value);
+  return `${tierLabel}（中文参考约 ${cjkCharsPerSec}字/秒，英文参考约 ${latinWordsPerSec}词/秒）`;
 }
 
 // Explicit user-authorized editorial exception, not a general higher cap.
