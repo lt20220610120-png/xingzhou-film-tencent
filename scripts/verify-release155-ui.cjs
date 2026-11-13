@@ -24,7 +24,7 @@ app.whenReady().then(async()=>{
   server=await createServer({root,configFile:false,server:{host:'127.0.0.1',port:0,watch:null},logLevel:'warn'});
   await server.listen();
   const base=server.resolvedUrls.local[0]||`http://127.0.0.1:${server.httpServer.address().port}/`;
-  win=new BrowserWindow({width:1520,height:1000,show:false,webPreferences:{preload:path.join(root,'electron/preload.cjs')}});
+  win=new BrowserWindow({width:1520,height:1000,show:false,webPreferences:{backgroundThrottling:false,preload:path.join(root,'electron/preload.cjs')}});
   await win.loadURL(base+'scripts/fixtures/director-auto154.html?extendedPace');
   const budget="document.querySelector('.quick-budget-readout')?.innerText";
   const before=await waitFor(budget);
@@ -48,6 +48,7 @@ app.whenReady().then(async()=>{
   assert.equal(scene.shown.length,scene.prompts.length);
   assert.equal(scene.shown.length,Number(after.match(/预计\s*(\d+)\s*条/)[1]));
   scene.prompts.forEach((p,i)=>{assert.equal(p.pace,-100);assert.ok(p.complete&&p.seconds>=1&&p.seconds<=30);assert.match(scene.shown[i],new RegExp(p.seconds+' 秒'));});
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   fs.writeFileSync(path.join(out,'155-director.png'),(await win.webContents.capturePage()).toPNG());
   const fetchFn=createUpdateFetch((url,options)=>net.fetch(url,options));
   registerUpdateHandlers({ipcMain,getVersion:()=>installed,
@@ -88,6 +89,7 @@ app.whenReady().then(async()=>{
   await waitFor("document.querySelector('[role=alert]')?.textContent.includes('下载连接中断')");
   await run(click);
   await waitFor("document.querySelector('.startup-update-actions .primary')?.textContent==='安装并重启'",450);
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   fs.writeFileSync(path.join(out,'155-update-ready.png'),(await win.webContents.capturePage()).toPNG());
   await run(click);
   for(let i=0;i<40&&!installer;i++)await pause(100);
