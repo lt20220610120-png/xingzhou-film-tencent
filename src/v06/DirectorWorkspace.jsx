@@ -1,4 +1,5 @@
 import {isProtectedSkill} from '../../core/clientDistribution.js';
+import {currentManualSceneReplies} from '../../core/directorGenerationSession.js';
 import {prepareDirectorEpisodeAddition,directorEpisodeCount} from '../../core/directorAppendEpisode.js';
 import {normalizeDirectorImportText} from '../../core/directorImportText.js';
 const rememberPreference=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
@@ -196,8 +197,8 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
           {prompt.recommendedDurationSeconds&&<span className={`prompt-duration${prompt.durationStatus==='needs-review'?' needs-review':''}`} title={prompt.durationCompression ? '整场自然表演预计略超过30秒，按紧凑节奏生成30秒视频，保留完整剧情和台词。' : '按当前内容估算；实际生成请结合所选视频模型的可选时长。'}>建议生成时长 {prompt.recommendedDurationSeconds} 秒{prompt.durationStatus==='needs-review'?' · 时长待复核':''}</span>}
           {prompt.durationCompression&&Number.isFinite(prompt.naturalEstimatedSeconds)&&<small className="prompt-duration-compression">自然预计 {Math.round(prompt.naturalEstimatedSeconds*10)/10} 秒 · 紧凑节奏</small>}
           {prompt.generationRunId&&<small className="prompt-generation-batch">{new Date(prompt.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 批次</small>}
-          {prompt.sceneAuditStatus==='pending'&&<small className="prompt-generation-batch">已保存 · 整场核对中</small>}
-          {prompt.sceneAuditStatus==='warning'&&<small className="prompt-generation-batch prompt-audit-warning">已保存 · 有生成提醒</small>}
+          {prompt.sceneAuditStatus==='pending'&&<small className="prompt-generation-batch">已保存 · {prompt.segmentationMode==='manual'?'Agent逐段复核中':'整场核对中'}</small>}
+          {prompt.sceneAuditStatus==='warning'&&<small className="prompt-generation-batch prompt-audit-warning">已保存 · {prompt.segmentationMode==='manual'?'Agent复核需处理':'有生成提醒'}</small>}
         </div>
         <div className="prompt-actions top">
           {editing ? (
@@ -337,12 +338,15 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   };
   const [sourceView,setSourceView]=useState('source');
   const manualOutputRevision=(episode.manualSceneReplies||[]).length;
-  const savedReplies=(episode.manualSceneReplies||[]).filter(reply=>reply.sceneLabel===currentScene);
-  const manualOutputs=[...savedReplies,...(quickGeneration?.getSceneManualRuns?.(project.id,episode.id,currentScene)||quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
+  const savedReplies=currentManualSceneReplies(episode,currentScene);
+  const activeRunId=episode.activeSceneGenerationRuns?.[currentScene]?.runId;
+  const sceneManualRuns=quickGeneration?.getSceneManualRuns?.(project.id,episode.id,currentScene)||[];
+  const manualRun=sceneManualRuns.filter(r=>!activeRunId||r.id===activeRunId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
+  const manualOutputs=[...savedReplies,...(sceneManualRuns.length?sceneManualRuns:quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&(!activeRunId||r.id===activeRunId)&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
   const [autoError,setAutoError]=useState('');
   const localRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
-  const autoRun=localRun||(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
+  const autoRun=localRun&&(!activeRunId||localRun.id===activeRunId)?localRun:(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
   const autoBusy=isQuickRunActive(localRun);
   const batchBusy=quickGeneration?.isProjectBatchActive(project.id);
   const autoStale=Boolean(autoRun?.plan&&(autoRun.plan.sourceSnapshot!==currentSceneContent||autoRun.plan.settingsHash!==directorSettingsHash({project,episode,maxDurationSeconds:quickSettings.maxDurationSeconds,pace:quickSettings.pace,timingScale:autoRun.plan.editorialBudget?.timingScale===undefined?undefined:calibration?.timingScale})));
@@ -465,7 +469,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   };
 
   // 获取当前选中场景的已生成提示词
-  const scenePrompts = currentScene ? promptsForScene(savedPrompts, currentScene) : [];
+  const scenePrompts = currentScene ? promptsForScene(savedPrompts, currentScene).filter(p=>!activeRunId||p.generationRunId===activeRunId) : [];
   const creativeScenePrompts = currentScene ? creativePromptsForScene(savedPrompts, currentScene) : [];
   const togglePromptSelection = (promptId) => setSelectedPromptIds((current) => {
     const next = new Set(current);
@@ -682,6 +686,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 </div>
                 {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} sceneText={currentSceneContent} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} calibration={calibration} applied={appliedCalibration?.episodeId===episode.id&&appliedCalibration?.sceneLabel===currentScene&&appliedCalibration?.pace===quickSettings.pace&&appliedCalibration?.timingScale===calibration?.timingScale&&appliedCalibration?.totalEstimatedSeconds===calibration?.totalEstimatedSeconds} onApply={applyCalibration} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
                 {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><FormattedText key={index} text={reply.output}/>)}</details>}
+                {quickSettings.segmentationMode==='manual'&&manualRun&&<div className="quick-run-status" role="status"><span>本轮 {manualRun.prompts?.length||0}/{manualRun.expectedLabels?.length||0} 条 · {({generating:'生成中',auditing:'Agent逐段复核中','ready-to-commit':'保存中',completed:'已完成',paused:'已暂停',failed:'已中断，正文保留','needs-review':'复核需处理',stale:'原文或批次已变化'})[manualRun.phase]||manualRun.phase}</span>{isQuickRunActive(manualRun)?<button onClick={()=>quickGeneration.stopManualScene?.(manualRun.id)}>停止</button>:['paused','failed'].includes(manualRun.phase)?<button onClick={()=>quickGeneration.resumeManualScene?.(manualRun.id).catch(e=>setAutoError(e.message))}>继续未完成部分</button>:null}</div>}
                 <FormattedEditor
                   key={episode.id+currentScene+sourceView} commitDelay={1200}
                   className="quick-scene-textarea director-script-body"
@@ -714,17 +719,12 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                 ))}
               </div>
             ) : (
-              <div className="quick-scene-no-prompts">
-
-              </div>
-            )}
-            {scenePrompts.length === 0 && savedPrompts.length === 0 && (
-              <div className="no-prompts compact">
+              <div className="no-prompts compact" role="status">
                 <Bot size={24} />
-                <p>选择 Skill 并运行，生成的提示词会出现在这里。</p>
+                <p>{isQuickRunActive(manualRun)||autoBusy?'正在生成本轮提示词…':activeRunId?'本轮暂无提示词。':'选择 Skill 并生成提示词。'}</p>
               </div>
             )}
-            <div className="quick-prompts-info"><small>{scenePrompts.length?`已保存 ${scenePrompts.length} 条提示词 · 切换场景后可继续查看。`:'生成的提示词会先保存并展示在此处，核对结果另作提醒。'}</small></div>
+            {scenePrompts.length>0&&<div className="quick-prompts-info"><small>已保存 {scenePrompts.length} 条提示词</small></div>}
           </section>
         </div>
       )}

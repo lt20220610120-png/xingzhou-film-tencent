@@ -7,7 +7,7 @@ export const documentProtocol=doc=>doc.getMap('fields').get(key(['@protocol']))|
 const editableText=path=>path.length===1&&path[0]==='script'||path[0]==='episodes'&&(path.includes('quickSceneEdits')||path.includes('sceneVisions')||['content','text','directorVision'].includes(path.at(-1))&&!path.includes('quickScenePlans'));
 // ID arrays are sets of independently editable records, ordered by their rank.
 // Adding a prompt in one episode never replaces another member's prompt list.
-const editionWorkFields={prompts:[],quickScenePlans:[],activeQuickScenePlanIds:{},quickSceneEdits:{},sceneVisions:{},manualSceneReplies:[],quickScenePlanConflicts:[],status:'待导演处理'};
+const editionWorkFields={prompts:[],quickScenePlans:[],activeQuickScenePlanIds:{},activeSceneGenerationRuns:{},quickSceneEdits:{},sceneVisions:{},manualSceneReplies:[],quickScenePlanConflicts:[],status:'待导演处理'};
 // Concurrent collaborators may still be writing edition A after B is opened.
 // All paid work and editable drafts therefore live under their edition ID.
 function scopeEditionWork(document){

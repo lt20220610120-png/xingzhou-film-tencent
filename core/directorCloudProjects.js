@@ -49,11 +49,15 @@ const attachPlans = (episode,local={},cloud={},base) => {
     const input=Object.hasOwn(episode.quickSceneEdits || {},label)?String(episode.quickSceneEdits[label] ?? ''):scene?.content;
     if(plan && scene && plan.sceneLabel===label && plan.sourceSnapshot===input)active[label]=id;
   }
-  return {...episode,quickScenePlans:merged.plans,activeQuickScenePlanIds:active,quickScenePlanConflicts:merged.conflicts};
+  const sceneRuns={...cloud.activeSceneGenerationRuns};
+  for(const [label,run] of Object.entries(local.activeSceneGenerationRuns||{})){
+    if(!sceneRuns[label]||run.createdAt>=sceneRuns[label].createdAt)sceneRuns[label]=run;
+  }
+  return {...episode,quickScenePlans:merged.plans,activeQuickScenePlanIds:active,quickScenePlanConflicts:merged.conflicts,...(Object.keys(sceneRuns).length?{activeSceneGenerationRuns:sceneRuns}:{})};
 };
 
 const withoutPlans = (document) => ({...document,episodes:(document?.episodes || []).map(episode=>{
-  const {quickScenePlans,activeQuickScenePlanIds,quickScenePlanConflicts,...rest}=episode;
+  const {quickScenePlans,activeQuickScenePlanIds,quickScenePlanConflicts,activeSceneGenerationRuns,...rest}=episode;
   if(!rest.deletedPromptIds?.length)delete rest.deletedPromptIds;
   return rest;
 })});

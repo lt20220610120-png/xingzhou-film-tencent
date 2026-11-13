@@ -103,6 +103,8 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   if(state.accountId!==snapshot.accountId)return fail(state,'当前账号已变化，不能提交其他账号的任务');
   const project=state.directorProjects?.find(p=>p.id===snapshot.projectId),episode=project?.episodes?.find(ep=>ep.id===snapshot.episodeId);
   if(!project || !episode)return fail(state,'目标项目或分集已删除，草稿已保留');
+  const activeRun=episode.activeSceneGenerationRuns?.[snapshot.sceneLabel]?.runId;
+  if(activeRun&&activeRun!==run.id)return fail(state,'本场已有新的生成批次，旧结果仅保留在历史中');
   if(!sameDirectorEdition(project,snapshot))return fail(state,'提示词版本已切换，付费回包保留在原版本任务中');
   if(project.cloudLocked || project.canWrite===false || project.permissions?.canWrite===false || project.permissions?.canGenerate===false || project.cloudConflict || episode.canWrite===false)return fail(state,'当前项目不可写入，请先核对权限或云端冲突');
   const tombstones=new Set([...(project.deletedPromptIds || []),...(project.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])]);

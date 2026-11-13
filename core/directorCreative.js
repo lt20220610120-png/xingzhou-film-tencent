@@ -67,7 +67,7 @@ const splitSceneIdPromptOutput = (source) => {
   }).filter((part) => part.content);
 };
 
-export const buildNumberedSceneTasks = (text, sceneLabel) => {
+export const buildNumberedSceneTasks = (text, sceneLabel, {includeShared=true}={}) => {
   const source = String(text ?? '').replace(/^\uFEFF/, '').trim();
   if (!source) return [];
   const lines = source.split(/\r?\n/);
@@ -82,14 +82,19 @@ export const buildNumberedSceneTasks = (text, sceneLabel) => {
     const body = lines.slice(marker.index, markers[index + 1]?.index ?? lines.length).join('\n').trim();
     return {
       label: `${sceneLabel}-${marker.number}`,
-      input: [shared, body].filter(Boolean).join('\n'),
+      input: [includeShared ? shared : '', body].filter(Boolean).join('\n'),
     };
   });
 };
 
 /** Manual and automatic cuts use the same whole-scene submission. The selected
  * original Skill owns all directing, dialogue interpretation and output fields. */
-export const buildWholeSceneSubmission = ({ sourceText, expectedLabels }) => `${sourceText}\n\n【整场提交说明】\n通读以上整场，执行所选 Skill 的完整工作流程，并按该 Skill 自行核对成品。按已定段落返回 ${expectedLabels.length} 条正文。软件用于分发的外层编号各自独占一行：${expectedLabels.join('、')}。编号下面的正文、分镜比例和字段完全遵循所选 Skill。`;
+export function directorSourceOwnership(sourceText,expectedLabels){
+ const sceneLabel=expectedLabels[0]?.split('-').slice(0,-1).join('-'),tasks=buildNumberedSceneTasks(sourceText,sceneLabel,{includeShared:false});
+ if(tasks.length!==expectedLabels.length)throw Error('分段原文与输出编号数量不一致，未提交生成');
+ return tasks.map((task,index)=>({label:expectedLabels[index],source:task.input}));
+}
+export const buildWholeSceneSubmission = ({ sourceText, segmentSource=sourceText, expectedLabels }) => `${sourceText}\n\n【整场提交说明】\n通读以上整场，执行所选 Skill 的完整工作流程，并按该 Skill 自行核对成品。按已定段落返回 ${expectedLabels.length} 条正文。软件用于分发的外层编号各自独占一行：${expectedLabels.join('、')}。编号下面的正文、分镜比例和字段完全遵循所选 Skill。\n\n【已锁定的逐段原文归属】\n${JSON.stringify(directorSourceOwnership(segmentSource,expectedLabels))}\n先逐段锁定原话、事件与起止动作的归属，再在各段内部完成导演预演和镜头编排。整场理解只共享连续状态；括号前的场景设定作为参考，不允许将一段的对白或事件移入另一段，不得让相邻条目补偿本段缺漏。镜头顺序定稿后，再按所选完整 Skill 同步其比重、声画引用及其他依赖字段。交付前按每个编号分别对照该段全部原话与事件；整场总数相同、总对白未漏不能代替逐段正确。`;
 
 export const splitNumberedPromptOutput = (text) => {
   const source = String(text ?? '').replace(/^\uFEFF/, '');

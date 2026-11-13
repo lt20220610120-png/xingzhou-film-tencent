@@ -42,7 +42,7 @@ const reusablePaidRanges=(run,tape)=>{
 };
 
 /** A scene transaction: no React closures or credentials belong in its checkpoint. */
-export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,commitProgress=null,groundedTiming=false,editorialPlanning=false,legacyPromptReview=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
+export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,beginRun=null,commitProgress=null,groundedTiming=false,editorialPlanning=false,legacyPromptReview=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
   const contractFor=skill=>legacyPromptReview?identifyPromptContract(skill):'routing-only';
   const runs=new Map(),listeners=new Set(),executions=new Map(),versions=new Map(),saveTails=new Map();
   let disposed=false;
@@ -58,6 +58,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
     const context=await getContext(run.snapshot);
     if(!context || context.accountId!==run.snapshot.accountId)throw error('账号已切换，任务已暂停','ACCOUNT_CHANGED');
     if(context.project&&!sameDirectorEdition(context.project,run.snapshot))throw error('提示词版本已切换，原版本草稿已保留','STALE');
+    const currentRun=context.episode?.activeSceneGenerationRuns?.[run.snapshot.sceneLabel]?.runId;
+    if(currentRun&&currentRun!==run.id)throw error('本场已开始新的生成批次，旧任务仅保留在历史中','STALE');
     if(!context.project || !context.episode || !context.skill || !context.profile)throw error('项目、场景、Skill 或模型已不存在','STALE');
     if(context.permissions?.canGenerate===false || context.project.cloudLocked)throw error('项目已锁定或无权生成','STALE');
     const latest=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale});
@@ -492,6 +494,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       const initialVersion=versions.get(run.id)||0;
       await persist(run);
       if(disposed||!isQuickRunActive(run)||(versions.get(run.id)||0)!==initialVersion)return clone(run);
+      if(beginRun){try{const result=await beginRun(clone(run));if(!result?.applied)throw error(result?.conflict||'新批次准备失败','STALE');}catch(e){run.phase=e.code==='STALE'?'stale':'failed';run.errors=[{code:e.code||'SAVE_FAILED',message:e.message}];await persist(run);return clone(run);}}
       return schedule(run);
     },
     async resume(runId,{profileId,restoreOutput=false}={}){

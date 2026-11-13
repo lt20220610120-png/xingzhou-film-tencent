@@ -1,0 +1,17 @@
+import React,{useRef,useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {DirectorWorkspace} from '../../src/v06/DirectorWorkspace.jsx';
+import {useDirectorQuickGeneration} from '../../src/v06/useDirectorQuickGeneration.js';
+import '../../src/styles.css';import '../../src/collab.css';import '../../src/production-workspace.css';import '../../src/brand-theme.css';import '../../src/workspace-readability.css';import '../../src/components/formatted-text.css';import '../../src/workspace-refresh.css';
+localStorage.clear();localStorage.setItem('xz-director-last-project','fixture-project');localStorage.setItem('xz-director-last-pane','fixture-episode');localStorage.setItem('xz-director-mode:fixture-account:fixture-project','quick');localStorage.setItem('xz-director-quick-settings:fixture-account:fixture-project',JSON.stringify({segmentationMode:'manual',maxDurationSeconds:30,pace:100}));
+const source='1-1 客厅 日 内\n（1）\n甲：给现金。\n乙：要钥匙。\n甲：不要拆台。\n乙：别再吹牛。\n（2）\n甲：都是一家人。\n乙：金镯和养老存折。\n甲：这是棺材本。\n（3）\n乙：原来您分得清。';
+const initial={skills:[{id:'skill',name:'客户完整Skill',content:'按附件格式输出。',files:[{path:'format.md',content:'比重使用hold，不强制分数。'}]}],apiProfiles:[{id:'model',name:'隔离模拟模型',model:'mock',endpoint:'https://example.invalid'}],activeApiId:'model',directorProjects:[{id:'fixture-project',name:'新生成隔离验证',episodes:[{id:'fixture-episode',title:'第1集',content:source,prompts:[1,2,3].map(n=>({id:'old'+n,label:'1-1-'+n,sceneLabel:'1-1',generationMode:'quick',sourceText:source,generationRunId:'old',createdAt:new Date().toISOString(),content:'1-1-'+n+'\nOLD_PAID_BODY_'+n})),manualSceneReplies:[{id:'old',sceneLabel:'1-1',output:'OLD_PAID_BODY'}]}]}]};
+const records=new Map(),qa=window.qaFresh={generationCalls:[],reviewCalls:[],hold:true,fail:false,gates:[],realApiCalls:0};qa.release=()=>{qa.hold=false;qa.gates.splice(0).forEach(f=>f());};
+const api={directorCollabListProjects:async()=>[],collabListProjects:async()=>[],collabIsProducer:async()=>false,directorQuickListRuns:async()=>[...records.values()],directorQuickSaveRun:async({run})=>records.set(run.id,structuredClone(run)),directorQuickLoadRun:async({runId})=>records.get(runId),cancelAiTask:async()=>{},aiChat:async p=>{
+ const text=p.messages.map(m=>m.content).join('\n');
+ if(text.includes('【本次任务：逐段原文归属')){qa.reviewCalls.push(p);return{ok:true,output:JSON.stringify({segments:[1,2,3].map(n=>({label:'1-1-'+n,ok:true,issues:[]}))})};}
+ qa.generationCalls.push(p);const round=qa.generationCalls.length;if(qa.hold)await new Promise(r=>qa.gates.push(r));if(qa.fail)return{ok:false,error:'隔离模拟接口中断'};
+ return{ok:true,output:[1,2,3].map(n=>`1-1-${n}\n本轮 NEW_REPLY_${round} · 第${n}条\n比重 hold`).join('\n\n')};
+}};
+function App(){const[state,setReactState]=useState(initial),ref=useRef(state);ref.current=state;const setState=next=>{ref.current=typeof next==='function'?next(ref.current):next;setReactState(ref.current);};const persistence=useRef({enqueue:()=>{},flush:async()=>{qa.persisted=structuredClone(ref.current);}}).current;const quick=useDirectorQuickGeneration({state,stateRef:ref,setState,api,accountId:'fixture-account',persistence,initialized:true});qa.state=state;qa.quick=quick;return <div style={{height:'100vh',display:'flex'}}><DirectorWorkspace state={state} setState={setState} api={api} accountId="fixture-account" quickGeneration={quick}/></div>;}
+createRoot(document.getElementById('root')).render(<App/>);

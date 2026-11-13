@@ -1,6 +1,6 @@
 // Edition data travels inside episodes, through the existing director document
 // and collaboration APIs. Script/episode identities are shared; paid work is not.
-const workFields={prompts:[],quickScenePlans:[],activeQuickScenePlanIds:{},quickSceneEdits:{},sceneVisions:{},manualSceneReplies:[],quickScenePlanConflicts:[],status:'待导演处理'};
+const workFields={prompts:[],quickScenePlans:[],activeQuickScenePlanIds:{},activeSceneGenerationRuns:{},quickSceneEdits:{},sceneVisions:{},manualSceneReplies:[],quickScenePlanConflicts:[],status:'待导演处理'};
 const clone=value=>structuredClone(value);
 export const activeDirectorEditionId=project=>(project?.episodes||[]).find(e=>e.promptEditionId)?.promptEditionId;
 export const directorEditionKey=project=>activeDirectorEditionId(project)||'original:'+(project?.cloudProjectId||project?.id);
