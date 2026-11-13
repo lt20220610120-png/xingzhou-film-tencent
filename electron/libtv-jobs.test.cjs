@@ -20,3 +20,24 @@ test('download failure leaves identity recoverable and a retry never resubmits g
 test('restart does not mistake a newly created node placeholder for the paid result',async()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-placeholder-'));fs.writeFileSync(path.join(dir,'generation-jobs.json'),JSON.stringify([{id:'j',provider:'libtv',status:'submitted',kind:'image',libtvNodeId:'n',libtvProjectId:'p',libtvInitialUrls:['https://cdn/placeholder.png']}]));let downloads=0;const jobs=createGenerationJobs(dir,{libtvService:{query:async()=>({data:{url:['https://cdn/placeholder.png']}}),download:async()=>{downloads++;return{filePath:'wrong.png'};}}});assert.equal((await jobs.refresh({id:'j',accountId:'user'})).status,'submitted');assert.equal(downloads,0);});
 
 test('a scope change during provider preparation prevents the paid run itself',async()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-final-gate-'));let permitted=true,runs=0;const jobs=createGenerationJobs(dir,{beforeDispatch:async()=>{if(!permitted)throw Error('operator narrowed scope');},libtvService:{prepare:async()=>{permitted=false;return{jobId:'node',libtvNodeId:'node',libtvProjectId:'p'}},run:async()=>{runs++;return{};}}});await jobs.submit({provider:'libtv',kind:'video',endpoint:'https://www.liblib.tv',model:'m',prompt:'test',accountId:'user'});await new Promise(r=>setImmediate(r));assert.equal(runs,0);assert.equal(jobs.list()[0].status,'failed');assert.equal(jobs.list()[0].submissionAttempted,false);fs.rmSync(dir,{recursive:true,force:true});});
+
+test('canvas-only submissions never run a node and recover its manually generated result after restart',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-draft-'));
+ let runs=0,state='waiting',downloads=0;
+ const service={
+  prepare:async()=>({jobId:'node',libtvNodeId:'node',libtvProjectId:'canvas',libtvInitialUrls:['https://cdn/placeholder.mp4']}),
+  run:async()=>{runs++;},
+  query:async()=>({data:{taskInfo:{loading:state==='running'},url:[state==='done'?'https://cdn/generated.mp4':'https://cdn/placeholder.mp4']}}),
+  download:async(_user,job)=>{assert.equal(job.libtvNodeId,'node');downloads++;return {filePath:path.join(dir,'generated.mp4')};},
+ };
+ try{
+  const job=await createGenerationJobs(dir,{libtvService:service}).submit({provider:'libtv',kind:'video',endpoint:'https://www.liblib.tv',model:'m',prompt:'scene',libtvSubmissionMode:'canvas',accountId:'u'});
+  assert.equal(job.remoteStatus,'awaiting-canvas');
+  const restarted=createGenerationJobs(dir,{libtvService:service});
+  const refresh=()=>restarted.refresh({id:job.id,accountId:'u'});
+  assert.equal((await refresh()).remoteStatus,'awaiting-canvas');
+  state='running';assert.equal((await refresh()).remoteStatus,'running');
+  state='done';assert.equal((await refresh()).status,'success');
+  assert.equal(downloads,1);assert.equal(runs,0);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

@@ -109,7 +109,7 @@ function createGenerationJobs(dir,options={}) {
       await options.beforeSubmit?.();const dispatchGuard=async()=>{try{await options.beforeDispatch?.(input);}catch(e){e.beforeSubmission=true;throw e;}};
       const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
-      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','projectVideoDeleted','likeJobId','likeCanvasUrl','nodeId','taskId'])delete snapshot[field];
+      for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','projectVideoDeleted','likeJobId','likeCanvasUrl','nodeId','taskId','libtvNodeId','libtvProjectId','libtvCanvasUrl','libtvInitialUrls','libtvRunStarted','libtvIdentity','remoteStatus'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
       const job = { ...snapshot, ...((input.kind==='video'||fnko.isFnkoEndpoint(endpoint))?{endpoint:persistedEndpoint}:{}), id: crypto.randomUUID(), createdAt:new Date().toISOString(), status:'submitting' };
       if(input.provider==='likeai'){
@@ -122,9 +122,14 @@ function createGenerationJobs(dir,options={}) {
       if(input.provider==='libtv'){
         if(!libtv())throw Error('LibTV 连接器尚未就绪，请先连接账号');
         save(job);
+        const canvasOnly=input.kind==='video'&&!input.workflowRunId&&input.libtvSubmissionMode==='canvas';
         let task;
-        try{if(options.beforeDispatch)await dispatchGuard();task=save({...job,...await libtv().prepare(accountId,{...input,id:job.id}),status:'submitted',libtvRunStarted:true});}
-        catch(e){save({...job,status:'failed',error:e.message});throw e;}
+        try{
+          if(options.beforeDispatch)await dispatchGuard();
+          const prepared=await libtv().prepare(accountId,{...input,id:job.id});
+          task=save({...job,...prepared,status:'submitted',libtvRunStarted:!canvasOnly,...(canvasOnly?{remoteStatus:'awaiting-canvas',warning:'素材已上传，请在 LibTV 原画布点击生成',nextPollAt:Date.now()+30000}:{})});
+        }catch(e){save({...job,status:'failed',error:e.message});throw e;}
+        if(canvasOnly)return task;
         const work=(async()=>{
           try{if(options.beforeDispatch)await dispatchGuard();const result=await libtv().run(accountId,task,{signal});if(libtvFailed(result)){save({...task,status:'failed',error:'LibTV 官方任务失败，请在原画布核对'});return;}
             task=save({...task,status:'downloading'});try{save({...task,...await libtv().download(accountId,task,dir),status:'success',warning:''});}catch(e){save({...task,warning:e.message});}
@@ -198,8 +203,16 @@ function createGenerationJobs(dir,options={}) {
         if(job.provider==='libtv'){
           if(job.status==='success'||job.status==='failed')return job;
           try{const raw=await libtv().query(accountId,job);if(libtvFailed(raw))return save({...job,status:'failed',error:'LibTV 官方任务失败，请打开原画布核对'});
-            if(job.status!=='downloading'&&!libtvResult(raw,job))return save({...job,warning:'LibTV 原任务尚未完成，刷新只查询原节点，不会重新生成'});
-            job=save({...job,status:'downloading'});return save({...job,...await libtv().download(accountId,job,dir),status:'success',warning:''});
+            if(job.status!=='downloading'&&!libtvResult(raw,job)){
+              const pendingManual=job.libtvSubmissionMode==='canvas'&&job.libtvRunStarted===false;
+              const running=libtvNodes(raw).some(node=>{
+                const info=node?.data?.taskInfo||node?.taskInfo;
+                return info?.loading===true||/^(running|processing|in_progress|generating|queued|pending|waiting)$/i.test(String(info?.status??node?.status??''));
+              });
+              if(pendingManual&&!running)return save({...job,remoteStatus:'awaiting-canvas',warning:'素材已上传，请在 LibTV 原画布点击生成'});
+              return save({...job,remoteStatus:running?'running':job.remoteStatus,libtvRunStarted:running||job.libtvRunStarted,warning:'LibTV 正在处理原节点'});
+            }
+            job=save({...job,status:'downloading',remoteStatus:'success',libtvRunStarted:true});return save({...job,...await libtv().download(accountId,job,dir),status:'success',warning:''});
           }catch(e){return save({...job,warning:e.message});}
         }
         if(fnko.isFnkoEndpoint(job.endpoint)){

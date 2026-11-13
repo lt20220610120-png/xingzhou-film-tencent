@@ -107,4 +107,9 @@ async function runCodexText(config, options = {}) {
   } finally { fs.rmSync(workDir, { recursive: true, force: true }); }
 }
 
-module.exports = { findCodexCommand, buildCodexArgs, formatCodexMessages, runCodexText };
+async function supportsCodexImages({signal,command=findCodexCommand()}={}) {
+  const result=await runProcess(command,['features','list'],{signal,timeout:15000});
+  return result.code===0&&/^image_generation\s+\S+\s+true\s*$/m.test(result.stdout);
+}
+
+module.exports = { supportsCodexImages, cleanEnvironment, findCodexCommand, buildCodexArgs, formatCodexMessages, runCodexText };

@@ -1,5 +1,5 @@
 const {recommendedStoryboardTiming,promptTimingMetadata}=require('./prompt-duration.cjs');
-const keys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams'];
+const keys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode'];
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const validSeconds=value=>Number.isFinite(value)&&value>0&&value<=3600;
@@ -27,6 +27,7 @@ function timingForShot(ep,shot,proof){
 function applySettings(episodes,payload){
  const value=payload.settings,scope=payload.scope,mode=payload.durationMode||'uniform',recommended=mode==='recommended';
  if(!['project','episode','scene'].includes(scope)||!['uniform','recommended'].includes(mode)||typeof payload.revision!=='string'||!payload.revision||payload.revision.length>128||!plain(value)||!['profileId','model','ratio','resolution'].every(k=>typeof value[k]==='string'&&value[k].trim())||(value.libtvParams!==undefined&&!plain(value.libtvParams))||(value.libtvMode!==undefined&&typeof value.libtvMode!=='string')||(!recommended&&!validSeconds(value.duration)))fail('请补全生成参数和应用范围');
+ if(value.libtvSubmissionMode!==undefined&&!['auto','canvas'].includes(value.libtvSubmissionMode))fail('LibTV 提交方式无效');
  const map=payload.recommendedDurations??{},sources=payload.recommendedDurationSources??{};
  if(recommended&&(!plain(map)||!plain(sources)||Object.keys(map).length>20000||Object.keys(sources).length>20000||Object.values(map).some(seconds=>!validSeconds(seconds))))fail('建议时长参数无效');
  if(scope==='scene'&&!/^\d+-\d+$/.test(payload.sceneId||''))fail('场景编号无效');
@@ -52,7 +53,7 @@ function applySettings(episodes,payload){
   ep.storyboardDefaultSettings=scope!=='scene'?{global:record,scenes:{}}:{...old,scenes:{...old.scenes,[payload.sceneId]:record}};
   ep.storyboardPrompts=structuredClone(shots).map(shot=>{
    if(!inScope(shot))return shot;
-   const generationConfig={...shot.generationConfig,libtvMode:'auto',libtvParams:{},...settings,durationMode:mode,storyboardDefaultsRevision:record.revision};
+   const generationConfig={...shot.generationConfig,libtvMode:'auto',libtvParams:{},...(shot.generationConfig?.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{}),...settings,durationMode:mode,storyboardDefaultsRevision:record.revision};
    if(recommended){generationConfig.recommendedDurationSeconds=known[shot.id]??null;if(Object.hasOwn(approved,shot.id))generationConfig.duration=approved[shot.id];}
    else delete generationConfig.recommendedDurationSeconds;
    const timing=recommended?promptTimingMetadata(timings.get(shot.id)):{},edited=shot.sourceContent&&shot.content!==(shot.generationConfig?.bindingCompiledPrompt||shot.sourceContent);

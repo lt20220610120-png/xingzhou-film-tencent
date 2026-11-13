@@ -1,4 +1,4 @@
-export const storyboardSettingKeys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams'];
+export const storyboardSettingKeys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode'];
 const storageKey=scope=>'xz-storyboard-defaults:'+JSON.stringify([scope.accountId,scope.projectId,scope.editionId||'legacy']);
 export function readStoryboardDefaults(scope,storage=globalThis.localStorage){try{const value=JSON.parse(storage.getItem(storageKey(scope))||'null');return value?.revision&&value.settings?value:null;}catch{return null;}}
 export function saveStoryboardDefaults(scope,settings,storage=globalThis.localStorage){
@@ -8,7 +8,7 @@ export function saveStoryboardDefaults(scope,settings,storage=globalThis.localSt
 }
 export function applyStoryboardDefaults(value,defaults,shotId){
  if(!defaults||value.storyboardDefaultsRevision===defaults.revision)return value;
- const next={...value,libtvMode:'auto',libtvParams:{},...defaults.settings,durationMode:defaults.durationMode==='recommended'?'recommended':'uniform',storyboardDefaultsRevision:defaults.revision};
+ const next={...value,libtvMode:'auto',libtvParams:{},...(value.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{}),...defaults.settings,durationMode:defaults.durationMode==='recommended'?'recommended':'uniform',storyboardDefaultsRevision:defaults.revision};
  if(next.durationMode==='recommended'){
   next.duration=value.duration;
   next.recommendedDurationSeconds=defaults.recommendedDurationSecondsByShot?.[shotId]??defaults.recommendedDurations?.[shotId]??null;

@@ -66,7 +66,7 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
  return {
   async connect({status=false,chatgptOnly=false}={}){if(protocol==='codex'){await request('initialize',{clientInfo:{name:'xingzhou_film',title:'行舟影视制作工作流',version:'1.0.0'},capabilities:{experimentalApi:true,optOutNotificationMethods:['rawResponseItem/completed']}});send({method:'initialized'});const auth=await request('account/read',{});if(!auth.account)throw Error('请先在 Codex 中登录，再重新连接');if(chatgptOnly&&auth.account.type!=='chatgpt')throw Error('请先在本机 Codex 使用 ChatGPT 账号登录；此入口不使用 API Key 计费');const rows=await listCodexModels(),models=rows.map(m=>({id:m.id,name:m.displayName||m.id,hidden:m.hidden===true,isDefault:m.isDefault===true,efforts:(m.supportedReasoningEfforts||[]).map(e=>e.reasoningEffort),defaultEffort:m.defaultReasoningEffort})),currentModelId=models.find(m=>m.isDefault)?.id||'';return {connected:true,protocol,profile:launchProfile,currentModelId,models,...(status?{status:status==='account'?await readAccountStatus(auth.account):await readAgentStatus(request,auth.account,cwd)}:{})};}
    const init=await request('initialize',{protocolVersion:1,clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false},clientInfo:{name:'xingzhou-film',version:'1.0.0'}});acpImages=init.agentCapabilities?.promptCapabilities?.image===true;const session=await request('session/new',{cwd,mcpServers:[]},120000);acpSession=session;return {connected:true,protocol,profile:launchProfile,backendTransport:'MCP',currentModelId:session.models?.currentModelId||'',models:session.models?.availableModels?.map(m=>({id:m.modelId,name:m.name}))||[],sessionId:session.sessionId};},
-  async run({model,prompt,edit=false,fullAccess=false,developerInstructions,attachments=[],effort='high',tools=[],callTool,onDelta=()=>{},onUpdate=()=>{}}){
+  async run({model,prompt,edit=false,fullAccess=false,developerInstructions,attachments=[],effort='high',tools=[],callTool,onDelta=()=>{},onUpdate=()=>{},onItem=()=>{},nonInteractive=false}){
    if(protocol!=='codex'){
     acpEditing=edit;acpFullAccess=fullAccess;if(tools.length)mcp=await require('./production-agent-mcp.cjs').createAgentMcpServer({tools,callTool});
     try{const session=tools.length||!acpSession?await request('session/new',{cwd,mcpServers:mcp?[mcp.config]:[]},120000):acpSession;acpSession=session;
@@ -76,13 +76,14 @@ function createAgentClient({executable,protocol='codex',cwd,onEvent=()=>{},spawn
     }finally{acpEditing=false;acpFullAccess=false;mcp?.close();mcp=null;}
    }
    // Internal production work must not populate the user's Codex chat history.
-   const thread=await request('thread/start',{model,cwd,ephemeral:true,approvalPolicy:fullAccess?'never':'on-request',sandbox:fullAccess?'danger-full-access':edit?'workspace-write':'read-only',...(developerInstructions?{developerInstructions}:{}),...(tools.length?{dynamicTools:tools}:{})});
+   const thread=await request('thread/start',{model,cwd,ephemeral:true,approvalPolicy:fullAccess||nonInteractive?'never':'on-request',sandbox:fullAccess?'danger-full-access':edit?'workspace-write':'read-only',...(developerInstructions?{developerInstructions}:{}),...(tools.length?{dynamicTools:tools}:{})});
    if(thread.thread?.ephemeral!==true)throw Error('本机 Codex 未确认后台临时会话，请更新 Codex 后重试');
    const threadId=thread.thread.id;toolSessions.set(threadId,{tools,callTool});
    let text='';return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{done(Error('Agent 执行超时，已有项目文件保留'));},60*60*1000);
     const done=(error)=>{clearTimeout(timer);listeners.delete(listener);toolSessions.delete(threadId);error?reject(error):resolve(text);};
     const listener=m=>{if(m.method==='disconnected')return done(Error(m.params.message));if(m.params?.threadId!==threadId)return;
      if(m.method==='item/agentMessage/delta')text+=m.params.delta||'';
+     if(m.method==='item/completed')onItem(m.params.item,{threadId});
      if(m.method==='turn/completed'){const turn=m.params.turn;if(turn.status==='completed')done();else done(Error(turn.error?.message||'Agent 未完成任务'));}
     };listeners.add(listener);request('turn/start',{threadId,input:conversationInput(prompt,attachments),...(fullAccess?{approvalPolicy:'never',sandboxPolicy:{type:'dangerFullAccess'}}:{}),model,effort}).catch(done);
    });

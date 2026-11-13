@@ -4,7 +4,7 @@ import {Dialog} from './GlobalTools.jsx';
 import {storyboardBatchItems} from '../../core/storyboardBatch.js';
 import {queueDraft,readQueuedDraft} from '../editing.js';
 import './StoryboardBatchPanel.css';
-const labels={pending:'待发送',preparing:'准备中',submitted:'已发送 · 平台处理中',queued:'平台排队',generating:'生成中',downloading:'下载中',success:'已完成',failed:'失败',uncertain:'待核对',skipped:'已跳过',stopped:'已停止'};
+const labels={pending:'待发送',preparing:'准备中',submitted:'已发送 · 平台处理中','awaiting-canvas':'待在 LibTV 生成',queued:'平台排队',generating:'生成中',downloading:'下载中',success:'已完成',failed:'失败',uncertain:'待核对',skipped:'已跳过',stopped:'已停止'};
 const readDraft=key=>{try{const q=readQueuedDraft(key);return q.found?q.value:JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}};
 export default function StoryboardBatchPanel({api,project,accountId,episodeId,sceneId,settings,assets,media,binding,canEdit,onProjectChange,onRecommended,settingsBusy,onStatusChange}){
  const [scope,setScope]=useState('scene'),[runs,setRuns]=useState([]),[pending,setPending]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');

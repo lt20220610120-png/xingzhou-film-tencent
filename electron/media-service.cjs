@@ -157,7 +157,8 @@ async function imageReferenceFile(reference, index) {
 
 // OpenAI-compatible APIs use multipart /images/edits when reference images are supplied.
 // https://developers.openai.com/api/reference/resources/images/methods/edit
-async function generateImage({ endpoint, apiKey, model, prompt, size = '1024x1024', ratio, resolution, references = [], destDir, signal }) {
+async function generateImage({ provider, endpoint, apiKey, model, prompt, size = '1024x1024', ratio, resolution, references = [], destDir, signal }) {
+  if(provider==='codexLocalImage')return require('./codex-image.cjs').generateCodexImage({model,prompt,size,ratio,references,destDir,signal});
   if (!endpoint?.trim()) throw new Error('请先在画布中配置图片生成 API');
   if (!prompt?.trim()) throw new Error('请填写画面描述');
   if (!model?.trim()) throw new Error('请先在 API 接口中填写图片模型名称');
@@ -267,4 +268,4 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   throw new Error('视频生成超时（10 分钟），请稍后在服务商控制台查看任务');
 }
 
-module.exports = { imageReferenceFile, downloadToFile, retryImageDownload, pendingImageSource, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };
+module.exports = { imageReferenceFile, saveGeneratedImage, downloadToFile, retryImageDownload, pendingImageSource, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };

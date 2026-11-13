@@ -2,7 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const {atomic}=require('./generation-job-storage.cjs');
 const ACTIVE=['pending','preparing'];
 const existingTask=(jobs,projectId,shotId)=>jobs.some(j=>j.projectId===projectId&&j.shotId===shotId&&j.kind==='video'&&!j.projectVideoDeleted&&['success','submitting','submitted','downloading','uncertain'].includes(j.status));
-function stage(job){if(job.status==='success'||job.status==='failed'||job.status==='uncertain'||job.status==='downloading')return job.status;if(job.status==='submitting')return 'preparing';if(job.remoteStatus==='success')return 'downloading';if(/^(running|processing|in_progress|generating)$/i.test(String(job.remoteStatus||'')))return 'generating';if(/^(queued|pending|waiting)$/i.test(String(job.remoteStatus||'')))return 'queued';return 'submitted';}
+function stage(job){if(job.status==='success'||job.status==='failed'||job.status==='uncertain'||job.status==='downloading')return job.status;if(job.status==='submitting')return 'preparing';if(job.remoteStatus==='awaiting-canvas')return 'awaiting-canvas';if(job.remoteStatus==='success')return 'downloading';if(/^(running|processing|in_progress|generating)$/i.test(String(job.remoteStatus||'')))return 'generating';if(/^(queued|pending|waiting)$/i.test(String(job.remoteStatus||'')))return 'queued';return 'submitted';}
 function createStoryboardBatchQueue({directory,owner,loadJobs,guard,submit}){
  const file=path.join(directory,'batches.json');let runs=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):[];const workers=new Map();
  // A crash can occur after the paid POST and before its acknowledgement. A stored
