@@ -20,4 +20,11 @@
 
 ## 打包与发布
 
-待完成后补录安装包、公开清单及更新弹窗证据。
+- 实现提交`5f1d5bd`已推送。
+- 最终包：`release/2.8.159/Xingzhou-Film-Tencent-Setup-2.8.159.exe`，104126673字节，SHA256 `b826266a75f12f20ad3b846ce782e40e8bb9eecf5b79de683223e8a50f38aa28`。
+- 正式打包运行PASS：`qa/packaged-smoke-2.8.159-1794552251849/report.json`，30个运行依赖实物化打包。6份关键ASAR源码逐字节一致、p-queue10依赖存在，见`output/159-asar.json`。
+- Release443903675正式公开，资产uploaded、大小与GitHub SHA256 digest一致；发布用Actions43381387887在GitHub侧重建并完整核对同一安装包后上传。
+- 官网及两个raw main latest.json一致，Ed25519验签通过；官网公网Range206首64KiB逐字节一致，官网服务端实际HTTPS整包流SHA256一致。没有把公网客户端完整下载100MB列为本轮验证。见`output/159-public.json`、`output/159-official-service-sha256.txt`。
+- 真实Electron更新弹窗154→159：仅一次清单检测，种入已验本机包的前缀，以真实HTTPS206补齐末64KiB，再做整包大小与SHA256校验并调用隔离安装回调。没有实际安装或关闭用户客户端。见`output/159-update-ui.json`、`output/159-update-ready.png`。
+- 官网安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.159.exe
+- GitHub安装包：https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.159/Xingzhou-Film-Tencent-Setup-2.8.159.exe
