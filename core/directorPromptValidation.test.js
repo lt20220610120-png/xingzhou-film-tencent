@@ -4,6 +4,24 @@ import { identifyPromptContract, validateGeneratedSegment, validateAndRepairGene
 
 const baseline = '影像基准=数字电影；镜组=35mm T2.8；采样=24fps 180° EI800；WB=5600K；主光=窗光5600K 方位角90° 仰角45°；补光=墙反射5600K；K:F=2:1；影调=Rec.709 白位90IRE';
 
+test('the fraction contract preserves model timing, checks the exact total and flags unreviewed equal weights',()=>{
+  const first=prompt({speech:''});
+  const shot=first.slice(first.indexOf('分镜01｜'),first.indexOf('【人物起止与运动轨迹】'));
+  const make=(a,b)=>first.replace(shot,shot.replace('约100%',a)+shot.replace('分镜01｜比重约100%',`分镜02｜比重${b}`));
+  const options={source:'甲关灯。',expectedLabel:'1-1-1',contract:'fast-v8-fraction'};
+  const weighted=make('1/6','5/6');
+  const checked=validateAndRepairGeneratedSegment({...options,output:weighted});
+  assert.equal(checked.ok,true,JSON.stringify(checked.issues));
+  assert.equal(checked.output,weighted);
+  for(const output of [make('1/6','4/6'),make('20%','80%'),make('1/0','1/1')]){
+    assert.ok(validateAndRepairGeneratedSegment({...options,output}).issues.some(i=>i.code==='INVALID_SHOT_WEIGHTS'));
+  }
+  const equal=make('1/2','2/4');
+  const result=validateAndRepairGeneratedSegment({...options,output:equal});
+  assert.equal(result.output,equal);
+  assert.ok(result.issues.some(i=>i.code==='EQUAL_SHOT_WEIGHTS'));
+});
+
 test('local narrative repair never deletes an unquoted actor-action continuation of unfinished speech', () => {
   const speech = '我跟你解释过，\n魏今朝把钥匙拿走了，所以我才进不了门。';
   const source = `人：甲、魏今朝\n甲：${speech}`;

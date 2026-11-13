@@ -8,7 +8,13 @@ export const effectiveDirectorDurationLimit = value => assertDirectorDurationSel
 export const normalizeDirectorDurationSelection = (value, fallback = 30) => Number.isInteger(value) && value >= 0 && value <= 35 ? value : fallback;
 
 export const DEFAULT_DIRECTOR_PACE = 100;
-export const MIN_DIRECTOR_PACE = -100;
+export const WHOLE_SCENE_PACE = -200;
+export const MIN_DIRECTOR_PACE = WHOLE_SCENE_PACE;
+export function assertDirectorTimingScale(value) {
+  if(value===undefined||value===null)return undefined;
+  if(!Number.isFinite(value)||value<=0||value>1)throw new Error('场景划分基准无效');
+  return value;
+}
 export const normalizeDirectorPace = (value, fallback = DEFAULT_DIRECTOR_PACE) => {
   if (value === undefined || value === null || value === '') return fallback;
   const n = Number(value);
@@ -16,14 +22,15 @@ export const normalizeDirectorPace = (value, fallback = DEFAULT_DIRECTOR_PACE) =
 };
 export const assertDirectorPace = value => {
   if (value === undefined) return DEFAULT_DIRECTOR_PACE;
-  if (!Number.isInteger(value) || value < MIN_DIRECTOR_PACE || value > DEFAULT_DIRECTOR_PACE) throw new Error('节奏刻度必须为 -100～100 的整数');
+  if (!Number.isInteger(value) || value < MIN_DIRECTOR_PACE || value > DEFAULT_DIRECTOR_PACE) throw new Error('节奏刻度无效');
   return value;
 };
 export function resolveDirectorPaceProfile(value = DEFAULT_DIRECTOR_PACE) {
   const pace = normalizeDirectorPace(value);
+  if(pace<-100)return {...resolveDirectorPaceProfile(-100),pace,tier:'calibrated',tierLabel:'场景校准'};
   // Extend the compact side without reinterpreting saved 0–100 settings.
   if (pace < 0) {
-    const compact=resolveDirectorPaceProfile(0), f=pace/MIN_DIRECTOR_PACE;
+    const compact=resolveDirectorPaceProfile(0), f=pace/-100;
     const lerp=(key,end)=>Math.round((compact[key]+(end-compact[key])*f)*1000)/1000;
     return {...compact,pace,tier:pace<=-50?'extra-compact':'compact',tierLabel:pace<=-50?'极紧凑':'紧凑',
       cjkCharsPerSec:lerp('cjkCharsPerSec',8.4),latinWordsPerSec:lerp('latinWordsPerSec',4.25),
@@ -50,6 +57,10 @@ export function resolveDirectorPaceProfile(value = DEFAULT_DIRECTOR_PACE) {
     maxModelMultiplier: Math.round((1.05 + 0.10 * f) * 1000) / 1000, // 紧凑 1.05x -> 适中 1.10x -> 正常 1.15x
     scaleFromNormal: Math.round((0.77 + 0.23 * f) * 1000) / 1000,    // 实时预览与梯度缩放系数
   };
+}
+
+export function directorPaceLabel(pace) {
+  return `${resolveDirectorPaceProfile(pace).tierLabel} · 刻度 ${normalizeDirectorPace(pace)-MIN_DIRECTOR_PACE}`;
 }
 
 export function directorPaceDescription(value) {

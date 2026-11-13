@@ -1,6 +1,6 @@
 import { parseDirectorDialogues } from './directorDialogue.js';
 import { extractDirectorVisualBeats } from './directorTiming.js';
-import { effectiveDirectorDurationLimit, resolveDirectorPaceProfile, DEFAULT_DIRECTOR_PACE } from './directorDurationPolicy.js';
+import { assertDirectorTimingScale, effectiveDirectorDurationLimit, resolveDirectorPaceProfile, DEFAULT_DIRECTOR_PACE, WHOLE_SCENE_PACE } from './directorDurationPolicy.js';
 
 export const EDITORIAL_PLAN_VERSION = 1;
 const round = n => Math.round(n * 100) / 100;
@@ -105,10 +105,25 @@ export function buildEditorialSceneFacts(tape, options = {}) {
     explicitActionSeconds: round(beats.filter(row => row.explicit).reduce((n, row) => n + row.seconds, 0)) };
 }
 
-export function createSceneDurationBudget({ facts, maxDurationSeconds, assessment, pace, strictModelCap = false }) {
+export function createSceneDurationBudget({ facts, maxDurationSeconds, assessment, pace, timingScale, strictModelCap = false }) {
   const limit = effectiveDirectorDurationLimit(maxDurationSeconds);
   const paceProfile = resolveDirectorPaceProfile(pace ?? facts?.pace ?? DEFAULT_DIRECTOR_PACE);
   const warnings = [];
+  const scale=assertDirectorTimingScale(timingScale);
+  const calibrated=scale!==undefined || paceProfile.pace<-100;
+  if(calibrated){
+    const anchorScale=Math.min(1,limit/facts.referenceSeconds);
+    const calibrationProgress=Math.max(0,(-100-paceProfile.pace)/(-100-WHOLE_SCENE_PACE));
+    const appliedScale=scale ?? 1-(1-anchorScale)*calibrationProgress;
+    const total=Math.max(1,Math.round(facts.referenceSeconds*appliedScale));
+    const targetCount=Math.max(1,Math.ceil(total/limit));
+    if(appliedScale<1)warnings.push(warn('SCENE_CAPACITY_CALIBRATED',
+      `按场景标定容量划分；表演参考约 ${facts.referenceSeconds} 秒。若无法在建议时长内完整演出，请调整容量或增加分段。`));
+    return {version:EDITORIAL_PLAN_VERSION,totalEstimatedSeconds:total,maxDurationSeconds:limit,
+      pace:paceProfile.pace,paceTier:paceProfile.tier,paceLabel:paceProfile.tierLabel,
+      targetCount,compact:false,estimateSource:'calibrated',timingScale:appliedScale,
+      referenceSeconds:facts.referenceSeconds,rationale:'',warnings};
+  }
   let total = Number(assessment?.estimatedSceneSeconds);
   // Reject malformed or wildly ungrounded *metadata*, never the screenplay.
   const plausible = Number.isFinite(total) && total > 0
@@ -141,6 +156,12 @@ export function createSceneDurationBudget({ facts, maxDurationSeconds, assessmen
     targetCount, compact, estimateSource,
     rationale: typeof assessment?.timingRationale === 'string' ? assessment.timingRationale.slice(0, 1200) : '',
     warnings };
+}
+
+export function directorSceneCalibration(tape,{pace,maxDurationSeconds}){
+  if(!tape.sourceText.trim())return null;
+  const facts=buildEditorialSceneFacts(tape,{pace});
+  return createSceneDurationBudget({facts,maxDurationSeconds,pace,timingScale:pace>=-100?1:undefined});
 }
 
 const weightIn = (facts, start, end) => facts.events.reduce((sum, row) => {
@@ -189,9 +210,9 @@ function boundaryCost(source, facts, end, proposed) {
 
 /** Fixed-count dynamic programming: first budget N, then move cut points.
  * Timing is a cost, not a gate. Local fallback retains every source character. */
-export function planEditorialScene({ tape, maxDurationSeconds, assessment, pace, strictModelCap = false, facts = buildEditorialSceneFacts(tape, { pace }) }) {
+export function planEditorialScene({ tape, maxDurationSeconds, assessment, pace, timingScale, strictModelCap = false, facts = buildEditorialSceneFacts(tape, { pace }) }) {
   if (!tape?.sourceText?.trim()) throw new Error('当前场景没有可分段正文');
-  const budget = createSceneDurationBudget({ facts, maxDurationSeconds, assessment, pace: pace ?? facts.pace, strictModelCap });
+  const budget = createSceneDurationBudget({ facts, maxDurationSeconds, assessment, pace: pace ?? facts.pace, timingScale, strictModelCap });
   const source = tape.sourceText, positions = cutPositions(tape, facts);
   const warnings = [...budget.warnings];
   const count = Math.min(budget.targetCount, positions.length - 1);

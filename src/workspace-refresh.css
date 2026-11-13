@@ -161,6 +161,13 @@
   color:#344054;
   font-weight:600;
 }
+.director-pace-value {
+  min-width: 3ch;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #344054;
+}
 .director-pace-track-wrap {
   position:relative;
   display:flex;

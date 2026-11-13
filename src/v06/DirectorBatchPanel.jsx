@@ -1,26 +1,25 @@
 import React,{useState} from 'react';
 import {isDirectorBatchActive} from '../../core/directorBatchGeneration.js';
 import {useRememberedState} from '../useRememberedState.js';
-import {DEFAULT_DIRECTOR_PACE,normalizeDirectorDurationSelection,normalizeDirectorPace,resolveDirectorPaceProfile} from '../../core/directorDurationPolicy.js';
+import {DEFAULT_DIRECTOR_PACE,directorPaceLabel,normalizeDirectorDurationSelection,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
 import {Dialog} from './GlobalTools.jsx';
 import {flushEditing} from '../editing.js';
 import {FormattedText} from '../components/FormattedText.jsx';
-import {DirectorPaceRail} from './DirectorQuickControls.jsx';
 
-export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE,quickGeneration,onJump,disabled,segmentationMode='auto',sceneBusy=false}){
+export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE,calibration,quickGeneration,onJump,disabled,segmentationMode='auto',sceneBusy=false}){
  const [opened,setOpened]=useState(false),[preparing,setPreparing]=useState(false);
  const [preview,setPreview]=useState(null),[policy,setPolicy]=useState('missing-only'),[error,setError]=useState('');
- const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-batch-settings:${accountId||'local'}:${project.id}`,JSON.stringify({maxDurationSeconds:normalizeDirectorDurationSelection(maxDurationSeconds),pace:normalizeDirectorPace(pace),concurrency:segmentationMode==='manual'?2:'all'}));
+ const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-batch-settings:${accountId||'local'}:${project.id}`,JSON.stringify({concurrency:segmentationMode==='manual'?2:'all'}));
  let settings;try{settings=JSON.parse(settingsJson);}catch{settings={};}
- const batchDuration=normalizeDirectorDurationSelection(settings.maxDurationSeconds);
- const batchPace=normalizeDirectorPace(settings.pace,normalizeDirectorPace(pace));
+ const batchDuration=normalizeDirectorDurationSelection(segmentationMode==='auto'?calibration?.maxDurationSeconds:maxDurationSeconds);
+ const batchPace=normalizeDirectorPace(segmentationMode==='auto'?calibration?.pace:pace);
  const durationLabel=value=>value===0?'自动估算（单条最高35秒）':`最高 ${value} 秒`;
  const concurrency=settings.concurrency==='all'||Number.isInteger(settings.concurrency)&&settings.concurrency>0?settings.concurrency:'all';
  const concurrencyLabel=value=>value==='all'?'全部场景并发':`${value} 场并发`;
  const batch=quickGeneration?.getProjectBatch(project.id),active=isDirectorBatchActive(batch);
  const invoke=async operation=>{setError('');try{await operation();}catch(e){setError(e.message);}};
- const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,maxDurationSeconds:batchDuration,pace:batchPace,concurrency,existingPolicy:policy,segmentationMode,...updates});};
- const changeSettings=updates=>{setSettingsJson(JSON.stringify({maxDurationSeconds:batchDuration,pace:batchPace,concurrency,...updates}));setPreview(null);};
+ const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,maxDurationSeconds:batchDuration,pace:batchPace,timingScale:segmentationMode==='auto'?calibration?.timingScale:undefined,concurrency,existingPolicy:policy,segmentationMode,...updates});};
+ const changeSettings=updates=>{setSettingsJson(JSON.stringify({concurrency,...updates}));setPreview(null);};
  const open=()=>{setOpened(true);setPreview(null);setError('');};
  const prepare=()=>invoke(async()=>{setPreparing(true);try{setPreview(await makePreview());}finally{setPreparing(false);}});
  const start=()=>invoke(async()=>{const plan=preview;setOpened(false);try{await quickGeneration.startBatch(plan);setPreview(null);}catch(e){setOpened(true);throw e;}});
@@ -31,15 +30,15 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
   <p>{segmentationMode==='manual'?'沿用人工划分的集、场景和（1）（2）分段；每场一次运行所选完整 Skill，不重新拆分。没有分段标记的场景生成一条。':'沿用已划分的集与场景，各场自动分析视频分段后生成提示词。'}生成结果先保存本地，实时协作连接后自动同步给项目成员。</p>
   <div className="director-batch-heading"><div className="director-batch-purpose"><strong>整本提示词</strong><small>按场景并发生成，进度自动保存，中断后可继续。</small></div>
    <div className="director-batch-settings">
-    {segmentationMode==='auto'&&<label><span>最高视频时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled} onChange={e=>changeSettings({maxDurationSeconds:Number(e.target.value)})}>{Array.from({length:36},(_,i)=>i).map(n=><option key={n} value={n}>{n===0?'0 · 自动估算（最高35秒）':`${n} 秒`}</option>)}</select></label>}
-    {segmentationMode==='auto'&&<DirectorPaceRail value={batchPace} disabled={active||disabled} ariaLabel="整本短剧节奏梯度" onChange={next=>changeSettings({pace:next})}/>}
+    {segmentationMode==='auto'&&calibration&&<p className="director-batch-calibration">基准 {calibration.episodeTitle} · 场景 {calibration.sceneLabel} · {directorPaceLabel(batchPace)} · {Math.round(calibration.totalEstimatedSeconds)} 秒 / {calibration.targetCount} 条 · {durationLabel(batchDuration)}</p>}
+    {segmentationMode==='auto'&&!calibration&&<p>请先在具体场景调整预估，再点「应用到全剧」。</p>}
     <label><span>场景并发</span><select aria-label="整本场景并发" value={concurrency} disabled={active||disabled||preparing} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">全部场景</option>{[1,2,4,8,16,32].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
-   <button className="secondary" disabled={disabled||active||sceneBusy||preparing||!skill||!profile} onClick={prepare}>{preparing?'读取整本分段…':'预览整本任务'}</button>
+   <button className="secondary" disabled={disabled||active||sceneBusy||preparing||!skill||!profile||(segmentationMode==='auto'&&!calibration)} onClick={prepare}>{preparing?'读取整本分段…':'预览整本任务'}</button>
    </div>
   </div>
   {preview&&<div className="director-batch-preview">
    <p>{preview.episodeCount} 集 · {preview.targets.length} 场 · 将生成 {preview.targets.filter(t=>t.status==='pending').length} 场 · 跳过 {preview.targets.filter(t=>t.status==='skipped').length} 场</p>
-   <p>模型：{preview.modelName} · Skill：{preview.skillName} · {concurrencyLabel(preview.concurrency??'all')}。{preview.snapshot.segmentationMode==='manual'?`按人工划分生成 ${preview.manualPromptCount} 条提示词。`:`${durationLabel(preview.snapshot.maxDurationSeconds)} · ${resolveDirectorPaceProfile(preview.snapshot.pace).tierLabel}节奏，各场条数在分析后确定。`}</p>
+   <p>模型：{preview.modelName} · Skill：{preview.skillName} · {concurrencyLabel(preview.concurrency??'all')}。{preview.snapshot.segmentationMode==='manual'?`按人工划分生成 ${preview.manualPromptCount} 条提示词。`:`${durationLabel(preview.snapshot.maxDurationSeconds)} · ${directorPaceLabel(preview.snapshot.pace)}，各场条数在分析后确定。`}</p>
    <label>已有提示词<select aria-label="整本已有结果处理" value={policy} disabled={preparing} onChange={e=>{const next=e.target.value;setPolicy(next);setPreview(null);setPreparing(true);invoke(async()=>{try{setPreview(await makePreview({existingPolicy:next}));}finally{setPreparing(false);}});}}><option value="missing-only">跳过已有结果的场景</option><option value="append-all">全部重新生成，保留旧结果</option></select></label>
    <p>开始后各场会并发调用所选模型，按接口规则计费。暂停会先保存所有正在处理的请求；关闭软件后，下次打开点击继续。</p>
    <div className="director-batch-actions"><button className="ghost" onClick={()=>setPreview(null)}>收起</button><button className="primary" disabled={disabled||active||sceneBusy||preparing||!preview.targets.some(t=>t.status==='pending')} onClick={start}>确认开始整本生成</button></div>
@@ -50,7 +49,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
     {['paused','completed-with-errors'].includes(batch.phase)&&batch.targets.some(t=>['pending','running','paused','failed'].includes(t.status))&&<button className="primary" disabled={disabled||sceneBusy} onClick={()=>invoke(()=>quickGeneration.resumeBatch(batch.id))}>继续整本任务</button>}
     {['running','pausing','paused'].includes(batch.phase)&&<button className="ghost" onClick={()=>invoke(()=>quickGeneration.cancelBatch(batch.id))}>结束任务</button>}
    </div></div>
-   <small>本批：{batch.modelName} · {batch.skillName} · {durationLabel(batch.snapshot.maxDurationSeconds)} · {resolveDirectorPaceProfile(batch.snapshot.pace).tierLabel}节奏 · {concurrencyLabel(batch.concurrency??1)} · 跳过 {batch.targets.filter(t=>t.status==='skipped').length} 场</small>
+   <small>本批：{batch.modelName} · {batch.skillName} · {durationLabel(batch.snapshot.maxDurationSeconds)} · {directorPaceLabel(batch.snapshot.pace)} · {concurrencyLabel(batch.concurrency??1)} · 跳过 {batch.targets.filter(t=>t.status==='skipped').length} 场</small>
    <details><summary>查看各场进度和中断记录</summary><div className="director-batch-scenes">{batch.targets.map((target,i)=><div key={i}><button className="ghost" onClick={()=>onJump?.(target.episodeId,target.sceneLabel)}>场景 {target.sceneLabel}</button><span>{rowStatus[target.status]}</span><small>{target.reason}</small></div>)}</div></details>
    {batch.errors?.map((item,i)=><p className="quick-run-warning" key={i}>{item.sceneLabel?`场景 ${item.sceneLabel}：`:''}{item.message}</p>)}
    {batch.targets.filter(t=>t.status!=='completed'&&t.sceneRunId).map(t=>{const r=quickGeneration.getManualSceneRun?.(t.sceneRunId);return r&&(r.output||r.partialOutput)?<details key={t.sceneRunId}><summary>场景 {t.sceneLabel} · 查看已保存的原始回包</summary><FormattedText text={r.output||r.partialOutput}/></details>:null;})}

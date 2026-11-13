@@ -36,6 +36,24 @@ test('fastest pace changes a long dialogue plan, survives model timing inflation
  assert.match(fast.requests.audit[1].content,/极紧凑.*8\.4字\/秒/);
 });
 
+test('whole scene endpoint retains a long scene in one saved prompt and reports the duration conflict',async()=>{
+ const body=Array.from({length:24},(_,i)=>`${i%2?'乙':'甲'}：这件事情没你想的那么简单，我们现在必须马上赶过去处理清楚！`).join('\n');
+ const f=fixture({body,pace:-200,maxDurationSeconds:30,planFails:true});
+ const run=await f.controller.start(f.context());
+ assert.equal(run.phase,'completed',JSON.stringify(run.errors));
+ assert.equal(run.plan.segments.length,1);
+ assert.equal(run.plan.segments[0].sourceEnd,body.length);
+ assert.equal(run.plan.sourceText,body);
+ assert.equal(run.plan.editorialBudget.totalEstimatedSeconds,30);
+ assert.ok(run.plan.editorialBudget.referenceSeconds>30);
+ assert.ok(run.auditWarnings.some(w=>w.code==='SCENE_CAPACITY_CALIBRATED'));
+ assert.deepEqual(f.calls,['skill','audit']);
+ assert.match(f.requests.skill.input,/逐镜估算/);
+ const cards=promptsForScene(f.state.directorProjects[0].episodes[0].prompts,'1-1');
+ assert.equal(cards.length,1);
+ assert.equal(cards[0].recommendedDurationSeconds,30);
+});
+
 test('automatic planning outage falls back locally then generates visible prompts with selected pace and durations',async()=>{
  const f=fixture({planFails:true});const run=await f.controller.start(f.context());
  assert.equal(run.phase,'completed',JSON.stringify(run.errors));

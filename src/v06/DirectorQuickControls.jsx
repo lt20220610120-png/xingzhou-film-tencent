@@ -1,9 +1,9 @@
 import {FormattedText} from '../components/FormattedText.jsx';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { isQuickRunActive } from '../../core/directorQuickGeneration.js';
-import { DEFAULT_DIRECTOR_PACE, MIN_DIRECTOR_PACE, effectiveDirectorDurationLimit, normalizeDirectorPace, resolveDirectorPaceProfile } from '../../core/directorDurationPolicy.js';
+import { DEFAULT_DIRECTOR_PACE, MIN_DIRECTOR_PACE, directorPaceLabel, normalizeDirectorPace, resolveDirectorPaceProfile } from '../../core/directorDurationPolicy.js';
 import { buildSceneSourceTape } from '../../core/directorSegmentation.js';
-import { buildEditorialSceneFacts, createSceneDurationBudget } from '../../core/directorSceneBudget.js';
+import { directorSceneCalibration } from '../../core/directorSceneBudget.js';
 
 export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disabled = false, ariaLabel = '短剧节奏梯度' }) {
   const wrapRef = useRef(null);
@@ -32,7 +32,7 @@ export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disa
     <div ref={wrapRef} className={`director-pace-rail${disabled ? ' is-disabled' : ''}`} data-tier={profile.tier} title={`短剧节奏：${profile.tierLabel}（鼠标滚轮或拖动微调）`}>
       <span className="director-pace-caption">节奏</span>
       <div className="director-pace-box">
-        <span className={`director-pace-pole${profile.tier === 'extra-compact' ? ' active' : ''}`}>极紧凑</span>
+        <span className={`director-pace-pole${profile.tier === 'calibrated' ? ' active' : ''}`}>紧凑</span>
         <div className="director-pace-track-wrap" style={{ '--pace-pct': `${position}%` }}>
           <input
             type="range"
@@ -40,7 +40,7 @@ export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disa
             max={DEFAULT_DIRECTOR_PACE}
             step="1"
             aria-label={ariaLabel}
-            aria-valuetext={`${profile.tierLabel}（滑轨 ${Math.round(position)}%）`}
+            aria-valuetext={directorPaceLabel(profile.pace)}
             disabled={disabled}
             value={profile.pace}
             onChange={e => onChange?.(normalizeDirectorPace(e.target.value))}
@@ -48,6 +48,7 @@ export function DirectorPaceRail({ value = DEFAULT_DIRECTOR_PACE, onChange, disa
           <span className="director-pace-ticks" aria-hidden="true"><i /><i /><i /></span>
         </div>
         <span className={`director-pace-pole${profile.tier === 'normal' ? ' active' : ''}`}>正常</span>
+        <span className="director-pace-value" aria-hidden="true">{profile.pace-MIN_DIRECTOR_PACE}</span>
       </div>
     </div>
   );
@@ -66,25 +67,21 @@ export function DirectorQuickControls({settings,onSettingsChange,disabled=false}
   </div>;
 }
 
-export function DirectorQuickProgress({run,sceneText='',maxDurationSeconds=30,pace=DEFAULT_DIRECTOR_PACE,onStop,onResume,sourceView,onSourceViewChange,stale,error}) {
+export function DirectorQuickProgress({run,sceneText='',maxDurationSeconds=30,pace=DEFAULT_DIRECTOR_PACE,calibration,applied,onApply,onStop,onResume,sourceView,onSourceViewChange,stale,error}) {
   const active=isQuickRunActive(run);
   const descriptions={planning:'分析整场与时长','validating-plan':'核对分段计划',generating:'整场导演预演与提示词生成',auditing:'核对衔接与完整性','ready-to-commit':'保存生成结果',completed:'本轮已完成',paused:'已暂停，可继续',failed:'生成中断，草稿已保留','needs-review':'内容需要核对，草稿已保留',stale:'原文或设置已变化，请重新生成'};
   const liveEstimate = useMemo(() => {
     const trimmed = String(sceneText || '').trim();
     if (!trimmed) return null;
     try {
-      const tape = buildSceneSourceTape(trimmed);
-      if (!tape.sourceText.trim()) return null;
-      const facts = buildEditorialSceneFacts(tape, { pace });
-      const budget = createSceneDurationBudget({ facts, maxDurationSeconds, pace });
-      return { seconds: Math.max(1, Math.round(budget.totalEstimatedSeconds)), count: budget.targetCount, tierLabel: budget.paceLabel, limit: effectiveDirectorDurationLimit(maxDurationSeconds) };
+      return calibration ?? directorSceneCalibration(buildSceneSourceTape(trimmed),{maxDurationSeconds,pace});
     } catch { return null; }
-  }, [sceneText, maxDurationSeconds, pace]);
+  }, [sceneText, maxDurationSeconds, pace, calibration]);
 
   const planMatchesCurrentSettings = Boolean(run?.plan?.editorialBudget && !stale && (run.plan.pace ?? run.plan.editorialBudget.pace ?? DEFAULT_DIRECTOR_PACE) === normalizeDirectorPace(pace) && run.plan.maxDurationSeconds === maxDurationSeconds);
-  const shownSeconds = planMatchesCurrentSettings ? Math.round(run.plan.editorialBudget.totalEstimatedSeconds) : liveEstimate?.seconds;
-  const shownCount = planMatchesCurrentSettings ? run.plan.segments.length : liveEstimate?.count;
-  const shownTier = planMatchesCurrentSettings ? resolveDirectorPaceProfile(run.plan.pace ?? run.plan.editorialBudget.pace ?? pace).tierLabel : liveEstimate?.tierLabel;
+  const shownSeconds = planMatchesCurrentSettings ? Math.round(run.plan.editorialBudget.totalEstimatedSeconds) : liveEstimate && Math.round(liveEstimate.totalEstimatedSeconds);
+  const shownCount = planMatchesCurrentSettings ? run.plan.segments.length : liveEstimate?.targetCount;
+  const shownTier = planMatchesCurrentSettings ? resolveDirectorPaceProfile(run.plan.pace ?? run.plan.editorialBudget.pace ?? pace).tierLabel : liveEstimate?.paceLabel;
 
   return <div className="quick-auto-progress">
     <div className="quick-progress-bar">
@@ -99,6 +96,7 @@ export function DirectorQuickProgress({run,sceneText='',maxDurationSeconds=30,pa
         <span className="quick-budget-dot">·</span>
         <span className="quick-budget-pace">{shownTier}节奏</span>
       </div>}
+      {onApply&&liveEstimate&&<button className="ghost quick-apply-calibration" disabled={active||applied} onClick={onApply}>{applied?'已应用到全剧':'应用到全剧'}</button>}
       {run&&<div className="quick-run-status" role="status"><span>{descriptions[run.phase]||run.phase}</span>{active?<button onClick={onStop}>停止</button>:['paused','failed','needs-review'].includes(run.phase)&&!stale?<button onClick={onResume}>继续未完成部分</button>:null}</div>}
     </div>
     {run?.plan&&run.phase!=='completed'&&<p className="quick-progress-note">已生成 {Object.values(run.segmentDrafts||{}).filter(d=>d.prompt?.content).length}/{run.plan.segments.length} 条。生成内容先保存并展示到右侧，再核对并标注提醒。</p>}

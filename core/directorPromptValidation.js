@@ -14,8 +14,31 @@ export const identifyPromptContract = skill => {
   if(isProtectedSkill(skill)&&skill.id==='builtin:video-prompt-fast-v8-2')return 'fast-v8';
   const documents = [String(skill?.content || ''), ...(skill?.files || []).map(file => String(file?.content || ''))].join('\n');
   const structural = SECTIONS.every(section => documents.includes(`【${section}】`)) && SHOT_FIELDS.every(field => new RegExp(`${field}[：:]`).test(documents));
-  return structural && /光影基调/.test(documents) && /D\s*0?1/.test(documents) && /(?:同场|整场)/.test(documents) && /(?:逐字|复用)/.test(documents) ? 'fast-v8' : 'generic';
+  if (!structural || !/光影基调/.test(documents) || !/D\s*0?1/.test(documents) || !/(?:同场|整场)/.test(documents) || !/(?:逐字|复用)/.test(documents)) return 'generic';
+  return /分镜\s*\d+\s*[｜|]\s*比重\s*\d+\s*\/\s*\d+/u.test(documents) ? 'fast-v8-fraction' : 'fast-v8';
 };
+
+function fractionWeights(shots, issues) {
+  const weights=shots.map(shot=>shot[2].trim().match(/^(\d{1,12})\s*\/\s*(\d{1,12})$/u)?.slice(1).map(BigInt));
+  if (!weights.length || weights.some(w=>!w || w[0]<=0n || w[1]<=0n || w[0]>w[1])) {
+    issues.push(issue('INVALID_SHOT_WEIGHTS','每镜比重须为正整数分数，且合计为1'));
+    return;
+  }
+  const gcd=(a,b)=>{while(b)[a,b]=[b,a%b];return a;};
+  let numerator=0n,denominator=1n;
+  for(const [n,d] of weights){
+    numerator=numerator*d+n*denominator;
+    denominator*=d;
+    const divisor=gcd(numerator,denominator);
+    numerator/=divisor;
+    denominator/=divisor;
+    if(numerator>denominator)break;
+  }
+  if(numerator!==denominator)issues.push(issue('INVALID_SHOT_WEIGHTS','分镜比重合计必须为1'));
+  else if(weights.length>1 && weights.every(([n,d])=>n*weights[0][1]===d*weights[0][0])){
+    issues.push(issue('EQUAL_SHOT_WEIGHTS','本条分镜全部等时，请按各镜对白、动作和停顿逐镜核对。只有预演确实等时时才保留。'));
+  }
+}
 
 export { sourceDialogues } from './directorDialogue.js';
 
@@ -81,7 +104,7 @@ const dialogueDeclarations = block => {
   return { declarations, invalid };
 };
 
-const checkFastContract = (body, source, sharedBaseline, issues) => {
+const checkFastContract = (body, source, sharedBaseline, issues, fractionContract=false) => {
   const headings = [...body.matchAll(/^【([^】]+)】\s*$/gm)];
   if (headings.length !== SECTIONS.length || headings.some((heading, index) => heading[1] !== SECTIONS[index])) {
     issues.push(issue('INVALID_PROMPT_SECTIONS', '提示词必须依次包含原 Skill 的五个区块', headings.map(heading => heading[1])));
@@ -107,9 +130,12 @@ const checkFastContract = (body, source, sharedBaseline, issues) => {
   for (const [name, pattern] of numerical) if (!pattern.test(compact(baseline))) issues.push(issue('INCOMPLETE_LIGHTING_BASELINE', `光影基调缺少${name}`));
   for (const field of ['影像基准', '镜组', '补光', '影调']) if (!new RegExp(`${field}[=：:][^；;]+`).test(compact(baseline))) issues.push(issue('INCOMPLETE_LIGHTING_BASELINE', `光影基调缺少${field}`));
 
-  const shots = [...blocks.画面内容.matchAll(/^分镜\s*(\d+)\s*[｜|]\s*比重\s*约?\s*(\d+(?:\.\d+)?)\s*%[^\n]*$/gm)];
+  const shots = [...blocks.画面内容.matchAll(fractionContract
+    ? /^分镜[\t ]*(\d+)[\t ]*[｜|][\t ]*比重[\t ]*([^\n]*)$/gm
+    : /^分镜\s*(\d+)\s*[｜|]\s*比重\s*约?\s*(\d+(?:\.\d+)?)\s*%[^\n]*$/gm)];
   if (!shots.length || shots.some((shot, index) => Number(shot[1]) !== index + 1)) issues.push(issue('INVALID_SHOT_SEQUENCE', '分镜应从01连续递增，且每镜有明确比重'));
-  if (shots.some(shot => !Number.isFinite(Number(shot[2])) || Number(shot[2]) <= 0) || Math.abs(shots.reduce((sum, shot) => sum + Number(shot[2]), 0) - 100) > 0.1) issues.push(issue('INVALID_SHOT_WEIGHTS', '每镜比重必须为合法正数，且分镜比重合计必须为100%'));
+  if (fractionContract) fractionWeights(shots,issues);
+  else if (shots.some(shot => !Number.isFinite(Number(shot[2])) || Number(shot[2]) <= 0) || Math.abs(shots.reduce((sum, shot) => sum + Number(shot[2]), 0) - 100) > 0.1) issues.push(issue('INVALID_SHOT_WEIGHTS', '每镜比重必须为合法正数，且分镜比重合计必须为100%'));
   const shotBodies = new Map();
   const cameraLabels = new Set(['正面拍摄', '侧方拍摄', '侧前方拍摄', '侧后方拍摄', '背面拍摄', '平视拍摄', '俯视拍摄', '仰视拍摄', '高机位拍摄', '低机位拍摄', '顶视拍摄', '主观视角拍摄']);
   shots.forEach((shot, index) => {
@@ -186,9 +212,10 @@ export const validateGeneratedSegment = ({ output, expectedLabel, source = '', c
   const body = marker ? [marker.bracket?.[2] || '', ...lines.slice(marker.index + 1)].join('\n').trim() : '';
   if (!body) issues.push(issue('EMPTY_PROMPT_BODY', '编号后没有提示词正文'));
   if (/^(?:分析|思考|推理|结论|分析过程|思考过程|生成说明|解释)[：:]/m.test(body)) issues.push(issue('ANALYSIS_IN_PROMPT', '模型返回了分析或解释，未按提示词合同完整输出'));
-  const checked = contract === 'fast-v8' && body ? checkFastContract(body, source, sharedBaseline, issues) : { baseline: values(body, '光影基调')[0], dialogue: 'semantic-audit' };
-  if (contract !== 'fast-v8' && sharedBaseline && checked.baseline && compact(sharedBaseline) !== compact(checked.baseline)) issues.push(issue('BASELINE_CHANGED', '同场已提供的光影基准被改变'));
-  const capabilities = { structural: contract === 'fast-v8' ? 'fast-v8' : 'numbered-only', dialogue: checked.dialogue };
+  const fast = contract === 'fast-v8' || contract === 'fast-v8-fraction';
+  const checked = fast && body ? checkFastContract(body, source, sharedBaseline, issues, contract === 'fast-v8-fraction') : { baseline: values(body, '光影基调')[0], dialogue: 'semantic-audit' };
+  if (!fast && sharedBaseline && checked.baseline && compact(sharedBaseline) !== compact(checked.baseline)) issues.push(issue('BASELINE_CHANGED', '同场已提供的光影基准被改变'));
+  const capabilities = { structural: fast ? contract : 'numbered-only', dialogue: checked.dialogue };
   return { ok: !issues.length, ...(!issues.length ? { prompt: { label: expectedLabel, content } } : {}), baseline: checked.baseline, issues, capabilities };
 };
 
@@ -232,7 +259,7 @@ export const validateAndRepairGeneratedSegment = options => {
     ['MISSING_DIALOGUE_CONTINUATION', repairGeneratedDialogueContinuations],
     ['INVALID_SHOT_WEIGHTS', repairGeneratedShotWeights],
   ]) {
-    if (!checked.issues.some(entry => entry.code === code)) continue;
+    if (!checked.issues.some(entry => entry.code === code) || code==='INVALID_SHOT_WEIGHTS'&&options.contract==='fast-v8-fraction') continue;
     const repaired = repair({ output, source: options.source });
     if (repaired === output) continue;
     output = repaired;

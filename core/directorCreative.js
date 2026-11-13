@@ -89,7 +89,7 @@ export const buildNumberedSceneTasks = (text, sceneLabel) => {
 
 /** Manual and automatic cuts use the same whole-scene submission. The selected
  * original Skill owns all directing, dialogue interpretation and output fields. */
-export const buildWholeSceneSubmission = ({ sourceText, expectedLabels }) => `${sourceText}\n\n【整场提交说明】\n请先通读以上整场戏并完成覆盖所有括号的导演预演，再按所选原始完整 Skill 一次输出全部 ${expectedLabels.length} 条提示词。括号是提交边界，不是重新构想场景的起点；没有括号时整场只输出一条。规范编号按原括号对应：${expectedLabels.join('、')}。保持原文、原话与声源；同场光影基调逐字复用，人物、道具、声音和末首镜连续。不拆增条数，直接输出完整提示词。`;
+export const buildWholeSceneSubmission = ({ sourceText, expectedLabels }) => `${sourceText}\n\n【整场提交说明】\n请先通读以上整场戏并完成覆盖所有括号的导演预演，再按所选原始完整 Skill 一次输出全部 ${expectedLabels.length} 条提示词。括号是提交边界，不是重新构想场景的起点；没有括号时整场只输出一条。规范编号按原括号对应：${expectedLabels.join('、')}。保持原文、原话与声源；同场光影基调逐字复用，人物、道具、声音和末首镜连续。不拆增条数，直接输出完整提示词。若 Skill 要求分镜比重，先逐镜估算实际对白、动作和停顿所需时间，声画同步部分只计一次，再按各镜耗时换算比重，格式遵循 Skill。不得按分镜数量默认等分；仅当逐镜预演确实等时才保留等分。分段预算只用于确定提示词条数，不用于分配条内各镜时长。`;
 
 export const splitNumberedPromptOutput = (text) => {
   const source = String(text ?? '').replace(/^\uFEFF/, '');

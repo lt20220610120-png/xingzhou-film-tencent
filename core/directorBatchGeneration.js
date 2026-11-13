@@ -11,14 +11,14 @@ const finished=new Set(['completed','skipped','stale']);
 export const isDirectorBatchActive=batch=>Boolean(batch&&active.has(batch.phase));
 const fault=(message,code='FAILED')=>Object.assign(new Error(message),{code});
 const fingerprintFields=['accountId','projectId','episodeId','sceneLabel','sourceHash','settingsHash','skillId','skillHash','profileId','profileHash'];
-const contextFor=(context,target)=>({...context,inputText:context.inputText??directorSceneInput(context.project,context.episode,target.sceneLabel),sceneLabel:target.sceneLabel,maxDurationSeconds:target.maxDurationSeconds,pace:target.pace,segmentationMode:target.segmentationMode||'auto'});
+const contextFor=(context,target)=>({...context,inputText:context.inputText??directorSceneInput(context.project,context.episode,target.sceneLabel),sceneLabel:target.sceneLabel,maxDurationSeconds:target.maxDurationSeconds,pace:target.pace,timingScale:target.timingScale,segmentationMode:target.segmentationMode||'auto'});
 const concurrencyOf=value=>{
  if(value==null||value==='all')return 'all';
  if(Number.isInteger(value)&&value>0)return value;
  throw fault('并发场景数必须是全部场景或正整数');
 };
 
-export async function createDirectorBatchPlan({accountId,project,skill,profile,maxDurationSeconds,pace,existingPolicy='missing-only',concurrency='all',segmentationMode='auto'}){
+export async function createDirectorBatchPlan({accountId,project,skill,profile,maxDurationSeconds,pace,timingScale,existingPolicy='missing-only',concurrency='all',segmentationMode='auto'}){
  if(!['auto','manual'].includes(segmentationMode))throw fault('分段方式无效');
  if(!['missing-only','incomplete-only','append-all'].includes(existingPolicy))throw fault('已有结果处理方式无效');
  concurrency=concurrencyOf(concurrency);
@@ -28,7 +28,7 @@ export async function createDirectorBatchPlan({accountId,project,skill,profile,m
  for(const [index,episode] of episodes.entries()){
   for(const scene of parseDirectorScenes(episode.content,index+1)){
    const source=directorSceneInput(project,episode,scene.label);
-   const snapshot=await createSceneSnapshot({accountId,project,episode,sceneLabel:scene.label,inputText:source,skill,profile,maxDurationSeconds,pace});
+   const snapshot=await createSceneSnapshot({accountId,project,episode,sceneLabel:scene.label,inputText:source,skill,profile,maxDurationSeconds,pace,timingScale});
    const existing=(episode.prompts||[]).filter(p=>String(p.label||'').startsWith(`${scene.label}-`));
    const skip=!source?.trim()||(existingPolicy==='missing-only'&&existing.length>0||existingPolicy==='incomplete-only'&&productionCoverage(project).find(e=>e.id===episode.id)?.scenes.find(s=>s.label===scene.label)?.complete);
    const manualCount=segmentationMode==='manual'&&!skip?manualSceneTasks(source,scene.label).length:0;
@@ -39,7 +39,7 @@ export async function createDirectorBatchPlan({accountId,project,skill,profile,m
  }
  if(!targets.length)throw fault('项目没有可生成的场景');
  return {id:crypto.randomUUID(),kind:'batch',schemaVersion:2,phase:'preview',createdAt:new Date().toISOString(),revision:0,concurrency,
-  snapshot:{accountId,projectId:project.id,promptEditionId:directorEditionKey(project),skillId:skill.id,profileId:profile.id,maxDurationSeconds,pace:targets[0]?await createSceneSnapshot({accountId,project,episode:episodes[0],sceneLabel:targets[0].sceneLabel,inputText:'x',skill,profile,maxDurationSeconds,pace}).then(s=>s.pace):pace,segmentationMode},manualPromptCount:targets.reduce((n,t)=>n+t.manualCount,0),
+  snapshot:{accountId,projectId:project.id,promptEditionId:directorEditionKey(project),skillId:skill.id,profileId:profile.id,maxDurationSeconds,pace:targets[0]?await createSceneSnapshot({accountId,project,episode:episodes[0],sceneLabel:targets[0].sceneLabel,inputText:'x',skill,profile,maxDurationSeconds,pace,timingScale}).then(s=>s.pace):pace,...(timingScale!==undefined?{timingScale}:{}),segmentationMode},manualPromptCount:targets.reduce((n,t)=>n+t.manualCount,0),
   projectName:project.name,skillName:skill.name,modelName:profile.name||profile.model,existingPolicy,episodeCount:episodes.length,targets,errors:[]};
 }
 

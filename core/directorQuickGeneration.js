@@ -9,7 +9,7 @@ import { identifyPromptContract, validateAndRepairGeneratedSegment, splitWholeSc
 import { createSceneSnapshot } from './directorQuickStore.js';
 import { effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
-import { buildEditorialSceneFacts, buildEditorialPlanningMessages, planEditorialScene } from './directorSceneBudget.js';
+import { buildEditorialSceneFacts, buildEditorialPlanningMessages, createSceneDurationBudget, planEditorialScene } from './directorSceneBudget.js';
 import { parseStructuredJson } from './directorSegmentation.js';
 
 const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
@@ -59,7 +59,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
     if(context.project&&!sameDirectorEdition(context.project,run.snapshot))throw error('提示词版本已切换，原版本草稿已保留','STALE');
     if(!context.project || !context.episode || !context.skill || !context.profile)throw error('项目、场景、Skill 或模型已不存在','STALE');
     if(context.permissions?.canGenerate===false || context.project.cloudLocked)throw error('项目已锁定或无权生成','STALE');
-    const latest=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace});
+    const latest=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale});
     if(disposed||versions.get(run.id)!==version)throw error('任务已停止','STOPPED');
     for(const key of ['sourceHash','settingsHash','skillHash','profileHash'])if(latest[key]!==run.snapshot[key])throw error('原文、项目设定、Skill 或模型配置已修改，请重新生成','STALE');
     return context;
@@ -160,9 +160,10 @@ export function createQuickGenerationController({getContext,executeText,executeS
         run.processingVersion=PROCESSING_VERSION;
         if(!run.plan){
           const facts=buildEditorialSceneFacts(tape,{pace:run.snapshot.pace});
+          const budget=createSceneDurationBudget({facts,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale,maxDurationSeconds:run.snapshot.maxDurationSeconds});
           run.phase='planning';await persist(run);
           let assessment=run.editorialAssessment;
-          if(!assessment){
+          if(!assessment && (budget.targetCount>1 || budget.timingScale===undefined)){
             try{
               const output=await request(run,version,'plan',{messages:buildEditorialPlanningMessages({snapshot:run.snapshot,tape,facts}),maxOutputTokens:4096,profileId:run.snapshot.profileId});
               run.lastPlanningOutput=output;await persist(run);
@@ -177,7 +178,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
             }
             run.editorialAssessment=assessment;await persist(run);
           }
-          const plan=planEditorialScene({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,strictModelCap:true,assessment,facts});
+          const plan=planEditorialScene({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale,strictModelCap:true,assessment,facts});
           const planId=run.nextPlanId||`plan-${run.id}`;
           run.plan={...plan,id:planId,sceneLabel:run.snapshot.sceneLabel,pace:run.snapshot.pace,
             sourceHash:run.snapshot.sourceHash,settingsHash:run.snapshot.settingsHash,skillHash:run.snapshot.skillHash,profileHash:run.snapshot.profileHash,
@@ -480,7 +481,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
        if(isQuickRunActive(run)||executions.has(runId))throw error('当前场景正在生成','BUSY');
        const context=await getContext({...run.snapshot,profileId});
        if(context?.accountId!==run.snapshot.accountId||context.profile?.id!==profileId||context.permissions?.canGenerate===false)throw error('账号或生成权限已变化','STALE');
-       const next=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace});
+       const next=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale});
        if(['sourceHash','settingsHash','skillHash'].some(k=>next[k]!==run.snapshot[k]))throw error('原文或设定已变化，保留已有成果','STALE');
        run.profileTransitions=[...(run.profileTransitions||[]),{from:run.snapshot.profileHash,to:next.profileHash,fromProfileId:run.snapshot.profileId,toProfileId:next.profileId,at:Date.now()}];
        run.snapshot={...run.snapshot,profileId:next.profileId,profileHash:next.profileHash};await persist(run);

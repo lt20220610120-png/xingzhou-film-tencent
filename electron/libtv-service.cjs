@@ -5,6 +5,13 @@ const VERSION='1.1.3';
 const ZIP_URL=`https://liblibai-web-static.liblib.cloud/cli/${VERSION}/libtv-windows-amd64.zip`;
 const ZIP_SHA='5c5e14b683ebbafba4b2c156be305384bd9f558169d019442e53b2ea04206bd5';
 const EXE_SHA='a607ea1f557cb513f302138e64d86312b9dfa9e7eed9dffc5c07f5559192f3fb';
+const networkStage=(args)=>{
+ if(args[0]==='upload')return '上传参考素材';
+ if(args[0]==='download')return '下载生成结果';
+ if(args[0]==='node'&&args.includes('--run'))return '提交生成';
+ if(args[0]==='node'&&args[1]==='create')return '创建画布节点';
+ return {account:'读取账号',model:'读取模型',project:'读取或建立画布',node:'读取画布节点',login:'连接账号'}[args[0]]||'连接官方服务';
+};
 function parseCLIJSON(text){
  if(text&&typeof text==='object')return text;
  const lines=String(text||'').trim().split(/\r?\n/).filter(Boolean);
@@ -81,7 +88,13 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
   const s=session(id),expected=epoch,exe=await binary();if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本机连接已停止，请重新操作');unseal(s);s.leases++;
   const cwd=path.join(s.dir,'work');fs.mkdirSync(cwd,{recursive:true});
   try{if(!runCLI&&!transport)transport=require('./libtv-network.cjs').createLibTVNetwork();const networkEnv=transport?(await transport.environment()).env:{};if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本机连接已停止，未提交命令');const result=await (runCLI?runCLI(args,{...options,configDir:s.dir,cwd}):spawnCLI(exe,args,{...options,configDir:s.dir,cwd,children,networkEnv}));if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本地等待已停止，请查询原画布，不要重复生成');return args[0]==='download'?{ok:true}:parseCLIJSON(result);}
-  catch(error){if(error?.code==='LIBTV_NETWORK')transport?.invalidate?.();throw error;}
+  catch(error){
+   if(error?.code==='LIBTV_NETWORK'){
+    transport?.invalidate?.();
+    error.message=`${networkStage(args)}时失败：${error.message}`;
+   }
+   throw error;
+  }
   finally{s.leases--;seal(s);}
  }
  const hasCredential=s=>fs.existsSync(path.join(s.dir,'credentials.enc'))||fs.existsSync(path.join(s.dir,'credentials.json'));

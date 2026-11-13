@@ -2,7 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSceneSourceTape } from './directorSegmentation.js';
 import { parseDirectorDialogues } from './directorDialogue.js';
-import { buildEditorialSceneFacts, createSceneDurationBudget, planEditorialScene, validateEditorialPlan, estimateSpokenPerformance } from './directorSceneBudget.js';
+import { buildEditorialSceneFacts, createSceneDurationBudget, directorSceneCalibration, planEditorialScene, validateEditorialPlan, estimateSpokenPerformance } from './directorSceneBudget.js';
+
+test('a calibrated reference near 45 seconds controls the budget of larger scenes before cut selection',()=>{
+  const line='甲：这件事情没你想的那么简单，我们现在必须马上赶过去处理清楚！';
+  const tape=n=>buildSceneSourceTape(Array(n).fill(line).join('\n'));
+  const anchor=tape(24),double=tape(48),maxDurationSeconds=30;
+  const candidates=Array.from({length:101},(_,i)=>-200+i).map(pace=>directorSceneCalibration(anchor,{pace,maxDurationSeconds}));
+  const chosen=candidates.find(budget=>Math.round(budget.totalEstimatedSeconds)===45);
+  assert.ok(chosen);
+  assert.equal(chosen.targetCount,2);
+  const plan=planEditorialScene({tape:double,maxDurationSeconds,pace:chosen.pace,timingScale:chosen.timingScale,assessment:{estimatedSceneSeconds:180}});
+  assert.equal(Math.round(plan.editorialBudget.totalEstimatedSeconds),Math.round(chosen.totalEstimatedSeconds*2));
+  assert.equal(plan.segments.length,3);
+  const endpoint=candidates[0];
+  const twice=planEditorialScene({tape:double,maxDurationSeconds,pace:endpoint.pace,timingScale:endpoint.timingScale});
+  assert.equal(endpoint.targetCount,1);
+  assert.equal(twice.editorialBudget.totalEstimatedSeconds,60);
+  assert.equal(twice.segments.length,2);
+  assert.ok(validateEditorialPlan(twice,double,maxDurationSeconds));
+});
 import { manorScene, englishManorScene } from './directorSceneBudget.fixtures.js';
 
 test('real bilingual manor example: 32-second limit produces two clips with every source character retained', () => {

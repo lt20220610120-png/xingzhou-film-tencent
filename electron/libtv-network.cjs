@@ -13,7 +13,7 @@ function openRoute(row){
  const proxy=new URL(row.proxy),request=(proxy.protocol==='https:'?require('node:https'):http).request({host:proxy.hostname,port:proxy.port||(proxy.protocol==='https:'?443:80),method:'CONNECT',path:row.host+':443',headers:{Host:row.host+':443'},agent:false});
  // A Duplex proxy socket lets CONNECT setup errors reject like ordinary sockets.
  const {Duplex}=require('node:stream');let upstream;const pending=[];const stream=new Duplex({read(){upstream?.resume();},write(chunk,encoding,done){if(upstream)upstream.write(chunk,encoding,done);else pending.push([chunk,encoding,done]);},final(done){if(upstream)upstream.end(done);else done();},destroy(error,done){request.destroy();upstream?.destroy();done(error);}});
- request.on('connect',(response,socket,head)=>{if(response.statusCode!==200){socket.destroy();stream.destroy(Object.assign(Error('Proxy CONNECT failed'),{code:'PROXY_HTTP_'+response.statusCode}));return;}upstream=socket;socket.on('data',chunk=>{if(!stream.push(chunk))socket.pause();});socket.on('end',()=>stream.push(null));socket.on('error',error=>stream.destroy(error));socket.on('close',()=>stream.destroy());if(head.length)stream.push(head);for(const [chunk,encoding,done]of pending)socket.write(chunk,encoding,done);stream.emit('connect');});
+ request.on('connect',(response,socket,head)=>{if(response.statusCode!==200){socket.destroy();stream.destroy(Object.assign(Error('Proxy CONNECT failed'),{code:'PROXY_HTTP_'+response.statusCode}));return;}upstream=socket;socket.pause();socket.on('data',chunk=>{if(!stream.push(chunk))socket.pause();});socket.on('end',()=>stream.push(null));socket.on('error',error=>stream.destroy(error));socket.on('close',()=>stream.destroy());if(head.length)stream.push(head);for(const [chunk,encoding,done]of pending)socket.write(chunk,encoding,done);stream.emit('connect');});
  request.on('error',error=>stream.destroy(error));request.end();return stream;
 }
 function probeRoute(row,{signal}={}){return new Promise((resolve,reject)=>{const socket=openRoute(row);let secure,settled=false;const finish=error=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);secure?.destroy();socket.destroy();error?reject(error):resolve();},abort=()=>finish(signal.reason||Object.assign(Error('aborted'),{code:'ABORT_ERR'}));const timer=setTimeout(()=>finish(Object.assign(Error('TLS timeout'),{code:'ETIMEDOUT'})),3500);socket.on('error',finish);socket.once('connect',()=>{secure=tls.connect({socket,servername:row.host,rejectUnauthorized:true},()=>finish());secure.once('error',finish);});if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});});}
@@ -30,7 +30,69 @@ function createLibTVNetwork({resolveProxy=desktopProxy,probe=probeRoute,connect=
   if(!work){work=(async()=>{const row=await selectRoute(host,await resolveProxy('https://'+host));if(selected===plan)plan.routes.push(row);return row;})();dynamicRoutes.set(key,work);work.catch(()=>dynamicRoutes.delete(key));}
   return work;
  }
- async function start(){if(server?.listening)return;if(starting)return starting;starting=new Promise((resolve,reject)=>{server=http.createServer((_q,response)=>{response.writeHead(405);response.end();});server.on('connection',track);server.on('connect',async(request,client,head)=>{const deny=status=>client.end('HTTP/1.1 '+status+'\r\nConnection: close\r\n\r\n');if(request.headers['proxy-authorization']!==authorization)return deny('407 Proxy Authentication Required');const match=/^([a-z0-9.-]+):443$/i.exec(request.url||'');if(!match||!(officialHost(match[1])||mediaHost(match[1])))return deny('403 Forbidden');const host=match[1].toLowerCase();try{const row=selected?.routes.find(row=>row.host===host)||await dynamicRoute(host);if(closed||client.destroyed)return client.destroy();const upstream=track(connect(row));const fail=()=>{client.destroy();upstream.destroy();};client.once('error',fail);upstream.once('error',fail);upstream.setTimeout?.(120000,fail);upstream.once('connect',()=>{client.write('HTTP/1.1 200 Connection Established\r\n\r\n');if(head.length)upstream.write(head);client.pipe(upstream);upstream.pipe(client);});client.once('close',()=>upstream.destroy());upstream.once('close',()=>client.destroy());}catch{deny('502 Bad Gateway');}});server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});try{await starting;}finally{starting=null;}}
+ function connectBeforeRelay(row,client){
+  return new Promise((resolve,reject)=>{
+   const upstream=track(connect(row));
+   const timeout=setTimeout(()=>finish(Object.assign(Error('CONNECT timeout'),{code:'ETIMEDOUT'})),3500);
+   const onError=error=>finish(error);
+   const onClose=()=>finish(Object.assign(Error('CONNECT closed'),{code:'ECONNRESET'}));
+   const onConnect=()=>finish();
+   const onClientClose=()=>finish(Error('CLI tunnel closed'));
+   function finish(error){
+    clearTimeout(timeout);
+    upstream.off('error',onError);
+    upstream.off('close',onClose);
+    upstream.off('connect',onConnect);
+    client.off('close',onClientClose);
+    if(error){upstream.destroy();reject(error);}else resolve(upstream);
+   }
+   upstream.once('error',onError);
+   upstream.once('close',onClose);
+   upstream.once('connect',onConnect);
+   client.once('close',onClientClose);
+  });
+ }
+ async function handleConnect(request,client,head){
+  const deny=status=>{if(!client.destroyed)client.end('HTTP/1.1 '+status+'\r\nConnection: close\r\n\r\n');};
+  if(request.headers['proxy-authorization']!==authorization)return deny('407 Proxy Authentication Required');
+  const match=/^([a-z0-9.-]+):443$/i.exec(request.url||'');
+  if(!match||!(officialHost(match[1])||mediaHost(match[1])))return deny('403 Forbidden');
+  const host=match[1].toLowerCase();
+  try{
+   const row=selected?.routes.find(row=>row.host===host)||await dynamicRoute(host);
+   if(closed||client.destroyed)return client.destroy();
+   let upstream;
+   try{upstream=await connectBeforeRelay(row,client);}
+   catch(error){
+    if(closed||client.destroyed||row.mode!=='system-proxy')throw error;
+    upstream=await connectBeforeRelay({host,mode:'direct'},client);
+   }
+   if(closed||client.destroyed){upstream.destroy();return;}
+   // Once CONNECT succeeds the CLI owns the TLS stream. Never replay it.
+   const fail=()=>{client.destroy();upstream.destroy();};
+   client.once('error',fail);
+   upstream.once('error',fail);
+   upstream.setTimeout?.(120000,fail);
+   client.once('close',()=>upstream.destroy());
+   upstream.once('close',()=>client.destroy());
+   client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+   if(head.length)upstream.write(head);
+   client.pipe(upstream);
+   upstream.pipe(client);
+  }catch{deny('502 Bad Gateway');}
+ }
+ async function start(){
+  if(server?.listening)return;
+  if(starting)return starting;
+  starting=new Promise((resolve,reject)=>{
+   server=http.createServer((_q,response)=>{response.writeHead(405);response.end();});
+   server.on('connection',track);
+   server.on('connect',handleConnect);
+   server.once('error',reject);
+   server.listen(0,'127.0.0.1',resolve);
+  });
+  try{await starting;}finally{starting=null;}
+ }
  async function environment(){if(closed)throw Error('LibTV 网络连接已关闭');const rules=await Promise.all(API_HOSTS.map(host=>resolveProxy('https://'+host))),signature=JSON.stringify(rules);if(selected?.signature===signature&&Date.now()-selected.time<60000)return output();if(pending)return pending;
   pending=(async()=>{const settled=await Promise.allSettled(API_HOSTS.map((host,index)=>selectRoute(host,rules[index])));if(closed)throw Error('LibTV 网络连接已关闭');const routes=settled.filter(row=>row.status==='fulfilled').map(row=>row.value);if(!routes.length)throw settled.find(row=>row.status==='rejected')?.reason||Error('LibTV 网络连接失败');dynamicRoutes.clear();selected={signature,time:Date.now(),routes};if(routes.some(row=>row.mode!=='direct'))await start();return output();})();try{return await pending;}finally{pending=null;}
  }
