@@ -1,7 +1,7 @@
 import React,{useState} from 'react';
 import {isDirectorBatchActive} from '../../core/directorBatchGeneration.js';
 import {useRememberedState} from '../useRememberedState.js';
-import {DEFAULT_DIRECTOR_PACE,directorPaceLabel,normalizeDirectorDurationSelection,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
+import {DEFAULT_DIRECTOR_PACE,directorPaceLabel,effectiveDirectorDurationLimit,normalizeDirectorDurationSelection,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
 import {Dialog} from './GlobalTools.jsx';
 import {flushEditing} from '../editing.js';
 import {FormattedText} from '../components/FormattedText.jsx';
@@ -11,7 +11,9 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const [preview,setPreview]=useState(null),[policy,setPolicy]=useState('missing-only'),[error,setError]=useState('');
  const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-batch-settings:${accountId||'local'}:${project.id}`,JSON.stringify({concurrency:segmentationMode==='manual'?2:'all'}));
  let settings;try{settings=JSON.parse(settingsJson);}catch{settings={};}
- const batchDuration=normalizeDirectorDurationSelection(segmentationMode==='auto'?calibration?.maxDurationSeconds:maxDurationSeconds);
+ const defaultDuration=normalizeDirectorDurationSelection(maxDurationSeconds);
+ const [durationOverride,setDurationOverride]=useState(null);
+ const batchDuration=durationOverride??defaultDuration;
  const batchPace=normalizeDirectorPace(segmentationMode==='auto'?calibration?.pace:pace);
  const durationLabel=value=>value===0?'自动估算（单条最高35秒）':`最高 ${value} 秒`;
  const concurrency=settings.concurrency==='all'||Number.isInteger(settings.concurrency)&&settings.concurrency>0?settings.concurrency:'all';
@@ -20,7 +22,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const invoke=async operation=>{setError('');try{await operation();}catch(e){setError(e.message);}};
  const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,maxDurationSeconds:batchDuration,pace:batchPace,timingScale:segmentationMode==='auto'?calibration?.timingScale:undefined,concurrency,existingPolicy:policy,segmentationMode,...updates});};
  const changeSettings=updates=>{setSettingsJson(JSON.stringify({concurrency,...updates}));setPreview(null);};
- const open=()=>{setOpened(true);setPreview(null);setError('');};
+ const open=()=>{setDurationOverride(null);setOpened(true);setPreview(null);setError('');};
  const prepare=()=>invoke(async()=>{setPreparing(true);try{setPreview(await makePreview());}finally{setPreparing(false);}});
  const start=()=>invoke(async()=>{const plan=preview;setOpened(false);try{await quickGeneration.startBatch(plan);setPreview(null);}catch(e){setOpened(true);throw e;}});
  const status={preview:'待开始',running:'正在生成',pausing:'正在保存并发请求，完成后暂停',paused:'已暂停，可以继续',completed:'整本任务已完成','completed-with-errors':'本轮已结束，部分场景需处理',cancelled:'任务已结束'};
@@ -30,8 +32,9 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
   <p>{segmentationMode==='manual'?'沿用人工划分的集、场景和（1）（2）分段；每场一次运行所选完整 Skill，不重新拆分。没有分段标记的场景生成一条。':'沿用已划分的集与场景，各场自动分析视频分段后生成提示词。'}生成结果先保存本地，实时协作连接后自动同步给项目成员。</p>
   <div className="director-batch-heading"><div className="director-batch-purpose"><strong>整本提示词</strong><small>按场景并发生成，进度自动保存，中断后可继续。</small></div>
    <div className="director-batch-settings">
-    {segmentationMode==='auto'&&calibration&&<p className="director-batch-calibration">基准 {calibration.episodeTitle} · 场景 {calibration.sceneLabel} · {directorPaceLabel(batchPace)} · {Math.round(calibration.totalEstimatedSeconds)} 秒 / {calibration.targetCount} 条 · {durationLabel(batchDuration)}</p>}
+    {segmentationMode==='auto'&&calibration&&<p className="director-batch-calibration">基准 {calibration.episodeTitle} · 场景 {calibration.sceneLabel} · {directorPaceLabel(batchPace)} · {calibration.totalEstimatedSeconds} 秒 / {Math.ceil(calibration.totalEstimatedSeconds/effectiveDirectorDurationLimit(batchDuration))} 条 · {durationLabel(batchDuration)}</p>}
     {segmentationMode==='auto'&&!calibration&&<p>请先在具体场景调整预估，再点「应用到全剧」。</p>}
+    {segmentationMode==='auto'&&<label><span>单条最高时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled||preparing} onChange={e=>{setDurationOverride(Number(e.target.value));setPreview(null);}}>{Array.from({length:36},(_,i)=><option key={i} value={i}>{i===0?'自动（≤35秒）':`${i} 秒`}</option>)}</select></label>}
     <label><span>场景并发</span><select aria-label="整本场景并发" value={concurrency} disabled={active||disabled||preparing} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">全部场景</option>{[1,2,4,8,16,32].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
    <button className="secondary" disabled={disabled||active||sceneBusy||preparing||!skill||!profile||(segmentationMode==='auto'&&!calibration)} onClick={prepare}>{preparing?'读取整本分段…':'预览整本任务'}</button>
    </div>

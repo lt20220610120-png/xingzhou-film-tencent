@@ -1,6 +1,6 @@
 import { parseDirectorDialogues } from './directorDialogue.js';
 import { extractDirectorVisualBeats } from './directorTiming.js';
-import { assertDirectorTimingScale, effectiveDirectorDurationLimit, resolveDirectorPaceProfile, DEFAULT_DIRECTOR_PACE, WHOLE_SCENE_PACE } from './directorDurationPolicy.js';
+import { assertDirectorTimingScale, effectiveDirectorDurationLimit, resolveDirectorPaceProfile, DEFAULT_DIRECTOR_PACE, MIN_DIRECTOR_PACE } from './directorDurationPolicy.js';
 
 export const EDITORIAL_PLAN_VERSION = 1;
 const round = n => Math.round(n * 100) / 100;
@@ -112,10 +112,12 @@ export function createSceneDurationBudget({ facts, maxDurationSeconds, assessmen
   const scale=assertDirectorTimingScale(timingScale);
   const calibrated=scale!==undefined || paceProfile.pace<-100;
   if(calibrated){
-    const anchorScale=Math.min(1,limit/facts.referenceSeconds);
-    const calibrationProgress=Math.max(0,(-100-paceProfile.pace)/(-100-WHOLE_SCENE_PACE));
-    const appliedScale=scale ?? 1-(1-anchorScale)*calibrationProgress;
-    const total=Math.max(1,Math.round(facts.referenceSeconds*appliedScale));
+    // The estimate describes source content. A different clip cap only changes
+    // the number of clips required to cover it.
+    const calibrationProgress=Math.max(0,(-100-paceProfile.pace)/(-100-MIN_DIRECTOR_PACE));
+    const previewScale=1-0.9*calibrationProgress;
+    const total=Math.max(1,Math.round(facts.referenceSeconds*(scale??previewScale)));
+    const appliedScale=scale ?? Math.min(1,total/facts.referenceSeconds);
     const targetCount=Math.max(1,Math.ceil(total/limit));
     if(appliedScale<1)warnings.push(warn('SCENE_CAPACITY_CALIBRATED',
       `按场景标定容量划分；表演参考约 ${facts.referenceSeconds} 秒。若无法在建议时长内完整演出，请调整容量或增加分段。`));

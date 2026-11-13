@@ -8,8 +8,7 @@ export const effectiveDirectorDurationLimit = value => assertDirectorDurationSel
 export const normalizeDirectorDurationSelection = (value, fallback = 30) => Number.isInteger(value) && value >= 0 && value <= 35 ? value : fallback;
 
 export const DEFAULT_DIRECTOR_PACE = 100;
-export const WHOLE_SCENE_PACE = -200;
-export const MIN_DIRECTOR_PACE = WHOLE_SCENE_PACE;
+export const MIN_DIRECTOR_PACE = -200;
 export function assertDirectorTimingScale(value) {
   if(value===undefined||value===null)return undefined;
   if(!Number.isFinite(value)||value<=0||value>1)throw new Error('场景划分基准无效');

@@ -331,9 +331,9 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   try{appliedCalibration=JSON.parse(appliedCalibrationJson);}catch{}
   const applyCalibration=()=>{
     if(!calibration||!currentScene)return;
-    const {timingScale,totalEstimatedSeconds,targetCount}=calibration;
+    const {timingScale,totalEstimatedSeconds}=calibration;
     setAppliedCalibrationJson(JSON.stringify({sceneLabel:currentScene,episodeId:episode.id,episodeTitle:episode.title,
-      pace:quickSettings.pace,maxDurationSeconds:quickSettings.maxDurationSeconds,timingScale,totalEstimatedSeconds,targetCount}));
+      pace:quickSettings.pace,timingScale,totalEstimatedSeconds}));
   };
   const [sourceView,setSourceView]=useState('source');
   const manualOutputRevision=(episode.manualSceneReplies||[]).length;
@@ -680,7 +680,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                     </button>
                   </div>
                 </div>
-                {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} sceneText={currentSceneContent} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} calibration={calibration} applied={appliedCalibration?.episodeId===episode.id&&appliedCalibration?.sceneLabel===currentScene&&appliedCalibration?.pace===quickSettings.pace&&appliedCalibration?.maxDurationSeconds===quickSettings.maxDurationSeconds&&appliedCalibration?.timingScale===calibration?.timingScale&&appliedCalibration?.totalEstimatedSeconds===calibration?.totalEstimatedSeconds} onApply={applyCalibration} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
+                {quickSettings.segmentationMode==='auto'&&<DirectorQuickProgress run={autoRun} sceneText={currentSceneContent} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} calibration={calibration} applied={appliedCalibration?.episodeId===episode.id&&appliedCalibration?.sceneLabel===currentScene&&appliedCalibration?.pace===quickSettings.pace&&appliedCalibration?.timingScale===calibration?.timingScale&&appliedCalibration?.totalEstimatedSeconds===calibration?.totalEstimatedSeconds} onApply={applyCalibration} onStop={()=>quickGeneration.stop(localRun.id).catch(e=>setAutoError(e.message))} onResume={resumeAutoScene} sourceView={sourceView} onSourceViewChange={setSourceView} stale={autoStale} error={autoError||quickGeneration?.restoreError} />}
                 {quickSettings.segmentationMode==='manual'&&manualOutputs.length>0&&<details className="quick-draft-preview quick-manual-replies" key={`${currentScene}:${manualOutputRevision}`}><summary>查看已保存的整场原始回包（{manualOutputs.length} 次）</summary>{manualOutputs.map((reply,index)=><FormattedText key={index} text={reply.output}/>)}</details>}
                 <FormattedEditor
                   key={episode.id+currentScene+sourceView} commitDelay={1200}

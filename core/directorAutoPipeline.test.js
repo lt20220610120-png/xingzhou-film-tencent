@@ -44,14 +44,14 @@ test('whole scene endpoint retains a long scene in one saved prompt and reports 
  assert.equal(run.plan.segments.length,1);
  assert.equal(run.plan.segments[0].sourceEnd,body.length);
  assert.equal(run.plan.sourceText,body);
- assert.equal(run.plan.editorialBudget.totalEstimatedSeconds,30);
+ assert.ok(run.plan.editorialBudget.totalEstimatedSeconds<30);
  assert.ok(run.plan.editorialBudget.referenceSeconds>30);
  assert.ok(run.auditWarnings.some(w=>w.code==='SCENE_CAPACITY_CALIBRATED'));
  assert.deepEqual(f.calls,['skill','audit']);
  assert.match(f.requests.skill.input,/逐镜估算/);
  const cards=promptsForScene(f.state.directorProjects[0].episodes[0].prompts,'1-1');
  assert.equal(cards.length,1);
- assert.equal(cards[0].recommendedDurationSeconds,30);
+ assert.equal(cards[0].recommendedDurationSeconds,run.plan.editorialBudget.totalEstimatedSeconds);
 });
 
 test('automatic planning outage falls back locally then generates visible prompts with selected pace and durations',async()=>{

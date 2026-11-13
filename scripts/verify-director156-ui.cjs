@@ -1,6 +1,7 @@
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..');
+for(const stream of [process.stdout,process.stderr])stream.on('error',error=>{if(error.code!=='EPIPE')throw error;});
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'xz-156-director-')));
 
 app.whenReady().then(async()=>{
@@ -25,16 +26,15 @@ app.whenReady().then(async()=>{
   await run("document.querySelector('input[aria-label=短剧节奏梯度]').focus()");
   function key(keyCode){window.webContents.sendInputEvent({type:'keyDown',keyCode});window.webContents.sendInputEvent({type:'keyUp',keyCode});}
   key('Home');
-  const endpoint=await wait(`${budget}?.includes('30 秒')&&${budget}`);
+  const endpoint=await wait(`${budget}?.includes('8 秒')&&${budget}`);
   assert.match(endpoint,/预计 1 条/);
-  for(let i=0;i<30;i++)key('Right');
+  for(let i=0;i<52;i++)key('Right');
   const adjusted=await wait(`${budget}?.includes('45 秒')&&${budget}`);
   assert.match(adjusted,/预计 2 条/);
   assert.deepEqual(await run('window.__calls'),[]);
   await run("document.querySelector('.quick-apply-calibration').click()");
   const applied=await wait("JSON.parse(localStorage.getItem('xz-director-calibration:fixture-account:fixture-project'))");
-  assert.equal(applied.targetCount,2);
-  assert.equal(applied.maxDurationSeconds,30);
+  assert.equal(applied.totalEstimatedSeconds,45);
   assert.ok(applied.timingScale<1);
   await run("document.querySelector('input[aria-label=短剧节奏梯度]').focus()");
   key('End');
@@ -44,6 +44,9 @@ app.whenReady().then(async()=>{
   assert.match(panel,/45 秒 \/ 2 条/);
   assert.match(panel,/最高 30 秒/);
   assert.equal(await run("document.querySelectorAll('.director-batch-panel input[type=range]').length"),0);
+  await run(`(()=>{const cap=document.querySelector('[aria-label="整本最高视频时长"]');cap.value='15';cap.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  const changedCap=await wait("document.querySelector('.director-batch-calibration')?.innerText.includes('45 秒 / 3 条')");
+  assert.equal(changedCap,true);
   const button=text=>`[...document.querySelectorAll('.director-batch-panel button')].find(b=>b.textContent.includes(${JSON.stringify(text)}))`;
   await run(button('预览整本任务')+'.click()');
   await wait(button('确认开始整本生成')+'?.disabled===false');
@@ -56,9 +59,10 @@ app.whenReady().then(async()=>{
   })()`);
   assert.equal(result.batch.timingScale,applied.timingScale);
   assert.equal(result.batch.pace,applied.pace);
+  assert.equal(result.batch.maxDurationSeconds,15);
   assert.equal(result.plan.totalEstimatedSeconds,applied.totalEstimatedSeconds);
-  assert.equal(result.shown.length,2);
-  assert.equal(result.saved,2);
+  assert.equal(result.shown.length,3);
+  assert.equal(result.saved,3);
   assert.deepEqual(result.calls,['plan','skill','audit']);
   await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   fs.writeFileSync(path.join(root,'output','156-director.png'),(await window.webContents.capturePage()).toPNG());
