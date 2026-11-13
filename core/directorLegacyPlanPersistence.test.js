@@ -21,7 +21,7 @@ function fixture(source, candidate, { maxDurationSeconds = 30 } = {}) {
     state = result.state;
     return result;
   };
-  const controller = createQuickGenerationController({
+  const controller = createQuickGenerationController({legacyPromptReview:true,
     groundedTiming: true, maxQualityAttempts: 1, getContext,
     checkpoints: {
       save: async ({ run }) => records.set(run.id, structuredClone(run)),

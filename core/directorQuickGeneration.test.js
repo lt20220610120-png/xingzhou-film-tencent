@@ -11,7 +11,7 @@ const fixture = () => {
   const files = new Map();
   const calls = [], commits = [];
   let failRepair = false, wholeCalls = 0, pending;
-  const controller = createQuickGenerationController({
+  const controller = createQuickGenerationController({legacyPromptReview:true,
     getContext:()=>({accountId,project,episode:project.episodes[0],inputText:source,skill,profile,permissions:{canGenerate:true}}),
     checkpoints:{save:async({run})=>files.set(run.id,structuredClone(run)),list:async()=>[...files.values()],load:async({runId})=>structuredClone(files.get(runId))},
     executeText:async({messages})=>{
@@ -86,7 +86,7 @@ test('compact imported scene submits its full body and both original voices thro
   const episode={id:'episode',content:inputText},project={id:'project',episodes:[episode]},skill={id:'skill',content:'生成完整编号提示词'},profile={id:'profile',model:'mock'};
   const context={accountId:'account',project,episode,skill,profile,inputText,sceneLabel:'41-2',maxDurationSeconds:32};
   const calls=[],records=new Map();
-  const controller=createQuickGenerationController({groundedTiming:true,getContext:()=>context,
+  const controller=createQuickGenerationController({legacyPromptReview:true,groundedTiming:true,getContext:()=>context,
     checkpoints:{save:async({run})=>records.set(run.id,structuredClone(run)),list:async()=>[...records.values()]},
     executeText:async({messages})=>{
       if(messages[0].content.includes('核对'))return '{"ok":true,"issues":[]}';

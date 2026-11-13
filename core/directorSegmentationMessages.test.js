@@ -42,7 +42,7 @@ test('whole-scene Skill receives every bracket and complete attachments with fix
   assert.match(request.input, /乙：我听见了/);
   const reference = request.beforeUserMessages.map(message => message.content).join('\n');
   for (const text of ['只读', '前条完整正文', 'EI800', 'MISSING_SCENE_PROMPT', '原样保留']) assert.ok(reference.includes(text), text);
-  for (const text of ['整场', '一次输出全部', '"recommendedDurationSeconds":10']) assert.ok(request.input.includes(text), text);
+  for (const text of ['整场', '按已定段落返回', '"recommendedDurationSeconds":10']) assert.ok(request.input.includes(text), text);
   for (const text of ['originalDialogues', 'startState', 'endState', 'visualNotes', 'segments', 'capacityIssue']) assert.ok(!request.input.includes(text) && !reference.includes(text), text);
   assert.ok(!reference.includes('只输出下一条'));
   assert.equal(request.maxOutputTokens, 16384);

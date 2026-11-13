@@ -20,7 +20,7 @@ function fixture({ source=manorScene, planner, skill, audit }={}) {
     },
     executeSkill:async payload=>{calls.push({type:'skill',payload});return skill?.(payload,calls)??payload.expectedLabels.map(label=>`${label}\n【画面内容】\n按本段完整原话和镜头表演。`).join('\n\n');},
     commitProgress:async run=>{progress.push(structuredClone(run));return commit(run,true);},commitRun:async run=>commit(run,false)};
-  return {controller:createQuickGenerationController(deps),deps,context,records,calls,progress,get state(){return state;},changeAccount(){state.accountId='b';}};
+  return {controller:createQuickGenerationController({...deps,legacyPromptReview:true}),deps,context,records,calls,progress,get state(){return state;},changeAccount(){state.accountId='b';}};
 }
 
 for(const [name,source] of [['bilingual',manorScene],['English-only',englishManorScene]]) {
@@ -82,7 +82,7 @@ test('upgrade failed old plan clears only pre-generation gate, preserves origina
   legacy.segmentDrafts={};legacy.wholeSceneResponses=[];legacy.editorialAssessment=undefined;
   legacy.planIssues=[{code:'SPEECH_CAPACITY_EXCEEDED',message:'按4字每秒拒绝'}];legacy.planQualityFailures=3;legacy.checks={audited:false,ranges:{}};
   f.records.set(legacy.id,legacy);
-  const controller=createQuickGenerationController(f.deps);
+  const controller=createQuickGenerationController({...f.deps,legacyPromptReview:true});
   const run=await controller.resume(legacy.id);
   assert.equal(run.phase,'completed',JSON.stringify(run.errors));
   assert.equal(run.plan.segments.length,2);

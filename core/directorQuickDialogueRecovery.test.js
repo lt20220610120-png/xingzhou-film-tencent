@@ -46,7 +46,7 @@ function fixture() {
     { end: { unitId: 'u2' }, timing: { speechSeconds: 30, actionSeconds: 0, overlapSeconds: 0, transitionSeconds: 0 }, startState: '灯灭', endState: '灯保持熄灭', boundary: '切手部', visualNotes: [] },
     { end: { unitId: 'u5' }, timing: { speechSeconds: 10, actionSeconds: 2, overlapSeconds: 2, transitionSeconds: 0 }, startState: '甲拿着项链', endState: '项链已入包', boundary: 'scene-end', visualNotes: [] },
   ] };
-  const controller = createQuickGenerationController({
+  const controller = createQuickGenerationController({legacyPromptReview:true,
     maxQualityAttempts: 1,
     getContext: () => ({ ...request, permissions: { canGenerate: true } }),
     checkpoints: {

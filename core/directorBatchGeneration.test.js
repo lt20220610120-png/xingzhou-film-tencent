@@ -14,7 +14,7 @@ function fixture({skillHook,auditHook}={}){
  const records=new Map(),calls=[];let failScene='',failCode='',waitRequest=null,waitAllRequests=null,activeSkills=0,maxActiveSkills=0;
  const checkpoints={save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>structuredClone(records.get(runId)),list:async()=>[...records.values()].map(x=>structuredClone(x))};
  const getContext=target=>{const project=state.directorProjects.find(p=>p.id===target.projectId),episode=project.episodes.find(e=>e.id===target.episodeId);return {accountId:state.accountId,project,episode,inputText:directorSceneInput(project,episode,target.sceneLabel),skill:state.skills[0],profile:state.apiProfiles[0],permissions:{canGenerate:true}};};
- const makeScene=()=>createQuickGenerationController({getContext,checkpoints,groundedTiming:true,executeText:async payload=>{
+ const makeScene=()=>createQuickGenerationController({legacyPromptReview:true,getContext,checkpoints,groundedTiming:true,executeText:async payload=>{
    calls.push({kind:payload.messages[0].content.includes('核对')?'audit':'plan',scene:payload.snapshot.sceneLabel});
    if(payload.messages[0].content.includes('核对'))return auditHook?.(payload)??'{"ok":true,"issues":[]}';
    return JSON.stringify({segments:[{end:{unitId:'u1'},timing:{speechSeconds:2,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'起点',endState:'终点',boundary:'scene-end',visualNotes:[]}]});
@@ -123,7 +123,7 @@ test('all-scene parallel mode starts every scene before any paid response finish
  for(const call of f.calls.filter(call=>call.kind==='skill')){
   assert.deepEqual(call.expectedLabels,[`${call.scene}-1`]);
   assert.doesNotMatch(call.input,/^（1）$/m);
-  assert.match(call.input,/没有括号时整场只输出一条/);
+  assert.match(call.input,/按已定段落返回 1 条正文/);
  }
  assert.equal(f.state.directorProjects[0].episodes[1].prompts,undefined);
  release();assert.equal((await task).phase,'completed');

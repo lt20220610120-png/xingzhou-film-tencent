@@ -197,7 +197,7 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
           {prompt.durationCompression&&Number.isFinite(prompt.naturalEstimatedSeconds)&&<small className="prompt-duration-compression">自然预计 {Math.round(prompt.naturalEstimatedSeconds*10)/10} 秒 · 紧凑节奏</small>}
           {prompt.generationRunId&&<small className="prompt-generation-batch">{new Date(prompt.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} 批次</small>}
           {prompt.sceneAuditStatus==='pending'&&<small className="prompt-generation-batch">已保存 · 整场核对中</small>}
-          {prompt.sceneAuditStatus==='warning'&&<small className="prompt-generation-batch prompt-audit-warning">已保存 · 整场核对有提醒</small>}
+          {prompt.sceneAuditStatus==='warning'&&<small className="prompt-generation-batch prompt-audit-warning">已保存 · 有生成提醒</small>}
         </div>
         <div className="prompt-actions top">
           {editing ? (

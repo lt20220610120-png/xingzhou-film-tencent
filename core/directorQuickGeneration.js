@@ -42,7 +42,8 @@ const reusablePaidRanges=(run,tape)=>{
 };
 
 /** A scene transaction: no React closures or credentials belong in its checkpoint. */
-export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,commitProgress=null,groundedTiming=false,editorialPlanning=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
+export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,commitProgress=null,groundedTiming=false,editorialPlanning=false,legacyPromptReview=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
+  const contractFor=skill=>legacyPromptReview?identifyPromptContract(skill):'routing-only';
   const runs=new Map(),listeners=new Set(),executions=new Map(),versions=new Map(),saveTails=new Map();
   let disposed=false;
   const emit=()=>{if(disposed)return;onChange();for(const listener of listeners)listener();};
@@ -143,6 +144,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
     try {
       await assertCurrent(run,version);
       run.reviewIsAdvisory=true;
+      if(!legacyPromptReview)run.promptReviewMode='skill';
       const tape=buildSceneSourceTape(run.snapshot.sourceSnapshot);
       const sourceFor=segment=>({text:tape.sourceText.slice(segment.sourceStart,segment.sourceEnd),sourceText:tape.sourceText,sourceStart:segment.sourceStart,sourceEnd:segment.sourceEnd});
       if(editorialPlanning){
@@ -198,7 +200,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
         const recoveringVersion9=run.processingVersion===9;
         const recoverPaid=recoveringVersion6||recoveringVersion7||recoveringVersion9;
         run.recoveringPaidReplies=recoverPaid;
-        const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
+        const context=await assertCurrent(run,version),contract=contractFor(context.skill);
       run.segmentQualityFailures={};run.wholeSceneQualityFailures=0;run.wholeSceneIssues=[];run.auditRepairIndexes=[];run.auditRepairAttempts={};run.auditWarnings=[];run.checks={audited:false,ranges:{}};
         run.planQualityFailures=0;run.planIssues=[];
         if(groundedTiming&&run.plan){
@@ -309,7 +311,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       // paid ranges under the new immutable plan. Merged or otherwise changed
       // ranges still require whole-scene direction through the original Skill.
       if(run.reusablePaidClips?.length){
-        const context=await assertCurrent(run,version),contract=identifyPromptContract(context.skill);
+        const context=await assertCurrent(run,version),contract=contractFor(context.skill);
         for(const segment of run.plan.segments){
           if(run.segmentDrafts[segment.id]?.validated)continue;
           const source=sourceFor(segment),label=`${run.snapshot.sceneLabel}-${segment.index}`;
@@ -331,7 +333,20 @@ export function createQuickGenerationController({getContext,executeText,executeS
       // after it was saved. Recover that text before making another request;
       // keep the calibrated plan, accepted clips and their durable IDs intact.
       const recoveryContext=await assertCurrent(run,version);
-      const recoveryContract=identifyPromptContract(recoveryContext.skill);
+      const recoveryContract=contractFor(recoveryContext.skill);
+      if(!legacyPromptReview){
+        const operational=new Set(['PLANNING_UNAVAILABLE','LOCAL_DURATION_ESTIMATE','SCENE_CAPACITY_CALIBRATED']);
+        run.auditWarnings=(run.auditWarnings||[]).filter(item=>operational.has(item.code));
+        run.wholeSceneIssues=[];
+        for(const segment of run.plan.segments){
+          const draft=run.segmentDrafts[segment.id];
+          if(!draft?.prompt?.content||draft.generationComplete===false)continue;
+          const checked=validateAndRepairGeneratedSegment({output:draft.prompt.content,expectedLabel:`${run.snapshot.sceneLabel}-${segment.index}`,contract:'routing-only'});
+          draft.validated=checked.ok;
+          draft.issues=checked.issues;
+          draft.localRepairs=[];
+        }
+      }
       let recoveredDraft=false;
       for(const segment of run.plan.segments){
         const draft=run.segmentDrafts[segment.id];
@@ -346,7 +361,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       while(!run.checks.audited){
         run.phase='generating';await persist(run);
         const context=await assertCurrent(run,version);
-        const contract=identifyPromptContract(context.skill);
+        const contract=contractFor(context.skill);
         const consumeResponse=async(response,responseIndex)=>{
           const labels=run.plan.segments.map(segment=>`${run.snapshot.sceneLabel}-${segment.index}`);
           const parsed=await stageResponse(run,version,response);
@@ -407,6 +422,10 @@ export function createQuickGenerationController({getContext,executeText,executeS
         if(!finished())throw error(issueMessages(run.wholeSceneIssues)||'整场尚未返回全部提示词，已有内容已展示到右侧','NEEDS_REVIEW');
         run.auditWarnings=quickReviewWarnings({...run,auditWarnings:[]});
         await publishProgress(run,version);
+        if(!legacyPromptReview){
+          run.checks.audited=true;await persist(run);
+          break;
+        }
         run.phase='auditing';await persist(run);
         let auditIssue=null;
         for(const range of auditRanges(run)){

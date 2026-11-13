@@ -40,7 +40,7 @@ function fixture({ records = new Map(), skillOutput = () => fullOutput(), onSave
   const calls = [], snapshots = [], progress = [], commits = [];
   let state={accountId:'account',directorProjects:[project],skills:[skill],apiProfiles:[profile]};
   const saveToStore=(run,partial)=>{if(!commitToStore)return {applied:true};const result=commitQuickSceneRun(state,run,{partial});state=result.state;return result;};
-  const controller = createQuickGenerationController({
+  const controller = createQuickGenerationController({legacyPromptReview:true,
     maxQualityAttempts,
     getContext: () => ({ ...request,project:state.directorProjects[0],episode:state.directorProjects[0].episodes[0], permissions: { canGenerate: true } }),
     checkpoints: {

@@ -211,6 +211,7 @@ export const validateGeneratedSegment = ({ output, expectedLabel, source = '', c
   }
   const body = marker ? [marker.bracket?.[2] || '', ...lines.slice(marker.index + 1)].join('\n').trim() : '';
   if (!body) issues.push(issue('EMPTY_PROMPT_BODY', '编号后没有提示词正文'));
+  if(contract==='routing-only')return {ok:!issues.length,...(!issues.length?{prompt:{label:expectedLabel,content}}:{}),issues};
   if (/^(?:分析|思考|推理|结论|分析过程|思考过程|生成说明|解释)[：:]/m.test(body)) issues.push(issue('ANALYSIS_IN_PROMPT', '模型返回了分析或解释，未按提示词合同完整输出'));
   const fast = contract === 'fast-v8' || contract === 'fast-v8-fraction';
   const checked = fast && body ? checkFastContract(body, source, sharedBaseline, issues, contract === 'fast-v8-fraction') : { baseline: values(body, '光影基调')[0], dialogue: 'semantic-audit' };

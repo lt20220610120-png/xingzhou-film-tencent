@@ -97,7 +97,7 @@ const fail = (state,message) => ({state,applied:false,conflict:message});
 export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const snapshot=run?.snapshot,plan=run?.plan,ids=run?.promptIds;
   const advisory=run?.reviewIsAdvisory===true;
-  const statusFor=segment=>quickReviewWarnings(run,segment.index).length?'warning':partial?'pending':'passed';
+  const statusFor=segment=>quickReviewWarnings(run,segment.index).length?'warning':run.promptReviewMode==='skill'?'saved':partial?'pending':'passed';
   if(!snapshot || !run.id || !run.commitKey || !plan?.id || !Array.isArray(plan.segments) || !plan.segments.length || !Array.isArray(ids)
     || ids.length!==plan.segments.length || ids.some(id=>!id) || new Set(ids).size!==ids.length)return fail(state,'自动生成任务或预分配提示词编号不完整');
   if(state.accountId!==snapshot.accountId)return fail(state,'当前账号已变化，不能提交其他账号的任务');

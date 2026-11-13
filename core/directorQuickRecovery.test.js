@@ -47,7 +47,7 @@ function makeFixture({ textHook, skillHook, saveHook, progressHook, groundedTimi
     commitRun: async run => { commits.push(structuredClone(run)); return { applied: true }; },
     commitProgress: progressHook,
   };
-  return { controller: createQuickGenerationController(deps), deps, calls, commits, saves, records, request, candidate, changeAccount: () => { accountId = 'other'; }, changeSource: value => { currentSource = value; } };
+  return { controller: createQuickGenerationController({...deps,legacyPromptReview:true}), deps, calls, commits, saves, records, request, candidate, changeAccount: () => { accountId = 'other'; }, changeSource: value => { currentSource = value; } };
 }
 
 test('partial whole-scene results are saved before repair fails and resume preserves accepted paid output',async()=>{
@@ -269,7 +269,7 @@ test('prior interrupted planning checkpoint resumes through local recovery and p
  const f=makeFixture({groundedTiming:true,textHook:call=>call.type==='plan'?'{broken':undefined});
  const run=await f.controller.start(f.request);assert.equal(run.phase,'completed');
  const saved={...run,phase:'needs-review',plan:null,segmentDrafts:{},checks:{audited:false,ranges:{}},wholeSceneResponses:[],processedWholeSceneResponseIndex:-1,planQualityFailures:2};
- f.records.set(run.id,saved);const controller=createQuickGenerationController(f.deps);
+ f.records.set(run.id,saved);const controller=createQuickGenerationController({...f.deps,legacyPromptReview:true});
  const resumed=await controller.resume(run.id);assert.equal(resumed.phase,'completed');
  const ids=[...resumed.promptIds];await controller.resume(run.id);assert.deepEqual(controller.get(run.id).promptIds,ids);
 });

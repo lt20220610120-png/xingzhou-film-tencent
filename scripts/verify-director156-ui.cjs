@@ -55,7 +55,7 @@ app.whenReady().then(async()=>{
   const result=await run(`(()=>{const batch=window.__quick.getProjectBatch('fixture-project');
    const scene=window.__quick.getSceneRun('fixture-project','fixture-episode','1-1');
    const cards=[...document.querySelectorAll('.quick-scene-prompts .prompt-card')];
-   return {batch:batch.snapshot,plan:scene.plan.editorialBudget,calls:window.__calls,shown:cards.map(c=>c.querySelector('.prompt-duration')?.innerText),saved:window.__persisted.directorProjects[0].episodes[0].prompts.length};
+   return {batch:batch.snapshot,plan:scene.plan.editorialBudget,calls:window.__calls,shown:cards.map(c=>c.querySelector('.prompt-duration')?.innerText),customRatio:cards.every(c=>c.innerText.includes('分镜01｜比重 hold')),saved:window.__persisted.directorProjects[0].episodes[0].prompts.length};
   })()`);
   assert.equal(result.batch.timingScale,applied.timingScale);
   assert.equal(result.batch.pace,applied.pace);
@@ -63,7 +63,8 @@ app.whenReady().then(async()=>{
   assert.equal(result.plan.totalEstimatedSeconds,applied.totalEstimatedSeconds);
   assert.equal(result.shown.length,3);
   assert.equal(result.saved,3);
-  assert.deepEqual(result.calls,['plan','skill','audit']);
+  assert.equal(result.customRatio,true);
+  assert.deepEqual(result.calls,['plan','skill']);
   await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   fs.writeFileSync(path.join(root,'output','156-director.png'),(await window.webContents.capturePage()).toPNG());
   const report={before,endpoint,adjusted,applied,panel,...result};

@@ -99,7 +99,7 @@ export function DirectorQuickProgress({run,sceneText='',maxDurationSeconds=30,pa
       {onApply&&liveEstimate&&<button className="ghost quick-apply-calibration" disabled={active||applied} onClick={onApply}>{applied?'已应用到全剧':'应用到全剧'}</button>}
       {run&&<div className="quick-run-status" role="status"><span>{descriptions[run.phase]||run.phase}</span>{active?<button onClick={onStop}>停止</button>:['paused','failed','needs-review'].includes(run.phase)&&!stale?<button onClick={onResume}>继续未完成部分</button>:null}</div>}
     </div>
-    {run?.plan&&run.phase!=='completed'&&<p className="quick-progress-note">已生成 {Object.values(run.segmentDrafts||{}).filter(d=>d.prompt?.content).length}/{run.plan.segments.length} 条。生成内容先保存并展示到右侧，再核对并标注提醒。</p>}
+    {run?.plan&&run.phase!=='completed'&&<p className="quick-progress-note">已生成 {Object.values(run.segmentDrafts||{}).filter(d=>d.prompt?.content).length}/{run.plan.segments.length} 条。{run.promptReviewMode==='skill'?'按所选 Skill 生成，已返回内容显示在右侧。':'生成内容先保存并展示到右侧，再核对并标注提醒。'}</p>}
     {run?.retryMessage&&<p role="status" className="quick-progress-note">{run.retryMessage}</p>}
     {!!run?.auditWarnings?.length&&<details className="quick-run-warning"><summary>提示词已展示，有 {run.auditWarnings.length} 项核对提醒</summary>{run.auditWarnings.map((item,i)=><p key={i}>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>)}</details>}
     {(stale||run?.phase==='stale')&&<p className="quick-run-warning">原文或节奏/上限设定已变化，点击“生成”按当前节奏重新划分（上方显示实时预计秒数）。</p>}
