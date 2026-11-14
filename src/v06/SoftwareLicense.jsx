@@ -11,7 +11,7 @@ const readable=e=>String(e?.message||e).replace(/^Error invoking remote method '
 const fmt=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';
 
 export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
- const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedCode,setSavedCode]=useState(''),[showLogin,setShowLogin]=useState(false);
+ const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedCode,setSavedCode]=useState('');
  const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck),cardInput=useRef(null),retryTimer=useRef(null),retryDelay=useRef(5000);
  const apply=next=>{setState(next);if(next.error)setError(readable(next.error));else if(next.allowed||['unchecked','prepared'].includes(next.status))setError('');};
  const scheduleRetry=()=>{if(!mounted.current||retryTimer.current)return;const delay=retryDelay.current;retryDelay.current=Math.min(30000,delay*2);retryTimer.current=setTimeout(()=>{retryTimer.current=null;if(mounted.current)void check();},delay);};
@@ -24,7 +24,6 @@ export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
  const stage=workspaceReady?'workspace':accountReady?'account':'lock';
  useEffect(()=>{if(supported)Promise.resolve(api.appAccessStage?.(stage)).catch(()=>{});},[stage,supported]);
  if(!supported)return children;
- if(showLogin&&!workspaceReady)return <><RegistrationScreen initialMode="login" allowRegistration={false} onClose={()=>setShowLogin(false)} onRegistered={authenticated} onLogin={authenticated}/><SoftwareUpdatePrompt api={api}/></>;
  const entered=code.trim(),pending=entered||savedCode;
  const activate=async event=>{event.preventDefault();if(busy)return;setBusy(true);setError('');try{
   if(!pending){await check();return;}
@@ -47,7 +46,7 @@ export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
      </div>
      {error&&<p className="startup-lock-error" role="alert" id="startup-card-error">{error}</p>}
      <button type="submit" disabled={checking||busy||(!pending&&state.status!=='error')}>{checking?'正在验证…':busy?'正在激活…':<>验证并激活<ArrowRight size={17}/></>}</button>
-    </form><a href="#login" role="button" className="startup-lock-login-link" onClick={event=>{event.preventDefault();setShowLogin(true);}}>已有账号，登录管理员账号</a>
+    </form>
    </section>
   </main>}
   <SoftwareUpdatePrompt api={api}/>

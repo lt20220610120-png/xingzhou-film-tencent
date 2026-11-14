@@ -4,6 +4,8 @@ const path=require('node:path');
 const ACCOUNT_FILES=['cloud-session.json','software-device-key.json','software-license-card.json','software-license-route.json'];
 
 function migrateLegacyAccountState({appData,userData}){
+ const marker=path.join(userData,'account-state-migration.json');
+ if(fs.existsSync(marker))return [];
  const legacy=path.join(appData,'行舟影视');
  if(path.resolve(legacy)===path.resolve(userData)||!fs.existsSync(legacy))return [];
  fs.mkdirSync(userData,{recursive:true});
@@ -16,6 +18,7 @@ function migrateLegacyAccountState({appData,userData}){
   fs.copyFileSync(source,target,fs.constants.COPYFILE_EXCL);
   moved.push(name);
  }
+ fs.writeFileSync(marker,JSON.stringify({version:1,completedAt:new Date().toISOString()}),{flag:'wx',mode:0o600});
  return moved;
 }
 

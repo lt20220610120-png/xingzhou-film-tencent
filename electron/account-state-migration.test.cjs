@@ -14,5 +14,8 @@ test('legacy cloud session and license files migrate once without overwriting ne
   assert.deepEqual(migrateLegacyAccountState({appData,userData}),['software-device-key.json','software-license-card.json','software-license-route.json']);
   assert.equal(fs.readFileSync(path.join(userData,'cloud-session.json'),'utf8'),'new');
   assert.deepEqual(migrateLegacyAccountState({appData,userData}),[]);
+  fs.unlinkSync(path.join(userData,'cloud-session.json'));
+  assert.deepEqual(migrateLegacyAccountState({appData,userData}),[], '注销或失效后不得重新导入旧会话');
+  assert.equal(fs.existsSync(path.join(userData,'cloud-session.json')),false);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
