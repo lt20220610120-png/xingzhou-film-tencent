@@ -61,6 +61,7 @@ test('激活页不再有说明行，主操作只有一个提交按钮', async ()
     assert.ok(html.includes('卡密'), '卡密字段应保留');
     assert.equal((html.match(/type="submit"/g) || []).length, 1, '主操作只应有一个提交按钮');
     assert.ok(/正在验证…|验证并激活/.test(html), '提交按钮应显示主操作');
+    assert.ok(html.includes('已有账号，登录管理员账号'), '激活页应提供已有账号登录入口');
   } finally {
     await server.close();
   }
