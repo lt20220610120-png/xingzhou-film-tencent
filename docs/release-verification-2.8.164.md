@@ -8,4 +8,4 @@
 - 安装包 104121199 字节，SHA256 `df650e5cefa83979fa7724611563b8c933bb4a8ec8cde14ab4d93fd27b6e76c9`。
 - 官网 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.164.exe
 - GitHub https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.164/Xingzhou-Film-Tencent-Setup-2.8.164.exe
-- 本机 D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.164/Xingzhou-Film-Tencent-Setup-2.8.164.exe\\
+- 本机 D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.164/Xingzhou-Film-Tencent-Setup-2.8.164.exe
