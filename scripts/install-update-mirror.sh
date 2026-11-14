@@ -34,3 +34,10 @@ fi
 install -m 644 "$stage/latest.json" "$root/latest.json.upload"
 mv "$root/latest.json.upload" "$root/latest.json"
 echo "UPDATE_MIRROR_VERIFIED version=$version size=$size sha256=$digest"
+
+# Successful installs no longer need the uploaded staging files.
+if ! rm -f -- "$stage/$name" "$stage/latest.json" "$stage/install.sh"; then
+  echo "UPDATE_MIRROR_STAGING_CLEANUP_FAILED $stage" >&2
+elif ! rmdir -- "$stage"; then
+  echo "UPDATE_MIRROR_STAGING_REMAINS $stage" >&2
+fi
