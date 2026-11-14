@@ -1,6 +1,6 @@
 import {bindingHash,bindingProblems,sceneInventoryCards,saveDistribution,entryBindingSignature} from './promptArtBinding.js';
 import {saveBindingVersion,currentPromptVersionId} from './promptBindingVersions.js';
-import {sceneReadyForPromptDistribution} from './promptDistributionService.js';
+import {hasActiveDistributionClaim,sceneReadyForPromptDistribution} from './promptDistributionService.js';
 import {editArtReview,isSceneVerified,reviewSceneSignature} from './artReview.js';
 
 const inScope=(entry,scope)=>scope.sceneIds?scope.sceneIds.includes(entry.sceneId):scope.sceneId?entry.sceneId===scope.sceneId:scope.episode?entry.episode===scope.episode:true;
@@ -21,7 +21,7 @@ export function skipPromptNeed(decision,needId,reason='人工确认：本条无�
   return {...need,visibility:'excluded',locked:true,skipReference:true,reason};
  });
  if(!changed)throw Error('该条目已处理或已关联卡片');
- return {...decision,needs,confirmed:true,origin:'human-skip-reference',issue:''};
+ return {...decision,needs,confirmed:true};
 }
 export function promptReviewState(state,scope={}){
  const {snapshot,decisions,saved,ctx}=state,entries=snapshot.entries.filter(e=>inScope(e,scope)),reviews=saved?.versions?.[snapshot.versionId]?.reviews||{};
@@ -40,7 +40,7 @@ export function promptReviewState(state,scope={}){
    localProblems.push(...bindingProblems(snapshot,entry,decision));
   }
   const attempt=saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id];
-  if(attempt?.status==='running'&&(state.service?.isBusy?.(entry.id)||attempt.startedAt>Date.now()-10*60*1000))localProblems.push('模型正在分发');
+  if(state.service?.isBusy?.(entry.id)||hasActiveDistributionClaim(attempt))localProblems.push('模型正在分发');
   const unique=[...new Set(localProblems)];if(unique.length)problems.push(...unique.map(p=>`${entry.label}：${p}`));entryProblems.set(entry.id,unique);
   if(reviews[entry.id]?.signature===promptHumanReviewSignature(snapshot,entry,decision)){approved++;if(reviews[entry.id].published)published++;}
  }
@@ -57,14 +57,24 @@ export async function resolvePromptMissingReferences({service,targets,versionId}
  const initial=await service.read(versionId),selectedVersion=initial.snapshot.versionId,followedCurrent=selectedVersion===currentPromptVersionId(initial.currentSnapshot,initial.saved);
  return service.mutate(selectedVersion,state=>{
   if(followedCurrent&&currentPromptVersionId(state.currentSnapshot,state.saved)!==selectedVersion)throw Error('提示词来源版本已变化，请重新检查待处理项');
-  const pending=promptReviewState(state,{}).pendingMissing,decisions={...state.decisions};
-  for(const target of targets){
-   const row=pending.find(({entry,need})=>entry.id===target.entryId&&need.id===target.needId);
-   if(!row||target.signature!==promptHumanReviewSignature(state.snapshot,row.entry,state.decisions[row.entry.id]))throw Error('待处理项已变化，请重新检查');
-   if(service.isBusy(row.entry.id)||state.saved?.sceneDistributionAttempts?.[selectedVersion+':'+row.entry.id]?.status==='running')throw Error('所选提示词正在分发，请完成后再确认');
-   decisions[row.entry.id]=skipPromptNeed(decisions[row.entry.id],row.need.id);
+  const pending=new Map(),selected=new Map(),decisions={...state.decisions};
+  for(const {entry,need} of promptReviewState(state,{}).pendingMissing){
+   if(!pending.has(entry.id))pending.set(entry.id,{entry,ids:new Set(),signature:promptHumanReviewSignature(state.snapshot,entry,state.decisions[entry.id])});
+   pending.get(entry.id).ids.add(need.id);
   }
-  for(const id of new Set(targets.map(t=>t.entryId)))decisions[id]=saveDistribution(state.snapshot,state.snapshot.entries.find(e=>e.id===id),decisions[id]);
+  for(const target of targets){
+   const row=pending.get(target.entryId);
+   if(!row?.ids.has(target.needId)||target.signature!==row.signature)throw Error('待处理项已变化，请重新检查');
+   if(!selected.has(target.entryId)){
+    if(service.isBusy(target.entryId)||hasActiveDistributionClaim(state.saved?.sceneDistributionAttempts?.[selectedVersion+':'+target.entryId]))throw Error('所选提示词正在分发，请完成后再确认');
+    selected.set(target.entryId,new Set());
+   }
+   selected.get(target.entryId).add(target.needId);
+  }
+  for(const [id,needs] of selected){
+   for(const needId of needs)decisions[id]=skipPromptNeed(decisions[id],needId);
+   decisions[id]=saveDistribution(state.snapshot,pending.get(id).entry,decisions[id]);
+  }
   return saveBindingVersion(state.saved,state.snapshot,decisions);
  });
 }

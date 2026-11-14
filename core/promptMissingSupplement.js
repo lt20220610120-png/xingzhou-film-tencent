@@ -21,7 +21,7 @@ function requestsFor(rows){
  const map=new Map();
  for(const {entry,need} of rows){
   const key=JSON.stringify([need.category,need.text.normalize('NFKC').trim()]);
-  if(!map.has(key))map.set(key,{id:need.id,category:need.category,text:need.text,prompts:[]});
+  if(!map.has(key))map.set(key,{id:`request:${map.size+1}`,category:need.category,text:need.text,prompts:[]});
   const request=map.get(key);if(!request.prompts.some(p=>p.id===entry.id))request.prompts.push({id:entry.id,label:entry.label,foundationText:readPromptFoundationBlock(entry.prompt)?.text||''});
  }
  return [...map.values()];

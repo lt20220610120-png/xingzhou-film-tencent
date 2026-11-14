@@ -6,7 +6,7 @@ import {assignCardToPrompts,cardPromptIds} from '../../core/scenePromptAssignmen
 import {getPromptDistributionService} from '../../core/promptDistributionService.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
-import {resolvePromptMissingReferences,promptHumanReviewSignature} from '../../core/promptReviewBatch.js';
+import {resolvePromptMissingReferences} from '../../core/promptReviewBatch.js';
 import {supplementPromptMissingReferences} from '../../core/promptMissingSupplement.js';
 
 export const BINDING_SAVED_EVENT='xingzhou-prompt-binding-saved';
@@ -58,16 +58,11 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
    setSaved(data);notifyBindingSaved(project.id,accountId,data);return data;
   }catch(e){setError(e.message);throw e;}finally{resolving.current=false;setBusy(false);}
  };
- const skipMissing=async(entryId,needId,versionId)=>{
-  const selected=await service.read(versionId),entry=selected.snapshot.entries.find(e=>e.id===entryId);
-  if(!entry)throw Error('提示词已变化，请重新打开');
-  return skipMissingBatch([{entryId,needId,signature:promptHumanReviewSignature(selected.snapshot,entry,selected.decisions[entryId])}],selected.snapshot.versionId);
- };
  const supplementMissing=async(targets,versionId,profile)=>{
   if(!canEdit||!loaded||busy||resolving.current)throw Error('正在读取或保存关联，请稍后再试');
   resolving.current=true;setBusy(true);setError('');setSupplementProgress('正在准备补充所选缺项…');
   try{return await supplementPromptMissingReferences({service,store,api,targets,versionId,profile,actor:accountId,onProgress:setSupplementProgress});}
   catch(e){setError(e.message);throw e;}finally{resolving.current=false;setBusy(false);setSupplementProgress('');}
  };
- return {links,assign,skipMissing,skipMissingBatch,supplementMissing,supplementProgress,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,currentSnapshot:current,ctx:{project,ledger,assets}}};
+ return {links,assign,skipMissingBatch,supplementMissing,supplementProgress,busy,error,loaded,service,distributionController,state:{snapshot,decisions,saved,currentSnapshot:current,ctx:{project,ledger,assets}}};
 }

@@ -4,6 +4,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {bindingSnapshot,bindingImages,sceneInventoryCards,currentEntryBinding,saveDistribution,entryBindingSignature,bindingProblems} from '../../core/promptArtBinding.js';
 import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
 import {assignSceneCard} from '../../core/scenePromptDistribution.js';
+import {promptHumanReviewSignature} from '../../core/promptReviewBatch.js';
 import {auditedBindingNeeds} from '../../core/scenePromptAssignments.js';
 import {sceneReadyForPromptDistribution} from '../../core/promptDistributionService.js';
 import useScenePromptDistribution from './useScenePromptDistribution.js';
@@ -32,7 +33,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const auditNeeds=entry?auditedBindingNeeds(snapshot,entry,decisions[entry.id]):[],voiceNeeds=entry?(decisions[entry.id]?.speakers||[]).map(s=>({id:`voice:${s.voiceUid}`,category:'voice',cardUid:s.voiceUid,visibility:'voice',reason:s.evidence||'正常对白自动关联'})):[],displayNeeds=[...auditNeeds,...voiceNeeds];
 
  const sceneReady=sceneReadyForPromptDistribution(project,ledger,sceneId);
- const missing=sceneReady?(auditNeeds.filter(need=>need.visibility==='visible'&&!need.cardUid)):[];
+ const missing=sceneReady&&decisions[entry?.id]?.signature===entryBindingSignature(snapshot,entry)?(auditNeeds.filter(need=>need.visibility==='visible'&&!need.cardUid)):[];
  const stale=entry&&decisions[entry.id]&&decisions[entry.id].signature!==entryBindingSignature(snapshot,entry);
  const attempt=entry&&saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id];
  const latest=useRef();latest.current={snapshot,saved,entry,decision};
@@ -69,7 +70,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
      <div className="prompt-art-source"><h3>提示词原文</h3><pre>{entry.prompt}</pre></div>
      {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
      {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，正在等待补齐素材关联。</p>}
-     {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.(entry.id,need.id,selectedVersion))} title={`${need.text}：确认无需参考图`}>确认无需参考图{missing.length>1?` · ${need.text}`:""}</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
+     {!!missing.length&&<div className="scene-missing-assets"><b>本场清单待补：{missing.map(n=>n.text).join('、')}</b><div className="scene-missing-actions">{missing.map(need=><span key={need.id}><button disabled={disabled} onClick={()=>act(()=>onSkipMissing?.({entryId:entry.id,needId:need.id,signature:promptHumanReviewSignature(snapshot,entry,decisions[entry.id])},selectedVersion))} title={`${need.text}：确认无需参考图`}>确认无需参考图{missing.length>1?` · ${need.text}`:""}</button></span>)}{onBackScene&&<button onClick={onBackScene}>返回场景补充</button>}</div></div>}
      {!taskCurrent&&attempt&&attempt.status!=='done'&&<p className="collab-error">{attempt.status==='failed'?`本条关联失败：${attempt.error||'模型未返回有效结果'}`:'上次关联未完成'}。可点击“重新关联本条”重试。</p>}
      {decision.issue&&<p className="collab-error">{decision.issue}</p>}
     </section>

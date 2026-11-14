@@ -16,6 +16,8 @@ export function sceneReadyForPromptDistribution(project,ledger,sceneId){
  return Boolean(episode&&isReviewCurrent(record,episode)&&record.status!=='empty'&&record.status!=='inventory-pending'&&scene?.mappingReady&&scene.items.length&&scene.items.every(i=>!needsArtReviewDetails(i)||isArtDetailDeferred(record,i)));
 }
 
+export const hasActiveDistributionClaim=attempt=>attempt?.status==='running'&&attempt.startedAt>Date.now()-10*60*1000;
+
 // Media adoption hydrates signatures; only semantic decisions signal a human edit.
 const decisionFingerprint=decision=>{if(!decision)return bindingHash(null);const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
 
@@ -57,7 +59,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
    maintenance.add(sceneId);emit();
    try{
     const state=await read(),ids=state.snapshot.entries.filter(e=>e.sceneId===sceneId).map(e=>e.id);
-    if(ids.some(id=>tasks.has(id))||Object.values(state.saved?.sceneDistributionAttempts||{}).some(a=>a.status==='running'&&a.startedAt>Date.now()-10*60*1000&&ids.some(id=>a.label===state.snapshot.entries.find(e=>e.id===id)?.label)))throw Error('本场正在模型分发，请完成后再补充');
+    if(ids.some(id=>tasks.has(id))||Object.values(state.saved?.sceneDistributionAttempts||{}).some(a=>hasActiveDistributionClaim(a)&&ids.some(id=>a.label===state.snapshot.entries.find(e=>e.id===id)?.label)))throw Error('本场正在模型分发，请完成后再补充');
     return await fn();
    }finally{maintenance.delete(sceneId);emit();}
   },
@@ -114,7 +116,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
       stamp=sceneDistributionStamp(latest.snapshot,currentEntry,sceneSource(latest.ctx,currentEntry.sceneId));
       decisionToken=decisionFingerprint(latest.decisions[entryId]);
       const running=latest.saved?.sceneDistributionAttempts?.[claimKey];
-      if(running?.status==='running'&&running.startedAt>Date.now()-10*60*1000)throw Error('本条正在另一窗口分发，请稍后再试');
+      if(hasActiveDistributionClaim(running))throw Error('本条正在另一窗口分发，请稍后再试');
       return {...saveBindingVersion(latest.saved,latest.snapshot,latest.decisions),sceneDistributionAttempts:{...latest.saved?.sceneDistributionAttempts,[claimKey]:{stamp,status:'running',owner,startedAt:Date.now(),label:entry.label}}};
      });
      // Seed only persisted/manual choices. Heuristic suggestions never become a result.

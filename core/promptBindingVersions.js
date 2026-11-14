@@ -28,6 +28,23 @@ const withEvidence=(snapshot,entry,decision)=>{
  if(!decision||decision.signature!==entryBindingSignature(snapshot,entry)||!decision.confirmed||bindingProblems(snapshot,entry,decision,{voiceEnabled:false}).length)return decision;
  return {...decision,reuseEvidence:{source:associationSource(snapshot,entry,decision),decision:decisionIdentity(decision)}};
 };
+// Older distributors used only the start offset as the missing item's ID.
+// Keep distinct spans selectable and collapse duplicate rows in the live view.
+function normalizeMissingIds(decision){
+ const counts=new Map();
+ for(const need of decision.needs)counts.set(need.id,(counts.get(need.id)||0)+1);
+ const seen=new Set();
+ let changed=false;
+ const needs=decision.needs.flatMap(need=>{
+  if(need.cardUid||need.visibility!=='visible'||counts.get(need.id)<2)return [need];
+  changed=true;
+  const id='missing-span:'+JSON.stringify([need.category,need.start,need.end,need.text]);
+  if(seen.has(id))return [];
+  seen.add(id);
+  return [{...need,id}];
+ });
+ return changed?{...decision,needs}:decision;
+}
 function archive(saved,current){
  const versions={...saved?.versions};
  if(saved?.snapshot?.entries?.length){const id=saved.snapshot.versionId||promptSetId(saved.snapshot);versions[id]={...versions[id],id,label:versions[id]?.label||`版本 ${Object.keys(versions).length+1}`,snapshot:saved.snapshot,decisions:saved.decisions||{},createdAt:versions[id]?.createdAt||saved.updatedAt||new Date().toISOString()};}
@@ -88,7 +105,7 @@ export function selectBindingVersion(current,saved,id){
    return {...need,imageId:bindingImageId(card,need)};
   })};
   // Missing/removed locked images remain errors; never substitute another image.
-  decisions[entry.id]=withEvidence(snapshot,entry,hydrated);
+  decisions[entry.id]=withEvidence(snapshot,entry,normalizeMissingIds(hydrated));
  }
  return {snapshot,decisions,versionId:id};
 }
