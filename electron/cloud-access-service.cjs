@@ -23,6 +23,12 @@ const certificateFailure = error => /^(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|DEP
 const failedBeforeConnection = error => certificateFailure(error) || /^(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT_PIN_MISSING)$/.test(errorCode(error));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const COMPRESS_THRESHOLD = 1024 * 1024;
+const READ_TIMEOUTS = Object.freeze({
+  'project-get': 45000,
+  'director-project-get': 45000,
+  'project-list': 25000,
+  'director-project-list': 25000,
+});
 function gatewayBody(value) {
   const text = JSON.stringify(value);
   if (Buffer.byteLength(text) <= COMPRESS_THRESHOLD) return { body: text, headers: {} };
@@ -140,7 +146,11 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,...(typeof data?.code==='string'?{code:data.code}:{}),transient:[502,503,504].includes(response.status)});
         activeUrl=url;return snapshots.resolve(snapshot,data);
       })();
-      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},options.timeoutMs||(!index&&read?12000:timeoutMs));});
+      const deadline=new Promise((_,reject)=>{
+        const readTimeout=READ_TIMEOUTS[action]||20000;
+        const attemptTimeout=options.timeoutMs||(read?index?timeoutMs:readTimeout:timeoutMs);
+        timer=setTimeout(()=>{controller.abort();reject(Object.assign(new Error('云端响应超时'),{timeout:true}));},attemptTimeout);
+      });
       return await Promise.race([pending,deadline]);
     } catch(error) {
       const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));

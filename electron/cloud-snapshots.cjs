@@ -1,6 +1,9 @@
 const {createHash}=require('node:crypto');
 const ACTIONS=new Set(['project-get','project-list','director-project-get','director-project-list']);
-function createSnapshotCache({maxBytes=16*1024*1024}={}) {
+// Large collaborative projects can contain a complete season of prompts and
+// exceed the old 16 MiB limit. Keeping that snapshot lets later reads use the
+// revision-only response instead of transferring the whole project again.
+function createSnapshotCache({maxBytes=96*1024*1024}={}) {
   const entries=new Map(); let bytes=0;
   return {
     prepare(action,payload,token) {

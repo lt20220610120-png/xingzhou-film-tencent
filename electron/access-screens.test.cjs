@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const read = relative => fs.readFileSync(path.join(__dirname, '..', relative), 'utf8');
 
 const REMOVED_COPY = [
   '输入卡密，激活这台电脑上的软件。',
@@ -61,4 +64,10 @@ test('激活页不再有说明行，主操作只有一个提交按钮', async ()
   } finally {
     await server.close();
   }
+});
+
+test('激活页网络失败后会自动安排重试', async () => {
+  const src = read('src/v06/SoftwareLicense.jsx');
+  assert.match(src, /scheduleRetry/);
+  assert.match(src, /retryDelay/);
 });
