@@ -1,4 +1,8 @@
 const fs=require('node:fs'),path=require('node:path');
+// All configurable video adapters share the desktop proxy/PAC transport. The
+// POST path is still single-attempt; only the durable job refresh path may
+// retry, so a network reset can never silently duplicate a paid generation.
+const {winAIFetch:fetch}=require('./win-ai-api-fetch.cjs');
 const shared=import('../core/videoProviderConfig.js'),capabilities=import('../core/modelCapabilities.js');
 function getValue(obj,paths=''){for(const key of String(paths).split('|')){let v=obj;for(const part of key.split('.').filter(Boolean))v=v?.[part];if(v!==undefined&&v!==null&&v!=='')return v;}}
 function template(value,vars){

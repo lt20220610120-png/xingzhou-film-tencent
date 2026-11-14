@@ -1,5 +1,7 @@
 const {createWinAITransport,ORIGIN}=require('./win-ai-transport.cjs');
-function createWinAIFetch({fallback=(...args)=>globalThis.fetch(...args),transportFactory=createWinAITransport}={}){
+let apiFetch;
+function configureAPIFetch(fetcher){apiFetch=fetcher;}
+function createWinAIFetch({fallback=(...args)=>(apiFetch||globalThis.fetch)(...args),transportFactory=createWinAITransport}={}){
  let transport;
  return async(input,init)=>{const url=new URL(typeof input==='string'||input instanceof URL?input:input.url);if(url.origin!==ORIGIN)return fallback(input,init);
   // Public relay calls use only the supplied API key, never dashboard cookies.
@@ -8,4 +10,4 @@ function createWinAIFetch({fallback=(...args)=>globalThis.fetch(...args),transpo
  };
 }
 const winAIFetch=createWinAIFetch();
-module.exports={createWinAIFetch,winAIFetch};
+module.exports={createWinAIFetch,winAIFetch,configureAPIFetch};

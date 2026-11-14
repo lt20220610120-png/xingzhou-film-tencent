@@ -56,6 +56,13 @@ async function attachRole(row, user, repo) {
   return present(row, mine && mine.role ? mine.role : 'collaborator');
 }
 
+function storyboardReceipt(row,payload) {
+  const episode=(row.episodes||[]).find(value=>value.id===payload.episodeId);
+  const shot=(episode?.storyboardPrompts||episode?.prompts||[]).find(value=>value.id===payload.shotId);
+  if(!shot)return null;
+  return {id:row.id,storyboardReceipt:{episodeId:episode.id,shot,publicationId:shot.storyboardPublicationId||'',separate:Boolean(episode.storyboardPrompts)}};
+}
+
 async function handleAction(action, payload, user, repo, signer = null, imagePreview = null) {
   if (!user) return { status: 401, body: { error: '请先登录账号' } };
   const projectId = payload.projectId || payload.id;
@@ -123,6 +130,11 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
       ...row, episodeCount: (episodes || []).length,
     })) : projects);
   }
+  if (action === 'project-get' && payload.shotReceipt===true) {
+    const row=await repo.getProject(projectId,user.id);
+    const receipt=row&&storyboardReceipt(row,payload);
+    return receipt?ok(receipt):NOT_FOUND;
+  }
   if (action === 'project-get') {
     try {const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
@@ -161,7 +173,15 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     if(await repo.isProjectLocked(projectId))return LOCKED;
     const role=await roleOf(projectId,user,repo);
     if(!(payload.operation==='publish'?['producer','artist','artist_collaborator']:['producer','collaborator','artist_collaborator']).includes(role))return DENY;
-    try{const saved=await repo.patchStoryboard(projectId,payload,user.id);return saved?ok(await attachRole(saved,user,repo)):DENY;}
+    try{
+      const saved=await repo.patchStoryboard(projectId,payload,user.id);
+      if(!saved)return DENY;
+      if(payload.ackOnly===true&&!payload.operation){
+        const receipt=storyboardReceipt(saved,payload);
+        return receipt?ok(receipt):NOT_FOUND;
+      }
+      return ok(await attachRole(saved,user,repo));
+    }
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
   }
   if (action === 'project-update') {

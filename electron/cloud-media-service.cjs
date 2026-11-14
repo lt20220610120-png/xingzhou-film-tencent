@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { gateway } = require('./cloud-access-service.cjs');
+const { winAIFetch: fetch } = require('./win-ai-api-fetch.cjs');
 
 const MIME_BY_EXT = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',

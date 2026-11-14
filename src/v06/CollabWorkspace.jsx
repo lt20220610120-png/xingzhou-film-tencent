@@ -1,3 +1,4 @@
+import {mergeStoryboardSaveReceipt} from '../../core/storyboardSaveReceipt.js';
 import {adoptedAssetImage} from '../../core/adoptedAssetImage.js';
 import {projectVoiceCards} from '../../core/characterVoices.js';
 import ProjectVoices from './ProjectVoices.jsx';
@@ -1512,7 +1513,7 @@ export function CollabWorkspace({ state, api, account }) {
   const refreshRequestRef = useRef(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const refreshInFlight=useRef(null);
-  const applyProject=useCallback(saved=>{if(!saved?.id)return;refreshRequestRef.current+=1;setProject(current=>current?.id===saved.id?saved:current);writeCache(`project-${saved.id}`,saved);},[]);
+  const applyProject=useCallback(saved=>{if(!saved?.id)return;refreshRequestRef.current+=1;setProject(current=>{if(current?.id!==saved.id)return current;const next=mergeStoryboardSaveReceipt(current,saved);writeCache(`project-${saved.id}`,next);return next;});},[]);
   const [refreshNotice, setRefreshNotice] = useState('');
 
   const loadProjects = useCallback(async (options = {}) => {

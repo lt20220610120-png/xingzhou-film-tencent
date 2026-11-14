@@ -85,6 +85,14 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
  function seal(s){if(s.leases)return;const plain=path.join(s.dir,'credentials.json');if(!fs.existsSync(plain))return;canEncrypt();const bytes=safeStorage.encryptString(fs.readFileSync(plain,'utf8'));fs.writeFileSync(path.join(s.dir,'credentials.enc.tmp'),bytes,{mode:0o600});fs.renameSync(path.join(s.dir,'credentials.enc.tmp'),path.join(s.dir,'credentials.enc'));fs.unlinkSync(plain);}
  const accountRoot=path.join(root,'accounts');if(fs.existsSync(accountRoot)&&safeStorage?.isEncryptionAvailable())for(const entry of fs.readdirSync(accountRoot,{withFileTypes:true}))if(entry.isDirectory()&&!entry.isSymbolicLink()&&/^[a-f0-9]{32}$/.test(entry.name)){const s={key:entry.name,dir:path.join(accountRoot,entry.name),leases:0,runs:0,login:null,pendingLogin:false};sessions.set(entry.name,s);seal(s);}
  async function command(id,args,options={}){
+  const readOnly=args[0]==='model'||args[0]==='account'&&['info','list'].includes(args[1])||args[0]==='node'&&args.length===4&&args[2]==='-p';
+  try{return await commandOnce(id,args,options);}
+  catch(error){
+   if(!readOnly||error.code!=='LIBTV_NETWORK'||options.signal?.aborted)throw error;
+   return commandOnce(id,args,options);
+  }
+ }
+ async function commandOnce(id,args,options={}){
   const s=session(id),expected=epoch,exe=await binary();if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本机连接已停止，请重新操作');unseal(s);s.leases++;
   const cwd=path.join(s.dir,'work');fs.mkdirSync(cwd,{recursive:true});
   try{if(!runCLI&&!transport)transport=require('./libtv-network.cjs').createLibTVNetwork();const networkEnv=transport?(await transport.environment()).env:{};if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本机连接已停止，未提交命令');const result=await (runCLI?runCLI(args,{...options,configDir:s.dir,cwd}):spawnCLI(exe,args,{...options,configDir:s.dir,cwd,children,networkEnv}));if(expected!==epoch||options.signal?.aborted)throw Error('LibTV 本地等待已停止，请查询原画布，不要重复生成');return args[0]==='download'?{ok:true}:parseCLIJSON(result);}

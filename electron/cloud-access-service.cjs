@@ -4,6 +4,8 @@ const https = require('node:https');
 const { gunzipSync, inflateSync, brotliDecompressSync, gzipSync } = require('node:zlib');
 const { EDGE_FUNCTION_URL, gatewayUrls, IP_TLS_CA_FILE, IP_TLS_CERT_FINGERPRINT } = require('./cloud-config.public.cjs');
 
+let cloudFetch;
+function configureCloudFetch(fetcher){cloudFetch=fetcher;}
 const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
 
 // 端点自动回退：域名被备案拦截时自动切到服务器 IP。
@@ -14,12 +16,12 @@ const orderedUrls = () => activeUrl ? [activeUrl, ...CANDIDATES.filter((u) => u 
 const isNetworkFailure = (error) => {
   const code = String(error?.cause?.code || error?.code || '');
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
-    || /fetch failed|network|socket hang up/i.test(String(error?.message || ''));
+    || /net::ERR_|fetch failed|network|socket hang up/i.test(String(error?.message || ''));
 };
 const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url','project-local-state'].includes(action);
 const licensePreflightActions = new Set(['license-route','license-check','license-challenge']);
 const errorCode = error => String(error?.cause?.code || error?.code || '');
-const certificateFailure = error => /^(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT_LOCALLY|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(errorCode(error));
+const certificateFailure = error => /net::ERR_CERT_/.test(String(error?.message||'')) || /^(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT_LOCALLY|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(errorCode(error));
 const failedBeforeConnection = error => certificateFailure(error) || /^(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|CERT_PIN_MISSING)$/.test(errorCode(error));
 const isPinnedIpUrl = (url) => /^https:\/\/106\.55\.41\.128(?:\/|$)/i.test(String(url));
 const COMPRESS_THRESHOLD = 1024 * 1024;
@@ -100,7 +102,7 @@ function requestPinnedHttps(url, init = {}) {
 }
 async function requestGateway(url, init, {read}) {
   try {
-    return await fetch(url, init);
+    return await (cloudFetch||globalThis.fetch)(url, init);
   } catch (error) {
     if (isPinnedIpUrl(url) && (certificateFailure(error) || read && isNetworkFailure(error))) {
       return requestPinnedHttps(url, init);
@@ -218,4 +220,4 @@ function createCloudAccessService(userDataDir, options = {}) {
     token, readSession, readAccount: () => readSession()?.account || null,
   };
 }
-module.exports = { createCloudAccessService, gateway, setLicenseDecorator };
+module.exports = { createCloudAccessService, gateway, setLicenseDecorator, configureCloudFetch };

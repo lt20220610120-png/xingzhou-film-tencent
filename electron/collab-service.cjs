@@ -20,7 +20,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const put = await fetch(signed.url, {
+      const put = await require('./win-ai-api-fetch.cjs').winAIFetch(signed.url, {
         method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
         body, signal: AbortSignal.timeout(120000),
       });
@@ -34,7 +34,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
-function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, fetchFn=fetch} = {}) {
+function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, fetchFn=require('./win-ai-api-fetch.cjs').winAIFetch} = {}) {
   const session = () => getSession() || {};
   const account = () => { const a = session().account || session(); if (!a?.id) throw new Error('请先登录账号'); return a; };
   const call = (action, payload = {}) => callGateway(action, payload, session().token || '');
@@ -68,7 +68,24 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     publishArtReview:p=>reviewCall('art-review-publish',p),
     appendEpisode:p=>call('art-episode-append',p),
     resolveEpisodeIdentity:p=>call('episode-identity-resolve',p),
-    patchStoryboard: p => call('storyboard-patch',p),
+    async patchStoryboard(p) {
+      const expectedToken=session().token||'';
+      const expectedAccount=String(session().account?.id||session().id||'');
+      const sameSession=()=>String(session().token||'')===String(expectedToken)&&String(session().account?.id||session().id||'')===expectedAccount;
+      try {
+        const result=await call('storyboard-patch',p);
+        if(!sameSession())throw Error('账号已变化，保存回执已保留，请回到原账号继续');
+        return result;
+      }
+      catch(error) {
+        if(!sameSession()||!p.ackOnly||p.operation||!/未确认本次保存/.test(error.message))throw error;
+        const saved=await call('project-get',{projectId:p.projectId,episodeId:p.episodeId,shotId:p.shotId,shotReceipt:true}).catch(()=>null);
+        if(!sameSession())throw Error('账号已变化，保存回执已保留，请回到原账号继续');
+        const shot=saved?.storyboardReceipt?.shot;
+        if(shot&&(shot.storyboardPublicationId||'')===(p.storyboardPublicationId||'')&&Object.entries(p.updates||{}).every(([key,value])=>require('node:util').isDeepStrictEqual(shot[key],value)))return saved;
+        throw error;
+      }
+    },
     localProjectState: p => call('project-local-state',p),
     prepareLocalShare: p => call('project-local-share-prepare',p),
     commitLocalShare: p => call('project-local-share',p),

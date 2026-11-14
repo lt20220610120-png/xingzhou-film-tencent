@@ -1,3 +1,4 @@
+const {winAIFetch:fetch}=require('./win-ai-api-fetch.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { readMediaBytes } = require('./media-network.cjs');

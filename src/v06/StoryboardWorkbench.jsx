@@ -71,10 +71,10 @@ function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdi
   if(!canEdit)return;setSaving(true);setError('');
   const savingDraft=current.current;
   try{const {content,generationConfig}=storyboardSaveUpdates(savingDraft.value);
-   const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,...(!episode.storyboardPrompts?{promptEditionId:episode.promptEditionId||'legacy'}:{}),editPolicy:'direct',storyboardPublicationId:shot.storyboardPublicationId,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
+   const saved=await api.collabPatchStoryboard({ackOnly:true,projectId:project.id,episodeId:episode.id,...(!episode.storyboardPrompts?{promptEditionId:episode.promptEditionId||'legacy'}:{}),editPolicy:'direct',storyboardPublicationId:shot.storyboardPublicationId,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
    onProjectChange(saved);
    // Do not clear edits typed while the request was in flight.
-   const acknowledged=(saved.episodes||[]).flatMap(storyboardShots).find(p=>p.id===shot.id),savedBase=acknowledged?{content:acknowledged.content,generationConfig:acknowledged.generationConfig}:{content,generationConfig};
+   const acknowledged=saved.storyboardReceipt?.shot||(saved.episodes||[]).flatMap(storyboardShots).find(p=>p.id===shot.id),savedBase=acknowledged?{content:acknowledged.content,generationConfig:acknowledged.generationConfig}:{content,generationConfig};
    if(current.current===savingDraft){const next={...savingDraft,base:savedBase,dirty:false};current.current=next;setDraft(next);queueDraft(storageKey,null);}
    else if(current.current.base===savingDraft.base){const next={...current.current,base:savedBase,dirty:true};current.current=next;setDraft(next);queueDraft(storageKey,next);}
    return true;
