@@ -9,4 +9,3 @@
 - 官网 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.164.exe
 - GitHub https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.164/Xingzhou-Film-Tencent-Setup-2.8.164.exe
 - 本机 D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.164/Xingzhou-Film-Tencent-Setup-2.8.164.exe\\
-
