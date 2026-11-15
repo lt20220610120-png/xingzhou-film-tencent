@@ -2,6 +2,7 @@ import {parseArtAnalysis,parseAssetName,readAssetPrompt,characterAppearanceIssue
 import {validateEpisodeVoices,VOICE_READING_RULE} from './characterVoices.js';
 import {parseDirectorScenesReadonly} from './scriptImport.js';
 import {episodeNumbersInText} from './collabEpisodes.js';
+import {reuseCharacterCostumes} from './characterCostumeReuse.js';
 
 export const ART_REVIEW_SCHEMA=1;
 export const ART_REVIEW_MAP_MARKER='【逐场资产对应表】';
@@ -64,11 +65,17 @@ function inventoryItems(inventory,number,available=[]){
 }
 export function decodeArtReviewOutput(raw,number,available=[]){
  const text=String(raw||''),offset=text.indexOf(ART_REVIEW_MAP_MARKER),inventory=(offset<0?text:text.slice(0,offset)).trim();
- const items=inventoryItems(inventory,number,available),warnings=[];let mapping=[];
+ const collapsed=reuseCharacterCostumes(inventoryItems(inventory,number,available),{available});
+ const items=collapsed.assets,warnings=[];let mapping=[];
  if(offset>=0){
   const tail=text.slice(offset+ART_REVIEW_MAP_MARKER.length).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,'').trim();
   try{const data=JSON.parse(tail);mapping=Array.isArray(data)?data:data.scenes;if(!Array.isArray(mapping))mapping=[];}catch{warnings.push('逐场对应表尚未完整返回，已保存清单；继续分析可单独补齐对应表。');}
  }else warnings.push('已保存美术清单，尚需补齐逐场对应表。');
+ mapping=mapping.map(row=>row&&typeof row==='object'&&Array.isArray(row.assets)?{...row,assets:row.assets.map(ref=>{
+  const name=typeof ref==='string'?ref:ref?.category==='character'?ref.name:null;
+  const target=name&&collapsed.aliases.get(canonicalReviewName(name));
+  return target?(typeof ref==='string'?target:{...ref,name:target}):ref;
+ })}:row);
  const detected=episodeNumbersInText(text);
  const crossEpisode=detected.some(n=>n!==Number(number))||artMappingHasOtherEpisode(mapping,number);
  const complete=!crossEpisode&&detected.length===1&&detected[0]===Number(number)&&['人物','场景','道具'].every(cat=>new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?${cat}[：:]\\s*(?:\\n|$)`).test(inventory))&&parseArtAnalysis(inventory).episodes.some(e=>e.episode===number);

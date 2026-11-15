@@ -81,7 +81,14 @@ export function buildSavedArtPublication({ledger, episode, existingAssets = [], 
   // The canonical output and submitted subset agree, while raw outputs/history
   // remain untouched on disk. Unsupported references are warnings, not data loss.
   const allowed = new Set(assets.map(assetKey));
-  const output = serialize([...outputRows.values()].filter(row=>allowed.has(assetKey(row))));
-  const canonicalAssets = buildAssetRows(parseArtAnalysis(output));
+  // Same-outfit state aliases must also be rewritten in the canonical list;
+  // otherwise the asset is merged but its episode disappears from publication.
+  const canonical = [...outputRows.values()].filter(row=>allowed.has(assetKey(row)));
+  for(const asset of assets)if(!canonical.some(row=>assetKey(row)===assetKey(asset))){
+    const first=Number(asset.first_episode)||number;
+    canonical.push({...asset,reuseOf:first<number?first:0});
+  }
+  const output = serialize(canonical);
+  const canonicalAssets = buildAssetRows(parseArtAnalysis(output), existingAssets);
   return {output,assets:canonicalAssets,warnings:[...new Set(warnings)]};
 }

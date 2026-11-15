@@ -37,13 +37,13 @@ test('v5 bundle matches the complete portable source and an available desktop de
   assert.ok(fs.existsSync(bundlePath), 'missing core/artAssetSkillV5.json');
   const bundle = readBundle();
   assert.equal(bundle.version, 5);
-  assert.equal(bundle.revision, '5.0.0');
+  assert.equal(bundle.revision, '5.1.0');
   assert.deepEqual(Object.keys(bundle.files).sort(), expectedFiles);
   for (const name of expectedFiles) {
     const source = path.join(builtinRoot, ...name.split('/'));
     assert.ok(fs.existsSync(source), `missing bundled source ${name}`);
     assert.equal(normalize(bundle.files[name]), normalize(fs.readFileSync(source, 'utf8')), `${name} differs from bundle`);
-    if (fs.existsSync(desktopRoot)) {
+    if (fs.existsSync(path.join(desktopRoot, 'SKILL.md')) && /version: 5\.1\.0/.test(fs.readFileSync(path.join(desktopRoot, 'SKILL.md'), 'utf8'))) {
       const delivered = path.join(desktopRoot, ...name.split('/'));
       assert.ok(fs.existsSync(delivered), `missing desktop source ${name}`);
       assert.equal(normalize(bundle.files[name]), normalize(fs.readFileSync(delivered, 'utf8')), `${name} differs from desktop delivery`);
@@ -51,17 +51,20 @@ test('v5 bundle matches the complete portable source and an available desktop de
   }
   const root = bundle.files['SKILL.md'];
   assert.match(root, /^---\nname: art-asset-list-v5\n/);
-  assert.match(root, /\n  version: 5\.0\.0\n/);
+  assert.match(root, /\n  version: 5\.1\.0\n/);
 });
 
 test('v5 has one non-contradictory asset contract for people, costumes, scenes, audit, and incremental runs', () => {
   const text = allText(readBundle());
+  assert.match(text, /10不是硬上限/);
+  assert.match(text, /日常西装·药后惊醒态/);
+  assert.match(text, /逐场对应表也引用原ID/);
   assert.match(text, /人物资产只收录[^\n]*实际出镜/);
   assert.match(text, /仅声音[^\n]*手机[^\n]*仅提及[^\n]*审计/);
   assert.match(text, /拟人非人角色[^\n]*实际可见/);
   assert.match(text, /第二套及以后[^\n]*参考【[^】]+】[^\n]*只写[^\n]*差异/);
   assert.match(text, /不得重复[^\n]*脸型[^\n]*五官[^\n]*身材[^\n]*肤质/);
-  assert.match(text, /轻微[^\n]*(受伤|污损)[^\n]*不[^\n]*独立/);
+  assert.match(text, /轻微污损[^\n]*不[^\n]*单独/);
   assert.match(text, /不因[^\n]*(换场|场次)[^\n]*换装/);
   assert.match(text, /场景[^\n]*只[^\n]*场次头/);
   assert.match(text, /同一地点[^\n]*时间[^\n]*参考【[^】]+】[^\n]*只改变[^\n]*光线/);

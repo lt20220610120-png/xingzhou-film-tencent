@@ -113,7 +113,7 @@ export function validateArtOutput(output,episodeNumber,sourceContent='',existing
   if(!/人物[：:]/.test(output)||!/场景[：:]/.test(output)||!/道具[：:]/.test(output))throw new Error('本段未返回完整的人物、场景、道具清单，已保留原始输出');
   const checkedScenes=filterSceneAssetRows((episode.scene||[]).map(entry=>({...entry,category:'scene',episodes:[episodeNumber],first_episode:entry.reuseOf||episodeNumber})),{sourceContent,episodeNumber,existingAssets});
   const allowedSceneNames=new Set(checkedScenes.map(row=>row.name));
-  const rows=buildAssetRows({episodes:[{...episode,scene:(episode.scene||[]).filter(entry=>allowedSceneNames.has(entry.name))}]});
+  const rows=buildAssetRows({episodes:[{...episode,scene:(episode.scene||[]).filter(entry=>allowedSceneNames.has(entry.name))}]},existingAssets);
   rows.validationWarnings=checkedScenes.validationWarnings;return rows;
 }
 

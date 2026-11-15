@@ -445,7 +445,7 @@ test('编辑后的 description 使旧 generationDescription projection 失效并
   assert.match(manualPrompt, /用户完整手写：红外套与特定构图/);
 });
 
-test('无依据自动换装和仅轻微擦伤不膨胀，已有图与手动自定义仍保留', () => {
+test('无依据自动换装不膨胀，可见身体差异及已有图与手动自定义仍保留', () => {
   const parsed = parseArtAnalysis(`### 第1集
 人物：
 - 【林夏-基准造型】（实际出镜，首次）脸型与五官：鹅蛋脸；服装：白衬衫。
@@ -463,10 +463,10 @@ test('无依据自动换装和仅轻微擦伤不膨胀，已有图与手动自�
 道具：
 - 无（本集未识别到该类资产）`);
   assert.deepEqual(buildAssetRows(parsed).filter((row) => row.category === 'character').map((row) => row.name), [
-    '【林夏-基准造型】', '【路人甲-基准造型】',
+    '【林夏-基准造型】', '【路人甲-基准造型】', '【路人甲-轻微擦伤】',
   ]);
   const incrementalMinor = parseArtAnalysis(`### 第3集\n人物：\n- 【路人甲-轻微擦伤】（实际出镜，首次）状态差异：脸颊一处轻微擦伤。\n场景：\n- 无（本集未识别到该类资产）\n道具：\n- 无（本集未识别到该类资产）`);
-  assert.deepEqual(buildAssetRows(incrementalMinor), []);
+  assert.deepEqual(buildAssetRows(incrementalMinor).map(row => row.name), ['【路人甲-轻微擦伤】']);
 
   const existing = [
     { id: 'base', category: 'character', name: '【路人甲-基准造型】', first_episode: 1, description: '脸型与五官：方脸；服装：灰夹克。' },
@@ -474,7 +474,7 @@ test('无依据自动换装和仅轻微擦伤不膨胀，已有图与手动自�
     { id: 'drop-empty', category: 'character', name: '【路人甲-轻微红肿】', first_episode: 3, description: '状态差异：额角轻微红肿。', images: [] },
     { id: 'manual', category: 'character', name: '【路人甲-用户状态】', first_episode: 4, description: serializeAssetPrompt({ mode: 'single', prefix: '用户自定义。', content: '状态差异：轻微擦伤但用户明确保留。' }) },
   ];
-  assert.deepEqual(normalizeArtAssets(existing).map((asset) => asset.id), ['base', 'keep-image', 'manual']);
+  assert.deepEqual(normalizeArtAssets(existing).map((asset) => asset.id), ['base', 'keep-image', 'drop-empty', 'manual']);
 });
 
 test('真实旧清单的简短手机描述也迁到道具，不依赖模型给它添人物五官',()=>{
@@ -486,9 +486,9 @@ test('真实旧清单的简短手机描述也迁到道具，不依赖模型给�
  assert.deepEqual(asset,original);
 });
 
-test('否定的严重伤情词不能让过场小角色轻擦伤膨胀为新造型',()=>{
+test('没有严重伤情不代表可见擦伤消失，保留身体差异',()=>{
  const rows=buildAssetRows(parseArtAnalysis(`### 第1集\n人物：\n- 【店员-制服】（实际出镜，首次）脸型：圆脸；发型：黑发；服装：蓝色制服。\n- 【店员-轻微擦伤】（换装；参考【店员-制服】）状态差异：手掌轻微擦伤。无明显伤口、无血污、未湿透。\n场景：\n- 无（本集未出现）\n道具：\n- 无（本集未出现）`));
- assert.deepEqual(rows.map(row=>row.name),['【店员-制服】']);
+ assert.deepEqual(rows.map(row=>row.name),['【店员-制服】','【店员-轻微擦伤】']);
 });
 
 test('白日与日属于同一场景光线变化，不成为两个物理地点',()=>{

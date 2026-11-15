@@ -1,4 +1,5 @@
 import {isCreatureAsset,creaturePromptPrefix} from './artSubjectType.js';
+import {reuseCharacterCostumes} from './characterCostumeReuse.js';
 // ============================================================
 // collabStore.js — 项目协作领域逻辑（纯函数）
 // 身份权限 / 美术清单解析 / 资产复用识别
@@ -389,16 +390,11 @@ const characterVariantDifference = (description) => {
     : text;
 };
 const UNSUPPORTED_AUTOMATIC_VARIANT = /(?:无(?:剧本|原文|明确)依据|剧本未提及|原文未提及)[^。；;\n]*(?:换装|服装|造型)|(?:自动|自行|额外)(?:设计|补充|生成)[^。；;\n]*(?:换装|服装|造型)/;
-const MINOR_STATE_VARIANT = /轻微(?:擦伤|受伤|红肿|淤青|划伤|血痕)|小(?:擦伤|伤口)|浅表(?:擦伤|划痕)/;
-const SIGNIFICANT_STATE_VARIANT = /绷带|包扎|骨折|脱臼|严重|大量出血|明显伤口|血污|泥污|湿透|撕裂|烧伤/;
 const inflatedCharacterVariant = (asset) => {
   const description = String(asset.description || '');
   const text = `${asset.name || ''} ${description}`;
-  const minorOnlyState = MINOR_STATE_VARIANT.test(parseAssetName(asset.name).variant)
-    || (/状态差异[：:]/.test(description) && MINOR_STATE_VARIANT.test(description));
-  const positiveStateText = text.replace(/(?:无|没有|未|不见)(?:明显)?(?:伤口|血污|泥污|湿透|撕裂|烧伤|大量出血)/g, '');
-  return UNSUPPORTED_AUTOMATIC_VARIANT.test(text)
-    || (minorOnlyState && !SIGNIFICANT_STATE_VARIANT.test(positiveStateText));
+  // Severity alone cannot disprove a script-required visible bodily change.
+  return UNSUPPORTED_AUTOMATIC_VARIANT.test(text);
 };
 const hasAssetImage = (asset) => Boolean(asset.image_url || asset.images?.some((image) => image.url));
 const humanVisualEvidence = (description) => {
@@ -583,7 +579,7 @@ export const parseArtAnalysis = (text) => {
 };
 
 // 解析结果 → 云端资产行（同名合并、集数聚合、首次描述保留）
-export const buildAssetRows = (parsed) => {
+export const buildAssetRows = (parsed, existingAssets = []) => {
   const map = new Map();
   for (const ep of parsed.episodes || []) {
     for (const cat of ['character', 'scene', 'prop']) {
@@ -607,7 +603,7 @@ export const buildAssetRows = (parsed) => {
       }
     }
   }
-  const rows = [...map.values()].filter((row) => row.category !== 'character' || !inflatedCharacterVariant(row));
+  const rows = reuseCharacterCostumes([...map.values()].filter((row) => row.category !== 'character' || !inflatedCharacterVariant(row)), { available: existingAssets }).assets;
   const seenScenePlaces = new Set();
   return rows.map((row) => {
     const episodes = row.episodes.sort((a, b) => a - b);
