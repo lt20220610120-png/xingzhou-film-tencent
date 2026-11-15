@@ -18,4 +18,18 @@ GenerationResults新增上传到云端，主进程从当前账号的已完成任
 - 实际GenerationResults双宽1280/1920：窗口直接播放本地HTTP测试视频，预览0次上传、点击上传1次、下载0次，成功刷新1次；生成和上传接口为模拟。
 - 初次全量因原cloud-backend/node_modules指向外层且缺yjs ESM文件失败；替换成本工作区物理安装依赖后，补齐Windows sharp运行文件。未修改依赖声明或升级版本。失败轮不作为通过证据。
 
-最终全量、正式安装包与发布数据待核验后补充。纯客户端，无生产云业务/schema部署，无真实项目内容改写。
+最终全量3115/3115，0失败；Vite构建通过（既有大chunk提示）。正式NSIS运行PASS，qa/packaged-smoke-2.8.170-1794751600638。6份关键ASAR模块与源码逐字节一致。纯客户端，无生产云业务/schema部署，无真实项目内容改写。
+
+## 发布与交接
+
+- 实现0ffff07已推送codex/character-voice-workflow；Release446105210，上传workflow43722729981成功。
+- 安装包104142968字节；SHA256 `cbca4c2e959270409b9194282b11fefa97039a79398a7694c359bc7d70bc98ca`。
+- 本机、官网服务器完整SHA256与GitHub资产digest一致；三份公开更新清单内容一致且Ed25519验签通过。官网Range206首64KiB与本机一致；客户端固定证书IP源可读170。
+- 实际隔离更新弹窗154→170续传最后64KiB、整包校验和安装回调通过；安装为测试替身，未安装或重启用户客户端。
+- 官网 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.170.exe
+- 本机 D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.170/Xingzhou-Film-Tencent-Setup-2.8.170.exe
+- 恢复截图中的图片时点击继续保存图片，沿用原图和原任务；本轮没有实际重试写入用户工程，不声称已将那一张上传成功。
+- 外部视频链接的有效期由服务商决定，长期保留可下载本地或明确上传协作副本；预览仍需读取媒体字节，但不会自动保存到项目云存储。
+- 通用传输今后改动必须保留scripts/verify-desktop-upload.cjs的真实Electron测试；普通fetch模拟无法复现Chromium framing限制。
+
+证据：output/170-tests-pass.log、170-build.log、170-upload-runtime.json、170-sharing-tests.log、170-ui.json、170-ui-1280.png、170-ui-1920.png、170-package.log、170-artifact.json、170-stage.log、170-publish-final.log、170-public.json、170-update-ui.json。
