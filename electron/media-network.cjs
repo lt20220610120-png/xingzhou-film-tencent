@@ -15,7 +15,7 @@ async function mediaErrorDetails(response){
 
 function isMediaNetworkError(error) {
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|ABORT_ERR/.test(String(error?.cause?.code || error?.code || ''))
-    || /fetch failed|network|socket hang up|terminated|aborted/i.test(String(error?.message || ''))
+    || /net::ERR_|fetch failed|network|socket hang up|terminated|aborted/i.test(String(error?.message || ''))
     || ['TimeoutError', 'AbortError'].includes(error?.name);
 }
 

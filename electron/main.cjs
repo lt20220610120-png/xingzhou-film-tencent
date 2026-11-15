@@ -28,7 +28,7 @@ const { createGeminiQuitHandler } = require('./gemini-shutdown.cjs');
 const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
 const { readMediaBytes, configureMediaCache, configureMediaFetch } = require('./media-network.cjs');
 configureMediaFetch(require('./media-read-transport.cjs').createMediaReadFetch(net));
-const desktopAPIFetch=(url,options={})=>net.fetch(url,{...options,credentials:'omit'});
+const desktopAPIFetch=require('./desktop-api-transport.cjs').createDesktopAPIFetch(net);
 require('./win-ai-api-fetch.cjs').configureAPIFetch(desktopAPIFetch);
 require('./cloud-access-service.cjs').configureCloudFetch(desktopAPIFetch);
 const { createCosImageCache } = require('./cos-image-cache.cjs');
