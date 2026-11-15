@@ -21,6 +21,17 @@
 
 ## 发布
 
-待本轮最终安装包与公开更新入口核验完成后补充。
+- 实现15b023b已推送到codex/character-voice-workflow。
+- 最终NSIS实际运行PASS：qa/packaged-smoke-2.8.169-1794736677787；6份关键ASAR模块与源码逐字节一致，包含新规则和内置Skill。
+- 安装包104126999字节；SHA256 `8608abc6ea0d47f0ceeb0a7a8be1ef2fc276809ddc301fcc1959faee23fb750f`。
+- GitHub Release 445957862；上传工作流43701992270成功，资产uploaded/digest匹配。
+- 本机直传大文件未完成后停止该上传，使用既有blockmap增量流程（4376725字节），本地/官网服务器/GitHub均还原并校验同一完整安装包。没有重新构建另一个发布包。
+- 三份公开latest.json内容与Ed25519签名一致；官网Range 206首64KiB与本地相同，服务器完整SHA256一致；客户端固定证书IP源返回169。
+- 隔离真实更新弹窗2.8.154→2.8.169：只检测一次、实际续传最后64KiB、整包校验、安装回调通过。安装回调为测试替身，未替用户安装或重启正式客户端。
+- 官网 https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.169.exe
+- GitHub https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.169/Xingzhou-Film-Tencent-Setup-2.8.169.exe
+- 本机 D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.169/Xingzhou-Film-Tencent-Setup-2.8.169.exe
 
 运行证据：output/169-final-tests.log、169-final-build.log、169-ui.json、169-ui-1280.png、169-ui-1920.png、169-final-package.log。纯客户端更新，无云端业务或数据库部署，无真实项目写入，无收费生成。
+
+发布证据：output/169-artifact.json、169-stage.log、169-workflow-run.log、169-publish-final.log、169-public.json、169-update-ui.json。
