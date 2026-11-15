@@ -367,27 +367,28 @@ const positiveAnthropomorphicCharacter = (value) => /拟人(?:化)?角色|具有
 const HUMAN_DESCRIPTION = /脸型|五官|眉眼|鼻型|鼻梁|唇形|发型|发色|身材|体态|肤色|肤质|服装|妆造|人物参考图/g;
 const HUMAN_FIELD = /(?:脸型(?:与)?五官|脸型|五官|眉眼|鼻型|鼻梁|唇形|发型(?:发色)?|发色|身材(?:比例|体态)?|体态|肤色(?:肤质)?|肤质|服装(?:与鞋履)?|穿着|妆造(?:与固定配饰)?)[：:]([^；;\n。！？]+)/g;
 const OBJECT_VISUAL_DESCRIPTION = /外观[：:]|材质[：:]|尺寸[：:]|大小感[：:]|屏幕|英寸|边框|玻璃面板|金属机身|机身|科技界面|提示界面|来电界面|界面|UI|面板|矩形|智能手机|设备主体|按键|镜头|接口|型号|图标|提示框/gi;
-// Share one field grammar for sentence boundaries and the V5 difference whitelist.
+// Recognized fields distinguish repeated identity from wardrobe/body differences.
 const CHARACTER_DIFFERENCE_FIELDS = '(?:服装与鞋履|服装总体|服装总轮廓|服装层次|分层服装(?:细节)?|服装差异|服装|穿着|妆造与固定配饰|妆造差异|妆造|妆发差异|妆发|发型变化|发式变化|配饰与随身(?:物|道具)|配饰|随身物|状态差异|可见状态|伤情|伤口|做旧|破损|污损|【(?:内层|中层|外层|下装|足饰)】)';
-const CHARACTER_IDENTITY_FIELDS = '(?:身份与依据|资产身份|脸型骨相(?:与五官)?|脸型(?:与)?五官|脸型|五官|眉眼|鼻唇(?:与耳部)?|鼻型|鼻梁|唇形|肤质与辨识点|肤色肤质|发型与发饰|发型发色|身形(?:与肤质|比例)|身材(?:比例|体态)?|稳定气质)';
+const CHARACTER_IDENTITY_FIELDS = '(?:身份与依据|资产身份|脸型骨相(?:与五官)?|脸型(?:与)?五官|脸型|五官|眉眼|鼻唇(?:与耳部)?|鼻型|鼻梁|唇形|肤质与辨识点|肤色肤质|发型与发饰|发型(?:发色)?|发色|身形(?:与肤质|比例)|身材(?:比例|体态)?|稳定气质)';
 const CHARACTER_DIFFERENCE_FIELD = new RegExp(`^${CHARACTER_DIFFERENCE_FIELDS}[：:]`);
 const CHARACTER_IDENTITY_FIELD = new RegExp(`${CHARACTER_IDENTITY_FIELDS}[：:]`);
 const characterVariantDifference = (description) => {
   const text = String(description || '').trim();
+  // Remove only known identity fields. A difference is often ordinary prose
+  // (e.g. “服装改为居家服”), so selecting a whitelist of fields loses the edit.
   const fieldPattern = new RegExp(`(?:${CHARACTER_IDENTITY_FIELDS}|${CHARACTER_DIFFERENCE_FIELDS})[：:]`, 'g');
-  const fields = [...text.matchAll(fieldPattern)];
-  if (!fields.length) return text;
-  const differenceFields = fields.map((field, index) => text.slice(field.index, fields[index + 1]?.index ?? text.length)
-    .replace(/^[；;\n。！？\s]+|[；;\n。！？\s]+$/g, ''))
-    .filter((part) => CHARACTER_DIFFERENCE_FIELD.test(part));
-  const differences = differenceFields.filter((part) => {
-    const value = part.replace(CHARACTER_DIFFERENCE_FIELD, '').trim().replace(/[；;\n。！？\s]+$/g, '');
-    return value && !/^(?:不适用|无|不存在|非人物|N\/?A)[。.!！?？\s]*$/i.test(value);
-  });
-  const reference = text.match(/参考\s*【[^】]+】/)?.[0];
-  return CHARACTER_IDENTITY_FIELD.test(text) || differenceFields.length
-    ? [reference, ...differences].filter(Boolean).join('；')
-    : text;
+  if (!text.match(fieldPattern)) return text;
+  const parts = text.split(/(?<=[；;\n。！？])/);
+  return parts.map(part => {
+    const fields = [...part.matchAll(fieldPattern)];
+    if (!fields.length) return part;
+    return part.slice(0, fields[0].index) + fields.map((field, index) => {
+      const fragment = part.slice(field.index, fields[index + 1]?.index ?? part.length);
+      if (CHARACTER_IDENTITY_FIELD.test(field[0])) return '';
+      const value = fragment.replace(CHARACTER_DIFFERENCE_FIELD, '').trim().replace(/[；;\n。！？\s]+$/g, '');
+      return !value || /^(?:不适用|无|不存在|非人物|N\/?A)$/i.test(value) ? '' : fragment;
+    }).join('');
+  }).join('').replace(/^[；;\n。！？\s]+|[；;\n。！？\s]+$/g, '');
 };
 const UNSUPPORTED_AUTOMATIC_VARIANT = /(?:无(?:剧本|原文|明确)依据|剧本未提及|原文未提及)[^。；;\n]*(?:换装|服装|造型)|(?:自动|自行|额外)(?:设计|补充|生成)[^。；;\n]*(?:换装|服装|造型)/;
 const inflatedCharacterVariant = (asset) => {
