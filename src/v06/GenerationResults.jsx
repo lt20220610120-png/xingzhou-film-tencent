@@ -78,12 +78,13 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
       <p className="generation-result-prompt" title={task.originalPrompt || task.prompt}>{task.originalPrompt || task.prompt}</p>
       {!square&&<><small>{models.find(model => model.id === task.model)?.name || task.model}</small>
       {task.jobId && <small title={task.jobId}>任务 {task.jobId}</small>}
-      {task.checkedAt&&<small>最近检测 {new Date(task.checkedAt).toLocaleTimeString('zh-CN',{hour12:false})}{task.status==='success'?' · 视频池下载好':''}</small>}
+      {task.checkedAt&&<small>最近检测 {new Date(task.checkedAt).toLocaleTimeString('zh-CN',{hour12:false})}{task.status==='success'?' · 结果已就绪':''}</small>}
       {(task.error || task.warning) && <details className="generation-result-error"><summary>{task.status === 'failed' ? '查看失败原因' : '查看任务提示'}</summary><p>{task.error || task.warning}</p></details>}</>}
       <footer><div className="generation-card-actions">
         {task.likeCanvasUrl&&<button className="secondary" aria-label="Like 原画布" title="Like 原画布" onClick={()=>api.openExternal(task.likeCanvasUrl)}>{square?<ExternalLink size={14}/>:'Like 原画布'}</button>}
         {task.libtvCanvasUrl&&<button className="secondary" aria-label="LibTV 原画布" title="LibTV 原画布" onClick={()=>api.openExternal(task.libtvCanvasUrl)}>{square?<ExternalLink size={14}/>:(task.remoteStatus==='awaiting-canvas'?'打开 LibTV 生成':'LibTV 原画布')}</button>}
         {onReuse && <button className="secondary" aria-label="复用" title="复用" onClick={() => onReuse(task)}><Copy size={14}/>{!square&&'复用'}</button>}
+        {task.kind==='video'&&task.projectId&&!task.mediaId&&task.status==='success'&&<button className="secondary" disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await api.collabRecordGeneratedMedia({projectId:task.projectId,jobId:task.id,kind:'video',shareToCloud:true});setNotice('已上传到云端');await onRefresh?.();}catch(e){setError(e.message);}finally{setBusy(false);}}}>上传到云端</button>}
         {(task.filePath || task.url) && <button className="secondary" onClick={() => download(task)}><Download size={14}/>下载</button>}
         {(onClear || onDelete || onDeleteMany) && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => askClear([task],'删除这条生成记录',!clearable(task))}><Trash2 size={15}/></button>}
       </div>{task.costYuan != null && <small>¥{Number(task.costYuan).toFixed(2)}</small>}</footer>

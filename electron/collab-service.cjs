@@ -28,7 +28,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
       if (!put.ok) throw Object.assign(new Error(`素材上传失败（${put.status}）`), {retryable:[408,429,500,502,503,504].includes(put.status)});
       break;
     } catch (error) {
-      if (attempt === 2 || !(error.retryable || isMediaNetworkError(error))) throw new Error(`图片或素材保存到云端失败，本地文件已保留，请重试保存：${isMediaNetworkError(error)?'网络连接中断或超时':error.message}`);
+      if (attempt === 2 || !(error.retryable || isMediaNetworkError(error))) throw new Error(`图片或素材保存到云端失败，本地文件已保留，请重试保存：${String(error.message||'上传失败').replace(/https?:\/\/[^\s]+/g,'[上传地址]')}`);
       await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)));
     }
   }

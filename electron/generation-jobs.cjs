@@ -31,6 +31,7 @@ function createGenerationJobs(dir,options={}) {
     if(changed){atomic(file,repaired);}
   }
   const read = () => { if (!fs.existsSync(file)) return []; return readJobs(file); };
+  const linkResult=(job,urls)=>urls?.every(u=>/^https?:\/\//i.test(u)&&!(/\/content(?:[?#]|$)/.test(u)&&job.endpoint&&new URL(u).origin===new URL(job.endpoint).origin))&&job.kind==='video'&&!job.storyboardBatchRunId&&!job.workflowRunId&&job.autoDownload!==true&&urls?.length?save({...job,status:'success',url:urls[0],urls,storage:'link',warning:'',error:''}):null;
   const save = job => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if (index < 0) rows.unshift(job); else { if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive,projectVideoDeleted:rows[index].projectVideoDeleted}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); atomic(file,rows); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
@@ -116,7 +117,7 @@ function createGenerationJobs(dir,options={}) {
         const service=typeof options.likeService==='function'?options.likeService():options.likeService;
         if(!service)throw Error('Like连接组件尚未就绪');save(job);
         try{const result=await (async()=>{if(options.beforeDispatch)await dispatchGuard();return service.submit({...input,id:job.id});})();let saved=save({...job,likeJobId:job.id,likeCanvasUrl:result.canvasUrl,jobId:result.taskId||result.id,nodeId:result.nodeId,status:result.status==='failed'?'failed':result.status==='uncertain'?'uncertain':'submitted',warning:result.message||'',nextPollAt:Date.now()+15000});
-          if(result.status==='success'){saved=save({...saved,status:'downloading'});try{return save({...saved,...await service.download(saved,dir),status:'success',warning:''});}catch(e){return save({...saved,warning:e.message});}}return saved;
+          if(result.status==='success'){const linked=linkResult(saved,[result.url||result.videoUrl].filter(Boolean));if(linked)return linked;saved=save({...saved,status:'downloading'});try{return save({...saved,...await service.download(saved,dir),status:'success',warning:''});}catch(e){return save({...saved,warning:e.message});}}return saved;
         }catch(e){save({...job,likeJobId:job.id,likeCanvasUrl:e.likeCanvasUrl,status:e.beforeSubmission?'failed':'uncertain',submissionAttempted:!e.beforeSubmission,error:e.message});throw e;}
       }
       if(input.provider==='libtv'){
@@ -132,7 +133,7 @@ function createGenerationJobs(dir,options={}) {
         if(canvasOnly)return task;
         const work=(async()=>{
           try{if(options.beforeDispatch)await dispatchGuard();const result=await libtv().run(accountId,task,{signal});if(libtvFailed(result)){save({...task,status:'failed',error:'LibTV 官方任务失败，请在原画布核对'});return;}
-            task=save({...task,status:'downloading'});try{save({...task,...await libtv().download(accountId,task,dir),status:'success',warning:''});}catch(e){save({...task,warning:e.message});}
+            if(linkResult(task,require('./libtv-service.cjs').libtvResultURLs(result).filter(u=>!(task.libtvInitialUrls||[]).includes(u))))return;task=save({...task,status:'downloading'});try{save({...task,...await libtv().download(accountId,task,dir),status:'success',warning:''});}catch(e){save({...task,warning:e.message});}
           }catch(e){if(e.beforeSubmission){save({...task,status:'failed',submissionAttempted:false,error:e.message});return;}save({...task,status:'submitted',warning:e.message+'；请刷新或打开原画布核对，不会自动重新生成'});}
         })();
         libtvRunning.set(job.id,work);work.finally(()=>libtvRunning.delete(job.id)).catch(()=>{});
@@ -143,7 +144,7 @@ function createGenerationJobs(dir,options={}) {
         try{
           if(options.beforeDispatch)await dispatchGuard();const result=await fnko.submit({...input,idempotencyKey:job.id});
           const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.status==='success'?'downloading':'submitted',url:result.videoUrl,urls:result.resultUrls,error:result.errorMessage,costYuan:result.costYuan,nextPollAt:Date.now()+30000});
-          if(result.status==='success'&&result.resultUrls?.length){try{const files=[];for(const url of result.resultUrls)files.push(await fnko.download({...saved,apiKey,url},dir));return save({...saved,status:'success',filePath:files[0],files});}catch{return save({...saved,warning:'原任务已完成，下载未完成；刷新仅下载原结果，不重新生成。'});}}
+          if(result.status==='success'&&result.resultUrls?.length){const linked=linkResult(saved,result.resultUrls);if(linked)return linked;try{const files=[];for(const url of result.resultUrls)files.push(await fnko.download({...saved,apiKey,url},dir));return save({...saved,status:'success',filePath:files[0],files});}catch{return save({...saved,warning:'原任务已完成，下载未完成；刷新仅下载原结果，不重新生成。'});}}
           return saved;
         }catch(e){save({...job,status:e.beforeSubmission?'failed':'uncertain',submissionAttempted:!e.beforeSubmission,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});if(!e.beforeSubmission)e.generationJobId=job.id;throw e;}
       }
@@ -154,7 +155,7 @@ function createGenerationJobs(dir,options={}) {
         try{
           let prepared=input;try{await provider.preflight(input,{allowLocal:!!options.prepareVideoReferences});if(options.prepareVideoReferences)prepared=await options.prepareVideoReferences({...input,referenceTaskId:job.id});await provider.preflight(prepared);}catch(e){const detail=String(e.message||'素材准备失败').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);save({...job,status:'failed',submissionAttempted:false,error:detail});throw Object.assign(new Error(detail),{beforeSubmission:true});}
           if(options.beforeDispatch)await dispatchGuard();const result=await provider.submit({...prepared,idempotencyKey:job.id});const saved=save({...job,jobId:result.jobId,remoteStatus:result.remoteStatus||result.status,status:result.status==='failed'?'failed':result.videoUrl?'downloading':'submitted',url:result.videoUrl,error:result.errorMessage,nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000});
-          if(result.videoUrl){try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
+          if(result.videoUrl){const linked=linkResult(saved,[result.videoUrl]);if(linked)return linked;try{const filePath=await provider.download(saved,apiKey,dir);return save({...saved,status:'success',filePath});}catch(e){return save({...saved,warning:'结果已保留，重试查询下载即可'});}}return saved;
         }catch(e){if(e.beforeSubmission){if(read().find(r=>r.id===job.id)?.status!=='failed')save({...job,status:'failed',submissionAttempted:false,error:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});throw e;}const detail=String(e.message||'网络或响应异常').replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500);const message='提交未确认，请先核对上游任务日志；不会自动重复提交。'+detail;save({...job,status:'uncertain',error:message});throw new Error(message);}
       }
       if (input.model?.startsWith('ft-')||ftHost) {
@@ -197,7 +198,7 @@ function createGenerationJobs(dir,options={}) {
           if(['success','failed'].includes(job.status))return job;
           const service=typeof options.likeService==='function'?options.likeService():options.likeService;if(!service)return save({...job,warning:'Like连接组件尚未就绪'});
           try{const result=await service.query(job);if(result.status==='failed')return save({...job,status:'failed',error:result.message||'Like网站原任务失败'});if(result.status!=='success')return save({...job,status:result.status==='uncertain'?'uncertain':'submitted',warning:result.message||'',nodeId:result.nodeId||job.nodeId,jobId:result.taskId||job.jobId,nextPollAt:Date.now()+15000});
-            job=save({...job,status:'downloading'});return save({...job,...await service.download(job,dir),status:'success',warning:'',error:''});
+            const linked=linkResult(job,[result.url||result.videoUrl].filter(Boolean));if(linked)return linked;job=save({...job,status:'downloading'});return save({...job,...await service.download(job,dir),status:'success',warning:'',error:''});
           }catch(e){return save({...job,warning:e.message});}
         }
         if(job.provider==='libtv'){
@@ -212,13 +213,13 @@ function createGenerationJobs(dir,options={}) {
               if(pendingManual&&!running)return save({...job,remoteStatus:'awaiting-canvas',warning:'素材已上传，请在 LibTV 原画布点击生成'});
               return save({...job,remoteStatus:running?'running':job.remoteStatus,libtvRunStarted:running||job.libtvRunStarted,warning:'LibTV 正在处理原节点'});
             }
-            job=save({...job,status:'downloading',remoteStatus:'success',libtvRunStarted:true});return save({...job,...await libtv().download(accountId,job,dir),status:'success',warning:''});
+            const linked=linkResult(job,require('./libtv-service.cjs').libtvResultURLs(raw).filter(u=>!(job.libtvInitialUrls||[]).includes(u)));if(linked)return linked;job=save({...job,status:'downloading',remoteStatus:'success',libtvRunStarted:true});return save({...job,...await libtv().download(accountId,job,dir),status:'success',warning:''});
           }catch(e){return save({...job,warning:e.message});}
         }
         if(fnko.isFnkoEndpoint(job.endpoint)){
           if(job.status==='success'||job.status==='failed')return job;
           if(!endpoint||new URL(endpoint).origin!==new URL(job.endpoint).origin)return save({...job,warning:'请使用原站新Key查询；未向其他站点发送密钥'});
-          if(job.status==='downloading'&&job.urls?.length){
+          if(job.status==='downloading'&&job.urls?.length){const linked=linkResult(job,job.urls);if(linked)return linked;
             try{const files=[];for(const url of job.urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});}
             catch(e){job={...job,warning:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)};if(!job.jobId)return save(job);}
           }
@@ -230,13 +231,13 @@ function createGenerationJobs(dir,options={}) {
             if(result.status!=='success')return save({...job,status:'submitted',warning:result.warning||'',error:'',nextPollAt:Date.now()+(job.workflowRunId?5000:30000)});
             const urls=result.resultUrls?.length?result.resultUrls:[result.videoUrl].filter(Boolean);
             if(!urls.length)throw Error('原任务结果尚未就绪');
-            job=save({...job,status:'downloading',url:urls[0],urls});const files=[];for(const url of urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});
+            const linked=linkResult(job,urls);if(linked)return linked;job=save({...job,status:'downloading',url:urls[0],urls});const files=[];for(const url of urls)files.push(await fnko.download({...job,apiKey,url},dir));return save({...job,status:'success',filePath:files[0],files,warning:'',error:''});
           }catch(e){return save({...job,warning:String(e.message).replaceAll(apiKey?.trim()||'\u0000','[密钥已隐藏]').slice(0,500)});}
         }
         const generic=job.kind==='video'&&job.endpoint&&(new URL(job.endpoint).origin!=='https://feituokuajing.com'||!['auto','feituo',undefined].includes(job.videoProtocol));
         const credentialOrigin=job.endpoint?new URL(job.endpoint).origin:job.model?.startsWith('ft-')?'https://feituokuajing.com':null;
         if((generic&&!endpoint)||(credentialOrigin&&endpoint&&new URL(endpoint).origin!==credentialOrigin))return save({...job,warning:'接口地址已变化，请使用原服务商配置查询这个任务，未发送密钥'});
-        if(generic&&!job.jobId&&job.url&&job.status==='downloading'){
+        if(generic&&!job.jobId&&job.url&&job.status==='downloading'){const linked=linkResult(job,[job.url]);if(linked)return linked;
           try{const filePath=await require('./video-provider.cjs').download(job,apiKey,dir);return save({...job,status:'success',filePath,warning:''});}catch{return save({...job,warning:'结果地址下载暂未完成，请稍后重试下载'});}
         }
         if(job.downloadReceiptId){try{const filePath=await retryImageDownload(job.downloadReceiptId,dir);return save({...job,status:'success',filePath,downloadReceiptId:null,error:'',warning:''});}catch(error){return save({...job,warning:error.message});}}
@@ -248,13 +249,14 @@ function createGenerationJobs(dir,options={}) {
           if (result.status === 'failed') return save({...job,status:'failed',error:result.errorMessage || '生成失败'});
           if (result.status !== 'success') return save({...job,status:'submitted',nextPollAt:Date.now()+(result.pollAfterSeconds||30)*1000,warning:result.warning || '',error:''});
           if (!result.videoUrl) throw new Error('任务完成但视频地址尚未返回');
-          job=save({...job,status:'downloading',url:result.videoUrl});
+          const linked=linkResult(job,[result.videoUrl]);if(linked)return linked;job=save({...job,status:'downloading',url:result.videoUrl});
           const filePath=generic?await require('./video-provider.cjs').download(job,apiKey,dir):await downloadToFile(result.videoUrl,dir,'mp4');
           return save({...job,status:'success',filePath,error:'',warning:''});
         } catch(error) { return save({...job,warning:error.message}); }
       })();
       inFlight.set(id,work); try{return await work;}finally{inFlight.delete(id);}
     },
+    markLocal({id,filePath}) {const job=read().find(r=>r.id===id);if(!job)throw new Error('任务不存在');return save({...job,filePath});},
     markRecorded({id,mediaId}) {const job=read().find(r=>r.id===id);if(!job)throw new Error('任务不存在');return save({...job,mediaId});},
   };
 }

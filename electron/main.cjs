@@ -484,7 +484,20 @@ ipcMain.handle('collab-delete-task',(_,payload)=>collabService.deleteTask(payloa
 ipcMain.handle('collab-list-media',(_,payload)=>collabService.listMedia(payload));
 ipcMain.handle('collab-generate-video',async(event,payload)=>{const filePath=payload.provider==='libtv'?(await libtvDirect({...payload,kind:'video'},event.securitySignal)).filePath:require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?await completedFnkoFile({...payload,kind:'video'},event.securitySignal):await generateVideo({endpoint:payload.endpoint,apiKey:payload.apiKey,model:payload.model,prompt:payload.prompt,ratio:payload.ratio,duration:payload.duration,firstFramePath:payload.firstFramePath,destDir:mediaDir(),signal:event.securitySignal,onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}});return collabService.uploadMedia({projectId:payload.projectId,episode:payload.episode,scene:payload.scene,kind:'video',filePath,note:payload.note||''})});
 ipcMain.handle('collab-upload-media',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'上传素材（图片/音频/视频）',properties:['openFile'],filters:[{name:'素材文件',extensions:['png','jpg','jpeg','webp','gif','mp3','wav','m4a','mp4','mov','webm']}]});if(r.canceled||!r.filePaths[0])return null;const ext=path.extname(r.filePaths[0]).toLowerCase();const kind=['.mp4','.mov','.webm'].includes(ext)?'video':(['.mp3','.wav','.m4a'].includes(ext)?'audio':'image');return collabService.uploadMedia({projectId:payload.projectId,episode:payload.episode,scene:payload.scene,kind,filePath:r.filePaths[0],note:payload.note||''})});
+const shareGeneratedVideo=require('./video-sharing.cjs').createVideoSharing({
+ getJob:id=>jobs().list({includeArchived:true}).find(j=>j.id===id),getProject:projectId=>collabService.getProject({projectId}),
+ listMedia:projectId=>collabService.listMedia({projectId}),
+ download:job=>require('./media-service.cjs').downloadToFile(job.url,mediaDir(),'mp4'),
+ upload:p=>collabService.recordGeneratedMedia(p),saveLocal:(id,filePath)=>jobs().markLocal({id,filePath}),
+ markRecorded:(id,mediaId)=>jobs().markRecorded({id,mediaId}),guard:async p=>{const session=await accessService.session();if(String(session?.account?.id||session?.id||'')!==p.owner)throw Error('账号已切换，请回到原账号上传');}
+});
 ipcMain.handle('collab-record-generated-media',async(_,payload)=>{
+ if(payload.shareToCloud===true){
+  if(await collabService.isLocal(payload.projectId))throw Error('本机项目请先通过邀请协作分享到云端，再上传视频');
+  const owner=String(readCloudSession()?.account?.id||''),job=jobs().list({includeArchived:true}).find(j=>j.id===payload.jobId);
+  if(!owner||job?.referenceAccountId&&String(job.referenceAccountId)!==owner)throw Error('请回到原账号上传视频');
+  return shareGeneratedVideo({...payload,owner});
+ }
  if(await collabService.isLocal(payload.projectId)){
   const owner=readCloudSession()?.account?.id;
   const job=jobs().list({includeArchived:true}).find(row=>row.projectId===payload.projectId&&row.status==='success'&&row.filePath===payload.filePath&&row.kind===payload.kind&&(!row.referenceAccountId||row.referenceAccountId===owner));

@@ -40,12 +40,12 @@ test('image endpoint reads resultUrls, status queries disable caching',async t=>
 test('persisted job survives service recreation and query outage without resubmitting',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-job-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let posts=0,queries=0;
  t.mock.method(global,'fetch',async(url,options)=>{if(url.includes('/generate')){posts++;return Response.json({success:true,jobId:'j1',status:'submitted'});}if(url.includes('/status')){queries++;if(queries===1)throw new Error('temporary outage');return Response.json({success:true,status:'success',videoUrl:'https://feituokuajing.com/a.mp4'});}return new Response('mp4');});
- const {createGenerationJobs}=require('./generation-jobs.cjs');const job=await createGenerationJobs(dir).submit(input());assert.equal(job.status,'submitted');assert.ok(!fs.readFileSync(path.join(dir,'generation-jobs.json'),'utf8').includes('test-only'));
+ const {createGenerationJobs}=require('./generation-jobs.cjs');const job=await createGenerationJobs(dir).submit({...input(),autoDownload:true});assert.equal(job.status,'submitted');assert.ok(!fs.readFileSync(path.join(dir,'generation-jobs.json'),'utf8').includes('test-only'));
  const manager=createGenerationJobs(dir);const pending=await manager.refresh({id:job.id,apiKey:'test'});assert.equal(pending.status,'submitted');assert.match(pending.warning,/outage/);
  const done=await manager.refresh({id:job.id,apiKey:'test'});assert.equal(done.status,'success');assert.equal(fs.readFileSync(done.filePath,'utf8'),'mp4');assert.equal(posts,1);
 });
 test('terminal failure stops polling, completed images retain every output',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-job-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let queries=0;
  t.mock.method(global,'fetch',async(url)=>{if(url.includes('/generate'))return Response.json({success:true,jobId:'j1',status:'submitted'});queries++;return Response.json({success:true,status:'failed',errorMessage:'rejected'});});
- const manager=require('./generation-jobs.cjs').createGenerationJobs(dir);const job=await manager.submit(input());assert.equal((await manager.refresh({id:job.id,apiKey:'test'})).status,'failed');await manager.refresh({id:job.id,apiKey:'test'});assert.equal(queries,1);
+ const manager=require('./generation-jobs.cjs').createGenerationJobs(dir);const job=await manager.submit({...input(),autoDownload:true});assert.equal((await manager.refresh({id:job.id,apiKey:'test'})).status,'failed');await manager.refresh({id:job.id,apiKey:'test'});assert.equal(queries,1);
 });
