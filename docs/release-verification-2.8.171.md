@@ -20,7 +20,14 @@
 
 ## 发布
 
-安装包和公开更新入口校验待完成后补记。
+已公开发布，实现 `8789621`，Release `446143449`，上传工作流 `43728208054` 成功。正式 NSIS 包运行验证通过，6 份关键 ASAR 源文件与构建一致。
+
+- 大小：104146020 字节；SHA256：`299e79da951c1c083cb787c2edcc29e3f4bb38e2e0f9a23fcb35ffebf7ee150c`。
+- 官网：<https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.171.exe>。
+- 本机：`D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.171/Xingzhou-Film-Tencent-Setup-2.8.171.exe`。
+- 三份公开更新清单验签、GitHub 资产大小/摘要、官网 Range 内容与服务器整包 SHA256 均通过。
+- 真实 Electron 更新弹窗：读取公开版本 171，以本地前段加官网末段续传，整包校验及安装回调通过；未对用户本机强制安装。
+- 证据：`output/171-artifact.json`、`171-public.json`、`171-update-ui.json`、`171-stage.log`；包运行报告 `qa/packaged-smoke-2.8.171-1794755220463`。
 
 ## 使用边界
 
