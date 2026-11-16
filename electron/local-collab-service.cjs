@@ -24,7 +24,7 @@ async function readJson(file, fallback = null) {
 }
 
 function summarize({ episodes, script, analysis_output, analysis_progress, ...row }) {
-  return { ...row, episodeCount: (episodes || []).length };
+  return { ...row, episodeCount: episodes?.length ?? row.episodeCount ?? 0 };
 }
 
 function localAsset(projectId, value, previous) {
@@ -181,6 +181,23 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     if (!asset) throw error('资产不存在', 404);
     return asset;
   }
+  async function finishShare(current, record, completed) {
+    if (completed?.project?.id !== record.project.id || !completed?.member?.id) throw error('邀请尚未取得完整回执，请重试原邀请', 502);
+    const unavailableCount = record.share.unavailableCount || 0;
+    record.shared = true;
+    record.sharedProject = summarize({ ...completed.project, episodeCount:completed.project.episodeCount??record.project.episodes?.length, storageMode: 'cloud' });
+    record.share = null;
+    await save(current, record);
+    return {...completed.member,unavailableCount};
+  }
+  async function readShareReceipt(current, record) {
+    if (!record?.share?.committing || typeof cloud.readLocalShareReceipt!=='function') return null;
+    assertScope(current,true);
+    const {requestId,invitation}=record.share;
+    const receipt=await cloud.readLocalShareReceipt({projectId:record.project.id,requestId,invitation}).catch(()=>null);
+    assertScope(current,true);
+    return receipt?.completed || null;
+  }
   async function share(payload) {
     const current = scope(), id = payload.projectId;
     return serial(current, id, async () => {
@@ -208,15 +225,15 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
           record.share.unavailableCount = unavailableCount || 0;
           record.share.committing = true;
           await save(current, record);
-          completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, deletedMediaIds:record.deletedMediaIds || [] });
+          try {
+            completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, deletedMediaIds:record.deletedMediaIds || [] });
+          } catch (cause) {
+            if(cause.status&&cause.status<500)throw cause;
+            completed=await readShareReceipt(current,record);
+            if(!completed)throw cause;
+          }
         }
-        if (!completed?.project || !completed?.member) throw error('邀请尚未取得完整回执，请重试原邀请', 502);
-        const unavailableCount = record.share.unavailableCount || 0;
-        record.shared = true;
-        record.sharedProject = summarize({ ...completed.project, storageMode: 'cloud' });
-        record.share = null;
-        await save(current, record);
-        return {...completed.member,unavailableCount};
+        return await finishShare(current,record,completed);
       } catch (cause) {
         if ([400, 401, 403, 404, 409, 410, 423].includes(cause.status)) {
           if (!record.share?.revision) record.share = null;
@@ -278,8 +295,14 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     },
     async getProject(payload) {
       const current = scope(), id = payload.projectId || payload.id;
-      const record = await stored(current, id);
+      let record = await stored(current, id);
       assertScope(current);
+      if (payload.retryLocal===true&&record?.share?.committing&&!record.shared) record=await serial(current,id,async()=>{
+        const latest=await stored(current,id);
+        const completed=latest?.shared?null:await readShareReceipt(current,latest);
+        if(completed)await finishShare(current,latest,completed);
+        return latest;
+      });
       if (record && !record.shared) return view(current, record).project;
       const k = key(current, id);
       if (imports.has(k) && preparingProjects.has(k)) return { ...preparingProjects.get(k), storageMode:'cloud', localPreparing:true };

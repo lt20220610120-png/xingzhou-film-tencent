@@ -18,7 +18,7 @@ const isNetworkFailure = (error) => {
   return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CERT|ERR_TLS|UND_ERR/i.test(code)
     || /net::ERR_|fetch failed|network|socket hang up/i.test(String(error?.message || ''));
 };
-const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url','project-local-state'].includes(action);
+const readAction = action => /(?:-list|-get)$/.test(action) || ['session','producer-status','is-producer','asset-image-url','media-download-url','project-local-state','project-local-share-receipt'].includes(action);
 const licensePreflightActions = new Set(['license-route','license-check','license-challenge']);
 const errorCode = error => String(error?.cause?.code || error?.code || '');
 const certificateFailure = error => /net::ERR_CERT_/.test(String(error?.message||'')) || /^(?:CERT_HAS_EXPIRED|CERT_NOT_YET_VALID|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT_LOCALLY|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(errorCode(error));

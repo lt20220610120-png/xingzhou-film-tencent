@@ -108,6 +108,21 @@ test('invitation transfers snapshot once and reconciles lost commit acknowledgem
   assert.equal(requests[0].project.name,source.name);
 });
 
+for(const immediate of [true,false])test(`lost acknowledgement is recovered by read-only ${immediate?'verification':'project refresh'}`,async t=>{
+ let completed,requestId,readable=immediate;
+ const f=fixture(t,{
+  prepareLocalShare:()=>({revision:'reserved'}),
+  commitLocalShare:p=>{requestId=p.requestId;completed={project:{id:p.projectId,name:source.name,episodeCount:1},member:{id:'member',user_id:'other'}};throw Error('云端未确认本次保存');},
+  readLocalShareReceipt:p=>{assert.equal(p.requestId,requestId);assert.equal(p.invitation.username,'other');return {completed:readable?completed:null};},
+  getProject:p=>({...source,id:p.projectId,myRole:'producer'}),
+ }),service=f.setup(),project=await service.createProject(source);
+ const result=service.addMember({projectId:project.id,username:'other',role:'collaborator'});
+ if(immediate)assert.equal((await result).id,'member');
+ else{await assert.rejects(result,/未确认/);assert.equal(await service.isLocal(project.id),true);readable=true;assert.equal((await f.setup().getProject({projectId:project.id,retryLocal:true})).storageMode,'cloud');}
+ assert.equal(await service.isLocal(project.id),false);
+ assert.equal(f.calls.filter(n=>n==='commitLocalShare').length,1);
+});
+
 test('owned snapshot stays immediately readable during media preparation without calling expensive cloud get',async t=>{
  const {randomUUID}=require('node:crypto');const id=randomUUID();let release;
  const project={...source,id,owner_id:'owner',myRole:'producer',updated_at:'v1'};

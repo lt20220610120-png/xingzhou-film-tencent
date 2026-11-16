@@ -199,9 +199,9 @@ async function snapshot(client, project, lock) {
   return { assets, media, members, revision: snapshotRevision(project, assets, media, members) };
 }
 
-async function findInvitee(client, invited, user) {
+async function findInvitee(client, invited, user, lock = true) {
   const { rows } = await client.query(
-    'select id,username,display_name,roles,is_admin,is_producer,banned from app_users where username=$1 for share', [invited.username],
+    'select id,username,display_name,roles,is_admin,is_producer,banned from app_users where username=$1'+(lock?' for share':''), [invited.username],
   );
   const target = rows[0];
   if (!target || target.banned || (Array.isArray(target.roles) && !target.roles.length && !target.is_admin && !target.is_producer)) {
@@ -215,13 +215,18 @@ function sameRequest(match, requestId, target, invited) {
   return match && match[1] === requestId && match[2] === target.id && match[3] === invited.role;
 }
 
-function completedShare(project, current, requestId, target, invited) {
+const receiptFields='id,name,owner_id,owner_name,genre,director_project_id,created_at,updated_at,case when jsonb_typeof(episodes)=\'array\' then jsonb_array_length(episodes) else 0 end as "episodeCount"';
+function receiptProject({id,name,owner_id,owner_name,director_project_id,created_at,updated_at,episodeCount,episodes}) {
+  return {id,name,owner_id,owner_name,director_project_id,created_at,updated_at,episodeCount:episodeCount??episodes?.length??0};
+}
+
+async function completedShare(client, project, requestId, target, invited) {
   const marker = String(project.genre || '').match(RECEIPT);
   if (marker?.[1] !== requestId) return null;
   if (!sameRequest(marker, requestId, target, invited)) fail(409, '邀请请求与已完成的记录不一致');
-  const member = current.members.find(row => row.user_id === target.id && row.role === invited.role);
+  const member = (await client.query('select * from collab_members where project_id=$1 and user_id=$2',[project.id,target.id])).rows.find(row => row.user_id === target.id && row.role === invited.role);
   if (!member) fail(409, '邀请已经处理，成员权限已变化，请打开云端项目查看');
-  return { project, member };
+  return { project:receiptProject(project), member };
 }
 
 function insertMember(client, projectId, target, role) {
@@ -294,6 +299,16 @@ function createLocalShareRepository(pool) {
   )).rows[0];
 
   return {
+    async localProjectShareReceipt(payload, user) {
+      const projectId=id(payload.projectId,'项目'),requestId=id(payload.requestId,'邀请请求'),invited=invitation(payload.invitation);
+      return transaction(true,async client=>{
+        const project=(await client.query(`select ${receiptFields} from collab_projects where id=$1`,[projectId])).rows[0];
+        checkOwner(project,user);
+        if(String(project.genre||'').match(RECEIPT)?.[1]!==requestId)return {completed:null};
+        const target=await findInvitee(client,invited,user,false);
+        return {completed:await completedShare(client,project,requestId,target,invited)};
+      });
+    },
     async localProjectState(payload, user) {
       const projectId = id(payload.projectId, '项目');
       return transaction(true, async client => {
@@ -325,9 +340,9 @@ function createLocalShareRepository(pool) {
           if (created.rows.length) await insertMember(client, projectId, user, 'producer');
         }
         checkOwner(project, user);
+        const completed = await completedShare(client, project, requestId, target, invited);
+        if (completed) return { revision:expected, completed };
         let current = await snapshot(client, project, true);
-        const completed = completedShare(project, current, requestId, target, invited);
-        if (completed) return { revision: current.revision, completed };
         checkSoleOwner(current.members, user);
         const pending = String(project.genre || '').match(PENDING);
         if (pending && expected === null && !sameRequest(pending, requestId, target, invited)) {
@@ -351,9 +366,9 @@ function createLocalShareRepository(pool) {
         const project = await projectRow(client, projectId, true);
         checkOwner(project, user);
         const target = await findInvitee(client, invited, user);
-        const current = await snapshot(client, project, true);
-        const completed = completedShare(project, current, requestId, target, invited);
+        const completed = await completedShare(client, project, requestId, target, invited);
         if (completed) return completed;
+        const current = await snapshot(client, project, true);
         checkSoleOwner(current.members, user);
         checkRevision(current.revision, expected);
         const pending = String(project.genre || '').match(PENDING);
@@ -374,14 +389,14 @@ function createLocalShareRepository(pool) {
         await saveSnapshot(client, projectId, current, next, user);
         const { rows } = await client.query(
           `update collab_projects set name=$2,style=$3,genre=$4,script=$5,episodes=$6,analysis_output=$7,
-            analysis_progress=$8,image_composition=$9,director_project_id=$10,updated_at=now() where id=$1 returning *`,
+            analysis_progress=$8,image_composition=$9,director_project_id=$10,updated_at=now() where id=$1 returning ${receiptFields}`,
           [projectId, next.project.name, next.project.style, genre, next.project.script, JSON.stringify(next.project.episodes),
             next.project.analysis_output, JSON.stringify(next.project.analysis_progress ?? project.analysis_progress ?? {}),
             next.project.image_composition, directorId],
         );
         const member = (await insertMember(client, projectId, target, invited.role)).rows[0];
         if (!member) fail(409, '成员列表已变化，请刷新后重新邀请');
-        return { project: rows[0], member };
+        return { project: receiptProject(rows[0]), member };
       });
     },
   };

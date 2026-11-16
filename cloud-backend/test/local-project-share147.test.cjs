@@ -135,6 +135,22 @@ test('first invite reserves same UUID and atomically publishes saved content and
   assert.equal(f.writes.length, writes, 'lost acknowledgements must not repeat writes');
 });
 
+test('large invitation returns a compact receipt and an owner can read the same receipt without writing',async()=>{
+ const f=database(),pending=await handleAction('project-local-share-prepare',prepare,owner,f.repo),large=payload(pending.body.revision);
+ large.project.analysis_progress._large='abc'.repeat(8_000_000);
+ assert.equal((await handleAction('project-local-share-receipt',prepare,owner,f.repo)).body.completed,null);
+ const saved=await handleAction('project-local-share',large,owner,f.repo);
+ assert.equal(saved.status,200);assert.ok(Buffer.byteLength(JSON.stringify(saved.body))<2048);assert.equal(f.state.project.analysis_progress._large.length,24_000_000);
+ const writes=f.writes.length;
+ const receipt=await handleAction('project-local-share-receipt',prepare,owner,f.repo);
+ assert.deepEqual(receipt.body.completed,saved.body);
+ const oldClientRetry=await handleAction('project-local-share-prepare',prepare,owner,f.repo);
+ assert.deepEqual(oldClientRetry.body.completed,saved.body);
+ assert.equal((await handleAction('project-local-share-receipt',prepare,target,f.repo)).status,404);
+ assert.equal((await handleAction('project-local-share-receipt',{...prepare,requestId:'2e5bc707-2869-4dc4-be1a-9864d5093510'},owner,f.repo)).body.completed,null);
+ assert.equal(f.writes.length,writes);
+});
+
 test('invalid invitee cannot create a placeholder and other accounts cannot read project-local-state', async () => {
   const f = database();
   const noUser = await handleAction('project-local-share-prepare', {...prepare,invitation:{username:'missing',role:'collaborator'}}, owner, f.repo);

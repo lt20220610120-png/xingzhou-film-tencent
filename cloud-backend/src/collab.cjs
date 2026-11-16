@@ -101,6 +101,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'project-local-state') localShareMethod = 'localProjectState';
   if (action === 'project-local-share-prepare') localShareMethod = 'prepareLocalProjectShare';
   if (action === 'project-local-share') localShareMethod = 'shareLocalProject';
+  if (action === 'project-local-share-receipt') localShareMethod = 'localProjectShareReceipt';
   if (localShareMethod) {
     if (typeof repo[localShareMethod] !== 'function') return STATE_UNAVAILABLE;
     try {
