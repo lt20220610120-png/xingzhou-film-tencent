@@ -5,4 +5,4 @@
 - 真实 PostgreSQL 只读核对原项目收到 644 字节内部回执，包含 31 集与正确成员。真实数据库临时表存储约 24 MB 分享快照并添加成员，提交 301 ms、内部回执 543 字节；新版查询与旧版准备请求重试都能取原回执。未写入真实业务表。
 - 真实 Electron 邀请界面以 gzip 发送 24,000,989 字节测试项目；在 HTTP 回包中断后仅 1 次写提交、1 次只读查询，自动显示成功，项目切为云端。证据 `output/174-ui.json` 和 `174-invite.png`。客户端全量 3135/3135、构建、正式 NSIS 运行以及 5 份关键 ASAR 文件一致性通过。
 - 云端已部署 `collab.cjs` 和 `local-project-share.cjs`，服务健康；备份 `/opt/xingzhou-backups/invite-receipt-2.8.174-20261116T140913Z`。此次未执行真实邀请或修改真实项目。
-- 正式安装包 104131599 字节，SHA256 `8ba3a6b9c05908bce8064e7a07fd980f9e269c3ed8cd7be0ed9ab5799ab7bbd5`；公开更新通道验证进行中。
+- 正式安装包 104131599 字节，SHA256 `8ba3a6b9c05908bce8064e7a07fd980f9e269c3ed8cd7be0ed9ab5799ab7bbd5`；已公开发布，实现 `ee1f046`，Release `447129583`，GitHub 上传任务 `43883234232`。公开三份清单验签、GitHub 安装包摘要和大小、官网 Range 206 与服务器完整哈希全部通过。隔离 Electron 更新弹窗读取公开版本，以本地前段与官网末段续传并完整验签、触发安装回调；未强制安装。证据 `output/174-public.json`、`174-update-ui.json` 与 `qa/packaged-smoke-2.8.174-1794838195804`。
