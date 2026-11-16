@@ -15,4 +15,4 @@
 
 ## 发布
 
-安装包 104146435 字节，SHA256 `eabfe82e9ced83861a8f7eb564cfdf263acaa85768d0e69379a2933a93e382a7`。正式公开更新验证进行中。
+安装包 104146435 字节，SHA256 `eabfe82e9ced83861a8f7eb564cfdf263acaa85768d0e69379a2933a93e382a7`。已公开发布，实现 `62da090`，Release `447290631`，上传工作流 `43907093007`。三份公开 latest.json 签名、GitHub 资产大小/摘要、官网 Range 206 字节及服务器完整包哈希通过。真实 Electron 更新弹窗以本地前段和公开官网末段完成续传、整包校验与安装回调；未强制安装。证据 `output/175-public.json`、`175-update-ui.json`、`175-stage.log`。
