@@ -77,6 +77,8 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      if(!scene?.mappingReady)continue;
      const prior=decisions[entry.id];
      if(prior?.confirmed&&bindingProblems(state.snapshot,entry,prior,{voiceEnabled}).length===0)continue;
+     const stamp=sceneDistributionStamp(state.snapshot,entry,scene.source),attempt=attempts[state.snapshot.versionId+':'+entry.id];
+     if(hasActiveDistributionClaim(attempt)||prior?.origin==='scene-inventory-ai'&&attempt?.stamp===stamp&&attempt.status!=='running')continue;
      const next=automaticEntryAssociation(state.snapshot,entry,prior,{voiceEnabled});
      if(confirmedOnly&&!next.confirmed)continue;
      if(JSON.stringify(next)===JSON.stringify(prior))continue;
@@ -123,7 +125,7 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
      const seeded=currentEntryBinding(state.snapshot,entry,state.decisions[entryId]);
      const seed={...seeded,needs:state.decisions[entryId]?.signature===seeded.signature?state.decisions[entryId].needs:seeded.needs.filter(n=>n.locked),issue:''};
      notice=`${manual?'重新':'自动'}分发 ${entry.label}`;emit();
-     const result=await runBindingRepair({messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId),{voiceEnabled}),onAttempt:attempt=>{task.attempt=attempt;phase(attempt>1?'retrying':'waiting');},call:messages=>{
+     const result=await runBindingRepair({maxAttempts:1,messages:sceneDistributionMessages(state.snapshot,entry,seed,sceneSource(state.ctx,entry.sceneId),{voiceEnabled}),onAttempt:attempt=>{task.attempt=attempt;phase('waiting');},call:messages=>{
       const taskId=crypto.randomUUID();task.taskIds.push(taskId);job.taskIds||=[];job.taskIds.push(taskId);
       const cardCount=state.snapshot.entries.find(e=>e.id===entryId)?sceneCards(state.snapshot,state.snapshot.entries.find(e=>e.id===entryId)).length:0;
       return requestArtModel(api,{...structuredClone(profile),profileId:profile.id,messages,taskId,maxOutputTokens:Math.min(8192,Math.max(2048,512+cardCount*64)),analysisMode:true},{manual,job,priority,isStopped:stopped,onStart:()=>{task.startedAt=Date.now();task.receivedBytes=0;phase('requesting');},onProgress:status=>{if(stopped())return;if(status.receivedBytes>task.receivedBytes){task.receivedBytes=status.receivedBytes;phase('receiving');}}});

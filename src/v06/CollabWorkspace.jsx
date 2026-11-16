@@ -1166,7 +1166,7 @@ function StoryboardSection(props) { return <StoryboardWorkbench {...props}/>; }
 /* ================================================================
  * 邀请协作：协作者管理 + 任务分配
  * ================================================================ */
-function InviteSection({ project, api, refresh }) {
+export function InviteSection({ project, api, refresh }) {
   const [tab, setTab] = useState('members');
   const [members, setMembers] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -1195,8 +1195,8 @@ function InviteSection({ project, api, refresh }) {
       const added = await api.collabAddMember({ projectId: project.id, username, role });
       if (added?.id) setMembers((current) => [...current.filter((member) => member.id !== added.id && member.user_id !== added.user_id), added]);
       setUsername(''); await load(); await refresh();
-      setNotice(`已邀请 ${username}，对方的「项目协作」里会立即出现这个项目。`);
-    } catch (e) { setError(e.message); }
+      setNotice(`已邀请 ${username}。${added?.unavailableCount?`有 ${added.unavailableCount} 项素材不可用，请在分镜、音色或资产中补选。`:'对方可在「项目协作」中查看。'}`);
+    } catch (e) { setError(readableCloudError(e)); }
     finally { setBusy(false); }
   };
 
@@ -1222,7 +1222,7 @@ function InviteSection({ project, api, refresh }) {
       {notice && <div className="collab-notice">{notice}</div>}
       {tab === 'members' && (
         <>
-          {project.storageMode==='local'&&<p className="collab-invite-local-notice">邀请时将上传本机项目和素材，并开启云端协作。</p>}<div className="collab-invite-maker">
+          {project.storageMode==='local'&&<p className="collab-invite-local-notice">邀请时会共享项目和可用素材，缺失素材可稍后补选。</p>}<div className="collab-invite-maker">
             <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入对方注册的账号名（唯一）" />
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="artist">美术（信息读取 / 美术 / 资产 / 项目群）</option>
@@ -1597,8 +1597,7 @@ export function CollabWorkspace({ state, api, account }) {
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${projectId}`, p); writeCache(`assets-${projectId}`, normalizedAssets);
       const store=getArtReviewStore({api,projectId,accountId:account?.id});
-      // Resume missing associations with the fresh Director edition, without
-      // tying background model work to the refresh button's network lifetime.
+      // Resolve exact matches in the fresh Director edition without starting a model round.
       void getArtDistributionController({api,projectId,accountId:account?.id}).refresh({project:p,store,existingAssets:normalizedAssets,onBindingSaved:data=>notifyBindingSaved(projectId,account?.id,data)}).catch(error=>{if(isCurrentTarget())setRefreshNotice(`提示词已刷新，补充分发未完成：${error.message}`);});
       if(syncIssue)setRefreshNotice(`项目资料已刷新，导演同步未完成：${syncIssue}`);
       else if (options.manual) setRefreshNotice(p.storageMode==='local'?'已读取本机项目与素材':p.localPreparing?'正在下载本机项目副本':'已刷新云端项目与素材');

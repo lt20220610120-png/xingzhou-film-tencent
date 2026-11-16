@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {fixture} from './promptDistribution.fixtures.js';
 import {createPromptDistributionService} from './promptDistributionService.js';
-import {promptReviewState,reviewPromptScope,skipPromptNeed} from './promptReviewBatch.js';
+import {promptReviewState,reviewPromptScope,skipPromptNeed,resolvePromptMissingReferences,promptHumanReviewSignature} from './promptReviewBatch.js';
 import {saveBindingVersion} from './promptBindingVersions.js';
 import {newArtReview,applyArtReviewCandidate} from './artReview.js';
 
@@ -37,6 +37,10 @@ test('a human can skip a one-off missing reference and unblock batch review',asy
  const entry=state.snapshot.entries.find(row=>row.id==='p1'),need=state.decisions.p1.needs.find(row=>row.text==='水杯');assert(need);
  await service.mutate(state.snapshot.versionId,current=>{const next=skipPromptNeed(current.decisions.p1,need.id);return saveBindingVersion(current.saved,current.snapshot,{...current.decisions,p1:next});});
  state=await service.read();const after=promptReviewState(state,{sceneId:'1-1'});assert.equal(after.pendingMissing.length,0);assert.equal(after.ready,true);
+ const restored=()=>resolvePromptMissingReferences({service,restore:true,targets:[{entryId:'p1',needId:need.id,signature:promptHumanReviewSignature(state.snapshot,entry,state.decisions.p1)}]});
+ assert.equal(after.skippedMissing.length,1);await restored();await assert.rejects(restored,/已变化/);
+ state=await service.read();assert.equal(promptReviewState(state,{sceneId:'1-1'}).ready,false);assert.equal(promptReviewState(state,{sceneId:'1-1'}).pendingMissing[0].need.id,need.id);
+ await resolvePromptMissingReferences({service,targets:[{entryId:'p1',needId:need.id,signature:promptHumanReviewSignature(state.snapshot,entry,state.decisions.p1)}]});
  const published=[];await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async(n,ids)=>published.push([n,ids])},scope:{sceneId:'1-1'},actor:'u',action:'approve-publish'});assert.deepEqual(published,[[1,['1-1']]]);
 });
 test('an empty skipped source prompt blocks its scene and episode rather than publishing the remaining subset',async()=>{

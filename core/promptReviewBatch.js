@@ -25,7 +25,7 @@ export function skipPromptNeed(decision,needId,reason='人工确认：本条无�
 }
 export function promptReviewState(state,scope={}){
  const {snapshot,decisions,saved,ctx}=state,entries=snapshot.entries.filter(e=>inScope(e,scope)),reviews=saved?.versions?.[snapshot.versionId]?.reviews||{};
- const problems=[],pendingMissing=[],entryProblems=new Map();let approved=0,published=0;
+ const problems=[],pendingMissing=[],skippedMissing=[],entryProblems=new Map();let approved=0,published=0;
  for(const invalid of snapshot.invalidEntries||[])if(scope.sceneId?invalid.sceneId===scope.sceneId||!invalid.sceneId&&invalid.episode===Number(scope.sceneId.split('-')[0]):scope.episode?invalid.episode===scope.episode:true)problems.push(invalid.reason);
  if(!Array.isArray(snapshot.invalidEntries)&&snapshot.issues?.length)problems.push(...snapshot.issues);
  if(!entries.length)problems.push('没有可核实的提示词');
@@ -35,8 +35,10 @@ export function promptReviewState(state,scope={}){
   if(!cards.length||ctx&&!sceneReadyForPromptDistribution(ctx.project,ctx.ledger,entry.sceneId))localProblems.push('场景清单尚未完成');
   if(!decision||decision.origin==='rules')localProblems.push('素材关联尚未完成');
   else {
-   const unresolved=decision.signature===entryBindingSignature(snapshot,entry)?(decision.needs||[]).filter(need=>need.visibility==='visible'&&!need.cardUid):[];
-   unresolved.forEach(need=>pendingMissing.push({entry,need}));
+   if(decision.signature===entryBindingSignature(snapshot,entry))for(const need of decision.needs||[]){
+    if(!need.cardUid&&need.visibility==='visible')pendingMissing.push({entry,need});
+    if(!need.cardUid&&need.visibility==='excluded'&&need.skipReference)skippedMissing.push({entry,need});
+   }
    localProblems.push(...bindingProblems(snapshot,entry,decision));
   }
   const attempt=saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id];
@@ -47,18 +49,19 @@ export function promptReviewState(state,scope={}){
  const reviewableEntries=entries.filter(entry=>(entryProblems.get(entry.id)||[]).length===0);
  const readyScenes=new Set([...new Set(reviewableEntries.map(e=>e.sceneId))].filter(id=>entries.filter(e=>e.sceneId===id).every(e=>reviewableEntries.includes(e))&&!(snapshot.invalidEntries||[]).some(e=>e.sceneId===id||!e.sceneId&&e.episode===Number(id.split('-')[0]))));
  const publishableEntries=reviewableEntries.filter(e=>readyScenes.has(e.sceneId)&&entries.filter(row=>row.sceneId===e.sceneId).every(row=>reviews[row.id]?.signature===promptHumanReviewSignature(snapshot,row,decisions[row.id])));
- return {entries,reviewableEntries,publishableEntries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,approved,published};
+ return {entries,reviewableEntries,publishableEntries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,skippedMissing,approved,published};
 }
 
 // Resolve only the exact needs the person saw. One CAS write retains unrelated
 // decisions, including results that finished in other episodes in the meantime.
-export async function resolvePromptMissingReferences({service,targets,versionId}){
+export async function resolvePromptMissingReferences({service,targets,versionId,restore=false}){
  if(!targets?.length)throw Error('请选择待处理项');
  const initial=await service.read(versionId),selectedVersion=initial.snapshot.versionId,followedCurrent=selectedVersion===currentPromptVersionId(initial.currentSnapshot,initial.saved);
  return service.mutate(selectedVersion,state=>{
   if(followedCurrent&&currentPromptVersionId(state.currentSnapshot,state.saved)!==selectedVersion)throw Error('提示词来源版本已变化，请重新检查待处理项');
   const pending=new Map(),selected=new Map(),decisions={...state.decisions};
-  for(const {entry,need} of promptReviewState(state,{}).pendingMissing){
+  const choices=promptReviewState(state,{});
+  for(const {entry,need} of restore?choices.skippedMissing:choices.pendingMissing){
    if(!pending.has(entry.id))pending.set(entry.id,{entry,ids:new Set(),signature:promptHumanReviewSignature(state.snapshot,entry,state.decisions[entry.id])});
    pending.get(entry.id).ids.add(need.id);
   }
@@ -72,7 +75,11 @@ export async function resolvePromptMissingReferences({service,targets,versionId}
    selected.get(target.entryId).add(target.needId);
   }
   for(const [id,needs] of selected){
-   for(const needId of needs)decisions[id]=skipPromptNeed(decisions[id],needId);
+   if(restore)decisions[id]={...decisions[id],needs:decisions[id].needs.map(need=>{
+    if(!needs.has(need.id))return need;
+    const {skipReference,locked,...rest}=need;return {...rest,visibility:'visible',reason:'已恢复为待补充'};
+   })};
+   else for(const needId of needs)decisions[id]=skipPromptNeed(decisions[id],needId);
    decisions[id]=saveDistribution(state.snapshot,pending.get(id).entry,decisions[id]);
   }
   return saveBindingVersion(state.saved,state.snapshot,decisions);

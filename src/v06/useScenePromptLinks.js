@@ -50,11 +50,11 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
    setSaved(data);notifyBindingSaved(project.id,accountId,data);
   }catch(e){setError(e.message);throw e;}finally{setBusy(false);}
  };
- const skipMissingBatch=async(targets,versionId)=>{
+ const skipMissingBatch=async(targets,versionId,restore=false)=>{
   if(!canEdit||!loaded||busy||resolving.current)throw Error('正在读取或保存关联，请稍后再试');
   resolving.current=true;setBusy(true);setError('');
   try{
-   const data=await resolvePromptMissingReferences({service,targets,versionId});
+   const data=await resolvePromptMissingReferences({service,targets,versionId,restore});
    setSaved(data);notifyBindingSaved(project.id,accountId,data);return data;
   }catch(e){setError(e.message);throw e;}finally{resolving.current=false;setBusy(false);}
  };

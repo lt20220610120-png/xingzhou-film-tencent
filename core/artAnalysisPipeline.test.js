@@ -4,6 +4,23 @@ import {getArtReviewStore} from './artReviewPersistence.js';
 import {fixture} from './promptDistribution.fixtures.js';
 const gate=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
 
+test('an unresolved prompt saves the first partial result, stops, and only spends again on explicit supplement',async()=>{
+ const f=fixture();const calls=[];
+ Object.assign(f.api,{promptArtStatus:async()=>({enabled:true}),artReviewLoadLocal:async()=>f.ledger,artReviewSaveLocal:async()=>{},aiChat:async p=>{
+  const label=JSON.parse(p.messages[1].content).label;calls.push(label);
+  if(label==='1-1-2')return '{}';
+  const reply=JSON.parse(f.output(p.messages));return label==='1-1-1'?JSON.stringify({...reply,missing:[{category:'prop',text:'水杯',reason:'本场清单缺少可用卡片'}]}):JSON.stringify(reply);
+ }});
+ const store=getArtReviewStore({api:f.api,projectId:f.project.id,accountId:'u'});await store.load(f.project);
+ const control=getArtDistributionController({api:f.api,projectId:f.project.id,accountId:'u',project:f.project,store,profile:{id:'m'}});
+ assert.ok((await control.start()).length);assert.deepEqual([...calls].sort(),['1-1-1','1-1-2','1-1-3']);assert.equal(control.status().working,false);assert.equal(f.saved.decisions.p3.confirmed,true);
+ const decision=structuredClone(f.saved.decisions.p1),revision=f.saved.revision;
+ assert.equal(decision.origin,'scene-inventory-ai');assert.ok(decision.needs.some(n=>n.cardUid));assert.equal(decision.confirmed,false);
+ await control.refresh();assert.equal(calls.length,3);assert.deepEqual(f.saved.decisions.p1,decision);
+ const refreshedRevision=f.saved.revision;assert.ok(refreshedRevision>=revision);await control.refresh();assert.equal(f.saved.revision,refreshedRevision);
+ await control.start();assert.deepEqual(calls.slice(3).sort(),['1-1-1','1-1-2']);assert.equal(control.status().working,false);
+});
+
 test('a new focused repair queues behind the same episode instead of silently reusing its distribution',async()=>{
  const f=fixture(),entered=gate(),hold=gate();let focusCalls=0;
  Object.assign(f.api,{promptArtStatus:async()=>({enabled:true}),artReviewLoadLocal:async()=>f.ledger,artReviewSaveLocal:async()=>{},aiChat:async p=>{

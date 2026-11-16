@@ -15,3 +15,10 @@ test('repository checks membership inside transaction and serializes revisions',
  await assert.rejects(repo.savePromptBinding('p',{...payload,writeId:'stale'},'owner'),e=>e.status===409);
  row.genre+='[PROJECT_LOCKED]';await assert.rejects(repo.savePromptBinding('p',{...payload,baseRevision:1,writeId:'locked'},'artist'),/锁定/);assert.equal(commits,2);assert.equal(rollbacks,3);
 });
+
+test('a failed recalibration can close its cloud claim while keeping the confirmed association',()=>{
+ const {nextPromptBinding}=require('../src/prompt-binding.cjs');
+ const data={...payload.data,decisions:{shot:{confirmed:true}},sceneDistributionAttempts:{shot:{stamp:'same',status:'calibration-failed'}}};
+ const saved=nextPromptBinding({id:'p'},{...payload,data},'owner');
+ assert.equal(saved.decisions.shot.confirmed,true);assert.equal(saved.sceneDistributionAttempts.shot.status,'calibration-failed');
+});

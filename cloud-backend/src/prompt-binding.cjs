@@ -17,7 +17,7 @@ function nextPromptBinding(project,p,userId){
  const versions={...old?.versions,...data.versions};
  for(const [id,row]of Object.entries(versions))if(row?.id!==id||!valid(row.snapshot))fail('提示词版本记录无效');
  const attempts=data.sceneDistributionAttempts||{};
- if(typeof attempts!=='object'||Array.isArray(attempts)||Object.values(attempts).some(a=>!a||typeof a.stamp!=='string'||!['running','failed','done'].includes(a.status)))fail('自动分发记录格式无效');
+ if(typeof attempts!=='object'||Array.isArray(attempts)||Object.values(attempts).some(a=>!a||typeof a.stamp!=='string'||!['running','failed','done','calibration-failed'].includes(a.status)))fail('自动分发记录格式无效');
  const reviewLedger={episodes:{}};
  for(const [n,record]of Object.entries(data.reviewLedger?.episodes||{})){
   const episode=require('./collab-episodes.cjs').numberedEpisodes(project.episodes).find(e=>e.number===Number(n))?.episode;

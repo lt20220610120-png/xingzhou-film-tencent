@@ -310,7 +310,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
       const clean = withoutSource(row);
       const source = byId.get(cloudIndex.find(row)?.id);
       if (source?.filePath) return {...clean,...playback(root,source.localPath,projectId),...(source.objectKey?{objectKey:source.objectKey}:{}),mediaId:source.id,localUnavailable:false};
-      if (inProject(row,projectId) && row.filePath && resolveLocalReference) {
+      if (row.kind!=='video' && inProject(row,projectId) && row.filePath && resolveLocalReference) {
         const local = await resolveLocalReference(row,projectId);
         if (local) {
           if (!copiedLocal.has(local)) copiedLocal.set(local,storeFile({projectId,filePath:local,id:UUID.test(row.id||'')?row.id:stableId(projectId,`ref:${row.id}:${row.kind}`),kind:row.kind,filename:row.filename||row.name}));
@@ -357,15 +357,31 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     const root = rootPath();
     const canonical = projectRows(assets,media,projectId);
     const index = makeIndex(canonical.assets,canonical.rows,projectId);
-    const planned = new Map(canonical.rows.filter(row=>!row.localUnavailable || originalKey(row,projectId)).map(row=>[row.id,row]));
+    const planned = new Map(),checked = new Map(),unavailable = new Set();
+    const plan = row => {
+      if (!checked.has(row)) checked.set(row,(async()=>{
+        if (!UUID.test(row.id || '')) throw Error('项目素材记录编号无效');
+        const objectKey = originalKey(row,projectId);
+        if (objectKey) return {row,objectKey};
+        if (row.localUnavailable || !row.localPath || !upload) return null;
+        try { return {row,filename:await trustedManagedPath(root,row.localPath,projectId)}; }
+        catch (error) { if (['ENOENT','ENOTDIR'].includes(error.code)) return null; throw error; }
+      })());
+      return checked.get(row);
+    };
+    for (const row of canonical.rows) {
+      const entry = await plan(row);
+      if (entry) planned.set(row.id,entry);
+      else unavailable.add(row.id);
+    }
     const copied = new Map();
     const projectWithIds = await transformReferences(project,async (row, required)=>{
       let source = index.find(row);
-      if (!source && inProject(row,projectId) && row.localPath && !row.localUnavailable) {
+      if (!source && row.kind!=='video' && inProject(row,projectId) && row.localPath && !row.localUnavailable) {
         const id = UUID.test(row.id || '') ? row.id : stableId(projectId,row.localPath);
         source = {...withoutSource(row),id,projectId,localPath:row.localPath};
       }
-      if (!source && inProject(row,projectId) && row.filePath && resolveLocalReference) {
+      if (!source && row.kind!=='video' && inProject(row,projectId) && row.filePath && resolveLocalReference) {
         const local = await resolveLocalReference(row,projectId);
         if (local) {
           if (!copied.has(local)) {
@@ -376,29 +392,20 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
         }
       }
       const clean = withoutSource(row);
-      if (!source || source.localUnavailable) {
-        if (required) throw Error('部分分镜或采用音色的素材不在本机，请重新选择素材后再邀请');
+      const entry = source && await plan(source);
+      if (!entry) {
+        if (required) unavailable.add(source?.id || row.mediaId || row.imageId || row.id || row);
         return {...clean,localUnavailable:true};
       }
       delete clean.localUnavailable;
-      planned.set(source.id,source);
+      planned.set(source.id,entry);
       return {...clean,mediaId:source.id};
     });
     // Validate the complete snapshot before uploading any local media. Large videos
     // are sent one at a time through the existing signed uploader.
-    const sources = [];
-    for (const row of planned.values()) {
-      if (!UUID.test(row.id || '')) throw Error('项目素材记录编号无效');
-      const objectKey = originalKey(row,projectId);
-      if (objectKey) sources.push({row,objectKey});
-      else {
-        if (!row.localPath || !upload) throw Error('本机素材文件不存在，请重新选择素材后再邀请');
-        sources.push({row,filename:await trustedManagedPath(root,row.localPath,projectId)});
-      }
-    }
     const rows = new Map();
     const uploadedFiles = new Map();
-    for (const {row,objectKey,filename} of sources) {
+    for (const {row,objectKey,filename} of planned.values()) {
       let key = objectKey || uploadedFiles.get(filename);
       if (!key) {
         const result = await upload(projectId,filename,row.kind);
@@ -421,7 +428,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
       const adopted = rows.get(assetImage(asset)?.id);
       return {...withoutSource(asset),adoptedImageId:adopted?.id || null,image_url:adopted?.objectKey || '',images:asset.images.map(image=>rows.get(image.id)).filter(Boolean)};
     });
-    return scrubShare({project:addObjectKeys(projectWithIds),assets:sharedAssets,media:[...rows.values()]},projectId);
+    return {...scrubShare({project:addObjectKeys(projectWithIds),assets:sharedAssets,media:[...rows.values()]},projectId),unavailableCount:unavailable.size};
   }
 
   return {storeFile,capture,materialize,resolveReferences,prepareShare};

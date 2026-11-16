@@ -86,16 +86,16 @@ export function applyInventoryAi(snapshot,sceneId,metadata,raw){
  }
  return next;
 }
-export async function runBindingRepair({messages,call,validate,isStopped=()=>false,onAttempt=()=>{}}){
+export async function runBindingRepair({messages,call,validate,isStopped=()=>false,onAttempt=()=>{},maxAttempts=3}){
  let feedback='';
- for(let attempt=0;attempt<3;attempt++){
+ for(let attempt=0;attempt<maxAttempts;attempt++){
   if(isStopped())throw Error('任务已停止');
   onAttempt(attempt+1);
   // Transport failures are not retried: only a received, invalid answer gets repair attempts.
   const raw=await call(feedback?[...messages,{role:'user',content:JSON.stringify({validationError:feedback,request:'修正并返回完整JSON；不猜测不确定项'})}]:messages);
   if(isStopped())throw Error('任务已停止');
   if(raw&&typeof raw==='object'&&raw.ok===false){const error=Object.assign(new Error(raw.error||'模型调用失败'),{code:raw.code,partialText:raw.partialText||''});throw error;}
-  try{return validate(typeof raw==='string'?raw:raw.output);}catch(error){feedback=error.message;}
+  try{return validate(typeof raw==='string'?raw:raw.output);}catch(error){if(maxAttempts===1)throw error;feedback=error.message;}
  }
  throw Error(`AI 三次核对后仍有疑问：${feedback}`);
 }

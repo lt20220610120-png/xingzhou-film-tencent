@@ -111,12 +111,23 @@ test('shares prior cloud media by key and uploads new bytes once while keeping r
   assert.doesNotMatch(JSON.stringify(shared),/local-key-fixture|q-signature|filePath|localPath|xzmedia:\/\//);
 });
 
-test('sharing rejects an arbitrary local path outside managed media unless supplied by a verified resolver', async t => {
+test('sharing marks an unverified attachment unavailable without reading its path or blocking the project', async t => {
   const f=await fixture(t,{upload:async()=>assert.fail('must not upload an unverified path')});
   const other=path.join(f.directory,'private.wav');
   await fs.writeFile(other,'private bytes');
   const stored=await f.helper.storeFile({projectId,filePath:other,id:audioId,kind:'audio'});
-  await assert.rejects(f.helper.prepareShare({project:withRefs([{id:'voice:主演:a',projectId,kind:'audio',filePath:other}]),assets:[],media:[stored]}),/本机|素材/);
+  const shared=await f.helper.prepareShare({project:withRefs([{id:'voice:主演:a',projectId,kind:'audio',filePath:other,url:'https://provider.test/private.wav?token=private'}]),assets:[],media:[{...stored,objectKey:audioKey}]});
+  assert.deepEqual(refs(shared)[0],{id:'voice:主演:a',projectId,kind:'audio',localUnavailable:true});
+  assert.equal(shared.unavailableCount,1);
+});
+
+test('missing managed files are marked while known cloud media can be shared without a local copy',async t=>{
+ const f=await fixture(t,{upload:async()=>assert.fail('no file should be uploaded')});
+ const file=path.join(f.directory,'voice.wav');await fs.writeFile(file,'voice');
+ const stored=await f.helper.storeFile({projectId,filePath:file,id:audioId,kind:'audio'});await fs.unlink(stored.filePath);
+ const shared=await f.helper.prepareShare({project:withRefs([{...stored,id:'voice:主演:a',mediaId:audioId},{id:imageId,kind:'image',imageId}]),assets:[],media:[stored,{...image,kind:'image',assetId:undefined,localUnavailable:true}]});
+ assert.equal(refs(shared)[0].localUnavailable,true);assert.equal(refs(shared)[1].objectKey,imageKey);
+ assert.equal(shared.unavailableCount,1);assert.deepEqual(shared.media.map(m=>m.id),[imageId]);
 });
 
 test('captures a verified adopted voice and shares both aliases through the same record', async t => {

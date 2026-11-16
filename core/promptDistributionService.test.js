@@ -33,11 +33,12 @@ test('late reply does not overwrite a human edit of the same prompt, independent
  const next=structuredClone(f.saved);next.decisions.p1={signature:'human',needs:[],confirmed:false,origin:'manual'};next.versions[next.selectedVersionId].decisions.p1=next.decisions.p1;next.revision++;f.saved=next;gate.resolve();
  await assert.rejects(pending,/人工|关联.*修改/);assert.equal(f.saved.decisions.p1.signature,'human');
 });
-test('received invalid model answers stop after three attempts and do not save guessed relationships',async()=>{
+test('an invalid reply stops after one request; an explicit rerun attempts exactly one more',async()=>{
  const f=fixture();f.api.aiChat=async()=>{f.api.count=(f.api.count||0)+1;return '{}'};
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
- await assert.rejects(service.run('p1',{profile:{id:'m'}}),/三次/);assert.equal(f.api.count,3);assert.equal(f.saved.decisions.p1,undefined);
+ await assert.rejects(service.run('p1',{profile:{id:'m'}}),/未返回完整/);assert.equal(f.api.count,1);assert.equal(f.saved.decisions.p1,undefined);
  assert.equal(Object.values(f.saved.sceneDistributionAttempts)[0].status,'failed');
+ await assert.rejects(service.run('p1',{profile:{id:'m'},manual:true}),/未返回完整/);assert.equal(f.api.count,2);assert.equal(service.status().working,false);
 });
 test('manual redispatch has a reserved lane while automatic prompts occupy all slots',async()=>{
  const f=fixture(),hold=deferred(),entered=deferred();let automatic=0,manual=false;
@@ -65,13 +66,13 @@ test('stop during the final queued save read prevents applying the late result',
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'}),pending=service.run('p1',{profile:{id:'m'}}).catch(e=>e);
  await entered.promise;await service.stop();hold.resolve();const result=await pending;assert(result instanceof Error);assert.equal(f.saved.decisions.p1,undefined);
 });
-test('254 queued prompts keep only five prepared claims and let the first retry save before the backlog',async()=>{
+test('254 queued prompts keep only five prepared claims and let the first result save before the backlog',async()=>{
  const f=fixture(),template=f.project.episodes[0].prompts[0],hold=deferred(),firstSaved=deferred();let calls=0,firstCalls=0;
  f.project.episodes[0].prompts=Array.from({length:254},(_,i)=>({...template,id:'p'+(i+1),label:'1-1-'+(i+1)}));
  const save=f.api.promptArtSave;f.api.promptArtSave=async payload=>{const result=await save(payload);if(result.decisions.p1?.confirmed)firstSaved.resolve();return result;};
- f.api.aiChat=async payload=>{calls++;const data=JSON.parse(payload.messages[1].content);if(data.label==='1-1-1'){if(++firstCalls===1)return '{}';return JSON.stringify({assignments:data.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidenceId:data.evidenceSpans.find(s=>s.category===c.category).id,reason:'基础设定明确出现'})),missing:[]});}await hold.promise;return f.output(payload.messages);};
+ f.api.aiChat=async payload=>{calls++;const data=JSON.parse(payload.messages[1].content);if(data.label==='1-1-1'){firstCalls++;return JSON.stringify({assignments:data.cards.map(c=>({cardUid:c.uid,visibility:'visible',evidenceId:data.evidenceSpans.find(s=>s.category===c.category).id,reason:'基础设定明确出现'})),missing:[]});}await hold.promise;return f.output(payload.messages);};
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'}),jobs=f.project.episodes[0].prompts.map(p=>service.run(p.id,{profile:{id:'m'}}).catch(e=>e));
- await firstSaved.promise;assert.equal(firstCalls,2);assert(calls<=7,'a retry must not go behind all 254 entries');assert(Object.keys(f.saved.sceneDistributionAttempts).length<=5,'queued entries must not write hundreds of running claims');assert(service.status().queued>=248);assert.equal(f.saved.decisions.p1.confirmed,true);
+ await firstSaved.promise;assert.equal(firstCalls,1);assert(calls<=6);assert(Object.keys(f.saved.sceneDistributionAttempts).length<=5,'queued entries must not write hundreds of running claims');assert(service.status().queued>=248);assert.equal(f.saved.decisions.p1.confirmed,true);
  await service.stop();hold.resolve();await Promise.all(jobs);
 });
 test('adopting a voice later reuses the reserved speaker association without another model call',async()=>{

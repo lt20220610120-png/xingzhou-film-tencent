@@ -24,7 +24,7 @@ export function artDetailMarker(record,item){
  const marker=record?.detailDeferrals?.[item.id];
  return marker?.sourceSignature===artTextFingerprint(record.sourceContent)&&marker?.fingerprint===artDetailFingerprint(item)?marker:null;
 }
-export const isArtDetailDeferred=(record,item)=>Boolean(needsArtReviewDetails(item)&&artDetailMarker(record,item)?.attempts>=ART_DETAIL_ATTEMPTS);
+export const isArtDetailDeferred=(record,item)=>{const marker=artDetailMarker(record,item);return Boolean(needsArtReviewDetails(item)&&marker&&(marker.attempts>=ART_DETAIL_ATTEMPTS||marker.status==='waiting'||marker.status==='unresolved'));};
 export function deferredArtDetails(ledger,episodes,{includeResolved=false}={}){
  return episodes.flatMap(episode=>{
   const record=ledger.episodes?.[episode.episodeNumber];if(!isReviewCurrent(record,episode))return [];
@@ -46,13 +46,13 @@ export function beginArtDetailAttempt(record,requested){
  }
  return record;
 }
-export function finishArtDetailAttempt(record,requested,errors=[]){
+export function finishArtDetailAttempt(record,requested,errors=[],attemptLimit=ART_DETAIL_ATTEMPTS){
  for(const item of requested){
   const latest=reviewRoster(record).find(i=>i.id===item.id),marker=record.detailDeferrals?.[item.id];
   if(!latest||!marker||marker.sourceSignature!==artTextFingerprint(record.sourceContent)||latest.name!==item.name||latest.category!==item.category||latest.note!==item.note||latest.manual!==item.manual||JSON.stringify(latest.manualSceneIds)!==JSON.stringify(item.manualSceneIds))continue;
   const pending=needsArtReviewDetails(latest);
-  if(pending&&marker.attempts===ART_DETAIL_ATTEMPTS&&marker.status==='retrying')record.history.push({at:Date.now(),reason:'信息卡三次未补齐，标记等待后文',itemId:item.id});
-  record.detailDeferrals[item.id]={...marker,fingerprint:artDetailFingerprint(latest),status:pending?(marker.attempts>=ART_DETAIL_ATTEMPTS?'waiting':'retrying'):'resolved',reason:pending?(errors.find(e=>e.includes(item.name))||errors[0]||'本集信息不足，等待后文依据'):'信息已补齐',updatedAt:Date.now()};
+  if(pending&&marker.attempts===attemptLimit&&marker.status==='retrying')record.history.push({at:Date.now(),reason:attemptLimit===1?'本轮信息不足，保留待核对':'信息卡三次未补齐，标记等待后文',itemId:item.id});
+  record.detailDeferrals[item.id]={...marker,fingerprint:artDetailFingerprint(latest),status:pending?(marker.attempts>=attemptLimit?'waiting':'retrying'):'resolved',reason:pending?(errors.find(e=>e.includes(item.name))||errors[0]||'本集信息不足，等待后文依据'):'信息已补齐',updatedAt:Date.now()};
  }
  return record;
 }

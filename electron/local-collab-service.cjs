@@ -204,17 +204,19 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
           const snapshot = view(current, record);
           const voices = adoptedVoices(current, id);
           if (Object.keys(voices).length) snapshot.project.analysis_progress = { ...snapshot.project.analysis_progress, _sharedVoiceProfiles: voices };
-          const bundle = await mediaFor(current).prepareShare(snapshot);
+          const {unavailableCount,...bundle} = await mediaFor(current).prepareShare(snapshot);
+          record.share.unavailableCount = unavailableCount || 0;
           record.share.committing = true;
           await save(current, record);
           completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, deletedMediaIds:record.deletedMediaIds || [] });
         }
         if (!completed?.project || !completed?.member) throw error('邀请尚未取得完整回执，请重试原邀请', 502);
+        const unavailableCount = record.share.unavailableCount || 0;
         record.shared = true;
         record.sharedProject = summarize({ ...completed.project, storageMode: 'cloud' });
         record.share = null;
         await save(current, record);
-        return completed.member;
+        return {...completed.member,unavailableCount};
       } catch (cause) {
         if ([400, 401, 403, 404, 409, 410, 423].includes(cause.status)) {
           if (!record.share?.revision) record.share = null;

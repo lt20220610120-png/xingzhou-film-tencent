@@ -9,7 +9,7 @@ import {characterAppearanceIssue} from './collabStore.js';
 import {isArtDetailDeferred,beginArtDetailAttempt,finishArtDetailAttempt,artDetailFingerprint,hasCurrentVisualEvidence} from './artDeferredDetails.js';
 
 // Two compact batches can run together; only local checkpoint writes are serialized.
-export async function fillArtReviewDetails({store,episode,project,genre,profile,api,job,onProgress,eligible,batchSize=6,deferMissing=false,laterEvidence=[],evidenceKey='',isEvidenceCurrent=()=>true}){
+export async function fillArtReviewDetails({store,episode,project,genre,profile,api,job,onProgress,eligible,batchSize=6,deferMissing=false,detailAttemptLimit,retryDeferred=false,laterEvidence=[],evidenceKey='',isEvidenceCurrent=()=>true}){
  const number=episode.episodeNumber,current=store.snapshot().episodes[number];
  const eligibleItem=i=>!eligible||eligible.some(old=>old.id===i.id&&old.name===i.name&&old.note===i.note);
  // Reuse an already repaired identity from this project's unchanged earlier
@@ -32,7 +32,7 @@ export async function fillArtReviewDetails({store,episode,project,genre,profile,
   }
   return r;
  });
- const pending=reviewRoster(store.snapshot().episodes[number]).filter(i=>needsArtReviewDetails(i)&&eligibleItem(i)&&(!deferMissing||!isArtDetailDeferred(store.snapshot().episodes[number],i)));
+ const pending=reviewRoster(store.snapshot().episodes[number]).filter(i=>needsArtReviewDetails(i)&&eligibleItem(i)&&(!deferMissing||retryDeferred||!isArtDetailDeferred(store.snapshot().episodes[number],i)));
  const batches=[];for(let n=0;n<pending.length;n+=batchSize)batches.push(pending.slice(n,n+batchSize));
  const errors=[];job.taskIds||=[];let next=0,completed=0;
  const worker=async()=>{while(next<batches.length&&!job.cancelled){
@@ -111,7 +111,7 @@ export async function fillArtReviewDetails({store,episode,project,genre,profile,
    }
   }catch(error){if(error.artCheckpointFailure)throw error;errors.push(String(error.message||error));}
   finally{
-   if(deferMissing&&!job.cancelled)await store.update(number,r=>!job.cancelled&&isReviewCurrent(r,episode)?finishArtDetailAttempt(r,requested,errors):r);
+   if(deferMissing&&!job.cancelled)await store.update(number,r=>!job.cancelled&&isReviewCurrent(r,episode)?finishArtDetailAttempt(r,requested,errors,detailAttemptLimit):r);
    completed+=requested.length;job.taskIds=job.taskIds.filter(id=>id!==taskId);onProgress?.();
   }
  }};
