@@ -230,10 +230,11 @@ ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
 ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
 const artReviewStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','art-review-checkpoints');
 ipcMain.handle('art-review-load-local',async(_,p)=>{
- const local=artReviewStore().load(p);
+ let local=artReviewStore().load(p);
  if(!collabService)return local;
  try {
   const project=await collabService.getProject({projectId:p.projectId});
+  local=(await import('../core/sharedReviewLedger.js')).mergeSharedReviewLedger(local,project);
   const shared=project.analysis_progress?._sharedVoiceProfiles;
   if(!shared||typeof shared!=='object')return local;
   const media=await collabService.listMedia({projectId:p.projectId});
@@ -254,13 +255,17 @@ async function workflowAdmin(projectId){
 }
 const promptArtEnabled=()=>readCloudSession()?.account?.isAdmin===true;
 const promptArtStore=()=>require('./prompt-art-store.cjs').createPromptArtStore(getDataDir(),()=>readCloudSession()?.account?.id);
-ipcMain.handle('prompt-art-status',async(_,payload)=>{try{await workflowAdmin(payload?.projectId);return {enabled:true};}catch{return {enabled:false};}});
+const projectPromptBinding=()=>require('./project-prompt-binding.cjs').createProjectPromptBinding({authorize:projectAccount,getProject:p=>collabService.getProject(p),saveShared:p=>collabService.savePromptBinding(p),localStore:promptArtStore,getLedger:p=>artReviewStore().load(p),scope:()=>JSON.stringify([readCloudSession()?.account?.id,readCloudSession()?.token,getDataDir(),directoryMigration])});
+const loadPromptBinding=p=>projectPromptBinding().isProject(p)?projectPromptBinding().load(p):promptArtStore().load(p);
+ipcMain.handle('prompt-art-status',async(_,payload)=>{try{if(projectPromptBinding().isProject(payload))return await projectPromptBinding().status({...payload,accountId:String(readCloudSession()?.account?.id||'')});await workflowAdmin(payload?.projectId);return {enabled:true};}catch{return {enabled:false};}});
 ipcMain.handle('prompt-art-image-inputs',async(_,payload)=>{
  await workflowAdmin(payload?.projectId);
  if(!promptArtEnabled()||String(readCloudSession()?.account?.id||'')!==payload.accountId)throw Error('账号已变化或未启用本机试用');
  return require('./imported-binding-media.cjs').bindingImageInputs(payload.references,mediaDir(),require('electron').nativeImage);
 });
 for(const method of ['load','save','list'])ipcMain.handle(`prompt-art-${method}`,async(_,payload)=>{
+ if(directoryMigration)throw Error('资料目录正在迁移，请完成后再操作');
+ if(method!=='list'&&projectPromptBinding().isProject(payload))return projectPromptBinding()[method](payload);
  await workflowAdmin(payload?.projectId);
  if(!promptArtEnabled())throw Error('提示词联动美术仅管理员可用');
  if(directoryMigration)throw Error('资料目录正在迁移，请完成后再操作');
@@ -474,7 +479,10 @@ ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=
  return exportImagesToFolder({images,dir,layout,fetchImage});
 });
 ipcMain.handle('collab-list-members',(_,payload)=>collabService.listMembers(payload));
-ipcMain.handle('collab-add-member',(_,payload)=>collabService.addMember(payload));
+ipcMain.handle('collab-add-member',async(_,payload)=>{
+ await loadPromptBinding({...payload,accountId:String(readCloudSession()?.account?.id||'')});
+ return collabService.addMember(payload);
+});
 ipcMain.handle('collab-update-member-role',(_,payload)=>collabService.updateMemberRole(payload));
 ipcMain.handle('collab-remove-member',(_,payload)=>collabService.removeMember(payload));
 ipcMain.handle('collab-list-tasks',(_,payload)=>collabService.listTasks(payload));
@@ -558,7 +566,7 @@ async function submitGeneration(event,p){
    const {validateImportedSubmission}=await import('../core/importedArtBinding.js');
    compiled=validateImportedSubmission(promptArtStore().load({accountId,projectId:p.bindingProjectId}),p,accountId);
 
-  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:payload=>promptArtStore().load(payload),collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,bindingOptions:p.workflowRunId?await productionHost.bindingOptions({runId:p.workflowRunId,projectId:p.bindingProjectId}):{},localSources:readJson(directorProjectsFile(),[])||[]});
+  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:loadPromptBinding,collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:p,accountId,bindingOptions:p.workflowRunId?await productionHost.bindingOptions({runId:p.workflowRunId,projectId:p.bindingProjectId}):{},localSources:readJson(directorProjectsFile(),[])||[]});
   p={...p,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');

@@ -416,6 +416,11 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     listMessages: p => read('listMessages', p, record => record.messages || []),
     sendMessage: p => write('sendMessage', p, () => { throw error('邀请协作者后可使用项目群'); }),
     getStats: p => read('getStats', p, record => ({ members: [], activity: [], media: record.media })),
+    savePromptBinding:p=>write('savePromptBinding',p,(record,current)=>{
+      const {KEY,nextPromptBinding}=require('../cloud-backend/src/prompt-binding.cjs');
+      const next=nextPromptBinding(record.project,p,current.account.id);
+      record.project.analysis_progress={...record.project.analysis_progress,[KEY]:next};return next;
+    }),
     ...Object.fromEntries(['publishAnalysis','saveArtReview','publishArtReview'].map(method => [method, p => write(method, p, (record, current) => require('./local-project-art.cjs').applyLocalArt(record, method, p, current.account.id))])),
   };
 }

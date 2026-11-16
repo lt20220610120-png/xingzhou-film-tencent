@@ -65,6 +65,7 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     adminSetProducer: (p) => call('admin-set-producer', p),
     publishAnalysis:p=>call('analysis-publish',{...p,ackOnly:true}),
     saveArtReview:p=>reviewCall('art-review-save',p),
+    savePromptBinding:p=>call('prompt-binding-save',p),
     publishArtReview:p=>reviewCall('art-review-publish',p),
     appendEpisode:p=>call('art-episode-append',p),
     resolveEpisodeIdentity:p=>call('episode-identity-resolve',p),

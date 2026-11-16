@@ -19,10 +19,10 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const mounted=useRef(false),saving=useRef(false);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
  useEffect(()=>{const sync=event=>{const d=event.detail;if(d.projectId===project.id&&d.accountId===accountId){latest.current.saved=d.data;setSaved(d.data);}};window.addEventListener(BINDING_SAVED_EVENT,sync);return()=>window.removeEventListener(BINDING_SAVED_EVENT,sync);},[accountId,project.id]);
- useEffect(()=>{let alive=true;setLoaded(false);Promise.resolve(api.promptArtStatus?.()).then(async status=>{
+ useEffect(()=>{let alive=true;setLoaded(false);Promise.resolve(api.promptArtStatus?.({projectId:project.id})).then(async status=>{
   if(!alive)return;setAvailable(Boolean(status?.enabled));if(!status?.enabled)return;
   const data=await api.promptArtLoad({accountId,projectId:project.id});if(alive){setSaved(data);setLoaded(true);}
- }).catch(problem=>alive&&setError(problem.message));return()=>{alive=false;};},[api,accountId,project.id]);
+ }).catch(problem=>alive&&setError(problem.message));return()=>{alive=false;};},[api,accountId,project.id,project.analysis_progress?._sharedPromptBinding?.revision]);
  const currentSnapshot=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
  const versions=useMemo(()=>bindingVersionOptions(currentSnapshot,saved),[currentSnapshot,saved]);
  const selectedVersion=versions.some(row=>row.id===versionId)?versionId:versions[0].id;

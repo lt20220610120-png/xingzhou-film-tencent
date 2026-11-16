@@ -44,6 +44,7 @@ function extendRepository(pool) {
     ...require('./director-versions.cjs').directorVersionRepository(pool,{onPublish:require('./director-live.cjs').directorLiveRepository(pool).resetDirectorLive}),
     ...require('./analysis-repository.cjs').analysisRepository(pool),
     ...require('./art-review-repository.cjs').artReviewRepository(pool),
+    ...require('./prompt-binding.cjs').promptBindingRepository(pool),
     findReadableDirectorSource: (source, uid) => readableDirector(pool.query.bind(pool), source, uid),
     async createDirectorProject(p, uid, ownerName) {
       const genre = publicGenre(p.genre) + '\n' + DIRECTOR_SENTINEL;

@@ -11,6 +11,7 @@ import {selectBindingVersion} from './promptBindingVersions.js';
 import {activeDirectorEditionId,directorPromptEditions,directorEditionEpisodes} from './directorPromptEditions.js';
 import {currentDirectorEpisodePrompts} from './directorCreative.js';
 import {promptTimingMetadata} from './promptDisplay.js';
+import {mergeSharedReviewLedger} from './sharedReviewLedger.js';
 
 const categories={人物:'character',场景:'scene',道具:'prop'};
 const clean=text=>String(text||'').normalize('NFKC').replace(/[【】\[\]\s]/g,'');
@@ -265,7 +266,7 @@ export async function loadFreshBinding({api,projectId,accountId,localSources=[],
  const [saved,project,assets,ledger]=await Promise.all([api.promptArtLoad({projectId,accountId}),api.collabGetProject({projectId}),api.collabListAssets({projectId}),api.artReviewLoadLocal({projectId})]);
  if(!saved?.enabled&&!allowUnbound)throw Error('该项目已关闭联动模式，请重新核对');
  const source=localSources.find(row=>!row.cloudProjectId&&row.id===project.director_project_id);
- const effectiveLedger=structuredClone(ledger||{episodes:{}});effectiveLedger.episodes||={};
+ const effectiveLedger=mergeSharedReviewLedger(ledger,project);effectiveLedger.episodes||={};
  for(const [number,progress] of Object.entries(project.analysis_progress||{}))if(progress.review&&Number(progress.review.version)>Number(effectiveLedger.episodes[number]?.version||0)){
   const remote=progress.review,local=effectiveLedger.episodes[number];
   if(remote.sourceContent!==undefined)effectiveLedger.episodes[number]=remote;

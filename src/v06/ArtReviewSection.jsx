@@ -115,7 +115,7 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
  const [promptAssignment,setPromptAssignment]=useState(null);
  const [reviewMode,setReviewMode]=useState('prompt'),[promptEnabled,setPromptEnabled]=useState(false);
  const [reviewVersion,setReviewVersion]=useState(()=>readCollabNavigation(navScope).promptVersionId||'');
- useEffect(()=>{let alive=true;Promise.resolve(api.promptArtStatus?.()).then(result=>{if(alive)setPromptEnabled(Boolean(result?.enabled));}).catch(()=>{});return()=>{alive=false;};},[api,accountId]);
+ useEffect(()=>{let alive=true;Promise.resolve(api.promptArtStatus?.({projectId:project.id})).then(result=>{if(alive)setPromptEnabled(Boolean(result?.enabled));}).catch(()=>{});return()=>{alive=false;};},[api,accountId,project.id]);
  const publishTasks=useRef(new Set()),sceneNavRef=useRef(null),[selectedScenes,setSelectedScenes]=useState(()=>readCollabNavigation(navScope).scenes||{});
  useEffect(()=>{rememberCollabNavigation(navScope,{episodeNumber:number,scenes:selectedScenes,promptVersionId:reviewVersion});},[accountId,project.id,number,selectedScenes,reviewVersion]);
  const [modelId,setModelId,profile]=useWindowModel(`analysis:${project.id}`,state.apiProfiles||[],state.activeApiId);

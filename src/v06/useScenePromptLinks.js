@@ -20,7 +20,7 @@ export default function useScenePromptLinks({project,ledger,assets,api,accountId
   if(enabled)Promise.resolve(api.promptArtLoad({projectId:project.id,accountId})).then(data=>{if(alive){setSaved(data);setLoaded(true);}}).catch(e=>alive&&setError(e.message));
   const sync=event=>{const d=event.detail;if(d.projectId===project.id&&d.accountId===accountId&&alive){setSaved(d.data);setLoaded(true);}};
   window.addEventListener(BINDING_SAVED_EVENT,sync);return()=>{alive=false;window.removeEventListener(BINDING_SAVED_EVENT,sync);};
- },[api,project.id,accountId,enabled]);
+ },[api,project.id,accountId,enabled,project.analysis_progress?._sharedPromptBinding?.revision]);
  const current=useMemo(()=>bindingSnapshot(project,ledger,assets,saved?.snapshot),[project,ledger,assets,saved?.snapshot]);
  const {snapshot,decisions}=useMemo(()=>selectBindingVersion(current,saved,bindingVersionOptions(current,saved).some(row=>row.id===versionId)?versionId:undefined),[current,saved,versionId]);
  const store=getArtReviewStore({api,projectId:project.id,accountId});

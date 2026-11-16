@@ -758,7 +758,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
     setExportBindingError('');
     if(promptBinding?.currentSnapshot){setExportBinding(promptBinding);return;}
     setExportBinding(null);
-    Promise.resolve(api.promptArtStatus?.()).then(async status=>{
+    Promise.resolve(api.promptArtStatus?.({projectId:project.id})).then(async status=>{
       if(!status?.enabled||!alive){if(alive)setExportBindingError('当前账号未启用提示词关联导出');return;}
       const store=getArtReviewStore({api,projectId:project.id,accountId});
       const [saved]=await Promise.all([api.promptArtLoad({projectId:project.id,accountId}),store.load(project,assets)]);

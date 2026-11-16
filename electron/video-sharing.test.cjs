@@ -20,3 +20,13 @@ test('sharing enforces project lock and permission before downloading',async()=>
  await assert.rejects(share({projectId:'p',jobId:'j'}),/锁定|权限/);
  }
 });
+
+test('another account cannot see a generated link until explicit cloud sharing',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-private-video-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ t.mock.method(global,'fetch',async()=>Response.json({video_url:'https://cdn.test/private.mp4'}));
+ const {createGenerationJobs}=require('./generation-jobs.cjs'),owner=createGenerationJobs(path.join(root,'owner')),guest=createGenerationJobs(path.join(root,'guest'));
+ const job=await owner.submit({projectId:'p',kind:'video',endpoint:'https://provider.test/v1',apiKey:'fixture',model:'model',prompt:'test',duration:5,videoProtocol:'videos-json'}),cloud=[];
+ assert.equal(job.status,'success');assert.equal(guest.list().length,0);assert.equal(cloud.length,0);
+ const share=require('./video-sharing.cjs').createVideoSharing({getJob:()=>job,getProject:async()=>({myRole:'collaborator'}),guard:async()=>{},listMedia:async()=>cloud,download:async()=>path.join(root,'result.mp4'),saveLocal:async()=>{},markRecorded:async()=>{},upload:async p=>{const media={id:'shared',projectId:p.projectId,url:'https://cloud.test/shared.mp4'};cloud.push(media);return media}});
+ await share({jobId:job.id,projectId:'p'});assert.equal(cloud.length,1);assert.equal(cloud[0].url,'https://cloud.test/shared.mp4');assert.equal(guest.list().length,0);
+});

@@ -2,6 +2,7 @@ import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignatu
 import {listCollabEpisodes,inspectCollabEpisodes} from './collabEpisodes.js';
 import {artWorkflowState} from './artWorkflow.js';
 import {createTaskPool} from './asyncTaskPool.js';
+import {mergeSharedReviewLedger} from './sharedReviewLedger.js';
 
 const stores=new Map();
 const fullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(scene=>record.published?.[scene.id]?.signature===reviewSceneSignature(scene)));
@@ -77,7 +78,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   setAnalysisRun(value){return enqueue(()=>persist({...structuredClone(ledger),analysisRun:structuredClone(value)}));},
   setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},
   async load(project,assets=[]){return enqueue(async()=>{
-   const next=loaded?structuredClone(ledger):await api.artReviewLoadLocal({projectId,...(accountId?{accountId}:{})})||{episodes:{}};next.episodes||={};
+   const next=mergeSharedReviewLedger(loaded?ledger:await api.artReviewLoadLocal({projectId,...(accountId?{accountId}:{})}),project);next.episodes||={};
    for(const [n,p]of Object.entries(project.analysis_progress||{}))if(p.review){
     const local=next.episodes[n];
     // Old pending checkpoints and unpublished results remain local, even when a

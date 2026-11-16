@@ -30,7 +30,7 @@ export function getArtDistributionController(options){
  const emit=()=>listeners.forEach(fn=>fn());
  const context=()=>({project:config.project,ledger:config.store.snapshot(),assets:config.existingAssets||[]});
  const prepare=async()=>{
-  if((await api.promptArtStatus?.())?.enabled){service=getPromptDistributionService({api,projectId,accountId,getContext:context,onSaved:data=>config.onBindingSaved?.(data)});service.focusScene(focusedSceneId);}
+  if((await api.promptArtStatus?.({projectId}))?.enabled){service=getPromptDistributionService({api,projectId,accountId,getContext:context,onSaved:data=>config.onBindingSaved?.(data)});service.focusScene(focusedSceneId);}
   return service;
  };
  const processEpisode=async(episode,job,settings)=>{

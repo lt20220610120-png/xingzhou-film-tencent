@@ -8,7 +8,7 @@ exports.verify = async (exe,version,dependencies={}) => {
   const bundled = JSON.parse(asar.extractFile(archive,'package.json').toString());
   assert.equal(bundled.version,version);
   const entries=asar.listPackage(archive);
-  const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication'];
+  const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
   for(const name of requiredProjectModules){
     const relative=path.join('cloud-backend','src',name+'.cjs');
     assert.ok(entries.some(entry=>entry.replace(/^[\\/]/,'').replaceAll('\\','/')===relative.replaceAll('\\','/')),`Packaged project module missing: ${name}`);

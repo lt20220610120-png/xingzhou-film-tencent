@@ -36,6 +36,19 @@ function fixture(t, overrides = {}) {
 
 const source = { name: '单人制作', episodes: [{ id: 'e1', title: '第一集', prompts: [{ id: 's1', label: '1-1-1', content: '原稿' }] }] };
 
+test('local prompt associations survive restart and enter the invitation snapshot',async t=>{
+ let shared;
+ const f=fixture(t,{prepareLocalShare:()=>({revision:'reserved'}),commitLocalShare:p=>{
+  shared=p.project;return {project:{...p.project,id:p.projectId,myRole:'producer'},member:{id:'member',user_id:'other'}};
+ }}),service=f.setup(),project=await service.createProject(source);
+ const data={enabled:true,snapshot:{projectId:project.id,cards:[],entries:[]},decisions:{s1:{confirmed:true}}};
+ await service.savePromptBinding({projectId:project.id,baseRevision:0,writeId:'first',data});
+ assert.equal(f.calls.length,0);
+ assert.equal((await f.setup().getProject({projectId:project.id})).analysis_progress._sharedPromptBinding.revision,1);
+ await f.setup().addMember({projectId:project.id,username:'other',role:'collaborator'});
+ assert.equal(shared.analysis_progress._sharedPromptBinding.decisions.s1.confirmed,true);
+});
+
 test('single-user project survives restart and saves actual storyboard while cloud is unavailable', async t => {
   const f = fixture(t);
   const project = await f.setup().createProject(source);
