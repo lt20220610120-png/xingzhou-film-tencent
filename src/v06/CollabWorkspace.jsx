@@ -6,7 +6,7 @@ import PromptPublicationProgress from './PromptPublicationProgress.jsx';
 import {publishedReviewProject} from '../../core/publishedReviewProject.js';
 import {notifyBindingSaved} from './useScenePromptLinks.js';
 import useProjectPromptBinding from './useProjectPromptBinding.js';
-import {assetPromptUsage} from '../../core/promptAssetUsage.js';
+import {assetPromptUsage,assetMatchesPromptCount} from '../../core/promptAssetUsage.js';
 import {loadFreshBinding,bindingSnapshot} from '../../core/promptArtBinding.js';
 import {ArtExportChoiceDialog,ArtExportAudioDialog} from './ArtExportDialogs.jsx';
 import {bindingVersionOptions,selectBindingVersion,promptExportImages,sceneVoiceExports} from '../../core/promptBindingVersions.js';
@@ -657,6 +657,7 @@ export function AssetIdentity({ asset, assets = [], index, checked, onToggle, ge
     <div className="art-row-index"><span>{String(index + 1).padStart(2, '0')}</span>{onToggle && <input type="checkbox" aria-label={`选择 ${asset.name} 批量生成`} checked={checked} onChange={onToggle} />}</div>
     <strong>{parsed.base || asset.name}</strong>
     {parsed.variant && <span className="art-row-variant">{parsed.variant}</span>}
+    {asset.category==='prop'&&usage.promptMode&&<small>关联 {usage.promptIds.length} 条提示词</small>}
     {!!asset.sceneIds?.length && <AssetSceneLinks key={asset.id} sceneIds={usage.sceneIds} promptIds={usage.promptIds} promptMode={usage.promptMode} name={parsed.base || asset.name}/>}
     {Array.isArray(asset.sceneIds)&&!asset.sceneIds.length&&!asset.episodes?.length&&<small>已移出场景 · 历史图片保留</small>}
     <small>{asset.reused ? `复用自第 ${asset.first_episode} 集` : asset.first_episode ? `首现 · 第 ${asset.first_episode} 集` : ASSET_CATEGORIES[asset.category]}</small>
@@ -955,8 +956,12 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
     </div>
   );
 }
-function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore, accountId, onProjectChange }) {
-  const {data:promptBinding}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
+export function AssetsSection({ project, assets, api, state, refresh, canEdit, draftStore, accountId, onProjectChange }) {
+  const {data:promptBinding,loading:bindingLoading,error:bindingError}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
+  const [propComparison,setPropComparison]=useState('at-least');
+  const [propThreshold,setPropThreshold]=useState('2');
+  const propCounts=useMemo(()=>new Map(assets.filter(a=>a.category==='prop').map(a=>[a.id,assetPromptUsage(promptBinding,a).promptIds.length])),[assets,promptBinding]);
+  const propCountKey=JSON.stringify([...propCounts]);
   const analysisJob=useCollabAnalysisJob(project,api,accountId,assets);
   const syncPanel=<>{analysisJob?.notice&&<p className="collab-notice">{analysisJob.notice}</p>}{analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}<AnalysisSyncDetails job={analysisJob}/></>;
   const [category, setCategory] = useState('character');
@@ -988,19 +993,22 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
   const [manualBaseline,setManualBaseline]=useState(null);
   const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
   const categoryAssets = assets.filter((a) => a.category === category&&(showArchived?archivedAssets.includes(a):!archivedAssets.includes(a)));
-  const pendingAssets=ungeneratedAssets(categoryAssets);
-  const displayAssets=visibleArtAssets(categoryAssets,onlyMissing);
+  const propFiltering=category==='prop'&&!showArchived&&propComparison!=='all';
+  const propFilterReady=!bindingLoading&&!bindingError&&promptBinding&&!promptBinding.error;
+  const eligibleAssets=propFiltering?categoryAssets.filter(a=>propFilterReady&&assetMatchesPromptCount(propCounts.get(a.id)||0,propComparison,Number(propThreshold))):categoryAssets;
+  const pendingAssets=ungeneratedAssets(eligibleAssets);
+  const displayAssets=visibleArtAssets(eligibleAssets,onlyMissing);
   const list = displayAssets.filter((asset) => [asset.name,displayAssetName(asset,assets)].some(name=>name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
   const recoveryPlan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
   const recoveryScope=`当前${ASSET_CATEGORIES[category]}分类 · ${search.trim()?`搜索“${search.trim()}” · `:''}${list.length} 项未生成资产（包含全部匹配妆造）`;
   const characterGroups = category === 'character' ? groupCharacterAssets(displayAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
   const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category, assets);
   useEffect(()=>{
-    const scope=`${project.id}:${category}:${showArchived}`;
+    const scope=`${project.id}:${category}:${showArchived}:${category==='prop'?propComparison+':'+propThreshold:''}`;
     const previous=previousBatchAssets.current;
-    setBatchSelectedIds(current=>previous.scope!==scope?ungeneratedAssets(categoryAssets).map(asset=>asset.id):reconcileAssetSelection(current,previous.assets,categoryAssets));
-    previousBatchAssets.current={scope,assets:categoryAssets};
-  },[project.id,category,showArchived,assets]);
+    setBatchSelectedIds(current=>previous.scope!==scope?ungeneratedAssets(eligibleAssets).map(asset=>asset.id):reconcileAssetSelection(current,previous.assets,eligibleAssets));
+    previousBatchAssets.current={scope,assets:eligibleAssets};
+  },[project.id,category,showArchived,assets,propCountKey,propComparison,propThreshold,bindingLoading,bindingError,Boolean(propFilterReady)]);
   const selectedIds=batchSelectedIds.filter(id=>displayAssets.some(asset=>asset.id===id));
   const allPendingSelected=pendingAssets.length?pendingAssets.every(asset=>selectedIds.includes(asset.id)):selectedIds.length>0;
   const toggleAsset=id=>setBatchSelectedIds(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);
@@ -1120,9 +1128,14 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
           <button className="primary" disabled={!canEdit||batchBusy||showArchived||!batchProfile||!selectedIds.length} onClick={generateBatch}><Sparkles size={14}/>{batchBusy?(batchKind==='recovery'?'恢复中…':'批量生成中…'):`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
         </div>
       </div>
-      <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${displayAssets.length} 项 · ${onlyMissing?'仅生成当前分类未出图的资产与妆造':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>{batchKind==='recovery'?'停止后续恢复':'停止后续生成'}</button>}</div>
+      <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${displayAssets.length} 项 · ${onlyMissing?'仅生成当前分类未出图的资产与妆造':category==='prop'?'默认选择符合条件的未生成道具':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>{batchKind==='recovery'?'停止后续恢复':'停止后续生成'}</button>}</div>
+      {category==='prop'&&!showArchived&&<div className="prop-prompt-filter" role="group" aria-label="按道具关联提示词数量筛选">
+        <label>关联提示词<select aria-label="道具关联数量条件" value={propComparison} disabled={batchBusy} onChange={e=>setPropComparison(e.target.value)}><option value="all">全部</option><option value="at-least">至少</option><option value="at-most">至多</option></select></label>
+        {propComparison!=='all'&&<label><span className="art-review-sr-only">提示词条数</span><input type="number" aria-label="道具关联提示词条数" min="1" step="1" value={propThreshold} disabled={batchBusy} onChange={e=>setPropThreshold(e.target.value)}/><span>条</span></label>}
+        <span role="status">{bindingLoading?'正在读取关联…':bindingError||promptBinding?.error?'关联读取失败，请刷新项目重试':propFiltering&&!Number.isSafeInteger(Number(propThreshold))||propFiltering&&Number(propThreshold)<1?'请输入正整数':`符合 ${eligibleAssets.length}/${categoryAssets.length} 项 · 未生成 ${pendingAssets.length} 项`}</span>
+      </div>}
       {batchError&&<div className="collab-error" role="alert">{batchError}</div>}
-      <div className="art-workbench-subhead"><span>全剧{ASSET_CATEGORIES[category]} · {onlyMissing?`${displayAssets.length}/${categoryAssets.length}`:categoryAssets.length} 项<span className="art-workbench-caption">{category === 'character' ? '按人物定位，框内切换妆造' : '提示词与生成结果一一对应'}</span></span><div className="asset-view-filters"><button type="button" className={`secondary asset-missing-filter ${onlyMissing?'active':''}`} aria-pressed={onlyMissing} disabled={batchBusy} onClick={()=>setOnlyMissing(value=>!value)}>只看未生成（{pendingAssets.length}）</button><input type="search" aria-label="搜索全剧资产" placeholder="搜索角色、妆造或资产" value={search} disabled={batchBusy} onChange={(event) => setSearch(event.target.value)} /></div></div>
+      <div className="art-workbench-subhead"><span>全剧{ASSET_CATEGORIES[category]} · {onlyMissing||propFiltering?`${displayAssets.length}/${categoryAssets.length}`:categoryAssets.length} 项<span className="art-workbench-caption">{category === 'character' ? '按人物定位，框内切换妆造' : '提示词与生成结果一一对应'}</span></span><div className="asset-view-filters"><button type="button" className={`secondary asset-missing-filter ${onlyMissing?'active':''}`} aria-pressed={onlyMissing} disabled={batchBusy} onClick={()=>setOnlyMissing(value=>!value)}>只看未生成（{pendingAssets.length}）</button><input type="search" aria-label="搜索全剧资产" placeholder="搜索角色、妆造或资产" value={search} disabled={batchBusy} onChange={(event) => setSearch(event.target.value)} /></div></div>
       {onlyMissing&&!showArchived&&<section className="asset-recovery-batch" aria-label="未生成图片批量恢复">
         <div className="asset-recovery-batch-heading"><div><strong>原图批量恢复</strong><small>{recoveryScope} · {recoveryPlan.targets.length} 项可恢复{recoveryPlan.busy.length?` · ${recoveryPlan.busy.length} 项处理中`:''}</small></div><div className="asset-recovery-batch-actions"><button className="secondary" disabled={!canEdit||batchBusy||!recoveryPlan.targets.length} onClick={recoverBatch}><RefreshCw size={14}/>一键重试原图（{recoveryPlan.targets.length}）</button><button className="secondary asset-recovery-abandon-all" disabled={!canEdit||batchBusy||!recoveryPlan.targets.length} onClick={abandonBatch}><Trash2 size={14}/>一键放弃旧结果（{recoveryPlan.targets.length}）</button></div></div>
         <p>只恢复已有结果，不重新生图；没有旧结果的项目会跳过。批量操作按当前分类与搜索范围执行，与勾选数量无关。</p>
@@ -1144,7 +1157,7 @@ function AssetsSection({ project, assets, api, state, refresh, canEdit, draftSto
           <AssetIdentity asset={selected} assets={assets} promptBinding={promptBinding} index={index} checked={selectedIds.includes(selected.id)} onToggle={!canEdit||batchBusy||showArchived?undefined:()=>toggleAsset(selected.id)} generating={generatingAssetIds.has(selected.id)} />
           <AssetDetail key={selected.id} project={project} asset={selected} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit} generating={generatingAssetIds.has(selected.id)} onGenerateImage={onGenerateImage} draftStore={draftStore} accountId={accountId} />
         </article>)}
-        {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : onlyMissing?'当前分类已全部生成图片':`暂无${ASSET_CATEGORIES[category]}资产`}</div>}
+        {!list.length && <div className="collab-empty small">{search ? '没有找到匹配的资产' : propFiltering&&!eligibleAssets.length?(bindingLoading?'正在读取道具关联…':'没有符合关联数量条件的道具'):onlyMissing?'当前分类已全部生成图片':`暂无${ASSET_CATEGORIES[category]}资产`}</div>}
       </div>
       </div>
       {manualOpen && <ManualAssetDialog project={project} api={api} refresh={refresh} initialName={manualName} initialCategory={category} baseline={manualBaseline} onClose={() => setManualOpen(false)} />}

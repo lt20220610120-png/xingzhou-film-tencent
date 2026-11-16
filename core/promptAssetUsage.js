@@ -6,7 +6,7 @@ import {selectBindingVersion} from './promptBindingVersions.js';
 
 export function assetPromptUsage(binding,asset){
  const sceneIds=asset.sceneIds||[],snapshot=binding?.snapshot;
- if(binding?.publishedStoryboards)return {promptMode:true,promptIds:binding.publishedStoryboards.filter(p=>(p.generationConfig?.bindingAssetIds||[]).includes(asset.id)||(p.generationConfig?.bindingAssets||[]).some(c=>c.assetId?c.assetId===asset.id:c.category===asset.category&&c.name===asset.name)||(p.generationConfig?.references||[]).some(r=>r.assetId===asset.id)).map(p=>p.label),sceneIds};
+ if(binding?.publishedStoryboards)return {promptMode:true,promptIds:[...new Set(binding.publishedStoryboards.filter(p=>(p.generationConfig?.bindingAssetIds||[]).includes(asset.id)||(p.generationConfig?.bindingAssets||[]).some(c=>c.assetId?c.assetId===asset.id:c.category===asset.category&&c.name===asset.name)||(p.generationConfig?.references||[]).some(r=>r.assetId===asset.id)).map(p=>p.label).filter(Boolean))],sceneIds};
  if(!snapshot?.entries?.length)return {promptMode:false,promptIds:[],sceneIds};
  const cards=snapshot.cards.filter(card=>card.assetId===asset.id||(card.name===asset.name&&card.category===asset.category)),promptIds=[];
  for(const entry of snapshot.entries){
@@ -15,6 +15,12 @@ export function assetPromptUsage(binding,asset){
   if(needs.some(need=>need.visibility!=='excluded'&&cards.some(card=>card.uid===need.cardUid))&&!promptIds.includes(entry.label))promptIds.push(entry.label);
  }
  return {promptMode:true,promptIds,sceneIds};
+}
+
+export function assetMatchesPromptCount(count,comparison,minimum){
+ if(comparison==='all')return true;
+ if(!Number.isSafeInteger(minimum)||minimum<1)return false;
+ return comparison==='at-least'?count>=minimum:comparison==='at-most'?count<=minimum:false;
 }
 
 export function storyboardPromptValue(binding,shot,value,accountId){
