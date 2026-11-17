@@ -11,6 +11,7 @@ import {requestArtModel,getArtModelQueue} from './artModelQueue.js';
 import {bindingProblems} from './promptArtBinding.js';
 import {hasProductionAssociation} from './productionBindingState.js';
 import {automaticSceneAssociation} from './automaticArtAssociation.js';
+import {automaticallyPublishPrompts} from './automaticPromptPublication.js';
 
 
 const registries=new WeakMap();
@@ -163,6 +164,16 @@ export async function runArtAnalysisPipeline(args){
  }
  const results=await Promise.all(pending);for(const result of results)errors.push(...result);
  if(!job.cancelled)errors.push(...await control.autoAssociate());
+ let automaticPublication;
+ if(!job.cancelled&&store.snapshot().workflow==='auto-publish'&&!args.targetEpisodeNumbers?.length&&!args.mapOnly&&!args.detailsOnly&&!args.focusItem){
+  const guard=()=>{if(job.cancelled||store.snapshot().workflow!=='auto-publish'||control.status().paused)throw Error('自动发布已停止');};
+  try{
+   const service=getPromptDistributionService({api,projectId:project.id,accountId,getContext:()=>({project,ledger:store.snapshot(),assets:args.existingAssets||[]}),onSaved:args.onBindingSaved,onPublished:args.onPublished});
+   automaticPublication=await automaticallyPublishPrompts({api,projectId:project.id,accountId,service,store,guard});
+   if(!automaticPublication.remaining&&!automaticPublication.problems.length&&!automaticPublication.failures.length){job.notice=`全剧 ${automaticPublication.published} 条提示词已自动核实发布`;errors.length=0;}
+   else errors.push(...automaticPublication.failures,...automaticPublication.problems);
+  }catch(error){errors.push(error.message);}
+ }
  await store.setAnalysisRun({status:job.cancelled?'stopped':errors.length?'paused':'complete',updatedAt:Date.now(),modelDriven:true});
- return {...summarizeArtReview(store.snapshot(),project),errors:[...new Set(errors)]};
+ return {...summarizeArtReview(store.snapshot(),project),automaticPublication,errors:[...new Set(errors)]};
 }

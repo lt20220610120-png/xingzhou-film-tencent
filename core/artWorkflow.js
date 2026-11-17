@@ -2,7 +2,7 @@ import {isReviewCurrent,isSceneVerified,needsArtReviewDetails,reviewRoster,revie
 import {inspectCollabEpisodes} from './collabEpisodes.js';
 import {isArtDetailDeferred,deferredArtDetails} from './artDeferredDetails.js';
 
-export const artWorkflowMode=ledger=>ledger?.workflow==='guided'?'guided':'automatic';
+export const artWorkflowMode=ledger=>['guided','auto-publish'].includes(ledger?.workflow)?ledger.workflow:'automatic';
 export function artEpisodeReady(record,episode){
  return Boolean(isReviewCurrent(record,episode)&&record.scenes?.length&&record.generation?.status!=='interrupted'
   &&(record.status==='generated'||record.scenes.every(isSceneVerified))
@@ -26,7 +26,7 @@ export function artWorkflowState(ledger,project){
  if(inspection.error)return {mode,phase:'identity-conflict',episodeNumber:null,message:`分集编号待核对：${inspection.error}。可在项目内修改或选择主稿，已有美术资产仍可使用。`};
  for(const episode of episodes){
   const n=episode.episodeNumber,record=ledger.episodes?.[n];
-  if(!(mode==='automatic'?artEpisodeTraversable:artEpisodeReady)(record,episode))return {mode,phase:'generate',episodeNumber:n,message:`下一步：完成第 ${n} 集清单、场景关联和详细描述。`};
+  if(!(mode!=='guided'?artEpisodeTraversable:artEpisodeReady)(record,episode))return {mode,phase:'generate',episodeNumber:n,message:`下一步：完成第 ${n} 集清单、场景关联和详细描述。`};
   if(mode==='guided'&&!artEpisodeConfirmed(record,episode)){
    const allVerified=record.scenes.every(isSceneVerified),unassigned=unresolvedArtAssignments(record);
    return {mode,phase:'review',episodeNumber:n,message:allVerified&&unassigned.length

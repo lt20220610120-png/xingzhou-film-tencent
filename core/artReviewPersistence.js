@@ -76,7 +76,7 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   setVoiceProfile(key,reduce){return enqueue(async()=>{const next=structuredClone(ledger);next.voiceProfiles={...next.voiceProfiles,[key]:reduce(structuredClone(Object.hasOwn(next.voiceProfiles||{},key)?next.voiceProfiles[key]:{}))};await persist(next);return next.voiceProfiles[key];});},
   setContext(value){return enqueue(()=>persist({...structuredClone(ledger),scriptContext:structuredClone(value)}));},
   setAnalysisRun(value){return enqueue(()=>persist({...structuredClone(ledger),analysisRun:structuredClone(value)}));},
-  setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},
+  setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided','auto-publish'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},
   async load(project,assets=[]){return enqueue(async()=>{
    const next=mergeSharedReviewLedger(loaded?ledger:await api.artReviewLoadLocal({projectId,...(accountId?{accountId}:{})}),project);next.episodes||={};
    for(const [n,p]of Object.entries(project.analysis_progress||{}))if(p.review){

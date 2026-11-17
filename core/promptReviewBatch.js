@@ -54,10 +54,12 @@ export function promptReviewState(state,scope={}){
 
 // Resolve only the exact needs the person saw. One CAS write retains unrelated
 // decisions, including results that finished in other episodes in the meantime.
-export async function resolvePromptMissingReferences({service,targets,versionId,restore=false}){
+export async function resolvePromptMissingReferences({service,targets,versionId,restore=false,reason,guard=()=>{}}){
+ guard();
  if(!targets?.length)throw Error('请选择待处理项');
  const initial=await service.read(versionId),selectedVersion=initial.snapshot.versionId,followedCurrent=selectedVersion===currentPromptVersionId(initial.currentSnapshot,initial.saved);
  return service.mutate(selectedVersion,state=>{
+  guard();
   if(followedCurrent&&currentPromptVersionId(state.currentSnapshot,state.saved)!==selectedVersion)throw Error('提示词来源版本已变化，请重新检查待处理项');
   const pending=new Map(),selected=new Map(),decisions={...state.decisions};
   const choices=promptReviewState(state,{});
@@ -79,7 +81,7 @@ export async function resolvePromptMissingReferences({service,targets,versionId,
     if(!needs.has(need.id))return need;
     const {skipReference,locked,...rest}=need;return {...rest,visibility:'visible',reason:'已恢复为待补充'};
    })};
-   else for(const needId of needs)decisions[id]=skipPromptNeed(decisions[id],needId);
+   else for(const needId of needs)decisions[id]=skipPromptNeed(decisions[id],needId,reason);
    decisions[id]=saveDistribution(state.snapshot,pending.get(id).entry,decisions[id]);
   }
   return saveBindingVersion(state.saved,state.snapshot,decisions);

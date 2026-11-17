@@ -121,9 +121,9 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   try {
     const result = await runAnalysis({ project, genre, profile, api, job,
       targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, detailsOnly, accountId,
-      pipeline:true,onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data),onProgress: () => {} });
+      pipeline:true,onPublished:published=>window.dispatchEvent(new CustomEvent('xingzhou-storyboard-published',{detail:{accountId,project:published}})),onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data),onProgress: () => {} });
     job.status = job.cancelled ? 'stopped' : result.errors?.length ? 'paused' : result.workflow?.phase==='review' ? 'awaiting-review' : 'completed'; job.taskId = '';
-    Object.assign(job,result);job.notice = `${artSyncNotice(result)} ${result.workflow?.message||''}`;job.error=(result.errors||[]).join('\n');
+    Object.assign(job,result);job.notice = result.automaticPublication&&!result.automaticPublication.remaining&&!result.errors?.length?`全剧 ${result.automaticPublication.published} 条提示词已自动核实发布`:`${artSyncNotice(result)} ${result.workflow?.message||''}`;job.error=(result.errors||[]).join('\n');
   } catch (error) {
     job.taskId = '';
     if (job.cancelled&&!job.pipelineFailure || String(error.message || '').includes('任务已停止')) {
