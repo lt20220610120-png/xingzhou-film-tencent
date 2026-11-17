@@ -24,6 +24,7 @@ export function assetMatchesPromptCount(count,comparison,minimum){
 }
 
 export function storyboardPromptValue(binding,shot,value,accountId){
+ if(value.storyboardSceneImport)return {...value,referenceBindingMode:'storyboard',bindingIssue:''};
  // Published rows already contain the exact per-prompt reference assignment.
  // A changing director draft must never recompile a manual storyboard edit.
  if(shot.storyboardPublicationId||value.referenceBindingMode==='storyboard'){
@@ -63,6 +64,7 @@ export function storyboardPromptValue(binding,shot,value,accountId){
  }catch(error){return pending(error.message);}
 }
 export function canRefreshStoryboardBinding(draft,shot){
+ if(draft?.value?.storyboardSceneImport)return false;
  if(!draft?.dirty)return true;
  const value=draft.value;
  if(shot.storyboardPublicationId)return value.prompt===value.bindingCompiledPrompt&&!value.autoReferenceExclusions?.length&&JSON.stringify((value.references||[]).map(r=>r.id))===JSON.stringify(value.bindingExpectedReferences);

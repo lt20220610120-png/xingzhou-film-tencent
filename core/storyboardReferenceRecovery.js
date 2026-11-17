@@ -8,7 +8,7 @@ export function restoreStoryboardReferences(value,baseline,keys){
  if(value.prompt===removed.prompt||value.prompt===baseline.prompt){
   const recovered=remaining.reduce((v,r)=>removeGenerationReference(v,generationReferenceKey(r)),baseline);
   const extras=(value.references||[]).filter(r=>!(baseline.references||[]).some(b=>generationReferenceKey(b)===generationReferenceKey(r)));
-  return {...value,prompt:recovered.prompt,references:[...recovered.references,...extras],autoReferenceOrder:recovered.autoReferenceOrder,autoReferenceExclusions:recovered.autoReferenceExclusions||[],autoReferenceSignature:null};
+  return {...value,prompt:recovered.prompt,references:[...recovered.references,...extras],autoReferenceOrder:recovered.autoReferenceOrder,autoReferenceExclusions:(recovered.autoReferenceExclusions||[]).filter(k=>!requested.has(k)),autoReferenceSignature:null};
  }
  // Keep manually edited text; restore only the requested reference identities.
  const additions=missing.filter(r=>requested.has(generationReferenceKey(r)));

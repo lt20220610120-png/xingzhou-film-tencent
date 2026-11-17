@@ -87,3 +87,7 @@
 @media(prefers-reduced-motion:reduce){.storyboard-generation-tools *, .collab-stage .storyboard-save-actions button,.collab-stage .storyboard-reference-actions>button{transition:none!important}}
 
 .collab-storage-status{display:flex;align-items:center;gap:7px;color:#7a6a8b;font-size:12px;margin-bottom:12px}.collab-storage-status>span{color:#a56c49;margin-left:8px}.collab-invite-local-notice{font-size:13px;color:#796987;margin:12px 0;}
+
+.collab-stage .storyboard-reference-actions>.storyboard-import-scene{color:#624c9d;background:#f2edf9;border-color:#d9cdea}
+.storyboard-scene-import-status{margin:0;color:#655383;font-size:12px}
+.storyboard-reference-actions>button:focus-visible{outline:2px solid #9c82c6;outline-offset:2px}
