@@ -7,4 +7,4 @@
 - 正式NSIS运行PASS：qa/packaged-smoke-2.8.177-1794898067958；五份core和构建产物逐字节一致，output/177-artifact.json。
 - 独立复核：仅显式整剧操作授权，原版本签名/CAS/角色/停止保护保留；缺项排除可逆，来源/保存失败不冒充完成，发布进度复用原后台任务。无需云端模块部署。
 
-安装包104136001字节，SHA256 `f5bf0c5ea4dc0914dec5be44bf4cb9d2ae08b1f5e6f636b8fa1f6e461b697ab2`。公开更新验证进行中。
+安装包104136001字节，SHA256 `f5bf0c5ea4dc0914dec5be44bf4cb9d2ae08b1f5e6f636b8fa1f6e461b697ab2`。已公开发布，实现ef41b38，Release448255487，工作流44034070233。三份公开清单一致并验签，GitHub资产大小/摘要、官网Range206字节与源站整包SHA通过；真实Electron更新154→177以本地前段和公开末段完成续传、整包校验和安装回调。证据output/177-public.json、177-update-ui.json、177-stage.log、177-cleanup.log。服务器暂存副本已清理，正式包保留。
