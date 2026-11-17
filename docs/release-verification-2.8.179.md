@@ -1,6 +1,6 @@
 # 2.8.179 验收：提示词零素材与全剧关联可视化
 
-日期：2026-11-18。执行：Codex。基线 c150df0 / 2.8.178。
+日期：2026-11-18。执行：Codex。基线 c150df0 / 2.8.178。实现 b68c9e7；GitHub Release448967342，上传工作流44136911646成功。
 
 ## 根因与修复
 
@@ -25,5 +25,7 @@
 - collab.cjs、prompt-binding.cjs 部署前比对基线，备份 `/opt/xingzhou-backups/prompt-material-reliability-2.8.179-20261117T172104Z`；服务器执行隔离 handler 回归 2/2，重启后 healthz/服务 active。无 schema 迁移。
 - 安装包：`release/2.8.179/Xingzhou-Film-Tencent-Setup-2.8.179.exe`，104098052 字节。
 - SHA256：`062b4e94d9fe026d7a52e197d5032332431ac725c34f83ee667e039c3bda8698`。
-- 官网源站完整文件 SHA/大小及公开 Range 206 已核对；三份签名清单和软件内更新验收待发布后补记。
+- 官网源站完整文件 SHA/大小及公开 Range 206 已核对；三份公开清单 Ed25519 验签、GitHub 上传资产 SHA/大小、软件实际更新 2.8.154→2.8.179 续传/哈希/安装回调均通过。备用 IP 曾空闲超时，随后镜像回退完成下载；未强制运行安装器。
 - 下载：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.179.exe
+
+独立复核修复后再次执行 35 项定向测试全部通过，无其余可复现阻断问题。公开核验：output/179-public.json；实际更新：output/179-update-ui.json。
