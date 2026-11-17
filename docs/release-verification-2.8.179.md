@@ -29,3 +29,5 @@
 - 下载：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.179.exe
 
 独立复核修复后再次执行 35 项定向测试全部通过，无其余可复现阻断问题。公开核验：output/179-public.json；实际更新：output/179-update-ui.json。
+
+额外整包 HTTPS 下载复核因链路缓慢主动停止，不计为通过；完整 SHA 依据已部署源站文件读取核验，外部 Range 和真实更新续传另行通过。此项不影响上述签名、文件一致性及更新结果。
