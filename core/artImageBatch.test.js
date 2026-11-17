@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {planArtImageBatch,runArtImageBatch} from './artImageBatch.js';
+import {planArtImageBatch,runArtImageBatch,pendingCharacterBaselines,planAssetCategoryBatch} from './artImageBatch.js';
 const asset=(id,name,ep,extra={})=>({id,name,category:'character',first_episode:ep,episodes:[ep],...extra});
 test('whole plan deduplicates reuse, skips completed images and waits for baselines',()=>{
  const rows=[asset('v','【林舟-西服】',2),asset('b','【林舟-日常服】',1,{episodes:[1,2,3]}),asset('old','【安宁】',1,{images:[{id:'i',url:'stored'}]}),asset('b','【林舟-日常服】',1)];
@@ -22,4 +22,12 @@ test('baseline failure prevents paid variant generation, stop leaves unstarted j
  const paused=await runArtImageBatch(Array.from({length:4},(_,n)=>({asset:asset('p'+n,'p'+n,1)})),{concurrency:1,isStopped:()=>stop,generate:async()=>{stop=true;return {url:'saved'};}});
  assert.equal(paused.remaining,3);assert.equal(paused.results.length,1);
  await assert.rejects(runArtImageBatch([],{concurrency:0}),/并发/);
+});
+
+
+test('reference-only batch follows declared roots, deduplicates people and skips existing images',()=>{
+ const rows=[asset('v','【林舟-西服】',1,{description:'参考【林舟-日常服】；黑色西服'}),asset('b','【林舟-日常服】',2),asset('solo','【小白】',1),asset('done','【安宁-日常服】',1,{images:[{id:'i',url:'stored'}]}),asset('later','【安宁-礼服】',2),asset('prop','茶杯',1,{category:'prop'}),asset('archived','【旧人物】',1,{sceneIds:[],episodes:[]})];
+ const ids=pendingCharacterBaselines(rows);assert.deepEqual(ids,['b','solo']);
+ assert.deepEqual(planAssetCategoryBatch(rows,{category:'character',selectedIds:ids}).map(j=>j.asset.id).sort(),['b','solo']);
+ assert(planAssetCategoryBatch(rows,{category:'character',selectedIds:['v','b','solo','later']}).some(j=>j.asset.id==='v'));
 });

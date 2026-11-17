@@ -59,3 +59,13 @@ test('real review service publishes the selected prompt snapshot only on explici
  await reviewPromptScope({service,store,scope:{sceneId:'1-1'},actor:'u',action:'publish'});assert.equal(writes.length,1);assert.equal(writes[0].operation,'publish');assert.equal(writes[0].prompts.length,3);
  const state=await service.read(),payload=storyboardPublicationPayload(state.snapshot,state.decisions,state.snapshot.entries);assert.equal(payload.versionId,state.snapshot.versionId);assert(payload.prompts.every(p=>p.generationConfig.referenceBindingMode==='storyboard'));assert(payload.prompts.every(p=>p.generationConfig.bindingAssets.length>0));
 });
+
+
+test('compact publication acknowledgement does not replace the current project with a receipt',async()=>{
+ const f=fixture(),callbacks=[];let request;
+ f.api.collabPatchStoryboard=async p=>{request=p;return {id:f.project.id,publicationReceipt:{publicationId:p.publicationId,episodeNumber:p.episodeNumber,sceneIds:p.sceneIds}}};
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u',onPublished:p=>callbacks.push(p)});
+ await Promise.all(['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}})));
+ await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async()=>{}},actor:'u',action:'approve-publish'});
+ assert.equal(request.ackOnly,true);assert.equal(callbacks.length,0);assert.equal(f.project.episodes[0].prompts.length,3);
+});

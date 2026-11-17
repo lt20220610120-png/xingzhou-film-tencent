@@ -92,10 +92,10 @@ test('eight episode batches run four at a time, retain partial successes and ret
  f.project.episodes=Array.from({length:8},(_,i)=>({id:'ep'+(i+1),episodeNumber:i+1,content:template.content.replaceAll('1-1',`${i+1}-1`),prompts:[{...template.prompts[0],id:'p'+(i+1),label:`${i+1}-1-1`}]}));
  for(const episode of f.project.episodes)f.ledger.episodes[episode.episodeNumber]=applyArtReviewCandidate(newArtReview(episode),episode,{items:[{category:'character',name:'【张三】',description:'成年男性，短发，灰色短袖。',ready:true}],mapping:[{sceneId:`${episode.episodeNumber}-1`,assets:[{category:'character',name:'【张三】'}]}],inventory:'清单',complete:true,warnings:[]});
  const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(f.project.episodes.map(e=>service.run(e.prompts[0].id,{profile:{id:'m'}})));
- let active=0,peak=0,fail=true;const sent=[],progress=[];
+ let active=0,peak=0,fail=true,saves=0;const save=f.api.promptArtSave;f.api.promptArtSave=async p=>{saves++;return save(p)};const sent=[],progress=[];
  const store={updateMany:async()=>{},publish:async n=>{sent.push(n);active++;peak=Math.max(active,peak);await new Promise(r=>setTimeout(r,n===8?35:8));active--;if(n===2&&fail)throw Error('模拟网络断开');}};
  const first=await reviewPromptScope({service,store,actor:'u',action:'approve-publish',onProgress:p=>progress.push(p)});
- assert.equal(peak,4);assert.equal(first.published,7);assert.equal(first.failures.length,1);assert(progress.some(p=>p.done>0&&p.active.length>0));
+ assert.equal(saves,2,'one approval and one publication checkpoint write');assert.equal(peak,4);assert.equal(first.published,7);assert.equal(first.failures.length,1);assert(progress.some(p=>p.cloudDone>0&&p.active.length>0));
  fail=false;sent.length=0;const second=await reviewPromptScope({service,store,actor:'u',action:'publish'});assert.deepEqual(sent,[2]);assert.equal(second.published,8);assert.equal(second.skipped,7);
 });
 
@@ -111,4 +111,15 @@ test('a prompt added to the same scene while publishing invalidates the captured
  const store={updateMany:async()=>{},publish:async()=>assert.fail('new unreviewed prompt must block')};await reviewPromptScope({service,store,actor:'u'});
  let reads=0;const read=service.read;service.read=async id=>{if(++reads===2)f.project.episodes[0].prompts.push({...f.project.episodes[0].prompts[0],id:'p4',label:'1-1-4'});return read(id);};
  const result=await reviewPromptScope({service,store,actor:'u',action:'publish'});assert.equal(result.published,0);assert.match(result.failures[0],/来源已变化/);
+});
+
+
+test('merged checkpoint isolates a concurrently edited episode and retains another episode publication',async()=>{
+ const f=fixture(),template=f.project.episodes[0];
+ f.project.episodes=Array.from({length:2},(_,i)=>({id:'ep'+(i+1),episodeNumber:i+1,content:template.content.replaceAll('1-1',`${i+1}-1`),prompts:[{...template.prompts[0],id:'p'+(i+1),label:`${i+1}-1-1`}]}));
+ for(const episode of f.project.episodes)f.ledger.episodes[episode.episodeNumber]=applyArtReviewCandidate(newArtReview(episode),episode,{items:[{category:'character',name:'【张三】',description:'成年男性，短发，灰色短袖。',ready:true}],mapping:[{sceneId:`${episode.episodeNumber}-1`,assets:[{category:'character',name:'【张三】'}]}],inventory:'清单',complete:true,warnings:[]});
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});await Promise.all(['p1','p2'].map(id=>service.run(id,{profile:{id:'m'}})));
+ const selectedVersion=(await service.read()).snapshot.versionId,mutate=service.mutate;let writes=0;service.mutate=(...args)=>{if(++writes===2)f.project.episodes[0].prompts[0].content+=' 新改动';return mutate(...args)};
+ const result=await reviewPromptScope({service,store:{updateMany:async()=>{},publish:async()=>{}},actor:'u',action:'approve-publish'});
+ assert.equal(result.published,1);assert.equal(result.failures.length,1);assert.match(result.failures[0],/第 1 集/);const state=await service.read(selectedVersion);assert.equal(state.saved.versions[selectedVersion].reviews.p2.published,true);
 });

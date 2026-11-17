@@ -182,6 +182,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     try{
       const saved=await repo.patchStoryboard(projectId,payload,user.id);
       if(!saved)return DENY;
+      if(payload.ackOnly===true&&payload.operation==='publish')return ok({id:saved.id,publicationReceipt:{publicationId:payload.publicationId,episodeNumber:payload.episodeNumber,sceneIds:payload.sceneIds,updatedAt:saved.updated_at}});
       if(payload.ackOnly===true&&!payload.operation){
         const receipt=storyboardReceipt(saved,payload);
         return receipt?ok(receipt):NOT_FOUND;

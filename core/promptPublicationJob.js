@@ -10,7 +10,7 @@ export function createPromptPublicationJob(run=reviewPromptScope){
   snapshot:()=>state,subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
   start(options){
    if(promise)return promise;
-   emit({running:true,startedAt:Date.now(),finishedAt:null,phase:'preparing',result:null,error:'',total:0,done:0,active:[],items:[]});
+   emit({running:true,startedAt:Date.now(),finishedAt:null,phase:'preparing',result:null,error:'',total:0,done:0,cloudDone:0,skipped:0,active:[],items:[]});
    // Assign the promise before calling run, including synchronous failure paths.
    promise=Promise.resolve().then(()=>run({...options,onProgress:value=>emit(value)})).then(result=>{emit({running:false,phase:'complete',finishedAt:Date.now(),result});return result;},error=>{emit({running:false,phase:'failed',finishedAt:Date.now(),error:error.message});throw error;}).finally(()=>{promise=null;});
    return promise;

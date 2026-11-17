@@ -18,7 +18,7 @@ import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery, assetImageRecoverySummary } from '../../core/assetImageRecovery.js';
 import {planAssetImageRecovery,runAssetImageRecoveryBatch,abandonAssetImageRecoveries} from '../../core/assetImageRecoveryBatch.js';
-import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch} from '../../core/artImageBatch.js';
+import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch,pendingCharacterBaselines} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection,visibleArtAssets } from '../../core/assetImages.js';
@@ -1030,10 +1030,11 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
     }
   }, [api, project.id, refresh]);
 
-  const imagePlan=()=>planAssetCategoryBatch(assets,{category,selectedIds,readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
-  const generateBatch = async () => {
+  const baselineIds=useMemo(()=>pendingCharacterBaselines(assets),[assets]);
+  const imagePlan=(ids=selectedIds)=>planAssetCategoryBatch(assets,{category,selectedIds:ids,readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
+  const generateBatch = async (baselineOnly=false) => {
     const profile=batchProfile;
-    const jobs = imagePlan().filter(({asset})=>!generatingAssetIdsRef.current.has(asset.id));
+    const jobs = imagePlan(baselineOnly===true?baselineIds:selectedIds).filter(({asset})=>!generatingAssetIdsRef.current.has(asset.id));
     if (!profile || !jobs.length || batchBusy || batchRunning.current || showArchived || !canEdit) return;
     batchRunning.current=true;setBatchKind('generation');setBatchError('');setBatchBusy(true);stopImages.current=false;setImageProgress({total:jobs.length,completed:0,failed:0});
     jobs.forEach(({asset}) => generatingAssetIdsRef.current.add(asset.id));
@@ -1125,7 +1126,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
           <label>画幅<select aria-label="资产批量生成画幅" value={batchSize} disabled={batchBusy||showArchived} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(format=><option key={format.value} value={format.size}>{format.label}</option>)}</select></label>
           <label>并发<select aria-label="资产图片并发数量" value={imageConcurrency} disabled={batchBusy||showArchived} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张</option>)}</select></label>
           <button className="secondary" disabled={batchBusy||showArchived||(!pendingAssets.length&&!selectedIds.length)} onClick={()=>setBatchSelectedIds(allPendingSelected?[]:pendingAssets.map(asset=>asset.id))}>{allPendingSelected?'取消全选':'全选未生成'}</button>
-          <button className="primary" disabled={!canEdit||batchBusy||showArchived||!batchProfile||!selectedIds.length} onClick={generateBatch}><Sparkles size={14}/>{batchBusy?(batchKind==='recovery'?'恢复中…':'批量生成中…'):`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
+          {category==='character'&&<button className="secondary" disabled={!canEdit||batchBusy||showArchived||!batchProfile||!baselineIds.length} onClick={()=>generateBatch(true)}>只生成默认参考妆造（{baselineIds.length}）</button>}<button className="primary" disabled={!canEdit||batchBusy||showArchived||!batchProfile||!selectedIds.length} onClick={()=>generateBatch()}><Sparkles size={14}/>{batchBusy?(batchKind==='recovery'?'恢复中…':'批量生成中…'):`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
         </div>
       </div>
       <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${displayAssets.length} 项 · ${onlyMissing?'仅生成当前分类未出图的资产与妆造':category==='prop'?'默认选择符合条件的未生成道具':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>{batchKind==='recovery'?'停止后续恢复':'停止后续生成'}</button>}</div>
@@ -1579,7 +1580,10 @@ export function CollabWorkspace({ state, api, account }) {
 
   const syncDirector = useRef(createDirectorSync());
   const refreshProject = useCallback(async (options = {}) => {
-    if(refreshInFlight.current)return refreshInFlight.current;
+    if(refreshInFlight.current){
+      if(!options.publicationComplete)return refreshInFlight.current;
+      try{await refreshInFlight.current;}catch{}
+    }
     const work=(async()=>{
     if (!project?.id) return;
     const projectId = project.id;
@@ -1618,7 +1622,7 @@ export function CollabWorkspace({ state, api, account }) {
     } catch (error) {
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       if (options.manual) setRefreshNotice(`刷新失败：${error.message || '请稍后重试'}，当前编辑内容已保留`);
-      if(options.assetsOnly)throw error;
+      if(options.assetsOnly||options.publicationComplete)throw error;
       if (String(error?.message || '').includes('project_access_denied')) {
         setProject(null);
         setAssets([]);

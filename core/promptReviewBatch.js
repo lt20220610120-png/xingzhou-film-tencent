@@ -130,7 +130,7 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
  const scenes=new Map();for(const entry of entries){const group=scenes.get(entry.episode)||{episode:entry.episode,ids:new Set(),entries:[]};group.ids.add(entry.sceneId);group.entries.push(entry);scenes.set(entry.episode,group);}
  const groups=[...scenes.values()],items=groups.map(g=>({episode:g.episode,count:g.entries.length,phase:'queued'}));
  let published=0,skipped=0,cloudDone=0;const failures=[];
- const report=()=>{try{onProgress?.({phase:action==='approve'?'approving':'publishing',total:entries.length,done:published,cloudDone,skipped,concurrency:4,items:items.map(i=>({...i})),active:items.filter(i=>!['queued','complete','failed'].includes(i.phase)).map(i=>({...i}))});}catch{}};
+ const report=()=>{try{onProgress?.({phase:action==='approve'?'approving':'publishing',total:entries.length,done:published,cloudDone,skipped,concurrency:4,items:items.map(i=>({...i})),active:items.filter(i=>!['queued','checkpoint-wait','complete','failed'].includes(i.phase)).map(i=>({...i}))});}catch{}};
  report();
  if(action!=='publish'){
   await service.mutate(initial.snapshot.versionId,state=>{
@@ -142,7 +142,7 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
   guard();await store.updateMany(groups.map(({episode:number,ids})=>({number,reduce:r=>{guard();for(const id of ids)if(!isSceneVerified(r.scenes?.find(s=>s.id===id)))r=editArtReview(r,{type:'approve',sceneId:id},actor);return r;}})));
  }
  if(action==='approve')return {count:entries.length,published:0,failures};
- let cursor=0;
+ let cursor=0;const checkpoints=[];
  const worker=async()=>{while(cursor<groups.length){
   const index=cursor++,group=groups[index],item=items[index];
   try{
@@ -155,14 +155,28 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
    guard();await store.publish(group.episode,[...group.ids],{onProgress:phase=>{item.phase=phase;report();}});
    const publishedState=await service.read(initial.snapshot.versionId);check(publishedState,group.entries);
    await service.publishStoryboards?.(publishedState,group.entries);
-   cloudDone+=group.entries.length;item.phase='checkpoint';report();
-   await service.mutate(initial.snapshot.versionId,current=>{
-    check(current,group.entries);const data=saveBindingVersion(current.saved,current.snapshot,current.decisions),row=data.versions[current.snapshot.versionId];row.reviews={...row.reviews};
-    for(const entry of group.entries)row.reviews[entry.id]={...row.reviews[entry.id],published:true,publishedAt:Date.now()};return data;
-   });
-   published+=group.entries.length;item.phase='complete';report();
+   cloudDone+=group.entries.length;item.cloudPublished=true;item.phase='checkpoint-wait';checkpoints.push({group,item});report();
   }catch(error){item.phase='failed';item.error=error.message;failures.push(`第 ${group.episode} 集：${error.message}`);report();}
  }};
  await Promise.all(Array.from({length:Math.min(4,groups.length)},worker));
+ // Cloud writes are independently idempotent. Merge their checkpoints in one
+ // archive write, revalidating each episode independently on every CAS retry.
+ if(checkpoints.length){
+  checkpoints[0].item.phase='checkpoint';report();
+  let checked=[];
+  try{
+   await service.mutate(initial.snapshot.versionId,current=>{
+    checked=checkpoints.map(target=>{try{check(current,target.group.entries);return target;}catch(error){return {...target,error};}});
+    const valid=checked.filter(target=>!target.error);if(!valid.length)return null;
+    const data=saveBindingVersion(current.saved,current.snapshot,current.decisions),row=data.versions[current.snapshot.versionId];row.reviews={...row.reviews};
+    for(const {group} of valid)for(const entry of group.entries)row.reviews[entry.id]={...row.reviews[entry.id],published:true,publishedAt:Date.now()};return data;
+   });
+  }catch(error){checked=checkpoints.map(target=>({...target,error}));}
+  for(const {group,item,error} of checked){
+   if(error){item.phase='failed';item.error=error.message;failures.push(`第 ${group.episode} 集：${error.message}`);}
+   else{published+=group.entries.length;item.phase='complete';}
+   report();
+  }
+ }
  return {count:entries.length,published,skipped,failures};
 }

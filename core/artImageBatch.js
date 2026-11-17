@@ -18,6 +18,15 @@ export function planAssetCategoryBatch(assets,{category,selectedIds,readReferenc
   asset.category===category&&!(Array.isArray(asset.sceneIds)&&!asset.sceneIds.length&&!asset.episodes?.length)&&(!selected||selected.has(asset.id)));
 }
 
+export function pendingCharacterBaselines(assets){
+ const roots=new Map();
+ for(const asset of assets.filter(a=>a.category==='character'&&!(Array.isArray(a.sceneIds)&&!a.sceneIds.length&&!a.episodes?.length))){
+  const base=characterBaselineAsset(asset,assets);
+  if(base&&!assetHasImages(base))roots.set(base.id,base);
+ }
+ return [...roots.keys()];
+}
+
 // Only the read/download layer retries. A failed generation is recorded once.
 async function runArtImageBatchImpl(jobs,{concurrency=2,generate,isStopped=()=>false,onProgress=()=>{}}){
  if(!Number.isInteger(concurrency)||concurrency<1||concurrency>8)throw new Error('图片并发数量应为 1 至 8');

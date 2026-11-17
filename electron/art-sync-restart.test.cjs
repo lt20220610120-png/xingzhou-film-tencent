@@ -26,7 +26,7 @@ function refreshFixture(){
  const applied=[],reads=[],ref={current:'project-a'},section={current:'art'},cursor={current:0},flight={current:null},syncs=[];
  let resolveRead;const gate=new Promise(resolve=>{resolveRead=resolve;});
  const identity={current:'test'};
- const context={accountScope:identity,account:{id:'test'},useCallback:fn=>fn,project:{id:'project-a'},currentProjectIdRef:ref,currentSectionRef:section,refreshRequestRef:cursor,refreshInFlight:flight,state:{directorProjects:[]},api:{collabGetProject:async p=>{reads.push(p.projectId);await gate;return {id:p.projectId};},collabListAssets:async()=>[]},syncDirector:{current:async p=>{syncs.push(p.id);return p;}},prepareAssets:(p,a)=>a,normalizeArtAssets:a=>a,projectPublishedReviewAssets:(p,a)=>a,setProject:p=>applied.push(p),setAssets:a=>applied.push(a),writeCache:()=>{},setRefreshNotice:()=>{},loadProjects:async()=>{},localStorage:{removeItem:()=>{}}};
+ const context={getArtReviewStore:()=>({}),getArtDistributionController:()=>({refresh:async()=>{}}),accountScope:identity,account:{id:'test'},useCallback:fn=>fn,project:{id:'project-a'},currentProjectIdRef:ref,currentSectionRef:section,refreshRequestRef:cursor,refreshInFlight:flight,state:{directorProjects:[]},api:{collabGetProject:async p=>{reads.push(p.projectId);await gate;return {id:p.projectId};},collabListAssets:async()=>[]},syncDirector:{current:async p=>{syncs.push(p.id);return p;}},prepareAssets:(p,a)=>a,normalizeArtAssets:a=>a,projectPublishedReviewAssets:(p,a)=>a,setProject:p=>applied.push(p),setAssets:a=>applied.push(a),writeCache:()=>{},setRefreshNotice:()=>{},loadProjects:async()=>{},localStorage:{removeItem:()=>{}}};
  vm.createContext(context);vm.runInContext(match[0]+';globalThis.refresh=refreshProject;',context);
  return {identity,ref,section,cursor,reads,applied,syncs,resolveRead,refresh:context.refresh};
 }
@@ -45,4 +45,10 @@ test('explicit publication refresh still loads published assets while the local 
 });
 test('publication refresh cannot apply data after account switches on the same project',async()=>{
  const f=refreshFixture(),pending=f.refresh({manual:true});f.identity.current='another-account';f.resolveRead();await pending;assert.equal(f.applied.length,0);assert.equal(f.syncs.length,0);
+});
+
+
+test('publication completion waits for an older refresh then requests the final project',async()=>{
+ const f=refreshFixture(),older=f.refresh({manual:true}),final=f.refresh({manual:true,publicationComplete:true});
+ assert.equal(f.reads.length,1);f.resolveRead();await Promise.all([older,final]);assert.deepEqual(f.reads,['project-a','project-a']);
 });

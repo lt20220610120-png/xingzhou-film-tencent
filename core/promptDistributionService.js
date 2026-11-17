@@ -51,8 +51,8 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   focusScene(sceneId=''){focusedSceneId=sceneId;lane.reprioritize();modelQueue.notify();},
   async publishStoryboards(state,entries){
    if(!api.collabPatchStoryboard)return;
-   const project=await api.collabPatchStoryboard({projectId,...storyboardPublicationPayload(state.snapshot,state.decisions,entries)});
-   publishedListener?.(project);
+   const project=await api.collabPatchStoryboard({projectId,ackOnly:true,...storyboardPublicationPayload(state.snapshot,state.decisions,entries)});
+   if(!project?.publicationReceipt)publishedListener?.(project);
   },
   async withSceneMaintenance(sceneId,fn){
    if(maintenance.has(sceneId))throw Error('本场正在补充，请完成后再试');
