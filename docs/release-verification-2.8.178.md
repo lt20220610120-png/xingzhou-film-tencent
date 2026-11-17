@@ -1,4 +1,4 @@
-# 2.8.178 验收（2026-11-17，发布中）
+# 2.8.178 验收（2026-11-17，已公开发布）
 
 用户要求排查728秒发布及增加只生成默认参考妆造。真实生产只读证据：目标项目episodes为4,884,806字节、analysis_progress为10,815,149字节；15:05—15:13服务器日志每集分镜发布约15.5MB原始/2.08MB gzip，关联保存约7.1MB原始/1.17MB gzip。确认存在软件重复传输开销，不能只归咎用户网络。未复现用户当时7集失败的具体错误，未声称每项失败或端到端耗时已复测。
 
@@ -12,4 +12,7 @@
 - 独立复核：付费请求不重放；默认参考选择和原全部入口隔离；CAS、分集部分失败、协作者并发编辑、完成后刷新竞态有行为测试。未做真实付费生图或改写用户项目。
 - 正式NSIS运行PASS：qa/packaged-smoke-2.8.178-1794901087474；7份包内源码/构建产物逐字节核对。包104152059字节，SHA256 `c68c9fc1d8574578fa2cb280e1ee0f142d7b94e021a68526420f3e4acd0d1ace`。
 
-公开清单、GitHub资产与软件内更新验证待完成。
+实现8d70738，Release448297151，工作流44040529671成功。三份公开latest.json一致并通过Ed25519验签；GitHub资产大小/摘要、官网Range206字节与源站整包SHA通过；真实Electron更新154→178使用本地前段和公开末段验证续传、整包校验及安装回调，未强制安装。证据output/178-public.json、178-update-ui.json、178-stage.log、178-cleanup.log。远端两份传输暂存文件已清理，正式包保留。
+
+官网安装包：https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.178.exe
+本机：D:/AI/Qwen3-TTS/xingzhou-release/release/2.8.178/Xingzhou-Film-Tencent-Setup-2.8.178.exe
