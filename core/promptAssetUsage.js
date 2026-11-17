@@ -67,7 +67,7 @@ export function canRefreshStoryboardBinding(draft,shot){
  if(draft?.value?.storyboardSceneImport)return false;
  if(!draft?.dirty)return true;
  const value=draft.value;
- if(shot.storyboardPublicationId)return value.prompt===value.bindingCompiledPrompt&&!value.autoReferenceExclusions?.length&&JSON.stringify((value.references||[]).map(r=>r.id))===JSON.stringify(value.bindingExpectedReferences);
+ if(shot.storyboardPublicationId)return (value.prompt===value.bindingCompiledPrompt||typeof value.bindingSourcePrompt==='string'&&value.prompt===value.bindingSourcePrompt&&value.bindingSourcePrompt===shot.sourceContent)&&!value.autoReferenceExclusions?.length&&JSON.stringify((value.references||[]).map(r=>r.id))===JSON.stringify(value.bindingExpectedReferences);
  if(!value.bindingSourcePromptId)return value.prompt===shot.content;
  if(value.bindingSourcePromptId!==(shot.sourcePromptId||shot.id)||value.autoReferenceExclusions?.length)return false;
  if(value.prompt!==shot.content&&!(value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===shot.content))return false;

@@ -2,9 +2,13 @@ import {bindingHash,bindingProblems,sceneInventoryCards,saveDistribution,entryBi
 import {saveBindingVersion,currentPromptVersionId} from './promptBindingVersions.js';
 import {hasActiveDistributionClaim,sceneReadyForPromptDistribution} from './promptDistributionService.js';
 import {editArtReview,isSceneVerified,reviewSceneSignature} from './artReview.js';
+import {canonicalBindingValue} from './bindingPersistenceIdentity.js';
 
 const inScope=(entry,scope)=>scope.sceneIds?scope.sceneIds.includes(entry.sceneId):scope.sceneId?entry.sceneId===scope.sceneId:scope.episode?entry.episode===scope.episode:true;
-export const promptHumanReviewSignature=(snapshot,entry,decision)=>bindingHash([entry.id,entry.prompt,entry.sceneId,sceneInventoryCards(snapshot,entry).map(c=>[c.uid,c.name,c.category,c.description,c.detailStatus]),decision?.needs?.map(({imageId,...need})=>need)]);
+export const promptHumanReviewSignature=(snapshot,entry,decision)=>bindingHash(canonicalBindingValue([entry.id,entry.prompt,entry.sceneId,sceneInventoryCards(snapshot,entry).map(c=>[c.uid,c.name,c.category,c.description,c.detailStatus]),decision?.needs?.map(({imageId,...need})=>need)]));
+// A published asset list can recover an association, but cannot prove that its
+// descriptions, exclusions and source spans still have human approval.
+export const promptReviewMatches=(snapshot,entry,decision,review)=>review?.signature===promptHumanReviewSignature(snapshot,entry,decision);
 /**
  * Human resolution for a model-reported missing item.  A skipped reference is
  * deliberately persisted as an excluded, locked need so a later automatic
@@ -44,11 +48,11 @@ export function promptReviewState(state,scope={}){
   const attempt=saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id];
   if(state.service?.isBusy?.(entry.id)||hasActiveDistributionClaim(attempt))localProblems.push('模型正在分发');
   const unique=[...new Set(localProblems)];if(unique.length)problems.push(...unique.map(p=>`${entry.label}：${p}`));entryProblems.set(entry.id,unique);
-  if(reviews[entry.id]?.signature===promptHumanReviewSignature(snapshot,entry,decision)){approved++;if(reviews[entry.id].published)published++;}
+  if(!unique.length&&promptReviewMatches(snapshot,entry,decision,reviews[entry.id])){approved++;if(reviews[entry.id].published)published++;}
  }
  const reviewableEntries=entries.filter(entry=>(entryProblems.get(entry.id)||[]).length===0);
  const readyScenes=new Set([...new Set(reviewableEntries.map(e=>e.sceneId))].filter(id=>entries.filter(e=>e.sceneId===id).every(e=>reviewableEntries.includes(e))&&!(snapshot.invalidEntries||[]).some(e=>e.sceneId===id||!e.sceneId&&e.episode===Number(id.split('-')[0]))));
- const publishableEntries=reviewableEntries.filter(e=>readyScenes.has(e.sceneId)&&entries.filter(row=>row.sceneId===e.sceneId).every(row=>reviews[row.id]?.signature===promptHumanReviewSignature(snapshot,row,decisions[row.id])));
+ const publishableEntries=reviewableEntries.filter(e=>readyScenes.has(e.sceneId)&&entries.filter(row=>row.sceneId===e.sceneId).every(row=>promptReviewMatches(snapshot,row,decisions[row.id],reviews[row.id])));
  return {entries,reviewableEntries,publishableEntries,ready:entries.length>0&&problems.length===0,problems:[...new Set(problems)],pendingMissing,skippedMissing,approved,published};
 }
 
@@ -100,7 +104,7 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
   if(!entries.length)throw Error('提示词分发尚未完成，暂无可批量核实的提示词');
  }else if(!all.ready)throw Error('提示词分发尚未完成，不能核实或发布：'+all.problems.slice(0,4).join('；'));
  const reviews=initial.saved?.versions?.[initial.snapshot.versionId]?.reviews||{};
- const approved=entry=>reviews[entry.id]?.signature===promptHumanReviewSignature(initial.snapshot,entry,initial.decisions[entry.id]);
+ const approved=entry=>promptReviewMatches(initial.snapshot,entry,initial.decisions[entry.id],reviews[entry.id]);
  if(action==='publish'){
   if(!global&&entries.some(e=>!approved(e)))throw Error('请先人工核实本范围全部提示词，再发布');
   const approvedScenes=new Set([...new Set(entries.map(e=>e.sceneId))].filter(id=>entries.filter(e=>e.sceneId===id).every(approved)));
@@ -124,7 +128,7 @@ export async function reviewPromptScope({service,store,scope={},actor,action='ap
   for(const expected of targets){
    const entry=state.snapshot.entries.find(e=>e.id===expected.id),currentEntry=state.currentSnapshot.entries.find(e=>e.id===expected.id);
    if(followedCurrent&&(!currentEntry||currentEntry.prompt!==expected.prompt||currentEntry.sceneId!==expected.sceneId||currentEntry.label!==expected.label))throw Error('提示词来源已变化，请重新核实后发布');
-   if(!entry||service.isBusy(entry.id)||signatures.get(entry.id)!==promptHumanReviewSignature(state.snapshot,entry,state.decisions[entry.id])||action==='publish'&&currentReviews[entry.id]?.signature!==signatures.get(entry.id))throw Error('核实期间提示词分发已变化，请重新检查');
+   if(!entry||service.isBusy(entry.id)||signatures.get(entry.id)!==promptHumanReviewSignature(state.snapshot,entry,state.decisions[entry.id])||action==='publish'&&!promptReviewMatches(state.snapshot,entry,state.decisions[entry.id],currentReviews[entry.id]))throw Error('核实期间提示词分发已变化，请重新检查');
   }
  };
  const scenes=new Map();for(const entry of entries){const group=scenes.get(entry.episode)||{episode:entry.episode,ids:new Set(),entries:[]};group.ids.add(entry.sceneId);group.entries.push(entry);scenes.set(entry.episode,group);}

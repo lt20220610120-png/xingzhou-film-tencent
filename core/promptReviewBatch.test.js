@@ -4,6 +4,21 @@ import {createPromptDistributionService} from './promptDistributionService.js';
 import {promptReviewState,reviewPromptScope,skipPromptNeed,resolvePromptMissingReferences,promptHumanReviewSignature} from './promptReviewBatch.js';
 import {saveBindingVersion} from './promptBindingVersions.js';
 import {newArtReview,applyArtReviewCandidate} from './artReview.js';
+import {bindingHash,entryBindingSignature} from './promptArtBinding.js';
+
+test('published asset names never substitute for a changed human review',async()=>{
+ const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
+ await service.run('p1',{profile:{id:'m'}});
+ const state=await service.read(),entry=state.snapshot.entries[0],decision=state.decisions.p1;
+ const review={signature:promptHumanReviewSignature(state.snapshot,entry,decision),published:true};
+ state.saved.versions[state.snapshot.versionId].reviews={p1:review};
+ state.snapshot.publishedAssociations={p1:{sourceHash:bindingHash(entry.prompt),versionId:state.snapshot.versionId,assets:decision.needs.filter(n=>n.visibility==='visible').map(n=>state.snapshot.cards.find(c=>c.uid===n.cardUid)).map(c=>({name:c.name,category:c.category}))}};
+ state.snapshot.cards[0].description+=' changed costume';
+ decision.signature=entryBindingSignature(state.snapshot,entry);
+ assert.notEqual(review.signature,promptHumanReviewSignature(state.snapshot,entry,decision));
+ assert.equal(promptReviewState(state).approved,0);
+ assert.equal(promptReviewState(state).published,0);
+});
 
 test('empty, pending, missing and rule-only results cannot be bulk reviewed or published',async()=>{
  const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'}),scope={sceneId:'1-1'};let writes=0;

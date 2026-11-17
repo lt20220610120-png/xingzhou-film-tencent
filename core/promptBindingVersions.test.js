@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {bindingVersionOptions,selectBindingVersion,saveBindingVersion,promptExportImages,promptSetId} from './promptBindingVersions.js';
-import {proposeEntryBinding,entryBindingSignature} from './promptArtBinding.js';
+import {proposeEntryBinding,entryBindingSignature,bindingHash} from './promptArtBinding.js';
+
+const jsonb=value=>Array.isArray(value)?value.map(jsonb):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort((a,b)=>a.length-b.length||a.localeCompare(b)).map(k=>[k,jsonb(value[k])])):value;
+test('cloud JSON object key reordering preserves accepted association through later image adoption',()=>{
+ const first=fixture(),saved=saveBindingVersion(null,first,{a:{...proposeEntryBinding(first,first.entries[0]),confirmed:true,origin:'manual'}});
+ const remote=jsonb(saved),next=jsonb(first);Object.assign(next.cards[0],{assetId:'asset',publishedSceneIds:['1-1'],images:[{id:'img',url:'https://test/img.png'}]});
+ const reopened=selectBindingVersion(next,remote);assert.equal(reopened.decisions.a.needs[0].imageId,'img');assert.equal(reopened.decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+ const changed=jsonb(remote);changed.decisions.a.needs[0].reason='人工修改';changed.decisions.a.signature='manual-draft';assert.notEqual(selectBindingVersion(next,changed).decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+});
+test('legacy reordered evidence recovers only an unchanged explicitly published assignment',()=>{
+ const first=fixture(),saved=saveBindingVersion(null,first,{a:{...proposeEntryBinding(first,first.entries[0]),confirmed:true,origin:'manual'}}),d=saved.decisions.a;
+ const {signature,reuseEvidence,...value}=d;d.reuseEvidence={...reuseEvidence,decision:bindingHash(value)};saved.versions[saved.selectedVersionId].decisions.a=d;
+ const next=jsonb(first);next.cards[0].assetId='asset';next.cards[0].publishedSceneIds=['1-1'];next.cards[0].images=[{id:'img',url:'https://test/img.png'}];next.publishedAssociations={a:{sourceHash:bindingHash(first.entries[0].prompt),versionId:saved.selectedVersionId,assets:[{name:'小明',category:'character'}]}};
+ const reopened=selectBindingVersion(next,jsonb(saved));assert.equal(reopened.decisions.a.needs[0].imageId,'img');
+ next.publishedAssociations.a.assets[0].name='另一人';assert.notEqual(selectBindingVersion(next,jsonb(saved)).decisions.a.signature,entryBindingSignature(reopened.snapshot,reopened.snapshot.entries[0]));
+});
 import {bookSharedReferences,mergeEpisodeMedia} from './promptBook.js';
 test('prompt-scoped imports never leak into siblings and override broad image pools',()=>{
  const book=mergeEpisodeMedia({}, {1:[{id:'shared',kind:'image'},{id:'voice',kind:'audio'}]}, {'1-1':[{id:'scene',kind:'image'}]}, {'1-1-1':[{id:'one',kind:'image'}]});

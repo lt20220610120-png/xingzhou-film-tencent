@@ -6,6 +6,13 @@ import {fixture} from './promptDistribution.fixtures.js';
 import {validateEpisodeVoices,voiceIdentity} from './characterVoices.js';
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
+test('visible queue reports preparation separately and the real waiting order',async()=>{
+ const f=fixture(),hold=deferred(),entered=deferred();f.api.aiChat=async p=>{entered.resolve();await hold.promise;return f.output(p.messages)};
+ const service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u',concurrency:1});
+ const tasks=['p1','p2','p3'].map(id=>service.run(id,{profile:{id:'m'}}));await entered.promise;
+ const status=service.status();assert.equal(status.entryTasks.p2.queuePosition,1);assert.equal(status.entryTasks.p3.queuePosition,2);assert.equal(status.entryTasks.p1.queuePosition,undefined);assert.equal(status.preparing,0);
+ hold.resolve();await Promise.all(tasks);
+});
 test('opening a service and an empty scene never triggers model calls or produces heuristic missing cards',async()=>{
  const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
  await new Promise(r=>setTimeout(r,5));assert.equal(f.calls,0);assert.equal(f.saved,null);

@@ -1751,7 +1751,7 @@ export function CollabWorkspace({ state, api, account }) {
             </button>
           );
         })}
-        {project.storageMode !== 'local' && section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>本地核实 · 发布时上传</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : project.storageMode==='local'?'刷新本机资料':'刷新项目资料'}</button>}
+        {project.storageMode !== 'local' && section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>清单本地保存 · 关联自动同步</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : project.storageMode==='local'?'刷新本机资料':'刷新项目资料'}</button>}
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
@@ -1763,7 +1763,7 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
         {section === 'voices' && <ProjectVoices project={project} assets={assets} api={api} state={state} accountId={account?.id} canEdit={canEditArt}/> }
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
-        {section === 'storyboard' && <StoryboardSection project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
+        {section === 'storyboard' && <StoryboardSection onOpenReview={sectionsForRole(myRole).includes('art-review')?entry=>{const navScope={accountId:account?.id,projectId:project.id,section:'art-review'},nav=readCollabNavigation(navScope);rememberCollabNavigation(navScope,{episodeNumber:entry.episode,scenes:{...nav.scenes,[entry.episode]:entry.sceneId},promptId:entry.id});setSection('art-review');}:undefined} project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
         {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} canDelete={canEditBoard} accountId={account?.id} onOpenStoryboard={row=>{rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'storyboard'},{episodeNumber:row.episode,sceneId:row.scene,shotId:row.shotId});setSection('storyboard');}} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}

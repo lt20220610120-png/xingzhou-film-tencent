@@ -1,7 +1,7 @@
 import {adoptedAssetImage,bindingImageId} from './adoptedAssetImage.js';
 import {projectVoiceCards} from './characterVoices.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,compileVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
-import {sceneIdentities,lockedIdentityOmission} from './sceneIdentityContext.js';
+import {sceneIdentities,lockedIdentityOmission,isNonvisualFoundationText} from './sceneIdentityContext.js';
 import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation} from './promptFoundation.js';
 import {parseAssetName} from './collabStore.js';
 import {inspectCollabEpisodes} from './collabEpisodes.js';
@@ -76,6 +76,7 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
   const source=row.id===editionId?snapshot:bindingSnapshot({...project,episodes:directorEditionEpisodes(project,row.id)},ledger,assets,{...previous,cards},false);
   return {editionId:row.id,editionName:row.name,...(row.legacyOriginal?{legacyOriginal:true}:{}),entries:source.entries,issues:source.issues,invalidEntries:source.invalidEntries};
  });
+ snapshot.publishedAssociations=Object.fromEntries((project.episodes||[]).flatMap(ep=>(ep.storyboardPrompts||[]).filter(s=>s.storyboardPublicationId&&s.sourcePromptId&&typeof s.sourceContent==='string'&&Array.isArray(s.generationConfig?.bindingAssets)).map(s=>[s.sourcePromptId,{sourceHash:bindingHash(s.sourceContent),versionId:s.generationConfig.bindingVersionId,assets:s.generationConfig.bindingAssets}])));
  snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.adoptedImageId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
  return snapshot;
 }
@@ -160,6 +161,10 @@ export function bindingProblems(snapshot,entry,decision,{requireImages=false,req
  if(entry.duplicateLabel)problems.push('本场存在同编号提示词，请明确采用批次并处理重复编号');
  if(!decision||decision.signature!==entryBindingSignature(snapshot,entry))return [...problems,'来源或素材已更新，请重新核对本条关联'];
  if(requireConfirmed&&!decision.confirmed)problems.push('本条关联尚未确认');
+ const visualCards=sceneInventoryCards(snapshot,entry).filter(c=>c.detailStatus!=='nonvisual');
+ const hasVisualContent=Object.values(readPromptFoundation(entry.prompt)).some(rows=>rows.some(row=>!isNonvisualFoundationText(row.text)));
+ const manuallyExcluded=visualCards.length>0&&visualCards.every(c=>decision.needs.some(n=>n.cardUid===c.uid&&n.locked&&n.visibility==='excluded'));
+ if(hasVisualContent&&visualCards.length&&!decision.needs.some(n=>n.cardUid&&n.visibility==='visible')&&!manuallyExcluded)problems.push('本条有画面内容，但未关联任何人物、场景或道具；请重新关联，缺项无需参考图不能代替素材分发');
  // Re-open old "successful" results that silently omitted a literal, unique
  // scene identity. Human exclusions stay authoritative, including on refresh.
  if(decision.origin==='scene-inventory-ai')for(const match of sceneIdentities(snapshot,entry)){

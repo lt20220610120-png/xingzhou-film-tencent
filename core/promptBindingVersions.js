@@ -1,4 +1,5 @@
 import {bindingImageId} from './adoptedAssetImage.js';
+import {canonicalBindingValue,publishedAssociationMatches} from './bindingPersistenceIdentity.js';
 import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {bindingHash,bindingProblems,entryBindingSignature,compileEntryBinding} from './promptArtBinding.js';
 
@@ -17,7 +18,8 @@ const extendsEdition=(base,current)=>{
 const distributionStamp=(snapshot,entry)=>bindingHash([...(snapshot.voiceCards?.length?[snapshot.voiceCards.filter(c=>c.sceneIds.includes(entry.sceneId)).map(voiceAssociationIdentity)]:[]),entry.id,entry.prompt,entry.sceneId,snapshot.cards.filter(card=>card.sceneIds.includes(entry.sceneId)).map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus])]);
 // Each accepted decision carries its own semantic baseline. Saving another
 // entry must not replace the only evidence for this entry's valid association.
-const decisionIdentity=decision=>{const {signature,reuseEvidence,...value}=decision;return bindingHash(value);};
+const decisionIdentity=decision=>{const {signature,reuseEvidence,...value}=decision;return 'canonical:'+bindingHash(canonicalBindingValue(value));};
+const matchesDecisionEvidence=(decision,evidence)=>{const {signature,reuseEvidence,...value}=decision;return evidence===decisionIdentity(decision)||evidence===bindingHash(value);};
 const associationSource=(snapshot,entry,decision)=>{
  const referenced=new Set((decision.needs||[]).map(n=>n.cardUid).filter(Boolean));
  const cards=snapshot.cards.filter(c=>referenced.has(c.uid)).map(c=>[c.uid,c.category,c.name,c.description,c.detailStatus,c.sceneIds.includes(entry.sceneId)]).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -97,7 +99,7 @@ export function selectBindingVersion(current,saved,id){
   // baseline, while genuine source, selected-card or manual-choice changes fail.
   if(!decision||!oldEntry)continue;
   const evidence=withEvidence(baseline,oldEntry,decision)?.reuseEvidence;
-  const reusable=evidence&&evidence.decision===decisionIdentity(decision)&&evidence.source===associationSource(snapshot,entry,decision);
+  const reusable=evidence&&evidence.source===associationSource(snapshot,entry,decision)&&(matchesDecisionEvidence(decision,evidence.decision)||!String(evidence.decision).startsWith('canonical:')&&publishedAssociationMatches(snapshot,entry,decision));
   const unchanged=decision.signature===entryBindingSignature(baseline,oldEntry)&&distributionStamp(baseline,oldEntry)===distributionStamp(snapshot,entry);
   if(!reusable&&!unchanged)continue;
   const hydrated={...decision,signature:entryBindingSignature(snapshot,entry),needs:decision.needs.map(need=>{

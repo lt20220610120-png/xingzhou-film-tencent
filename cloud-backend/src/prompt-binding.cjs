@@ -6,6 +6,15 @@ function sharedData(value,key=''){
  if(typeof value==='string'&&/^(?:url|originalUrl|thumbnail|previewUrl)$/i.test(key)&&!/^(?:https?:\/\/|$)/i.test(value))return '';
  return value;
 }
+function sharedBindingValue(old,data,meta){
+ const reviewLedger={episodes:{}};
+ for(const [n,record]of Object.entries(data.reviewLedger?.episodes||{})){
+  const copy=structuredClone(record);for(const k of ['cloudReceipt','publishRequest','failedReceipts','syncError','uploadedWriteId','writeId','pending'])delete copy[k];
+  reviewLedger.episodes[n]=copy;
+ }
+ return sharedData({schema:3,enabled:Boolean(data.enabled),snapshot:data.snapshot,decisions:data.decisions,versions:{...old?.versions,...data.versions},sceneDistributionAttempts:data.sceneDistributionAttempts||{},selectedVersionId:data.selectedVersionId||'',reviewLedger,...meta});
+}
+function bindingReceipt(projectId,saved){return {bindingReceipt:true,projectId,revision:saved.revision,lastWriteId:saved.lastWriteId,updatedBy:saved.updatedBy,updatedAt:saved.updatedAt};}
 function nextPromptBinding(project,p,userId){
  const old=project.analysis_progress?.[KEY];
  if(typeof p.writeId!=='string'||!p.writeId||p.writeId.length>100)fail('缺少关联保存请求编号');
@@ -26,7 +35,7 @@ function nextPromptBinding(project,p,userId){
   const copy=structuredClone(record);for(const k of ['cloudReceipt','publishRequest','failedReceipts','syncError','uploadedWriteId','writeId','pending'])delete copy[k];
   reviewLedger.episodes[n]=copy;
  }
- const next=sharedData({schema:3,enabled:Boolean(data.enabled),snapshot:data.snapshot,decisions:data.decisions,versions,sceneDistributionAttempts:attempts,selectedVersionId:data.selectedVersionId||'',reviewLedger,revision:(old?.revision||0)+1,lastWriteId:p.writeId,updatedBy:userId,updatedAt:new Date().toISOString()});
+ const next=sharedBindingValue(old,data,{revision:(old?.revision||0)+1,lastWriteId:p.writeId,updatedBy:userId,updatedAt:new Date().toISOString()});
  if(JSON.stringify(next).length>32*1024*1024)fail('关联记录过大，请分集核对');
  return next;
 }
@@ -41,4 +50,4 @@ function promptBindingRepository(pool){return {async savePromptBinding(pid,p,uid
   await client.query('COMMIT');return next;
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }};}
-module.exports={KEY,nextPromptBinding,promptBindingRepository};
+module.exports={KEY,nextPromptBinding,promptBindingRepository,sharedBindingValue,bindingReceipt};

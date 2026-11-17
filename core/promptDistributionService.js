@@ -6,6 +6,7 @@ import {isArtDetailDeferred} from './artDeferredDetails.js';
 import {runBindingRepair} from './importedArtBinding.js';
 import {getArtModelQueue,requestArtModel} from './artModelQueue.js';
 import {createTaskPool} from './asyncTaskPool.js';
+import {taskPriority} from './taskPriority.js';
 import {listCollabEpisodes} from './collabEpisodes.js';
 import {storyboardPublicationPayload} from './storyboardPublication.js';
 import {automaticEntryAssociation,calibratedEntryAssociation} from './automaticArtAssociation.js';
@@ -65,7 +66,10 @@ export function createPromptDistributionService({api,projectId,accountId,getCont
   },
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
   isBusy:id=>tasks.has(id)||maintenance.has(entrySceneId(id)),
-  status:()=>({working:tasks.size>0,entryIds:[...tasks.keys()],entryTasks:Object.fromEntries([...tasks].map(([id,t])=>[id,{phase:t.phase,attempt:t.attempt,queuedAt:t.queuedAt,phaseAt:t.phaseAt,startedAt:t.startedAt,receivedBytes:t.receivedBytes,versionId:t.versionId}])),notice,paused,lastCompleted,...modelQueue.status(),queued:lane.queued+modelQueue.status().queued}),
+  status:()=>{
+   const queued=[...tasks].filter(([,t])=>t.phase==='queued').sort((a,b)=>taskPriority(entrySceneId(b[0])===focusedSceneId?6:0,b[1].queuedAt)-taskPriority(entrySceneId(a[0])===focusedSceneId?6:0,a[1].queuedAt)||a[1].queuedAt-b[1].queuedAt);
+   return {working:tasks.size>0,entryIds:[...tasks.keys()],entryTasks:Object.fromEntries([...tasks].map(([id,t])=>[id,{phase:t.phase,attempt:t.attempt,queuedAt:t.queuedAt,phaseAt:t.phaseAt,startedAt:t.startedAt,receivedBytes:t.receivedBytes,versionId:t.versionId,...(t.phase==='queued'?{queuePosition:queued.findIndex(([key])=>key===id)+1}:{})}])),notice,paused,lastCompleted,...modelQueue.status(),preparing:[...tasks.values()].filter(t=>t.phase==='preparing').length,saving:[...tasks.values()].filter(t=>t.phase==='saving').length,queued:lane.queued+modelQueue.status().queued};
+  },
   resume(){paused=false;emit();},
   async autoAssociate({versionId,sceneId,voiceEnabled=true,confirmedOnly=false,isStopped=()=>false}={}){
    return mutate(versionId,state=>{

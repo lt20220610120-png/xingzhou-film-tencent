@@ -1,5 +1,5 @@
 import {mediaSource} from '../../core/generationReferences.js';
-import {artPipelineProgress} from '../../core/artPipelineProgress.js';
+import {promptMaterialRow} from '../../core/promptMaterialStatus.js';
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {bindingSnapshot,bindingImages,sceneInventoryCards,currentEntryBinding,saveDistribution,entryBindingSignature,bindingProblems} from '../../core/promptArtBinding.js';
 import {bindingVersionOptions,selectBindingVersion,saveBindingVersion} from '../../core/promptBindingVersions.js';
@@ -14,7 +14,7 @@ import {BINDING_SAVED_EVENT,notifyBindingSaved} from './useScenePromptLinks.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import '../prompt-art-binding.css';
 
-export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,onSkipMissing,sceneActions,versionId}){
+export default function PromptArtBindingPanel({project,ledger,assets,api,accountId,canEdit,sceneId,profile,modelId,setModelId,modelProfiles,refresh,onBackScene,onSkipMissing,sceneActions,versionId,selectedEntryId,onSelectEntry}){
  const [available,setAvailable]=useState(false),[loaded,setLoaded]=useState(false),[saved,setSaved]=useState(null),[selected,setSelected]=useState(''),[category,setCategory]=useState('all'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const mounted=useRef(false),saving=useRef(false);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
@@ -27,7 +27,7 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const versions=useMemo(()=>bindingVersionOptions(currentSnapshot,saved),[currentSnapshot,saved]);
  const selectedVersion=versions.some(row=>row.id===versionId)?versionId:versions[0].id;
  const {snapshot,decisions}=useMemo(()=>selectBindingVersion(currentSnapshot,saved,selectedVersion),[currentSnapshot,saved,selectedVersion]);
- const entries=snapshot.entries.filter(entry=>entry.sceneId===sceneId),entry=entries.find(row=>row.id===selected)||entries[0];
+ const entries=snapshot.entries.filter(entry=>entry.sceneId===sceneId),entry=entries.find(row=>row.id===(selectedEntryId||selected))||entries[0];
  const decision=entry&&currentEntryBinding(snapshot,entry,decisions[entry.id]);
  const voiceInventory=entry?(snapshot.voiceCards||[]).filter(card=>card.sceneIds.includes(sceneId)).map(card=>({...card,category:'voice',name:card.name,uid:card.uid,images:[]})):[],inventory=entry?[...sceneInventoryCards(snapshot,entry),...voiceInventory]:[];
  const auditNeeds=entry?auditedBindingNeeds(snapshot,entry,decisions[entry.id]):[],voiceNeeds=entry?(decisions[entry.id]?.speakers||[]).map(s=>({id:`voice:${s.voiceUid}`,category:'voice',cardUid:s.voiceUid,visibility:'voice',reason:s.evidence||'正常对白自动关联'})):[],displayNeeds=[...auditNeeds,...voiceNeeds];
@@ -40,33 +40,29 @@ export default function PromptArtBindingPanel({project,ledger,assets,api,account
  const persist=async data=>{
   if(saving.current)throw Error('正在保存，请稍后再操作');
   saving.current=true;setBusy(true);setError('');setNotice('');
-  try{const next=await api.promptArtSave({accountId,projectId:project.id,baseRevision:latest.current.saved?.revision||0,data});if(mounted.current){latest.current.saved=next;setSaved(next);notifyBindingSaved(project.id,accountId,next);setNotice('关联已保存到本机');}return next;}
+  try{const next=await api.promptArtSave({accountId,projectId:project.id,baseRevision:latest.current.saved?.revision||0,data});if(mounted.current){latest.current.saved=next;setSaved(next);notifyBindingSaved(project.id,accountId,next);setNotice(project.storageMode==='local'?'关联已保存到本机':'关联已保存到云端');}return next;}
   catch(problem){if(mounted.current)setError(problem.message);throw problem;}
   finally{saving.current=false;if(mounted.current)setBusy(false);}
  };
  const act=async task=>{try{await task();}catch(problem){if(mounted.current)setError(problem.message);}};
  const saveDecision=next=>persist(saveBindingVersion(saved,snapshot,{...decisions,[entry.id]:saveDistribution(snapshot,entry,next)}));
  const edit=(id,patch)=>saveDecision({...decision,confirmed:false,needs:decision.needs.map(need=>need.id===id?{...need,...patch,locked:true}:need)});
- const ready=Object.fromEntries(Object.values(ledger.episodes||{}).flatMap(record=>(record.scenes||[]).map(scene=>[scene.id,Boolean(scene.mappingReady&&scene.items.length)])));
  const distribution=useScenePromptDistribution({project,ledger,assets,accountId,snapshot,sceneId,loaded,canEdit,profile,api,setError,setNotice});
- const progress=useMemo(()=>artPipelineProgress(project,ledger,snapshot,decisions),[project,ledger,snapshot,decisions]);
+ const materialState={snapshot,decisions,saved},material=entry&&promptMaterialRow(materialState,entry,distribution);
  const liveTask=entry&&distribution.entryTasks?.[entry.id],taskCurrent=liveTask&&(!liveTask.versionId||liveTask.versionId===snapshot.versionId);
- const [now,setNow]=useState(Date.now());
- useEffect(()=>{if(!taskCurrent)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[entry?.id,taskCurrent,liveTask?.phase]);
- const phaseText=taskCurrent?({queued:'排队中',preparing:'正在准备清单',waiting:'等待模型请求',retrying:`正在重试（第 ${liveTask.attempt} 次）`,requesting:liveTask.attempt>1?`等待重新关联响应（第 ${liveTask.attempt} 次）`:'等待模型响应',receiving:'正在接收关联结果',saving:'正在保存关联'})[liveTask.phase]:stale?'关联需重新核对':decisions[entry?.id]?.confirmed?(attempt?.status==='calibration-failed'?'已关联 · 模型校准未完成':'已关联'):attempt?.status==='failed'?'关联待核对':attempt?.status==='done'?'已读取，需核对关联':attempt?.status==='running'?'上次关联尚未完成':distribution.working&&!sceneReady?'等待本场清单补全':distribution.working?'等待对白或关联准备':'尚未开始';
  const toggleCard=(card,checked)=>card.category==='voice'?Promise.resolve():saveDecision(assignSceneCard(snapshot,entry,{...decision,needs:[...auditNeeds,...decision.needs.filter(n=>!n.cardUid)]},card.uid,checked));
  if(!available)return null;
  const disabled=busy||distribution.isBusy(entry?.id)||!loaded||!canEdit;
  return <section className="prompt-art-panel" aria-label="提示词联动美术">
   {entry&&<SceneInventoryDisclosure cards={inventory} needs={displayNeeds} entryLabel={entry.label} disabled={disabled} onToggle={(card,checked)=>act(()=>toggleCard(card,checked))}/>} 
   <header className="prompt-art-toolbar"><div><h2>场景 {sceneId} · 提示词素材关联</h2></div><div className="prompt-art-header-actions">{sceneActions}<button className="prompt-art-entry-retry" title="重新读取当前提示词并关联素材，保留人工选择" disabled={disabled||!profile||!entry||!sceneReady} onClick={()=>act(()=>distribution.redistribute(entry))}>重新关联本条</button></div></header>
-  {loaded&&<div className="prompt-art-flow" aria-label="协作处理进度"><span>清单 <b>{progress.read}/{progress.episodes}</b> 集</span><span>场景 <b>{progress.mapped}/{progress.scenes}</b> 场</span><span>已保存关联 <b>{progress.linked}/{progress.entries}</b> 条</span></div>}
-  {entry&&<p className="prompt-art-queue-status" role="status">本条 {entry.label}：{phaseText}{taskCurrent?` · ${Math.max(0,Math.floor((now-(liveTask.phaseAt||liveTask.queuedAt))/1000))} 秒`:''}{distribution.working?` · 请求中 ${distribution.active} 项 · 排队 ${distribution.queued} 项`:''}{distribution.lastCompleted?.versionId===snapshot.versionId?` · 最近完成 ${distribution.lastCompleted.label}`:''}</p>}
+  {entry&&<p className="prompt-art-queue-status" role="status">本条 {entry.label} · {material.label}{material.associated?' · 关联已保存':''}{material.published?' · 提示词已发布':''}{material.noReference?' · 已确认无需参考素材':''}{taskCurrent&&liveTask.phase==='queued'&&liveTask.queuePosition?` · 当前顺序 ${liveTask.queuePosition}`:''}</p>}
+  {material?.issues.length>0&&<p className="material-error" role="status">{material.issues.join('；')}</p>}
   {error&&<p role="alert" className="collab-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
   {<>
    {!entry?<p>本场尚无已保存提示词，可先核实美术清单；补齐后刷新云端即可自动关联。</p>:<div className="prompt-art-workspace">
     <section className="prompt-art-prompt-column" aria-label="当前提示词">
-     <div className="prompt-art-prompt-heading"><span>当前提示词 <strong>{entry.label}</strong></span><div className="prompt-art-stepper" role="tablist" aria-label="提示词快速定位">{entries.map((row,index)=><button type="button" key={row.id} role="tab" aria-selected={row.id===entry.id} aria-label={'第 '+(index+1)+' 条提示词 '+row.label} className={row.id===entry.id?'active':''} disabled={busy} onClick={()=>{setSelected(row.id);setError('');setNotice('');}}>{index+1}</button>)}</div></div>
+     <div className="prompt-art-prompt-heading"><span>当前提示词 <strong>{entry.label}</strong></span><div className="prompt-art-stepper" role="tablist" aria-label="提示词快速定位">{entries.map((row,index)=><button type="button" key={row.id} role="tab" aria-selected={row.id===entry.id} aria-label={'第 '+(index+1)+' 条提示词 '+row.label} title={promptMaterialRow(materialState,row,distribution).label} className={`${row.id===entry.id?'active':''} ${promptMaterialRow(materialState,row,distribution).ready?'is-ready':'has-problem'}`} disabled={busy} onClick={()=>{setSelected(row.id);onSelectEntry?.(row.id);setError('');setNotice('');}}>{index+1}</button>)}</div></div>
      <div className="prompt-art-source"><h3>提示词原文</h3><pre>{entry.prompt}</pre></div>
      {!sceneReady&&<p role="status">等待本场清单分析完成，再由模型读取提示词并分发。</p>}
      {stale&&sceneReady&&!distribution.isBusy(entry.id)&&<p className="collab-error">本场清单已更新，正在等待补齐素材关联。</p>}
