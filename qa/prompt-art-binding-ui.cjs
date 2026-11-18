@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('../scripts/qa-playwright.cjs');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 (async()=>{

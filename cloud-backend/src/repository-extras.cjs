@@ -143,25 +143,28 @@ function extendRepository(pool) {
       const sql = 'insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,$5) on conflict(project_id,user_id) do update set role=excluded.role returning *';
       return one(sql, [pid, target.id, target.username, target.display_name || target.username, role]);
     },
-    async removeDirectorMember(pid, userId, uid, domain='director') {
-      if(!uid)return null;
+    async removeDirectorMember(pid, target, uid, domain='director') {
+      if(typeof target==='string')target={userId:target};
+      if(!uid||!(target?.memberId||target?.userId))return null;
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
         const correctDomain=domain==='director'?directorRow(row):Boolean(row&&!String(row.genre||'').includes(DIRECTOR_SENTINEL)&&!row.deleted_at);
         if(!correctDomain||row.owner_id!==uid){await client.query('ROLLBACK');return null;}
-        const removed=(await client.query('delete from collab_members where project_id=$1 and user_id=$2 returning *',[pid,userId])).rows[0]||null;
+        const column=target.memberId?'id':'user_id';
+        const removed=(await client.query(`delete from collab_members where project_id=$1 and ${column}=$2 and role <> 'producer' and user_id<>$3 returning *`,[pid,target.memberId||target.userId,uid])).rows[0]||null;
         await client.query('COMMIT');return removed;
       }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     },
     async updateMemberRole(pid, p, uid) {
-      if(!uid)return null;
+      if(!uid||!(p.memberId||p.userId))return null;
       const role = ['producer','artist','collaborator','artist_collaborator'].includes(p.role) ? p.role : 'collaborator';
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
         if(!row||row.owner_id!==uid||String(row.genre||'').includes(DIRECTOR_SENTINEL)||row.deleted_at){await client.query('ROLLBACK');return null;}
-        const saved=(await client.query('update collab_members set role=$1 where project_id=$2 and user_id=$3 returning *',[role,pid,p.userId])).rows[0]||null;
+        const column=p.memberId?'id':'user_id';
+        const saved=(await client.query(`update collab_members set role=$1 where project_id=$2 and ${column}=$3 and role <> 'producer' and user_id<>$4 returning *`,[role,pid,p.memberId||p.userId,uid])).rows[0]||null;
         await client.query('COMMIT');return saved;
       }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     },
@@ -315,6 +318,22 @@ function extendRepository(pool) {
       const media = await count('select count(*)::int as c from collab_media where project_id=$1', [pid]);
       const messages = await count('select count(*)::int as c from collab_messages where project_id=$1', [pid]);
       return { assets, members, tasks, doneTasks, media, messages };
+    },
+    async createAsset(pid,p,uid) {
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const project=await lockAuthorizedProject(client,pid,uid,['producer','artist','artist_collaborator']);
+        if(!editableCollab(project)){await client.query('ROLLBACK');return null;}
+        const created=await client.query(`insert into collab_assets(project_id,category,name,description,first_episode,episodes)
+          values($1,$2,$3,$4,$5,$6) returning *`,
+          [pid,p.category||'character',p.name||'未命名资产',p.description||'',p.firstEpisode||1,p.episodes||[]]);
+        await client.query('COMMIT');
+        return created.rows[0];
+      } catch(error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {client.release();}
     },
     async replaceAssets(pid, list, uid) {
       if (!await isOwner(pid, uid)) return null;

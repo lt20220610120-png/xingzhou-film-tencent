@@ -145,3 +145,32 @@ test('captures a verified adopted voice and shares both aliases through the same
   assert.equal(refs(shared)[0].mediaId,refs(shared)[1].mediaId);
   assert.deepEqual(refs(shared).map(ref=>ref.objectKey),[audioKey,audioKey]);
 });
+
+test('local audio and video retain their media type through the collaboration upload', async t=>{
+  const f=await fixture(t);
+  const {configureCloudFetch}=require('./cloud-access-service.cjs');
+  const {configureAPIFetch}=require('./win-ai-api-fetch.cjs');
+  const {uploadToBucket}=require('./collab-service.cjs');
+  const signed=[],received=[];
+  configureCloudFetch(async (_url,init)=>{
+    const request=JSON.parse(init.body);
+    signed.push([request.kind,request.mime]);
+    return Response.json({url:'https://bucket.invalid/fixture',contentType:request.mime,objectKey:'fixture',authorization:'fixture'});
+  });
+  configureAPIFetch(async (_url,init)=>{
+    received.push([init.headers['Content-Type'],Buffer.from(init.body).toString()]);
+    return new Response(null,{status:200});
+  });
+  t.after(()=>{configureCloudFetch(undefined);configureAPIFetch(undefined);});
+  for(const [ext,kind,mime] of [['flac','audio','audio/flac'],['aac','audio','audio/aac'],['ogg','audio','audio/ogg'],['m4a','audio','audio/mp4'],['mp4','audio','audio/mp4'],['mp4','video','video/mp4']]){
+    const selected=path.join(f.directory,'fixture.'+ext);
+    const bytes='fixture-'+kind+'-'+ext;
+    await fs.writeFile(selected,bytes);
+    const stored=await f.helper.storeFile({projectId,filePath:selected,kind});
+    const uploaded=await uploadToBucket(projectId,stored.filePath,stored.kind,'fixture');
+    assert.deepEqual([stored.kind,stored.mime],[kind,mime]);
+    assert.deepEqual([uploaded.kind,uploaded.mime],[kind,mime]);
+    assert.deepEqual(signed.at(-1),[kind,mime]);
+    assert.deepEqual(received.at(-1),[mime,bytes]);
+  }
+});

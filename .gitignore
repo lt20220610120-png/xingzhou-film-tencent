@@ -30,8 +30,8 @@ qa/
 *.log
 .cache/
 .playwright-cli/
-output/playwright/
-output/layout-preview/
+/output/
+/electron-runtime-*/
 !src/assets/company-logo.png
 !src/assets/wink-ai-icon.png
 !build/icon-master.png

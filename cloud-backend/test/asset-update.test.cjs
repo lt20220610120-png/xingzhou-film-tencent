@@ -16,6 +16,26 @@ function repository(role = 'producer') {
 }
 const payload = { projectId: 'project', assetId: 'asset', updates: { description: '一层老房子，空旷门厅' } };
 
+test('asset creation rechecks art membership after locking the project', async () => {
+  const {createRepository}=require('../src/postgres-repository.cjs');
+  for (const role of ['artist','artist_collaborator','producer','collaborator']) {
+    const sql=[];
+    const client={release(){},async query(statement,params) {
+      sql.push(statement);
+      if (statement.includes('for update')) return {rows:[{id:'project',owner_id:'owner',genre:'[COLLAB_PROJECT]'}]};
+      if (statement.includes('select 1 as ok from collab_members')) return {rows:params.slice(2).includes(role)?[{}]:[]};
+      if (statement.startsWith('insert into collab_assets')) return {rows:[{id:'asset'}]};
+      return {rows:[]};
+    }};
+    const repo=createRepository('',{pool:{connect:async()=>client,query:client.query}});
+    const asset=await repo.createAsset('project',{name:'asset',episodes:[1]},'user');
+    assert.equal(Boolean(asset),role!=='collaborator');
+    const lock=sql.findIndex(query=>query.includes('for update'));
+    assert(lock>=0 && sql.findIndex(query=>query.includes('from collab_members'))>lock);
+    assert.equal(sql.some(query=>query.startsWith('insert into collab_assets')),role!=='collaborator');
+  }
+});
+
 for (const role of ['producer', 'artist', 'artist_collaborator']) test(`${role} 可以保存嵌套 updates 中的提示词`, async () => {
   const repo = repository(role);
   const result = await handleAction('asset-update', payload, { id: 'user' }, repo);

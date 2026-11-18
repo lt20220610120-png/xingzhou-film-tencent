@@ -1,18 +1,15 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
+const {projectMediaMime} = require('./local-project-media.cjs');
 const { isMediaNetworkError } = require('./media-network.cjs');
-const { EDGE_FUNCTION_URL, SUPABASE_URL } = require('./cloud-config.public.cjs');
 // 复用带端点回退的 gateway：域名被拦截时自动切到服务器 IP。
 const { gateway: sharedGateway } = require('./cloud-access-service.cjs');
-const NETWORK_ERROR = '无法连接云端服务，请检查网络后重试';
-const mimeFor = (ext) => ({ '.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4' }[ext] || 'application/octet-stream');
 const gateway = (action, payload = {}, token = '') => sharedGateway(action, payload, token);
 // 通过服务端签名直传腾讯云 COS：大文件不再经过 JSON base64，避免内存暴涨与请求体超限。
 async function uploadToBucket(projectId, filePath, kindHint, token) {
   if (!filePath || !fs.existsSync(filePath)) throw new Error('素材文件不存在');
   const ext = (path.extname(filePath) || '.bin').toLowerCase();
-  const mime = mimeFor(ext);
+  const mime = projectMediaMime(ext, kindHint);
   const filename = path.basename(filePath);
   const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
   const signed = await gateway('media-upload-url', { projectId, filename, kind, mime }, token);

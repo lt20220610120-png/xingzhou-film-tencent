@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {chromium}=require('../scripts/qa-playwright.cjs');const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const out='output/review-133';fs.mkdirSync(out,{recursive:true});
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--js-flags=--max-old-space-size=1024','--enable-precise-memory-info']}),reports=[];try{for(const width of [1280,1700,2560]){
  const page=await browser.newPage({viewport:{width,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('crash',()=>errors.push('renderer crashed'));page.setDefaultTimeout(30000);await page.goto('http://127.0.0.1:5837/qa/director-recovery133.html');

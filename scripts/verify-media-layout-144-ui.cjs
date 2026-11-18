@@ -1,6 +1,6 @@
 // Isolated full React regression: fake cloud rows and tasks, no paid API calls.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./qa-playwright.cjs');
 const base=process.env.XZ_QA_URL||'http://127.0.0.1:5884/';
 const out=path.resolve('output/playwright/media-2.8.144');fs.mkdirSync(out,{recursive:true});
 let browser,page;const errors=[],report={checks:[],layouts:[],realApiCalls:0};

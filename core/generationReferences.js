@@ -34,6 +34,8 @@ export function bindReferencePrompt(prompt, references) {
     const matches=numbered.filter(r=>referenceNames(r).includes(name));
     const aliases=matches.map(r=>r.alias).join(' ');
     result=result.split(`@【${name}】`).join(aliases).split(`@[${name}]`).join(aliases);
+    // Bare numbered mentions address the provider's reference order, even when a file shares that name.
+    if (/^(?:image|audio|video)[1-9]\d*$/.test(name)) continue;
     const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     result=result.replace(new RegExp(`@${escaped}(?![\\w\\u4e00-\\u9fff])`,'g'),aliases);
   }

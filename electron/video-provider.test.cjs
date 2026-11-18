@@ -100,3 +100,13 @@ test('managed local preview URLs keep multipart file bytes without sending the p
  await require('./video-provider.cjs').submit({autoDownload:true,endpoint:'https://provider.test/v1',apiKey:'fixture',model:'custom-video',prompt:'test',duration:5,ratio:'16:9',resolution:'720p',videoProtocol:'videos-multipart',references:[{kind:'image',filePath:file,url:'xzmedia://local/'+encodeURIComponent(file)}]});
  assert.equal(await body.get('input_reference').text(),'frame147');assert.doesNotMatch([...body.entries()].filter(([,value])=>typeof value==='string').map(([,value])=>value).join(' '),/xzmedia:/);
 });
+
+test('refresh preserves an already completed link result when the upstream task expires',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-terminal-link-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const job={id:'saved',kind:'video',status:'success',storage:'link',url:'https://cdn.example/movie.mp4',jobId:'ticket',endpoint:'https://provider.example/v1',videoProtocol:'videos-json'};
+ fs.writeFileSync(path.join(dir,'generation-jobs.json'),JSON.stringify([job]));
+ const calls=[];t.mock.method(global,'fetch',async url=>{calls.push(url);return Response.json({status:'failed'});});
+ const result=await require('./generation-jobs.cjs').createGenerationJobs(dir).refresh({id:job.id,endpoint:job.endpoint,apiKey:'fixture'});
+ assert.deepEqual(calls,[]);
+ assert.deepEqual(result,job);
+});

@@ -1,4 +1,4 @@
-const{chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const{chromium}=require('../scripts/qa-playwright.cjs');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),assert=require('node:assert/strict');const{createLikeConnector,MODEL}=require('../electron/like-connector.cjs');
 const project='https://likeai.pro/projects/'+'a'.repeat(24),canvas='b'.repeat(24),root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-like-mv3-')),extension=path.join(root,'extension');
 fs.cpSync(path.resolve('browser-extension/like-connector'),extension,{recursive:true});const bg=path.join(extension,'background.js');fs.writeFileSync(bg,fs.readFileSync(bg,'utf8').replaceAll('18764','18765'));const manifest=path.join(extension,'manifest.json');fs.writeFileSync(manifest,fs.readFileSync(manifest,'utf8').replaceAll('18764','18765'));

@@ -9,7 +9,7 @@ function sharedData(value,key=''){
 function sharedBindingValue(old,data,meta){
  const reviewLedger={episodes:{}};
  for(const [n,record]of Object.entries(data.reviewLedger?.episodes||{})){
-  const copy=structuredClone(record);for(const k of ['cloudReceipt','publishRequest','failedReceipts','syncError','uploadedWriteId','writeId','pending'])delete copy[k];
+  const copy={...record};for(const k of ['cloudReceipt','publishRequest','failedReceipts','syncError','uploadedWriteId','writeId','pending'])delete copy[k];
   reviewLedger.episodes[n]=copy;
  }
  return sharedData({schema:3,enabled:Boolean(data.enabled),snapshot:data.snapshot,decisions:data.decisions,versions:{...old?.versions,...data.versions},sceneDistributionAttempts:data.sceneDistributionAttempts||{},selectedVersionId:data.selectedVersionId||'',reviewLedger,...meta});
@@ -27,13 +27,17 @@ function nextPromptBinding(project,p,userId){
  for(const [id,row]of Object.entries(versions))if(row?.id!==id||!valid(row.snapshot))fail('提示词版本记录无效');
  const attempts=data.sceneDistributionAttempts||{};
  if(typeof attempts!=='object'||Array.isArray(attempts)||Object.values(attempts).some(a=>!a||typeof a.stamp!=='string'||!['running','failed','done','calibration-failed'].includes(a.status)))fail('自动分发记录格式无效');
- const reviewLedger={episodes:{}};
- for(const [n,record]of Object.entries(data.reviewLedger?.episodes||{})){
-  const episode=require('./collab-episodes.cjs').numberedEpisodes(project.episodes).find(e=>e.number===Number(n))?.episode;
-  if(!episode)fail('核实清单分集不存在');
-  require('./art-review-repository.cjs').validateReview(record,episode,Number(n));
-  const copy=structuredClone(record);for(const k of ['cloudReceipt','publishRequest','failedReceipts','syncError','uploadedWriteId','writeId','pending'])delete copy[k];
-  reviewLedger.episodes[n]=copy;
+ const reviews=Object.entries(data.reviewLedger?.episodes||{});
+ if(reviews.length){
+  const {numberedEpisodes}=require('./collab-episodes.cjs');
+  const {validateReview}=require('./art-review-repository.cjs');
+  const episodes=new Map(numberedEpisodes(project.episodes).map(({number,episode})=>[number,episode]));
+  for(const [key,record] of reviews){
+   const number=Number(key);
+   const episode=episodes.get(number);
+   if(!episode)fail('核实清单分集不存在');
+   validateReview(record,episode,number);
+  }
  }
  const next=sharedBindingValue(old,data,{revision:(old?.revision||0)+1,lastWriteId:p.writeId,updatedBy:userId,updatedAt:new Date().toISOString()});
  if(JSON.stringify(next).length>32*1024*1024)fail('关联记录过大，请分集核对');
@@ -46,7 +50,7 @@ function promptBindingRepository(pool){return {async savePromptBinding(pid,p,uid
   if(!row||!uid||row.owner_id!==uid&&!(await client.query("select 1 from collab_members where project_id=$1 and user_id=$2 and role in ('producer','artist','artist_collaborator')",[pid,uid])).rows.length){await client.query('ROLLBACK');return null;}
   if(row.deleted_at||/\[RECYCLE_UNTIL:|\[PROJECT_LOCKED\]|\[DIRECTOR_PROJECT\]/.test(row.genre||''))fail('项目已锁定、删除或不支持此操作',403);
   const next=nextPromptBinding(row,p,uid);
-  await client.query('update collab_projects set analysis_progress=$2,updated_at=now() where id=$1',[pid,JSON.stringify({...row.analysis_progress,[KEY]:next})]);
+  if(next!==row.analysis_progress?.[KEY])await client.query('update collab_projects set analysis_progress=$2,updated_at=now() where id=$1',[pid,JSON.stringify({...row.analysis_progress,[KEY]:next})]);
   await client.query('COMMIT');return next;
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }};}

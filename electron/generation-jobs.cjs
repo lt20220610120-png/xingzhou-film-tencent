@@ -193,6 +193,7 @@ function createGenerationJobs(dir,options={}) {
       const work = (async () => {
         let job=read().find(r=>r.id===id);
         if (!job) throw new Error('任务不存在');
+        if(job.status==='success'&&job.storage==='link'&&job.url)return job;
         if(!['success','failed'].includes(job.status))job={...job,checkedAt:new Date().toISOString(),pollCount:(job.pollCount||0)+1,nextPollAt:Date.now()+(job.workflowRunId?5000:30000)};
         if(job.provider==='likeai'){
           if(['success','failed'].includes(job.status))return job;

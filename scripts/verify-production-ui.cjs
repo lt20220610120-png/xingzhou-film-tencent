@@ -1,4 +1,4 @@
-const{chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const{chromium}=require('./qa-playwright.cjs');
 const fs=require('node:fs'),assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),report=[];fs.mkdirSync('output/playwright',{recursive:true});try{for(const width of [1280,1700,2232]){
  const page=await browser.newPage({viewport:{width,height:1100}}),errors=[];page.setDefaultNavigationTimeout(60000);page.on('pageerror',e=>errors.push(e.message));

@@ -6,7 +6,8 @@ const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
 if(pkg.version.includes('-private')&&process.env.XINGZHOU_PRIVATE_TRIAL!=='1')throw new Error('Private trial packaging requires XINGZHOU_PRIVATE_TRIAL=1');
 if(!pkg.version.includes('-private')&&process.env.XINGZHOU_PRIVATE_TRIAL==='1')throw new Error('Public releases must not enable XINGZHOU_PRIVATE_TRIAL');
-const staging = path.join(root, 'release', `staging-${pkg.version}-${Date.now()}`);
+const releaseRoot = path.join(root, 'release');
+let staging;
 const output = path.join(root, 'release', pkg.version);
 const installed = new Map();
 function copyTree(source,destination,skip=new Set()) {
@@ -45,7 +46,8 @@ function copyDependency(name, from) {
 }
 (async()=>{
   if (!fs.existsSync(path.join(root,'dist/index.html'))) throw new Error('Run npm run build before packaging');
-  fs.mkdirSync(staging,{recursive:true});
+  fs.mkdirSync(releaseRoot,{recursive:true});
+  staging = fs.mkdtempSync(path.join(releaseRoot, `staging-${pkg.version}-`));
   for (const folder of ['dist','electron','core','world-simulation','canvas-app','browser-extension','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
   copyTree(path.join(root,'cloud-backend/shared'),path.join(staging,'cloud-backend/shared'));
   const localProjectModules = ['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
@@ -64,5 +66,9 @@ function copyDependency(name, from) {
   await require('electron-builder').build({projectDir:staging,targets:require('electron-builder').Platform.WINDOWS.createTarget(['nsis'],require('electron-builder').Arch.x64),config});
   const exe = path.join(output,'win-unpacked',`${pkg.build.productName}.exe`);
   await require('./verify-packaged-runtime.cjs').verify(exe,pkg.version,Object.fromEntries(installed));
+  // Only remove this run's temporary copy after the packaged app passed smoke tests.
+  if (path.dirname(fs.realpathSync(staging)) === fs.realpathSync(releaseRoot)) {
+    fs.rmSync(staging, {recursive:true, force:true, maxRetries:3});
+  }
   console.log(`VERIFIED_INSTALLER ${path.join(output,`Xingzhou-Film-Tencent-Setup-${pkg.version}.exe`)}`);
 })().catch(error=>{console.error(error);process.exit(1);});

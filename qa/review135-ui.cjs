@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');const assert=require('node:assert/strict'),fs=require('node:fs');const out='output/review-135';fs.mkdirSync(out,{recursive:true});
+const {chromium}=require('../scripts/qa-playwright.cjs');const assert=require('node:assert/strict'),fs=require('node:fs');const out='output/review-135';fs.mkdirSync(out,{recursive:true});
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true}),report=[];let page;try{for(const width of [1280,1700,2232]){
  page=await browser.newPage({viewport:{width,height:1100}});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:5837/qa/review135.html');const toolbar=page.locator('.qa-toolbar');await page.waitForFunction(()=>window.qa135?.saved?.decisions.p1?.confirmed);
  assert.equal(await page.locator('.voice-binding-summary').count(),0);assert.equal(await page.locator('[aria-label="已关联音色"] .binding-audit-row').count(),2);

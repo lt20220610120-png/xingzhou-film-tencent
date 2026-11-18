@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('../scripts/qa-playwright.cjs');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const base=process.env.QA_BASE_URL||'http://127.0.0.1:5837',out=path.resolve('output/review-132');fs.mkdirSync(out,{recursive:true});
 const css=path.resolve('dist/assets',fs.readdirSync('dist/assets').find(n=>n.endsWith('.css')));

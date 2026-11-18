@@ -2,14 +2,23 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 
 const safe=value=>String(value||'图片').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,100);
-const imageExt=image=>{const ext=path.extname(String(image?.filename||image?.filePath||'')).toLowerCase();if(image.kind==='audio')return ['.wav','.mp3','.m4a','.aac','.ogg','.flac'].includes(ext)?ext:'.wav';return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png';};
+const imageExt=image=>{const ext=path.extname(String(image?.filename||image?.filePath||'')).toLowerCase();if(image.kind==='audio')return ['.wav','.mp3','.m4a','.aac','.ogg','.flac','.mp4'].includes(ext)?ext:'.wav';return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png';};
 function episodeFolders(image){
  const values=(image.episodes?.length?image.episodes:[image.first_episode]).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0);
  return [...new Set(values)].sort((a,b)=>a-b).map(n=>`第${n}集`);
 }
-async function uniqueFile(target){
- const ext=path.extname(target),base=target.slice(0,-ext.length);let candidate=target,index=2;
- while(true){try{await fs.access(candidate);candidate=`${base} (${index++})${ext}`;}catch(error){if(error.code==='ENOENT')return candidate;throw error;}}
+async function writeUniqueFile(target, bytes) {
+ const extension = path.extname(target);
+ const base = target.slice(0, -extension.length);
+ for (let index = 1; ; index++) {
+  const candidate = index === 1 ? target : `${base} (${index})${extension}`;
+  try {
+   await fs.writeFile(candidate, bytes, {flag:'wx'});
+   return;
+  } catch (error) {
+   if (error.code !== 'EEXIST') throw error;
+  }
+ }
 }
 async function exportImagesToFolder({images,dir,layout='flat',fetchImage}){
  if(!['flat','episode','scene','prompt'].includes(layout))throw new Error('不支持的图片导出方式');
@@ -28,7 +37,7 @@ async function exportImagesToFolder({images,dir,layout='flat',fetchImage}){
      const targetDir=folder?path.join(dir,folder):dir;
      await fs.mkdir(targetDir,{recursive:true});
      const name=`${String(index+1).padStart(3,'0')}-${safe(image.assetName||image.note||'图片')}${imageExt(image)}`;
-     await fs.writeFile(await uniqueFile(path.join(targetDir,name)),bytes);
+     await writeUniqueFile(path.join(targetDir,name),bytes);
     }
    }catch(error){failures.push(`${image.assetName||image.id||index+1}: ${error.message}`);}
   }

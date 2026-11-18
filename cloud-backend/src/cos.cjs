@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 
 const MAX_TTL_SECONDS = 15 * 60;
-const EXT_WHITELIST = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'webm', 'mp3', 'wav', 'pdf']);
+const EXT_WHITELIST = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'webm', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'pdf']);
 
 const hmacSha1 = (key, value) => crypto.createHmac('sha1', key).update(value).digest('hex');
 const sha1 = (value) => crypto.createHash('sha1').update(value).digest('hex');

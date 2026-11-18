@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./qa-playwright.cjs');
 const fs=require('node:fs'),assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),report=[];
 try{for(const width of [2560,1280,900]){

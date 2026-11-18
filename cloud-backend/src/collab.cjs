@@ -326,7 +326,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   }
   if (action === 'director-member-remove' || action === 'member-remove') {
     const pid = payload.directorProjectId || projectId;
-    const r = guard(await repo.removeDirectorMember(pid, payload.userId, user.id, action === 'director-member-remove' ? 'director' : 'collab'));
+    const r = guard(await repo.removeDirectorMember(pid, payload, user.id, action === 'director-member-remove' ? 'director' : 'collab'));
     return r ? ok({ ok: true }) : DENY;
   }
   if (action === 'member-role') { const r = guard(await repo.updateMemberRole(projectId, payload, user.id)); return r ? ok(r) : DENY; }
@@ -398,7 +398,14 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
 
   // ---- 任务 ----
   if (action === 'tasks-list') return ok(await repo.listTasks(projectId, user.id));
-  if (action === 'task-assign' || action === 'task-update') { const r = guard(await repo.upsertTask(projectId, payload, user.id)); return r ? ok(r) : DENY; }
+  if (action === 'task-assign') { const r = guard(await repo.assignTask(projectId, payload, user.id)); return r ? ok(r) : DENY; }
+  if (action === 'task-update') {
+    const taskId=payload.taskId || (payload.projectId && payload.id);
+    const status=payload.updates?.status ?? payload.status;
+    if (!taskId || typeof status !== 'string' || !status.trim()) return {status:400,body:{error:'请选择任务并指定状态'}};
+    const r = guard(await repo.updateTaskStatus(projectId, taskId, status, user.id));
+    return r ? ok(r) : DENY;
+  }
   if (action === 'task-delete') { const r = guard(await repo.deleteTask(projectId, payload.taskId || payload.id, user.id)); return r ? ok({ ok: true }) : DENY; }
 
   // ---- 消息 ----

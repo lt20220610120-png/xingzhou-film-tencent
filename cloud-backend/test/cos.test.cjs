@@ -36,6 +36,13 @@ test('上传签名返回受限于单个对象键的 PUT 地址和有效期', () 
   assert.notEqual(signed.authorization, other.authorization);
 });
 
+test('audio uploads preserve desktop reference formats in the COS object key', () => {
+  for (const ext of ['m4a','aac','ogg','flac']) {
+    assert(buildObjectKey({projectId:'project',kind:'audio',filename:'voice.'+ext.toUpperCase()}).endsWith('.'+ext));
+  }
+  assert(buildObjectKey({projectId:'project',kind:'audio',filename:'voice.unknown'}).endsWith('.bin'));
+});
+
 test('下载签名生成带签名的 GET 地址且不泄露密钥', () => {
   const signer = createCosSigner(config);
   const signed = signer.signDownload({ objectKey: 'projects/p1/image/1-a-ref.png' });

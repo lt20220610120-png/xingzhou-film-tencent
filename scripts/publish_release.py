@@ -1,5 +1,7 @@
 """Publish xingzhou-film release to GitHub: create release, upload installer, update latest.json."""
-import base64, json, subprocess, urllib.request, urllib.error, os, sys, time, glob, tempfile, datetime
+import base64, json, subprocess, urllib.request, urllib.error, os, sys, time, hashlib, tempfile, datetime
+
+from release_assets import ensure_release_asset
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 subprocess.run(['node', os.path.join(ROOT, 'scripts', 'sign-update.cjs'), '--check'], check=True)
@@ -20,12 +22,9 @@ MANIFEST_REPOS = [REPO, 'lt20220610120-png/xingzhou-film-tencent']
 TAG = f'v{VERSION}'
 RELEASE_DIR = os.path.join(ROOT, 'release', VERSION)
 expected = [
-    os.path.join(RELEASE_DIR, f'Xingzhou-Film-Tencent-Setup-{VERSION}.exe'),
-    os.path.join(RELEASE_DIR, f'Xingzhou-Film-Setup-{VERSION}.exe'),
-    os.path.join(ROOT, 'release', f'Xingzhou-Film-Tencent-Setup-{VERSION}.exe'),
-    os.path.join(ROOT, 'release', f'Xingzhou-Film-Setup-{VERSION}.exe'),
+    os.path.join(directory, f'Xingzhou-Film-Tencent-Setup-{VERSION}.exe')
+    for directory in (RELEASE_DIR, os.path.join(ROOT, 'release'))
 ]
-expected += glob.glob(os.path.join(RELEASE_DIR, '*.exe'))
 SRC = next((path for path in expected if os.path.isfile(path)), None)
 if not SRC:
     raise SystemExit(f'找不到 {VERSION} 安装包，请先运行 npm run dist；已检查 {RELEASE_DIR}')
@@ -61,7 +60,7 @@ st, b = req(f'https://api.github.com/repos/{REPO}/releases/tags/{TAG}')
 if st == 200:
     rid = json.loads(b)['id']
     print(f'release exists id={rid}, reusing')
-else:
+elif st == 404:
     st, b = req(f'https://api.github.com/repos/{REPO}/releases', 'POST',
                 json.dumps({'tag_name': TAG, 'target_commitish': 'main', 'name': f'行舟影视 {VERSION}',
                             'body': NOTES, 'draft': False, 'prerelease': False}).encode(),
@@ -69,44 +68,16 @@ else:
     assert st in (200, 201), f'Release create failed: {st} {b[:300]}'
     rid = json.loads(b)['id']
     print(f'release created id={rid}')
-
-# 2) Upload asset (reuse a complete asset; delete stale/partial asset with same name first; retry on network hiccups)
-st, b = req(f'https://api.github.com/repos/{REPO}/releases/{rid}/assets')
-existing = None
-if st == 200:
-    for asset in json.loads(b):
-        if asset['name'] == ASSET and asset['state'] == 'uploaded':
-            existing = asset
-        elif asset['name'] != ASSET:
-            req(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', 'DELETE')
-            print(f'removed stale asset {asset["id"]}: {asset["name"]}')
-size = os.path.getsize(SRC)
-if existing and existing['size'] == size:
-    dl = existing['browser_download_url']
-    print(f'existing asset is complete, skipping upload: {dl}')
 else:
-    print(f'uploading {size} bytes...')
-    last_error = None
-    for attempt in range(3):
-        try:
-            with open(SRC, 'rb') as f:
-                st, b = req(f'https://uploads.github.com/repos/{REPO}/releases/{rid}/assets?name={ASSET}', 'POST', f.read(),
-                            'application/octet-stream')
-            if st == 201:
-                break
-            last_error = f'{st} {b[:300]}'
-        except Exception as exc:  # network reset mid-upload leaves a partial asset — delete and retry
-            last_error = str(exc)
-        print(f'upload attempt {attempt + 1} failed: {last_error}; retrying...')
-        st2, b2 = req(f'https://api.github.com/repos/{REPO}/releases/{rid}/assets')
-        if st2 == 200:
-            for asset in json.loads(b2):
-                if asset['name'] == ASSET:
-                    req(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', 'DELETE')
-    if st != 201:
-        sys.exit(f'Upload failed after retries: {last_error}')
-    dl = json.loads(b)['browser_download_url']
-    print('uploaded:', dl)
+    raise RuntimeError(f'Cannot look up release {TAG}: HTTP {st}')
+
+# Reconcile ambiguous uploads by reading the asset again before retrying.
+size = os.path.getsize(SRC)
+with open(SRC, 'rb') as stream:
+    digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+
+ensure_release_asset(req, REPO, rid, SRC, ASSET, size, digest)
+dl = f'https://github.com/{REPO}/releases/download/{TAG}/{ASSET}'
 
 # 3) Update latest.json on both the dedicated update repo and the source repo.
 # Older clients read the source repo; the dedicated repo is the canonical release
@@ -114,7 +85,7 @@ else:
 manifest = {'version': VERSION,
             'installerUrl': f'https://github.com/{REPO}/releases/download/{TAG}/{ASSET}',
             'notes': NOTES,
-            'sha256': __import__('hashlib').sha256(open(SRC, 'rb').read()).hexdigest(),
+            'sha256': digest,
             'size': size,
             'publishedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.json', delete=False) as signing_file:

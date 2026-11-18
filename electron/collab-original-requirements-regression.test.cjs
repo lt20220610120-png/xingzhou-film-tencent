@@ -40,14 +40,18 @@ test('分析不再重复上传整部剧本，画风不发送给美术清单 Agen
   assert.doesNotMatch(perEpisode, /画风：/);
 });
 
-test('腾讯云 PostgreSQL 列表查询不会按项目成员数量复制资产和媒体', () => {
-  const repo = read('cloud-backend/src/postgres-repository.cjs');
-  const listAssets = repo.match(/async listAssets[\s\S]*?async createAsset/)?.[0] || '';
-  const listMedia = repo.match(/async listMedia[\s\S]*?async findMedia/)?.[0] || '';
-  assert.doesNotMatch(listAssets, /left join collab_members/);
-  assert.match(listAssets, /exists\s*\(select 1 from collab_members/i);
-  assert.doesNotMatch(listMedia, /left join collab_members/);
-  assert.match(listMedia, /exists\s*\(select 1 from collab_members/i);
+test('腾讯云 PostgreSQL 列表查询不会按项目成员数量复制资产和媒体', async () => {
+  const {createRepository}=require('../cloud-backend/src/postgres-repository.cjs');
+  const queries=[];
+  const pool={async query(sql){queries.push(sql);return {rows:[]};}};
+  const repo=createRepository('',{pool});
+  await repo.listAssets('project','member');
+  await repo.listMedia('project','member');
+  assert.equal(queries.length,2);
+  for(const sql of queries){
+    assert.doesNotMatch(sql,/\bjoin\s+collab_members/i);
+    assert.match(sql,/exists\s*\(select 1 from collab_members/i);
+  }
 });
 
 test('三种人物画风前置保持启用，分析恢复为稳定的逐集请求', () => {

@@ -11,6 +11,10 @@ test('role names become correctly numbered API references across mixed media',()
 test('a locally imported image filename can be mentioned without its extension',()=>{
  assert.equal(bindReferencePrompt('参考 @【掉毛兔子玩偶】 和 @林青雪',[{kind:'image',name:'【掉毛兔子玩偶】.png'},{kind:'image',name:'林青雪.jpg'}]),'参考 @image1 和 @image2');
 });
+test('filenames resembling provider aliases only bind when mentioned by name in brackets',()=>{
+ const refs=[{kind:'image',name:'character.png'},{kind:'image',name:'image1.png'},{kind:'audio',name:'image2.wav'}];
+ assert.equal(bindReferencePrompt('@image1 | @[image1] | @character | @【image2】 | @audio1',refs),'@image1 | @image2 | @image1 | @audio1 | @audio1');
+});
 test('auto links only mentioned assets; duplicate named references bind every selected image',()=>{const assets=[{id:'a',name:'【小明】',images:[{id:'img',url:'https://x/a.png'}]},{id:'b',name:'【路人】',images:[{id:'img2',url:'https://x/b.png'}]}];assert.equal(autoReferences('@【小明】 走来',assets).length,1);assert.equal(autoReferences('空镜',assets).length,0);assert.equal(bindReferencePrompt('@小明 微笑',[{kind:'image',name:'小明'},{kind:'image',name:'【小明】'}]),'@image1 @image2 微笑');});
 
 test('batch references append in picker order and keep numbering of existing mixed media',()=>{

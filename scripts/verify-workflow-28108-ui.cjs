@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./qa-playwright.cjs');
 const fs=require('node:fs'),assert=require('node:assert/strict');
 async function choose(page,label,option){await page.getByRole('button',{name:label,exact:true}).click();await page.getByRole('listbox',{name:label+'选项',exact:true}).getByRole('option',{name:option,exact:true}).click();assert.equal(await page.getByRole('dialog').count(),0);}
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),report=[];fs.mkdirSync('output/playwright',{recursive:true});try{for(const width of [1280,1700,2232]){

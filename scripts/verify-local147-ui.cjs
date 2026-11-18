@@ -1,5 +1,5 @@
 const fs=require('node:fs'),fsp=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./qa-playwright.cjs');
 const {createLocalCollabService}=require('../electron/local-collab-service.cjs');
 const {createLocalProjectMedia}=require('../electron/local-project-media.cjs');
 const {createStoryboardBatchHost}=require('../electron/storyboard-batch-host.cjs');

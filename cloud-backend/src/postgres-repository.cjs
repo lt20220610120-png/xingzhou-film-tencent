@@ -72,7 +72,6 @@ function createRepository(databaseUrl, deps = {}) {
     async addMember(pid,p,uid) { const r=await pool.query('insert into collab_members(project_id,user_id,username,display_name,role) select $1,u.id,u.username,u.display_name,$2 from app_users u join collab_projects p on p.owner_id=$3 where u.username=$4 and p.id=$1 on conflict(project_id,user_id) do update set role=excluded.role returning *',[pid,p.role||'collaborator',uid,p.username]); return r.rows[0]||null; },
     async removeMember(pid,userId,uid) { const r=await pool.query('delete from collab_members m using collab_projects p where m.project_id=p.id and m.project_id=$1 and m.user_id=$2 and p.owner_id=$3 returning m.*',[pid,userId,uid]); return r.rows[0]||null; },
     async listAssets(pid,uid) { const r=await pool.query('select a.* from collab_assets a join collab_projects p on p.id=a.project_id where a.project_id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) order by a.created_at',[pid,uid]); return r.rows; },
-    async createAsset(pid,p,uid) { const r=await pool.query('insert into collab_assets(project_id,category,name,description,first_episode,episodes) select $1,$2,$3,$4,$5,$6 where exists(select 1 from collab_projects where id=$1 and owner_id=$7) returning *',[pid,p.category||'character',p.name||'未命名资产',p.description||'',p.firstEpisode||1,p.episodes||[],uid]); return r.rows[0]||null; },
     async updateAsset(id, fields, uid, projectId) {
       const sql = `update collab_assets a set name=coalesce($1,a.name), description=coalesce($2,a.description), updated_at=now()
         from collab_projects p where a.project_id=p.id and a.id=$3 and a.project_id=$4
@@ -83,7 +82,23 @@ function createRepository(databaseUrl, deps = {}) {
       return r.rows[0] || null;
     },
     async listTasks(pid,uid) { const r=await pool.query('select t.* from collab_tasks t join collab_projects p on p.id=t.project_id where t.project_id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) order by t.episode,t.assigned_at',[pid,uid]); return r.rows; },
-    async upsertTask(pid,p,uid) { const r=await pool.query('insert into collab_tasks(project_id,episode,title,assignee_id,assignee_name,status) select $1,$2,$3,$4,$5,$6 where exists(select 1 from collab_projects where id=$1 and owner_id=$7) returning *',[pid,p.episode||1,p.title||'',p.assigneeId||null,p.assigneeName||'',p.status||'进行中',uid]); return r.rows[0]||null; },
+    async assignTask(pid,p,uid) {
+      const r=await pool.query(`insert into collab_tasks(project_id,episode,title,assignee_id,assignee_name,status)
+        select $1,$2,$3,$4,$5,$6 where exists(select 1 from collab_projects where id=$1 and owner_id=$7
+        and deleted_at is null and coalesce(genre,'') not like '%[PROJECT_LOCKED]%'
+        and coalesce(genre,'') not like '%[RECYCLE_UNTIL:%' and coalesce(genre,'') not like '%[DIRECTOR_PROJECT]%') returning *`,
+        [pid,p.episode||1,p.title||'',p.memberUserId||p.assigneeId||null,p.memberName??p.assigneeName??'',p.status||'进行中',uid]);
+      return r.rows[0]||null;
+    },
+    async updateTaskStatus(pid,taskId,status,uid) {
+      const r=await pool.query(`update collab_tasks set status=$3,
+        done_at=case when $3='已完成' then coalesce(done_at,now()) else null end
+        where project_id=$1 and id=$2 and exists(select 1 from collab_projects where id=$1 and owner_id=$4
+        and deleted_at is null and coalesce(genre,'') not like '%[PROJECT_LOCKED]%'
+        and coalesce(genre,'') not like '%[RECYCLE_UNTIL:%' and coalesce(genre,'') not like '%[DIRECTOR_PROJECT]%') returning *`,
+        [pid,taskId,status,uid]);
+      return r.rows[0]||null;
+    },
     async listMessages(pid,uid) { const r=await pool.query('select msg.* from collab_messages msg join collab_projects p on p.id=msg.project_id where msg.project_id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) order by msg.created_at',[pid,uid]); return r.rows; },
     async sendMessage(pid,p,uid) { const r=await pool.query(`insert into collab_messages(project_id,user_id,username,content,image_url)
       select $1,$2,$3,$4,$5 where exists(select 1 from collab_projects project where project.id=$1

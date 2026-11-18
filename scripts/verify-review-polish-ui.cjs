@@ -1,5 +1,5 @@
 // Full built stylesheet cascade, real React components and isolated mock APIs.
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./qa-playwright.cjs');
 const fs=require('node:fs'),assert=require('node:assert/strict');const out='output/playwright/review-polish-130';fs.mkdirSync(out,{recursive:true});
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true}),report=[];let page;
 try{for(const width of [1280,1700,2232]){

@@ -51,13 +51,17 @@ function family(mime) {
 function filenameOf(value) {
   return String(value || '').split(/[\\/]/).at(-1).replace(/[<>:"|?*\x00-\x1f]/g, '_').slice(-180);
 }
+function projectMediaMime(ext, kind) {
+  if(ext==='.mp4' && kind==='audio')return 'audio/mp4';
+  return TYPES[ext] || 'application/octet-stream';
+}
 function typeOf({filename, mime, kind, filePath}, local = false) {
   const declared = kind === 'asset-image' ? 'image' : kind;
   const names = local ? [filePath] : [filename, filePath];
   let ext = names.map(name => path.extname(String(name || '')).toLowerCase()).find(ext => TYPES[ext]);
   if (!ext && !local) ext = Object.keys(TYPES).find(ext => TYPES[ext] === mime);
   if (!ext) throw Error('素材文件格式不受支持');
-  const contentType = TYPES[ext];
+  const contentType = projectMediaMime(ext, declared);
   const type = family(contentType);
   if (LIMITS[declared] && declared !== type) throw Error('素材文件类型与选择的类型不一致');
   return {ext, mime:contentType, type, limit:LIMITS[type]};
@@ -434,4 +438,4 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
   return {storeFile,capture,materialize,resolveReferences,prepareShare};
 }
 
-module.exports = {createLocalProjectMedia};
+module.exports = {createLocalProjectMedia, projectMediaMime};

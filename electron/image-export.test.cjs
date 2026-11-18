@@ -38,3 +38,13 @@ test('partially reviewed reusable assets retain unbound episode copies in scene 
  const result=await exportImagesToFolder({images:[{assetName:'共享睡衣',episodes:[1,2],sceneIds:['1-1']}],dir:root,layout:'scene',fetchImage:async()=>{downloads++;return Buffer.from('image');}});
  assert.equal(downloads,1);assert.equal(result.unbound,1);assert.equal((await fs.readdir(path.join(root,'第2集','未关联素材'))).length,1);assert.equal((await fs.readdir(path.join(root,'第1集','场景1-1'))).length,1);
 });
+test('parallel exports preserve both MP4 audio originals in one destination', async t => {
+ const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xz-export-collision-'));
+ t.after(() => fs.rm(dir, {recursive:true,force:true}));
+ const images = [{assetName:'voice', kind:'audio', filename:'voice.mp4'}];
+ await Promise.all(['take A','take B'].map(content =>
+   exportImagesToFolder({dir, images, fetchImage:async () => Buffer.from(content)})));
+ const files = await fs.readdir(dir);
+ assert.deepEqual(files.sort(), ['001-voice (2).mp4','001-voice.mp4']);
+ assert.deepEqual((await Promise.all(files.map(name => fs.readFile(path.join(dir,name),'utf8')))).sort(), ['take A','take B']);
+});

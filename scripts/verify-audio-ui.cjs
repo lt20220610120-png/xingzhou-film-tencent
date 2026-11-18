@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/11599/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./qa-playwright.cjs');
 const assert=require('node:assert/strict'),fs=require('node:fs');
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']}),reports=[],port=process.env.AUDIO_UI_PORT||'5841';
 fs.mkdirSync('output/playwright',{recursive:true});
