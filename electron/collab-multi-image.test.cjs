@@ -56,6 +56,7 @@ test('美术和资产总览均使用同步请求锁，并忽略过期的并发�
   assert.ok((ui.match(/useAssetImageActivity\(project.id\)/g) || []).length >= 2);
   assert.match(ui, /refreshRequestRef/);
   assert.match(ui, /requestId !== refreshRequestRef\.current/);
-  assert.match(ui, /const openProject = async \(id\) => \{\s*const requestId = \+\+refreshRequestRef\.current/);
-  assert.match(ui, /collab-back[\s\S]{0,180}refreshRequestRef\.current \+= 1/);
+  assert.match(ui, /const openProject = async \(id\) => \{[\s\S]*?const requestId = \+\+refreshRequestRef\.current/);
+  assert.match(ui, /const backToProjects = \(\) => \{\s*refreshRequestRef\.current \+= 1;\s*openingProjectRef\.current = null;/);
+  assert.match(ui, /className="collab-back" onClick=\{backToProjects\}/);
 });

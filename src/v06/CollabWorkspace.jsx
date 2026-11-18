@@ -1521,6 +1521,9 @@ export function CollabWorkspace({ state, api, account }) {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [listError, setListError] = useState('');
+  const [openingProject, setOpeningProject] = useState(null);
+  const openingProjectRef = useRef(null);
+  const [openError, setOpenError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState('');
   const restoredRef = useRef(false);
@@ -1647,29 +1650,50 @@ export function CollabWorkspace({ state, api, account }) {
   }, [project?.id, section, refreshProject]);
 
   const openProject = async (id) => {
+    if (openingProjectRef.current?.id === id && openingProjectRef.current.accountId === accountScope.current) return;
     const requestId = ++refreshRequestRef.current;
+    const opening = {id, accountId:accountScope.current};
+    openingProjectRef.current = opening;
+    setOpeningProject(id);
+    setOpenError(null);
     // 有缓存先立即显示，再后台拉取最新
     const cachedProject = readCache(`project-${id}`);
     if (cachedProject) {
       setProject(cachedProject); setAssets(prepareAssets(cachedProject,readCache(`assets-${id}`) || []));
       setSection(sectionsForRole(cachedProject.myRole)[0]);
       localStorage.setItem('xz-collab-last-project', id);
-    } else {
-      setLoading(true);
     }
     try {
       const [p, a] = await Promise.all([
         api.collabGetProject({ projectId: id }),
         api.collabListAssets({ projectId: id }),
       ]);
-      if (requestId !== refreshRequestRef.current) return;
+      if (requestId !== refreshRequestRef.current || opening.accountId !== accountScope.current) return;
       const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${id}`, p); writeCache(`assets-${id}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
       localStorage.setItem('xz-collab-last-project', id);
-    } catch (e) { if (requestId === refreshRequestRef.current && !cachedProject) setListError(e.message); }
-    finally { if (requestId === refreshRequestRef.current) setLoading(false); }
+    } catch (e) {
+      if (requestId === refreshRequestRef.current && opening.accountId === accountScope.current && !cachedProject) {
+        setOpenError({id, message:String(e.message || '请稍后重试').replace(/^Error invoking remote method '[^']+': Error: /,'')});
+      }
+    } finally {
+      if (openingProjectRef.current === opening) {
+        openingProjectRef.current = null;
+        setOpeningProject(null);
+      }
+    }
+  };
+
+  const backToProjects = () => {
+    refreshRequestRef.current += 1;
+    openingProjectRef.current = null;
+    setOpeningProject(null);
+    setProject(null);
+    setAssets([]);
+    localStorage.removeItem('xz-collab-last-project');
+    loadProjects();
   };
 
   const createProject = async (directorProjectId) => {
@@ -1703,15 +1727,19 @@ export function CollabWorkspace({ state, api, account }) {
             </button>
           )}
           {projects.filter((p) => !p.deleted_at).map((p) => (
-            <article key={p.id} className="resource-card collab-project-card" onClick={() => openProject(p.id)}>
+            <article key={p.id} className="resource-card collab-project-card" aria-busy={openingProject === p.id} onClick={() => openProject(p.id)}>
               <div className="collab-card-heading"><span className="project-card-symbol" aria-hidden="true"><Clapperboard size={21}/></span><span className="collab-card-role">{p.storageMode==='local'?'本机项目':COLLAB_ROLES[p.myRole]}</span></div>
               <h3 title={p.name}>{p.name}</h3>
               <p className="collab-card-owner"><Users size={14}/>负责人 <strong>{p.owner_name}</strong></p>
               <p className="api-endpoint">最近更新 {fmtTime(p.updated_at)}</p>
               <div className="collab-card-actions">
-                <button className="primary" onClick={e => { e.stopPropagation(); openProject(p.id); }}>进入项目 <ArrowLeft size={14} className="enter-project-arrow"/></button>
+                <button className="primary" disabled={openingProject === p.id} onClick={e => { e.stopPropagation(); openProject(p.id); }}>
+                  {openingProject === p.id ? <>正在进入… <Loader2 size={14} className="spin" aria-hidden="true"/></> :
+                    <>{openError?.id === p.id ? '重试进入' : '进入项目'} <ArrowLeft size={14} className="enter-project-arrow"/></>}
+                </button>
                 {canManageCloudProject(p,account) && <button className="card-delete" title="删除协作项目" aria-label={`删除协作项目 ${p.name}`} onClick={(e) => { e.stopPropagation(); setDeleteError(''); setDeleteTarget(p); }}><Trash2 size={15}/></button>}
               </div>
+              {openError?.id === p.id && <p className="collab-error" role="alert">{openError.message}</p>}
             </article>
           ))}
           {!projects.length && !loading && !isProducer && (
@@ -1738,7 +1766,7 @@ export function CollabWorkspace({ state, api, account }) {
   return (
     <div className="collab-shell">
       <aside className="collab-rail">
-        <button className="collab-back" onClick={() => { refreshRequestRef.current += 1; setProject(null); setAssets([]); localStorage.removeItem('xz-collab-last-project'); loadProjects(); }}>
+        <button className="collab-back" onClick={backToProjects}>
           <ArrowLeft size={15} /> 所有协作项目
         </button>
         <h2>{project.name}</h2>

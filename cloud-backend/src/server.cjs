@@ -1,5 +1,5 @@
 const http = require('node:http');
-const { gzip, gunzipSync } = require('node:zlib');
+const { brotliCompress, constants, gzip, gunzipSync } = require('node:zlib');
 const MAX_JSON_BYTES = 64 * 1024 * 1024;
 const { readConfig } = require('./config.cjs');
 const { createRepository } = require('./postgres-repository.cjs');
@@ -11,6 +11,16 @@ const { createCosSigner } = require('./cos.cjs');
 const { handleMediaAction } = require('./media.cjs');
 
 const PUBLIC_ACTIONS = new Set(['login', 'register', 'send-email-code', 'recover']);
+const LARGE_PROJECT_COMPRESSION = {
+  params: {[constants.BROTLI_PARAM_QUALITY]: 6, [constants.BROTLI_PARAM_LGWIN]: 24},
+};
+function acceptsEncoding(header, encoding) {
+  return String(header || '').toLowerCase().split(',').some(item => {
+    const [name, ...parameters] = item.trim().split(';');
+    const quality = parameters.find(parameter => /^\s*q\s*=/.test(parameter));
+    return name.trim() === encoding && (quality === undefined || Number(quality.split('=')[1]) > 0);
+  });
+}
 
 function createServer(env = process.env, deps = {}) {
   const config = readConfig(env);
@@ -74,14 +84,14 @@ function createServer(env = process.env, deps = {}) {
               ? {revision,unchanged:true} : {revision,value:result.body};
             data=Buffer.from(JSON.stringify({_xzSnapshot:snapshot}));
           }
-          const finish = (body, compressed = false) => {
+          const finish = (body, encoding) => {
             if (response.destroyed) return;
             response.writeHead(result.status, {
               'content-type': 'application/json; charset=utf-8',
               'content-length': body.length,
               'cache-control': 'no-store',
               vary: 'Accept-Encoding',
-              ...(compressed ? { 'content-encoding': 'gzip' } : {}),
+              ...(encoding ? { 'content-encoding': encoding } : {}),
             });
             response.end(body);
             if(env.TRAFFIC_METRICS_ENABLED==='1') {
@@ -93,9 +103,21 @@ function createServer(env = process.env, deps = {}) {
               }
             }
           };
-          if (data.length > 1024 && /\bgzip\b/.test(request.headers['accept-encoding'] || '')) {
-            gzip(data, (error, compressed) => finish(error ? data : compressed, !error));
-          } else finish(data);
+          const encodings = request.headers['accept-encoding'];
+          const gzipOrPlain = () => {
+            if (data.length > 1024 && acceptsEncoding(encodings, 'gzip')) {
+              gzip(data, (error, compressed) => error ? finish(data) : finish(compressed, 'gzip'));
+            } else finish(data);
+          };
+          // A full project repeats prompt and asset records across versions.
+          // The larger window can reuse those records without changing the JSON.
+          if (result.status === 200 && payload?.action === 'project-get' && data.length >= 1024 * 1024
+              && acceptsEncoding(encodings, 'br')) {
+            brotliCompress(data, LARGE_PROJECT_COMPRESSION, (error, compressed) => {
+              if (error) gzipOrPlain();
+              else finish(compressed, 'br');
+            });
+          } else gzipOrPlain();
         };
         let payload;
         try { payload = JSON.parse(raw || '{}'); } catch { return send({ status: 400, body: { error: 'invalid_json' } }); }
