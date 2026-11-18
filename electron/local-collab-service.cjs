@@ -364,13 +364,6 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       record.assets.push(next);
       return next;
     }),
-    replaceAssets: p => write('replaceAssets', p, record => {
-      for (const row of p.assets || p.list || []) {
-        const existing = record.assets.find(asset => asset.name === row.name);
-        if (!existing) record.assets.push(localAsset(record.project.id, row));
-      }
-      return record.assets;
-    }),
     updateAsset: p => write('updateAsset', p, record => {
       const asset = assetIn(record, p.assetId), changes = p.updates || p;
       if (Object.hasOwn(changes, 'adoptedImageId')) {

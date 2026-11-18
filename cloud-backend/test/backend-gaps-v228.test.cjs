@@ -5,12 +5,18 @@ const {parsePublicationOutput, validatePublicationAssets} = require('../src/anal
 const output = (heading = '第20集', person = '- 无') => `### ${heading}\n人物：\n${person}\n场景：\n- 无\n道具：\n- 无`;
 const {patchShot} = require('../src/storyboard-merge.cjs');
 const {handleAction} = require('../src/collab.cjs');
-const writes = ['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','message-send','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','storyboard-patch','member-add','member-remove','member-role'];
+const writes = ['asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','message-send','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','storyboard-patch','member-add','member-remove','member-role'];
 function guardRepo(row, lock) {
   const mutations = [];
   const base = {getProject:async()=>row, isProjectLocked:lock, findMembership:async()=>({role:'producer'}), listMembers:async()=>[]};
   return {mutations, repo:new Proxy(base, {get:(obj,key) => obj[key] || (async () => {mutations.push(key); return row || {ok:true};})})};
 }
+
+test('retired wholesale asset replacement reaches no repository operation', async () => {
+  const repo = new Proxy({}, {get(_, key) { assert.fail('Unexpected repository access: ' + String(key)); }});
+  const result = await handleAction('assets-replace', {projectId:'copy', assets:[]}, {id:'owner'}, repo);
+  assert.equal(result.status, 501);
+});
 
 test('all ordinary collaboration writes fail closed when lock lookup errors or returns an unknown state', async () => {
   for (const action of writes) for (const lock of [async()=>{throw new Error('db unavailable');}, async()=>null]) {

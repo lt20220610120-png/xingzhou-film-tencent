@@ -424,7 +424,6 @@ ipcMain.handle('director-collab-add-member',(_,payload)=>collabService.directorA
 ipcMain.handle('director-collab-remove-member',(_,payload)=>collabService.directorRemoveMember(payload));
 ipcMain.handle('collab-delete-project',(_,payload)=>collabService.deleteProject(payload));
 ipcMain.handle('collab-restore-project',(_,payload)=>collabService.restoreProject(payload));
-ipcMain.handle('collab-replace-assets',(_,payload)=>collabService.replaceAssets(payload));
 ipcMain.handle('collab-create-asset',(_,payload)=>collabService.createAsset(payload));
 ipcMain.handle('collab-list-assets',(_,payload)=>collabService.listAssets(payload));
 ipcMain.handle('collab-update-asset',(_,payload)=>collabService.updateAsset(payload));

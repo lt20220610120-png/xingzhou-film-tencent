@@ -71,7 +71,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'producer-status') return ok({ isProducer: producer });
 
   const COLLAB_ACTIONS = ['project-get','project-update','project-delete','project-restore','project-lock','project-link-director','stats-get',
-    'episode-identity-resolve','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','assets-list','assets-replace','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
+    'episode-identity-resolve','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','assets-list','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
   if(projectId&&COLLAB_ACTIONS.includes(action)) {
@@ -81,7 +81,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
 
   // Ordinary writes fail closed. Restore may reactivate a recycled project;
   // project-lock may unlock a live one, but cannot mutate a recycled one.
-  const WRITE_ACTIONS = ['assets-replace','asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
+  const WRITE_ACTIONS = ['asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
     'episode-identity-resolve','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
   if (WRITE_ACTIONS.includes(action)) {
     if (!projectId) return DENY;
@@ -385,7 +385,6 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     const r = guard(await repo.updateAsset(payload.assetId, fields, user.id, projectId));
     return r ? ok(r) : NOT_FOUND;
   }
-  if (action === 'assets-replace') { const r = guard(await repo.replaceAssets(projectId, payload.assets || payload.list, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-image-record') {
     const r = guard(await repo.recordAssetImage(projectId, { ...payload, username: user.display_name || user.username }, user.id));
     if (!r) return DENY;

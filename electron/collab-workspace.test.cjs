@@ -10,7 +10,7 @@ test('main.cjs 注册了全部协作 IPC 通道并初始化服务', () => {
   const main = read('electron/main.cjs');
   for (const channel of [
     'collab-is-producer', 'collab-admin-set-producer', 'collab-create-project', 'collab-list-projects',
-    'collab-get-project', 'collab-update-project', 'collab-delete-project', 'collab-restore-project', 'collab-replace-assets', 'collab-list-assets',
+    'collab-get-project', 'collab-update-project', 'collab-delete-project', 'collab-restore-project', 'collab-list-assets',
     'collab-update-asset', 'collab-generate-asset-image', 'collab-upload-asset-image', 'collab-attach-generated-asset-image',
     'collab-list-members', 'collab-add-member', 'collab-update-member-role', 'collab-remove-member',
     'collab-list-tasks', 'collab-assign-task', 'collab-update-task',
@@ -24,7 +24,7 @@ test('main.cjs 注册了全部协作 IPC 通道并初始化服务', () => {
 
 test('preload.cjs 暴露协作 API', () => {
   const preload = read('electron/preload.cjs');
-  for (const fn of ['collabIsProducer', 'collabCreateProject', 'collabListProjects', 'collabGetProject', 'collabReplaceAssets', 'collabGenerateAssetImage', 'collabAttachGeneratedAssetImage', 'collabAddMember', 'collabAssignTask', 'collabGenerateVideo', 'collabRecordGeneratedMedia', 'collabListMessages', 'collabSendMessage', 'collabSendImage', 'collabGetStats', 'collabAdminSetProducer']) {
+  for (const fn of ['collabIsProducer', 'collabCreateProject', 'collabListProjects', 'collabGetProject', 'collabGenerateAssetImage', 'collabAttachGeneratedAssetImage', 'collabAddMember', 'collabAssignTask', 'collabGenerateVideo', 'collabRecordGeneratedMedia', 'collabListMessages', 'collabSendMessage', 'collabSendImage', 'collabGetStats', 'collabAdminSetProducer']) {
     assert.match(preload, new RegExp(`${fn}:`), `preload 缺少 ${fn}`);
   }
 });

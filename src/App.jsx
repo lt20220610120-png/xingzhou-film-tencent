@@ -150,7 +150,6 @@ const api = window.xingzhou || {
   directorRemoveMember: () => Promise.reject(new Error('桌面应用中才可使用导演协作')),
   collabDeleteProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
   collabRestoreProject: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
-  collabReplaceAssets: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
   collabCreateAsset: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
   collabListAssets: () => Promise.resolve([]),
   collabUpdateAsset: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),

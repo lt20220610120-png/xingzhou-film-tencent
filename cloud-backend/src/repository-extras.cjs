@@ -335,27 +335,6 @@ function extendRepository(pool) {
         throw error;
       } finally {client.release();}
     },
-    async replaceAssets(pid, list, uid) {
-      if (!await isOwner(pid, uid)) return null;
-      const rows = Array.isArray(list) ? list : [];
-      const client = await pool.connect();
-      try {
-        await client.query('begin');
-        await client.query('delete from collab_assets where project_id=$1', [pid]);
-        for (const item of rows) {
-          const sql = 'insert into collab_assets(project_id,category,name,description,first_episode,episodes,image_url) values($1,$2,$3,$4,$5,$6,$7) on conflict(project_id,name) do nothing';
-          const cat = ['character','scene','prop'].includes(item.category) ? item.category : 'character';
-          await client.query(sql, [pid, cat, item.name || '未命名资产', item.description || '', item.firstEpisode || 1, item.episodes || [], item.imageUrl || '']);
-        }
-        await client.query('commit');
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
-      }
-      return many('select * from collab_assets where project_id=$1 order by created_at', [pid]);
-    },
     async selectAssetImage(pid,assetId,imageId,uid){
       return one(`update collab_assets a set image_url=coalesce(nullif(m.object_path,''),m.url),updated_at=now() from collab_media m,collab_projects p
         where a.id=$2 and a.project_id=$1 and m.id=$3 and m.asset_id=a.id and m.project_id=a.project_id and m.kind='asset-image' and p.id=a.project_id
