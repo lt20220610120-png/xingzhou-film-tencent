@@ -118,4 +118,7 @@ for manifest_repo in MANIFEST_REPOS:
     st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json', 'PUT', body, 'application/json')
     assert st in (200, 201), f'latest.json update failed for {manifest_repo}: {st} {b[:300]}'
     print(f'latest.json updated in {manifest_repo}')
+# Keep the checkout's release snapshot in sync after both remote manifests succeed.
+with open(os.path.join(ROOT, 'latest.json'), 'w', encoding='utf-8') as snapshot:
+    snapshot.write(manifest_text)
 print(json.dumps({'release': f'https://github.com/{REPO}/releases/tag/{TAG}', 'asset': dl, 'size': size}, ensure_ascii=False))

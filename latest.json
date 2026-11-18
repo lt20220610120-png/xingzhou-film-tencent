@@ -1,12 +1,12 @@
 {
-  "version": "2.8.121",
-  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.121/Xingzhou-Film-Tencent-Setup-2.8.121.exe",
-  "notes": "# 行舟影视 2.8.121\n\n本版修复制作工作流中的 Agent 模型发现，让行舟影视读取与本机 Agent 当前实际配置一致的模型目录。\n\n- Hermes 连接会跟随 Hermes Desktop 当前启用的资料档，不再继承错误的默认 `HERMES_HOME`。本机实测进入 `w` 资料档，读取到 WorkBuddy 的 61 个模型，包括 `auto`、`hy4-preview`、`glm-5.3`、`kimi-k3-1` 和当前默认的 `deepseek-v4.1-flash`。\n- Codex 会分页读取完整模型目录并包含隐藏模型。本机实测读取到 10 个模型，包括更新后的 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6.1-terra` 和 `gpt-reserve`。\n- 已保存的 Codex 安装路径如果属于行舟管理的旧版本目录，会自动切换到本机最新 Codex 二进制；用户手动选择的其他 Codex 路径仍保持原样。\n- 重新连接 Agent 时，只要原模型仍在目录中就保留原选择，避免刷新连接后擅自切回默认模型。",
-  "sha256": "048069516a32e6258ff4f7fdebeff9dc71ee1e054fc9402acec1c5a90f7ac157",
-  "size": 103986300,
-  "publishedAt": "2026-11-03T04:09:03.232661+00:00",
+  "version": "2.8.180",
+  "installerUrl": "https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.180/Xingzhou-Film-Tencent-Setup-2.8.180.exe",
+  "notes": "项目协作、素材和生成任务修复\n\n- 修复更新任务状态时新增空任务、分配后负责人丢失、按成员编号调整角色或移除成员失效，以及美术成员无法手动创建资产。\n- 修复素材文件名与提示词编号重名时引用错位。两次同时导出到同一目录会分别保存，音频 MP4 保留原后缀。\n- 本机项目分享和协作上传正确识别 FLAC、AAC、OGG、M4A 及音频 MP4。\n- Like 同页可以并发提交，等待授权期间若切换了视频节点会终止原提交。取消或超时会释放参考素材。已完成的通用视频任务不会因再次查询上游而误报失败。\n- 提示词绑定重试复用已保存结果，减少大项目的清单复制和写入。",
+  "sha256": "cc75c0f2f92b9840a85b67cdbd5394ad30cf8c6119d03ab006d47b73da9e8dd0",
+  "size": 104098002,
+  "publishedAt": "2026-11-18T01:38:44.979953+00:00",
   "signature": {
     "algorithm": "Ed25519",
-    "value": "NUBVU2GTeveUtM26kAL6t0cguJRbmIf3a4IoIZt9qhhb+dWnQF6FMSwpPOoM9vyjCI4RwlgdifR2Hb9HTYN3Dw=="
+    "value": "s7K1ewG+eI/IsKrSfVakOAC8FJ5VyQwVubRF4yJTN1QNaQRZ/JKT2oVm47uOp/YmqZStnSXqG6m7kTMz76JNAg=="
   }
 }
