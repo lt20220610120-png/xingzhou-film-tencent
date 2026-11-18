@@ -25,3 +25,20 @@ test('empty model result cannot pass association and bulk missing-reference exem
  const skipped={...decision,signature:entryBindingSignature(snapshot,entry),confirmed:true,needs:[...decision.needs,{id:'skip',category:'character',text:'张三',cardUid:null,visibility:'excluded',locked:true,skipReference:true,reason:'无需参考图'}]};
  assert(bindingProblems(snapshot,entry,skipped).some(p=>p.includes('未关联任何')));
 });
+test('published automatic reference keeps its slot during the gap before a replacement is adopted',async()=>{
+ const f=fixture(),service=createPromptDistributionService({...f,projectId:f.project.id,accountId:'u'});
+ await service.run('p1',{profile:{id:'m'}});
+ const state=await service.read(),current=structuredClone(state.snapshot),entry=current.entries[0];
+ for(const card of current.cards){card.assetId='asset-'+card.uid;card.images=[{id:'old',url:'https://example.test/old.png'}];card.publishedSceneIds=[entry.sceneId];}
+ const ready=selectBindingVersion(current,state.saved),publication=storyboardPublicationPayload(ready.snapshot,ready.decisions,[entry]);
+ const published=publication.prompts[0],config=published.generationConfig;
+ assert.equal(config.references[0].followAdoptedImage,true);
+ const shot={...published,content:config.bindingCompiledPrompt,sourcePromptId:entry.id,sourceContent:entry.prompt,storyboardPublicationId:publication.publicationId};
+ const value={...config,prompt:config.bindingCompiledPrompt};
+ const pinned={...value,references:value.references.map(ref=>({...ref,followAdoptedImage:false}))};
+ assert.equal(storyboardPromptValue({currentSnapshot:current,saved:state.saved},shot,pinned,'u').references[0].followAdoptedImage,false);
+ for(const card of current.cards)card.images=[];
+ const result=storyboardPromptValue({currentSnapshot:current,saved:state.saved},shot,value,'u');
+ assert.deepEqual(result.references,value.references);
+ assert.equal(result.prompt,value.prompt);
+});

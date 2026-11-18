@@ -2,7 +2,7 @@ import {recommendedPromptDuration,recommendedStoryboardTiming} from './promptDis
 import {storyboardShots} from './storyboardPublication.js';
 import {inferDirectorEpisodeNumber} from './scriptImport.js';
 import {storyboardPromptValue,canRefreshStoryboardBinding} from './promptAssetUsage.js';
-import {cleanStoryboardReferenceValue} from './storyboardReferences.js';
+import {cleanStoryboardReferenceValue,repairStoryboardAssetReferences} from './storyboardReferences.js';
 import {applyStoryboardDefaults,storyboardSettingKeys,rebaseStoryboardDefaultsDraft,rebaseLocalStoryboardDraft} from './storyboardDefaults.js';
 import {projectReferenceCandidates,matchBasicReferences} from './automaticReferences.js';
 import {generationMediaProfiles,activeMediaProfile,videoModelCapabilities,isFeituoEndpoint} from './canvasStore.js';
@@ -27,6 +27,7 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
    let value=cleanStoryboardReferenceValue(draft?.value||{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||refs},project.id);
    value=applyStoryboardDefaults(value,ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,shot.id);
    if(!draft||canRefreshStoryboardBinding(draft,shot)){const linked=storyboardPromptValue(binding,shot,value,accountId);if(linked&&!(linked.referenceBindingMode==='pending'&&!linked.references?.length&&value.references?.length))value=linked;}
+   value=repairStoryboardAssetReferences(value,{shot,binding,assets,projectId:project.id});
    const selectedSettings={...top};if(value.durationMode==='recommended')delete selectedSettings.duration;
    value={...value,...selectedSettings,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''};
    if(value.durationMode==='recommended'&&recommendedPromptDuration(value)===null){const timing=recommendedStoryboardTiming(binding,shot);if(timing)value={...value,recommendedDurationSeconds:timing.recommendedDurationSeconds};}

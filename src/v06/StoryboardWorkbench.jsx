@@ -19,7 +19,7 @@ import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard,RotateCcw,Trash2,SlidersHoriz
 import {DeleteConfirm} from './DeleteConfirm.jsx';
 import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
 import {referenceName,refreshAssetReferences,isProjectGenerationReference,mediaSource,normalizeGenerationReferences} from '../../core/generationReferences.js';
-import {cleanStoryboardReferenceValue} from '../../core/storyboardReferences.js';
+import {cleanStoryboardReferenceValue,repairStoryboardAssetReferences} from '../../core/storyboardReferences.js';
 import {storyboardSceneReferences,importStoryboardSceneReferences} from '../../core/storyboardSceneReferences.js';
 import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
@@ -53,6 +53,7 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(stored.value,defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null);
  const current=useRef(draft);current.current=draft;
+ const repair=value=>repairStoryboardAssetReferences(value,{shot,binding:promptBinding,assets,projectId:project.id});
  useEffect(()=>{const old=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(current.current,shot,defaults),shot,project),value=applyStoryboardDefaults(old.value,defaults,shot.id);let next=value===old.value?old:{...old,value,dirty:true};if(!next.dirty)next=cloudDraft();else if(canRefreshStoryboardBinding(next,shot))next=cleanDraft(next);current.current=next;setDraft(next);if(value!==old.value||next.value.storyboardDefaultsRevision&&next.dirty)queueDraft(storageKey,next);},[shot,assets,media,scene,epNumber,promptBinding,defaults]);
  const change=value=>{
   value=editable(cleanStoryboardReferenceValue(value,project.id));
@@ -76,19 +77,19 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
   const previous=current.current.value,next=importStoryboardSceneReferences(previous,sceneImportRefs,scene);
   change(next);setSceneImportNotice(next.references.length>previous.references.length?`已补入 ${next.references.length-previous.references.length} 项场景素材`:'本场景素材已全部加入');
  };
- const resolveRefs=refs=>refreshAssetReferences(refs,assets,project.id).map(ref=>{
-  const asset=assets.find(a=>a.id===ref.assetId),image=asset?.images?.find(i=>i.id===ref.id),file=media.find(m=>m.id===ref.id);
-  return image?{...ref,url:image.url}:file?{...ref,url:file.url}:ref;
+ const resolveRefs=refs=>refreshAssetReferences(repair({references:refs}).references,assets,project.id).map(ref=>{
+  const file=!ref.assetId&&media.find(m=>m.id===ref.id);
+  return file?{...ref,url:file.url}:ref;
  });
  const save=async()=>{
   if(!canEdit)return;setSaving(true);setError('');
   const savingDraft=current.current;
-  try{const {content,generationConfig}=storyboardSaveUpdates(savingDraft.value);
+  try{const savedValue=repair(savingDraft.value),{content,generationConfig}=storyboardSaveUpdates(savedValue);
    const saved=await api.collabPatchStoryboard({ackOnly:true,projectId:project.id,episodeId:episode.id,...(!episode.storyboardPrompts?{promptEditionId:episode.promptEditionId||'legacy'}:{}),editPolicy:'direct',storyboardPublicationId:shot.storyboardPublicationId,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
    onProjectChange(saved);
    // Do not clear edits typed while the request was in flight.
    const acknowledged=saved.storyboardReceipt?.shot||(saved.episodes||[]).flatMap(storyboardShots).find(p=>p.id===shot.id),savedBase=acknowledged?{content:acknowledged.content,generationConfig:acknowledged.generationConfig}:{content,generationConfig};
-   if(current.current===savingDraft){const next={...savingDraft,base:savedBase,dirty:false};current.current=next;setDraft(next);queueDraft(storageKey,null);}
+   if(current.current===savingDraft){const next={...savingDraft,value:savedValue,base:savedBase,dirty:false};current.current=next;setDraft(next);queueDraft(storageKey,null);}
    else if(current.current.base===savingDraft.base){const next={...current.current,base:savedBase,dirty:true};current.current=next;setDraft(next);queueDraft(storageKey,next);}
    return true;
   }catch(e){const message=String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,'');let refreshed=false;if(/协作者修改|分镜已变更|提示词版本已切换/.test(message)&&api.collabGetProject){try{onProjectChange(await api.collabGetProject({projectId:project.id}));refreshed=true;}catch{}}setError(refreshed?'':message);return false;}finally{setSaving(false);}

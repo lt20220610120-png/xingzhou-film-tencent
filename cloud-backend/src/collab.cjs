@@ -357,12 +357,30 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     };
     if (payload.imageId && payload.imageId !== 'legacy') {
       const image = await repo.findMedia(payload.imageId, user.id);
-      if (!image || (projectId && image.project_id !== projectId) || (payload.assetId && image.asset_id !== payload.assetId)) return NOT_FOUND;
-      return withPreview({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer), filename: image.filename, mime: image.mime });
+      if (image) {
+        if ((projectId && image.project_id !== projectId) || (payload.assetId && image.asset_id !== payload.assetId)
+          || (payload.assetId && image.kind && image.kind !== 'asset-image')) return NOT_FOUND;
+        return withPreview({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer), filename: image.filename, mime: image.mime });
+      }
+      // Only disclose a missing image for a project the caller can read.
+      if (!collabRow || !payload.assetId) return NOT_FOUND;
+      if (payload.followAdoptedImage === true) {
+        const asset = (await repo.listAssets(projectId, user.id) || []).find(item => item.id === payload.assetId);
+        if (asset?.image_url) {
+          const link = assetImageLink(asset.image_url, signer);
+          const adopted = (await repo.listAssetImages(projectId, user.id) || []).find(row =>
+            row.asset_id === asset.id && (row.object_path === asset.image_url || row.object_path === link.objectKey));
+          return withPreview({ id: adopted?.id || 'legacy', projectId, assetId: asset.id, ...link,
+            filename: adopted?.filename, mime: adopted?.mime });
+        }
+      }
+      return {status:404,body:{code:'ASSET_IMAGE_UNAVAILABLE',error:'这张参考图已移除或不再可用，请重新选择图片'}};
     }
     const assets = await repo.listAssets(projectId, user.id);
     const asset = assets?.find(item => item.id === payload.assetId);
-    if (!asset?.image_url) return NOT_FOUND;
+    if (!asset?.image_url) return collabRow && payload.assetId
+      ? {status:404,body:{code:'ASSET_IMAGE_UNAVAILABLE',error:'这张参考图已移除或不再可用，请重新选择图片'}}
+      : NOT_FOUND;
     return withPreview({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer) });
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }

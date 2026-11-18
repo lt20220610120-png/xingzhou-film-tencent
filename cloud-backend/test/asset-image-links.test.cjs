@@ -32,3 +32,28 @@ test('renewal authorizes the actual image and rejects other project/asset identi
   assert.equal((await handleAction('asset-image-url',{projectId:'p',assetId:'other',imageId:'i'},{id:'u'},repo,signer)).status,404);
   assert.equal((await handleAction('asset-image-url',{projectId:'p',assetId:'a',imageId:'i'},{id:'outsider'},repo,signer)).status,404);
 });
+test('removed photo can only follow the current adopted image of its authorized asset', async()=>{
+  const repo={
+    getProject:async(p,u)=>p==='p'&&u==='u'?{id:'p'}:null,
+    findMedia:async id=>id==='other'?{id,project_id:'other-project',asset_id:'other-asset'}:null,
+    listAssets:async()=>[{id:'a',image_url:'projects/p/image/new.png'}],
+    listAssetImages:async()=>[{id:'new',asset_id:'a',object_path:'projects/p/image/new.png'}],
+  };
+  const payload={projectId:'p',assetId:'a',imageId:'removed'};
+  const stale=await handleAction('asset-image-url',payload,{id:'u'},repo,signer);
+  assert.equal(stale.status,404);
+  assert.equal(stale.body.code,'ASSET_IMAGE_UNAVAILABLE');
+  const updated=await handleAction('asset-image-url',{...payload,followAdoptedImage:true},{id:'u'},repo,signer);
+  assert.equal(updated.body.id,'new');
+  assert.equal(updated.body.url,'https://bucket.cos.test/projects/p/image/new.png?fresh');
+  const wrong=await handleAction('asset-image-url',{...payload,imageId:'other',followAdoptedImage:true},{id:'u'},repo,signer);
+  assert.equal(wrong.status,404);
+  const denied=await handleAction('asset-image-url',{...payload,followAdoptedImage:true},{id:'outsider'},repo,signer);
+  assert.equal(denied.status,403);
+});
+test('uploaded project reference images still resolve without an art asset ID',async()=>{
+ const repo={getProject:async()=>({id:'p'}),findMedia:async()=>({id:'uploaded',project_id:'p',kind:'image',object_path:'projects/p/image/ref.png'})};
+ const result=await handleAction('asset-image-url',{projectId:'p',imageId:'uploaded'},{id:'u'},repo,signer);
+ assert.equal(result.status,200);
+ assert.equal(result.body.url,'https://bucket.cos.test/projects/p/image/ref.png?fresh');
+});

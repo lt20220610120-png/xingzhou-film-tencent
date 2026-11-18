@@ -376,8 +376,9 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     resolveAssetImage: p => read('resolveAssetImage', p, record => {
       const asset = assetIn(record, p.assetId);
       const id = p.imageId && p.imageId !== 'legacy' ? p.imageId : asset.adoptedImageId;
-      const image = asset.images?.find(row => row.id === id);
-      if (!image?.filePath) throw error('图片尚未保存到本机，请重新选择素材', 404);
+      const image = asset.images?.find(row => row.id === id) ||
+        (p.followAdoptedImage === true && asset.images?.find(row => row.id === asset.adoptedImageId));
+      if (!image?.filePath) throw Object.assign(error('这张参考图已移除或不再可用，请重新选择图片', 404), {code:'ASSET_IMAGE_UNAVAILABLE'});
       return image;
     }),
     attachAssetImage: p => addFile('attachAssetImage', p, true),

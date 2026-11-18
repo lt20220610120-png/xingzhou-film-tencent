@@ -1,4 +1,4 @@
-import {adoptedAssetImage,bindingImageId} from './adoptedAssetImage.js';
+import {adoptedAssetImage,bindingFollowsAdoptedImage,bindingImageId} from './adoptedAssetImage.js';
 import {projectVoiceCards} from './characterVoices.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,compileVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
 import {sceneIdentities,lockedIdentityOmission,isNonvisualFoundationText} from './sceneIdentityContext.js';
@@ -216,8 +216,10 @@ export function compileEntryBinding(snapshot,entry,decision,{voiceEnabled=true,o
  const references=[],spans=new Map(),manual=[];
  for(const need of effective.needs.filter(row=>row.visibility==='visible')){
   const card=snapshot.cards.find(card=>card.uid===need.cardUid),image=card.images.find(image=>image.id===need.imageId),id=`${card.assetId}:${image.id}`;
-  const ref=card.reference?{...card.reference,category:card.category,name:card.name}:{id,imageId:image.id,assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image',url:image.url};
-  if(!references.some(item=>item.id===ref.id))references.push(ref);
+  const ref=card.reference?{...card.reference,category:card.category,name:card.name}:{id,imageId:image.id,assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image',url:image.url,followAdoptedImage:bindingFollowsAdoptedImage(need)};
+  const existing=references.find(item=>item.id===ref.id);
+  if(!existing)references.push(ref);
+  else if(ref.followAdoptedImage===false)existing.followAdoptedImage=false;
   if(need.manualReference){manual.push({name:card.name,id:ref.id});continue;}
   const key=`${need.start}:${need.end}`,group=spans.get(key)||{start:need.start,end:need.end,ids:[]};group.ids.push(ref.id);spans.set(key,group);
  }

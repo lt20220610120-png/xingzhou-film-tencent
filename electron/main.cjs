@@ -447,24 +447,7 @@ configureMediaCache({read:(url,scope,load)=>{
 const localPreviewCache = require('./local-preview-cache.cjs').createLocalPreviewCache({directory:()=>path.join(getDataDir(),'.cloud-preview-cache')});
 const loadAssetImage = createAssetImagePreview({resolveImage:p=>collabService.resolveAssetImage(p),readBytes:readMediaBytes,readAccount:imageCacheAccount,previewCache:localPreviewCache});
 ipcMain.handle('collab-load-asset-image', (_, payload) => loadAssetImage(payload));
-async function renewImageReferences(payload) {
- const original = payload.references || [];
- if (!original.length) return {...payload,references:original};
- const projectId = payload.projectId || payload.bindingProjectId;
- const local = projectId ? await collabService.resolveLocalReferences(projectId,original) : null;
- const media = !local && projectId && original.some(ref=>!ref.assetId&&(ref.mediaId||(!ref.url&&ref.objectKey)))
-  ? await collabService.listMedia({projectId}) : [];
- const references = await Promise.all((local||original).map(async ref => {
-  if(ref.assetId) {
-   const image=await collabService.resolveAssetImage({projectId:ref.projectId||projectId,assetId:ref.assetId,imageId:ref.imageId||ref.mediaId||(ref.id===ref.assetId?'legacy':ref.id)||'legacy'});
-   return {...ref,...image,id:ref.id};
-  }
-  if(local && (ref.localUnavailable || !ref.filePath)) throw Error('有参考素材尚未保存在本机，请重新选择素材');
-  const found=media.find(row=>row.id===ref.mediaId||row.id===ref.id||row.objectKey&&row.objectKey===ref.objectKey);
-  return found ? {...ref,url:found.url,filePath:found.filePath,mediaId:found.id} : ref;
- }));
- return {...payload,references};
-}
+const renewImageReferences = payload => require('./generation-reference-recovery.cjs').renewImageReferences(payload, collabService);
 ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=[],archive=true,filename='图片',layout='flat'})=>{
  const safe=s=>String(s||'图片').replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
  const imageExt=image=>{const ext=path.extname(String(image?.filename||'')).toLowerCase();return ['.png','.jpg','.jpeg','.webp','.gif'].includes(ext)?ext:'.png'};

@@ -35,7 +35,20 @@ export function storyboardPromptValue(binding,shot,value,accountId){
    const entry=snapshot.entries.find(e=>e.id===shot.sourcePromptId&&e.prompt===shot.sourceContent);
    if(!entry)return result;
    const compiled=compileEntryBinding(snapshot,entry,decisions[entry.id],{preview:true});
-   return {...result,...compiled,referenceBindingMode:'storyboard',bindingIssue:'',bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:compiled.references.map(r=>r.id)};
+   // Keep the published slots when an original asset image has vanished.
+   // The caller repairs proven automatic choices against the current assets.
+   const missingImage=result.references?.some(ref=>ref.kind==='image' && ref.assetId
+    && !compiled.references.some(next=>next.assetId===ref.assetId && next.imageId===ref.imageId));
+   if(missingImage)return result;
+   const references=compiled.references.map(ref=>{
+    const original=result.references?.find(previous=>ref.assetId&&previous.assetId===ref.assetId&&previous.imageId===ref.imageId);
+    if(!original)return ref;
+    const {followAdoptedImage,...metadata}=ref;
+    return Object.hasOwn(original,'followAdoptedImage')
+     ? {...metadata,followAdoptedImage:original.followAdoptedImage}
+     : metadata;
+   });
+   return {...result,...compiled,references,referenceBindingMode:'storyboard',bindingIssue:'',bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:references.map(r=>r.id)};
   }catch{return result;}
  }
  const pending=issue=>({...value,references:[],referenceBindingMode:'pending',bindingIssue:issue});
