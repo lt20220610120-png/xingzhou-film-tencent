@@ -5,3 +5,5 @@
 - 58 项定向测试、全量 3201/3201、构建及正式 NSIS 运行测试通过。最终 ASAR 的四份 Electron 模块、页面入口及构建资源与源码一致。
 - 腾讯云部署 collab.cjs 与 repository-extras.cjs。部署前比对旧版文件，备份路径 /opt/xingzhou-backups/retired-asset-route-2.8.181-20261118T021005Z。实库临时表回归回滚通过，旧入口不访问仓储，服务健康检查通过。无需数据迁移。
 - 安装包 104100407 字节，SHA256 e6ce726e852d255a3efe5f78f17bbcafedb4ad6db5fb574a621c802749a5c40a。
+
+实现 39d2bbe。GitHub Release 449435702，工作流 44221265310。三份公开清单验签通过，官网 Range 206 与 GitHub 资产大小及 SHA256 一致。Electron 验证 2.8.180 到 2.8.181 的更新发现、续传、完整包校验及安装回调。独立复核另跑 72 项资产、提示词和更新定向测试，全部通过。
