@@ -27,10 +27,10 @@ async function run(kind,{recovering=false,reference=false,local=false}={}){
  await execute();return {calls,errors};
 }
 for(const kind of ['single','batch']){
- test(`${kind} wardrobe-only first card cannot create a paid image`,async()=>{const r=await run(kind);assert.equal(r.calls.length,0);assert.match(r.errors.join('\n'),/外貌|脸型|五官/);});
+ test(`${kind} accepts a wardrobe-only first card without face fields`,async()=>{const r=await run(kind);assert.equal(r.calls.length,1);assert.deepEqual(r.calls[0].references,[]);assert.match(r.calls[0].prompt,/白色实验室长褂、深灰长裤/);});
  test(`${kind} manually chosen project reference supplies the missing visual anchor`,async()=>{const r=await run(kind,{reference:true});assert.equal(r.calls.length,1);assert.equal(r.calls[0].references[0].assetId,'other');});
  test(`${kind} local image reference reaches the existing media API as a file`,async()=>{const r=await run(kind,{local:true});assert.equal(r.calls.length,1);assert.equal(r.calls[0].references[0].filePath,'C:/managed-media/reference.png');assert.equal(r.calls[0].references[0].kind,'image');});
- test(`${kind} recovery bypasses appearance preflight and never resubmits a paid job`,async()=>{const r=await run(kind,{recovering:true});assert.deepEqual(r.calls,['recover']);});
+ test(`${kind} recovery loads the existing job without resubmission`,async()=>{const r=await run(kind,{recovering:true});assert.deepEqual(r.calls,['recover']);});
 }
 test('reference picker exists for a first card without any project images',()=>{
  assert.doesNotMatch(single,/\{\(mates\.length\s*>\s*0\|\|referenceRequired\)\s*&&\s*<label className="collab-ref-picker"/);

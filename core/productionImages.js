@@ -1,6 +1,6 @@
 import {planArtImageBatch,runArtImageBatch} from './artImageBatch.js';
 import {requestAssetImage,readAssetImageRecovery,clearAssetImageRecovery} from './assetImageRecovery.js';
-import {resolveAssetReference,characterAppearanceIssue,usesCharacterPortraitReference} from './collabStore.js';
+import {resolveAssetReference,usesCharacterPortraitReference} from './collabStore.js';
 import {buildComposedImagePrompt} from './artImageComposition.js';
 import {autoReferences} from './generationReferences.js';
 import {assetHasImages} from './assetImages.js';
@@ -21,7 +21,7 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
   if(['submitting','uncertain'].includes(item.status)&&!readAssetImageRecovery(p.id,asset.id))throw Error(`${asset.name} 上次提交结果不明，Agent 正在等待原任务凭据；未重复生图`);
   if(!reset.has(asset.id)&&(isFundingError(item.error)||item.configuration&&item.configuration!==stamp)){reset.add(asset.id);item.attempts=0;item.modelAttempts={};item.policyAttempts={};item.status='queued';item.error='';}item.configuration=stamp;
   item.policyAttempts||=Object.fromEntries(chain.map((m,i)=>[m.policyKey,Math.max(0,Math.min(Number(m.attempts),(item.attempts||0)-chain.slice(0,i).reduce((n,v)=>n+Number(v.attempts),0)))]));
-  const ref=resolveAssetReference(asset,assets),issue=!ref&&characterAppearanceIssue(asset,assets);if(issue)return skipImage(asset,item,issue);
+  const ref=resolveAssetReference(asset,assets);
   const limit=chain.reduce((n,m)=>n+Number(m.attempts),0);
   const portraitReference=usesCharacterPortraitReference(asset,ref);
   const compose=wardrobeOverride=>buildComposedImagePrompt(asset,ref,c.artStyle,c.composition,p,{wardrobeOverride});

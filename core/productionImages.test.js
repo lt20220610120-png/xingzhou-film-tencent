@@ -69,3 +69,12 @@ test('portrait production retries compose a filtered wardrobe delta over the sam
   assert.doesNotMatch(prompt, /蓝色眼影|烟熏妆|肤色改白/);
  }
 });
+
+test('automated image submission accepts clothing-only first looks', async () => {
+ const f=setup(0),prompts=[];
+ f.assets.push({id:'first',name:'【林舟-常服】',category:'character',description:'服装：深蓝西装、白衬衫与系带皮鞋。'});
+ f.api.mediaGenerateImage=async input=>{prompts.push(input.prompt);return {filePath:'fixture.png'};};
+ assert.equal((await produceImages(f)).partial,false);
+ assert.equal(prompts.length,1);
+ assert.match(prompts[0],/深蓝西装、白衬衫与系带皮鞋/);
+});

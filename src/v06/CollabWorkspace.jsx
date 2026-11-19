@@ -56,7 +56,7 @@ import {
   sectionsForRole, parseAssetName, displayAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetGenerationJobs,
-  ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant, characterBaselineAsset, wardrobeDescription, referencedWardrobeContent, usesCharacterPortraitReference,
+  ASSET_PROMPT_MODES, normalizeArtAssets, isSceneLightingVariant, characterBaselineAsset, wardrobeDescription, referencedWardrobeContent, usesCharacterPortraitReference,
 } from '../../core/collabStore.js';
 import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
@@ -392,8 +392,6 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     if (generating || busy || !canEdit) return;
     if (!profile && !pendingImage) { setError('请先在画布或 API 配置中添加图片生成接口'); return; }
     if(!pendingImage&&referenceRequired&&!refAsset&&!explicitlyNoReference){setError(missingAssetImageReferenceMessage(asset));return;}
-    const appearanceIssue=characterAppearanceIssue(asset, assets);
-    if(!pendingImage&&!refAsset&&appearanceIssue){setError(appearanceIssue);return;}
     setError(''); setBusy(true);
     try {
       if (beforeGenerate) await beforeGenerate();
@@ -478,7 +476,6 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {referenceRequired&&asset.category!=='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
         {referenceRequired&&asset.category==='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次无法保证场景布局一致。</small>}
         {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">{asset.category==='scene'?'请先生成或选择场景基准参考图，避免只改变光线时重新设计布局。':'请先生成或选择人物基准参考图，避免差异造型生成另一张脸。'}</small>}
-        {!refAsset&&characterAppearanceIssue(asset, assets)&&<small className="collab-ref-hint" role="status">{characterAppearanceIssue(asset, assets)}</small>}
         {error && !pendingImage && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
@@ -591,7 +588,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
           <PencilLine size={15} /><strong>{displayAssetName(asset, assets)} 提示词</strong>
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
-        {completedDescription&&<div className="collab-notice" role="status">清单已有补齐外貌的信息卡；原提示词保留，可直接采用完整版本后生图。<button className="secondary" disabled={!canEdit||modifying||saving} onClick={async()=>{editContent(completedDescription);await save().catch(()=>{});}}>采用已补齐信息卡</button></div>}
+        {completedDescription&&<div className="collab-notice" role="status">清单另有完整外貌描述，可按需采用。<button className="secondary" disabled={!canEdit||modifying||saving} onClick={async()=>{editContent(completedDescription);await save().catch(()=>{});}}>采用完整描述</button></div>}
         <FormattedEditor commitDelay={1200} aria-label="资产提示词" value={draft === savedRef.current ? projectedContent : promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings"><div className="art-prompt-toolbar">
@@ -852,8 +849,6 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
         const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
         const refAsset = resolveAssetImageReference(asset, liveAssets, referenceChoice, project.id, typeof accountId==='string'?accountId:'local');
         if(!readAssetImageRecovery(project.id,asset.id)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
-        const appearanceIssue=characterAppearanceIssue(asset, liveAssets);
-        if(!readAssetImageRecovery(project.id,asset.id)&&!refAsset&&appearanceIssue)throw new Error(appearanceIssue);
         const references = assetImageReferences(refAsset);
         const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references });
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
@@ -1062,8 +1057,6 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
         const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
         const refAsset = resolveAssetImageReference(asset, liveAssets, referenceChoice, project.id, typeof accountId==='string'?accountId:'local');
         if(!readAssetImageRecovery(project.id,asset.id)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
-        const appearanceIssue=characterAppearanceIssue(asset, liveAssets);
-        if(!readAssetImageRecovery(project.id,asset.id)&&!refAsset&&appearanceIssue)throw new Error(appearanceIssue);
         const references = assetImageReferences(refAsset);
         const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references });
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');

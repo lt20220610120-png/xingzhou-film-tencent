@@ -308,8 +308,8 @@ export const isSceneLightingVariant = (asset, assets = []) => {
   return Boolean(baseline && baseline.name !== asset.name);
 };
 
-// A wardrobe-only first card must not silently become the actor's face anchor.
-// This is a conservative structural check, not a fixed-field or word-count rule.
+// Automatic art review can suggest completing a model-generated character card.
+// This diagnostic is independent of image generation and manual descriptions.
 export const characterAppearanceIssue = (asset, assets = []) => {
   if (asset?.category !== 'character' || asset.detailStatus === 'nonvisual' || isCreatureAsset(asset)) return '';
   const text = readAssetPrompt(asset).content;
@@ -317,7 +317,7 @@ export const characterAppearanceIssue = (asset, assets = []) => {
   if (/群像|群体|群演|默认\s*6\s*人|非人(?:形|巨型)|纯生物形态|龙鳞|蛇鳞|狼毛|羽毛|机械机关|自动机|无眼鼻口/.test(`${asset.name} ${text}`)) return '';
   const wardrobe = /(?:服装(?:与鞋履|差异)?|妆造(?:与固定配饰)?)[：:]|(?:衬衣|衬衫|长裤|夹克|礼服|实验室长褂|白衣|黑衣)/.test(text);
   const face = /脸型|[方圆长鹅蛋]脸|面部骨相|面容|五官|颧骨|下颌|鼻梁|鼻翼|眼距|眼形|眼型/.test(text);
-  return wardrobe && !face ? '首次人物基准缺少脸型、五官等外貌描述，请补齐信息卡，或在美术采用已补齐的提示词版本后再生成图片。' : '';
+  return wardrobe && !face ? '首次人物基准缺少脸型、五官等外貌描述。' : '';
 };
 
 // 人物是主实体，服饰/妆造是人物下的一对多分支。
