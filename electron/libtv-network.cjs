@@ -3,8 +3,10 @@
 const http=require('node:http'),net=require('node:net'),tls=require('node:tls'),crypto=require('node:crypto');
 const API_HOSTS=['api2.liblib.art','api.liblib.tv','passport.liblib.art','bridge.liblib.art'];
 const officialHost=host=>/^canva\.xingliu\.art$/i.test(host)||/^(?:[a-z0-9-]+\.)*liblib\.(?:art|tv|cloud|ai)$/i.test(host);
-// Exact buckets are published in the pinned official CLI's public config.
-const mediaHost=host=>/^liblibai-(?:online|tmp-image)\.oss-(?:accelerate|[a-z]{2}-[a-z0-9-]+)\.aliyuncs\.com$/i.test(host)&&!/-internal\./i.test(host);
+// The upload bridge supplies the production bucket at runtime. Verified with
+// an actual CLI 1.1.3 upload. Keep other Alibaba OSS buckets outside the tunnel.
+const productionUploadHost='libtv-resource-prod.oss-accelerate.aliyuncs.com';
+const mediaHost=host=>host.toLowerCase()===productionUploadHost||(/^liblibai-(?:online|tmp-image)\.oss-(?:accelerate|[a-z]{2}-[a-z0-9-]+)\.aliyuncs\.com$/i.test(host)&&!/-internal\./i.test(host));
 const safeCode=error=>String(error?.cause?.code||error?.code||error?.name||'NETWORK_ERROR').replace(/[^A-Z0-9_]/gi,'').slice(0,60)||'NETWORK_ERROR';
 const acceptsHost=host=>officialHost(host)||mediaHost(host);
 function proxyFromRules(rules){for(const rule of String(rules||'DIRECT').split(';')){const match=/^\s*(PROXY|HTTPS)\s+([^\s]+)\s*$/i.exec(rule);if(match){try{const url=new URL((match[1].toUpperCase()==='HTTPS'?'https':'http')+'://'+match[2]);if(url.username||url.password||url.pathname!=='/'||!url.hostname)return null;return url.href;}catch{return null;}}if(/^\s*DIRECT\s*$/i.test(rule))return null;}return null;}
