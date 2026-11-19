@@ -18,8 +18,8 @@ import React,{useState,useEffect,useRef,useMemo,useLayoutEffect} from 'react';
 import {Plus,RefreshCw,Save,ArrowLeft,Clapperboard,RotateCcw,Trash2,SlidersHorizontal,ChevronDown} from 'lucide-react';
 import {DeleteConfirm} from './DeleteConfirm.jsx';
 import {GenerationComposer,GenerationResults} from './GenerationComposer.jsx';
-import {referenceName,refreshAssetReferences,isProjectGenerationReference,mediaSource,normalizeGenerationReferences} from '../../core/generationReferences.js';
-import {cleanStoryboardReferenceValue,repairStoryboardAssetReferences} from '../../core/storyboardReferences.js';
+import {referenceName,isProjectGenerationReference,mediaSource,normalizeGenerationReferences} from '../../core/generationReferences.js';
+import {cleanStoryboardReferenceValue,storyboardReferencePreviews} from '../../core/storyboardReferences.js';
 import {storyboardSceneReferences,importStoryboardSceneReferences} from '../../core/storyboardSceneReferences.js';
 import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core/scriptImport.js';
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
@@ -41,7 +41,7 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
  const editable=value=>({...value,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''});
  const read=()=>{try{const queued=readQueuedDraft(storageKey);return queued.found?queued.value:JSON.parse(localStorage.getItem(storageKey)||'null')}catch{return null}};
- const sceneReferences=()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene).filter(r=>r.assetAdopted!==false).map(r=>r.assetId?{...r,autoAssetImage:true}:r);
+ const sceneReferences=()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene,{assetImageSlots:true});
  const cleanDraft=entry=>{
   const cleaned=applyStoryboardDefaults(cleanStoryboardReferenceValue(entry.value,project.id),defaults,shot.id);
   const linked=storyboardPromptValue(promptBinding,shot,cleaned,accountId);
@@ -50,10 +50,9 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
   return {...entry,value,dirty:entry.dirty||cleaned!==entry.value||needsSave};
  };
  const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});
- const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(stored.value,defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
+ const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(cleanStoryboardReferenceValue(stored.value,project.id),defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null);
  const current=useRef(draft);current.current=draft;
- const repair=value=>repairStoryboardAssetReferences(value,{shot,binding:promptBinding,assets,projectId:project.id});
  useEffect(()=>{const old=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(current.current,shot,defaults),shot,project),value=applyStoryboardDefaults(old.value,defaults,shot.id);let next=value===old.value?old:{...old,value,dirty:true};if(!next.dirty)next=cloudDraft();else if(canRefreshStoryboardBinding(next,shot))next=cleanDraft(next);current.current=next;setDraft(next);if(value!==old.value||next.value.storyboardDefaultsRevision&&next.dirty)queueDraft(storageKey,next);},[shot,assets,media,scene,epNumber,promptBinding,defaults]);
  const change=value=>{
   value=editable(cleanStoryboardReferenceValue(value,project.id));
@@ -65,8 +64,8 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
   value=rememberStoryboardRemoval(previous,value);
   const next={...current.current,value,dirty:true};current.current=next;setDraft(next);queueDraft(storageKey,next);
  };
- const referenceCandidates=useMemo(()=>draft.value.referenceBindingMode?[]:projectReferenceCandidates(assets,media,project.id,epNumber,scene),[assets,media,project.id,epNumber,scene,draft.value.referenceBindingMode]);
- const baseline=storyboardRecoveryBaseline(shot,draft.value,sceneReferences(),storyboardPromptValue(promptBinding,shot,{...draft.value,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},accountId));
+ const referenceCandidates=useMemo(()=>draft.value.referenceBindingMode?[]:projectReferenceCandidates(assets,media,project.id,epNumber,scene,{assetImageSlots:true}),[assets,media,project.id,epNumber,scene,draft.value.referenceBindingMode]);
+ const baseline=cleanStoryboardReferenceValue(storyboardRecoveryBaseline(shot,draft.value,sceneReferences(),storyboardPromptValue(promptBinding,shot,{...draft.value,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},accountId)),project.id);
  const removedReferences=missingStoryboardReferences(draft.value,baseline);
  const restore=keys=>change(restoreStoryboardReferences(current.current.value,baseline,keys));
  const [sceneImportNotice,setSceneImportNotice]=useState('');
@@ -77,14 +76,11 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
   const previous=current.current.value,next=importStoryboardSceneReferences(previous,sceneImportRefs,scene);
   change(next);setSceneImportNotice(next.references.length>previous.references.length?`已补入 ${next.references.length-previous.references.length} 项场景素材`:'本场景素材已全部加入');
  };
- const resolveRefs=refs=>refreshAssetReferences(repair({references:refs}).references,assets,project.id).map(ref=>{
-  const file=!ref.assetId&&media.find(m=>m.id===ref.id);
-  return file?{...ref,url:file.url}:ref;
- });
+ const resolveRefs=refs=>storyboardReferencePreviews(refs,assets,media,project.id);
  const save=async()=>{
   if(!canEdit)return;setSaving(true);setError('');
   const savingDraft=current.current;
-  try{const savedValue=repair(savingDraft.value),{content,generationConfig}=storyboardSaveUpdates(savedValue);
+  try{const savedValue=cleanStoryboardReferenceValue(savingDraft.value,project.id),{content,generationConfig}=storyboardSaveUpdates(savedValue);
    const saved=await api.collabPatchStoryboard({ackOnly:true,projectId:project.id,episodeId:episode.id,...(!episode.storyboardPrompts?{promptEditionId:episode.promptEditionId||'legacy'}:{}),editPolicy:'direct',storyboardPublicationId:shot.storyboardPublicationId,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
    onProjectChange(saved);
    // Do not clear edits typed while the request was in flight.

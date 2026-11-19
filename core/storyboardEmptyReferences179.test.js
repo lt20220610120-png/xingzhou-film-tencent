@@ -32,11 +32,12 @@ test('published automatic reference keeps its slot during the gap before a repla
  for(const card of current.cards){card.assetId='asset-'+card.uid;card.images=[{id:'old',url:'https://example.test/old.png'}];card.publishedSceneIds=[entry.sceneId];}
  const ready=selectBindingVersion(current,state.saved),publication=storyboardPublicationPayload(ready.snapshot,ready.decisions,[entry]);
  const published=publication.prompts[0],config=published.generationConfig;
- assert.equal(config.references[0].followAdoptedImage,true);
+ assert.equal(config.references[0].assetImageSlot,true);
+ assert.equal(config.references[0].imageId,undefined);
  const shot={...published,content:config.bindingCompiledPrompt,sourcePromptId:entry.id,sourceContent:entry.prompt,storyboardPublicationId:publication.publicationId};
  const value={...config,prompt:config.bindingCompiledPrompt};
  const pinned={...value,references:value.references.map(ref=>({...ref,followAdoptedImage:false}))};
- assert.equal(storyboardPromptValue({currentSnapshot:current,saved:state.saved},shot,pinned,'u').references[0].followAdoptedImage,false);
+ assert.equal(storyboardPromptValue({currentSnapshot:current,saved:state.saved},shot,pinned,'u').references[0].assetImageSlot,true);
  for(const card of current.cards)card.images=[];
  const result=storyboardPromptValue({currentSnapshot:current,saved:state.saved},shot,value,'u');
  assert.deepEqual(result.references,value.references);

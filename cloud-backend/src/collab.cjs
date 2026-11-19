@@ -75,7 +75,8 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
   if(projectId&&COLLAB_ACTIONS.includes(action)) {
-    collabRow=await repo.getProject(projectId,user.id);
+    collabRow=action==='asset-image-url'&&repo.getAssetImageProjectAccess
+      ? await repo.getAssetImageProjectAccess(projectId,user.id) : await repo.getProject(projectId,user.id);
     if(!collabRow||String(collabRow.genre||'').includes(DIRECTOR_SENTINEL))return action==='project-get'?NOT_FOUND:DENY;
   }
 
@@ -342,8 +343,8 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return ok(rows.map((row) => ({
       ...row,
       image_url: assetImageLink(row.image_url, signer).url,
-      adoptedImageId: (images.find(img=>img.asset_id===row.id&&(img.object_path||img.url)===row.image_url)||images.filter(img=>img.asset_id===row.id).at(-1))?.id||null,
-      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, projectId, assetId: row.id, ...assetImageLink(img.object_path, signer), filename: img.filename, mime: img.mime })),
+      adoptedImageId: images.find(img=>img.asset_id===row.id&&row.image_url&&(img.object_path||img.url)===row.image_url)?.id||null,
+      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, projectId, assetId: row.id, ...assetImageLink(img.object_path||img.url, signer), filename: img.filename, mime: img.mime })),
     })));
   }
   if (action === 'asset-image-url') {
@@ -355,6 +356,17 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
       }
       return ok(image);
     };
+    // Older desktops use the retained reference ID as an image ID after a new
+    // desktop has saved a seat. The composite form is a seat, never a media ID.
+    const legacySeat = payload.assetId && typeof payload.imageId==='string' && (payload.imageId===payload.assetId||payload.imageId.startsWith(payload.assetId+':'));
+    if (payload.assetImageSlot === true || legacySeat) {
+      if (!collabRow || !payload.assetId) return NOT_FOUND;
+      const asset = await repo.findAdoptedAssetImage(projectId,payload.assetId,user.id);
+      if (!asset) return NOT_FOUND;
+      if (!asset.image_url) return {status:404,body:{code:'ASSET_SLOT_EMPTY',error:'资产卡片暂无已采用图片，请到资产中采用一张图片'}};
+      return withPreview({id:asset.image_id||'legacy',projectId,assetId:payload.assetId,
+        ...assetImageLink(asset.image_url,signer),filename:asset.filename,mime:asset.mime});
+    }
     if (payload.imageId && payload.imageId !== 'legacy') {
       const image = await repo.findMedia(payload.imageId, user.id);
       if (image) {

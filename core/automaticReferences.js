@@ -1,6 +1,7 @@
 import {inlineVoiceAliases} from './inlineVoiceAliases.js';
 import {adoptedAssetImage} from './adoptedAssetImage.js';
 import {numberedReferences,isProjectGenerationReference} from './generationReferences.js';
+import {referenceForAssetCard} from './assetImageSlot.js';
 
 const ALIAS=/@(image|audio|video)\d+(?!\d)/g;
 const FIELD_CATEGORY={人物:'character',场景:'scene',道具:'prop',音色:'audio'};
@@ -171,10 +172,11 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
  return {...value,prompt,references,autoReferenceOrder:after,autoReferenceSignature:signature(references)};
 }
 
-export function projectReferenceCandidates(assets,media,projectId,episode,scene) {
+export function projectReferenceCandidates(assets,media,projectId,episode,scene,{assetImageSlots=false}={}) {
  const belongs=asset=>scene&&asset.reviewedSceneIds?.includes(scene)?asset.sceneIds?.includes(scene):scene&&Array.isArray(asset.sceneIds)?asset.sceneIds.includes(scene)||asset.legacySceneIds?.includes(scene)||asset.legacyEpisodes?.includes(Number(episode)):!asset.episodes?.length||asset.episodes.some(n=>Number(n)===Number(episode));
+ const scoped=(assets||[]).filter(belongs);
  return [
-  ...(assets||[]).filter(belongs).flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,filename:i.filename,category:a.category,assetAdopted:!a.images?.length||i.id===adoptedAssetImage(a)?.id}))),
+  ...(assetImageSlots?scoped.filter(a=>a.adoptedImageId===null?Boolean(a.image_url):Boolean(a.image_url||adoptedAssetImage(a))).map(a=>referenceForAssetCard(a,projectId)).filter(r=>r.assetImageSlot):scoped.flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,filename:i.filename,category:a.category,assetAdopted:!a.images?.length||i.id===adoptedAssetImage(a)?.id})))),
   ...(media||[]).filter(m=>isProjectGenerationReference(m,projectId)&&Number(m.episode)===Number(episode)&&(!scene||!m.scene||String(m.scene)===String(scene)||String(m.scene)===String(scene).split('-').at(-1))).map(m=>({...m,name:m.filename||m.name||m.note||'参考素材'})),
  ];
 }

@@ -1,56 +1,39 @@
-import {numberedReferences,isProjectGenerationReference} from './generationReferences.js';
+import {numberedReferences,isProjectGenerationReference,normalizeGenerationReferences} from './generationReferences.js';
 import {generationReferenceKey,remapGenerationAliases} from './automaticReferences.js';
-import {adoptedAssetImage,bindingFollowsAdoptedImage} from './adoptedAssetImage.js';
-import {promptReviewMatches} from './promptReviewBatch.js';
+import {assetImageSlot} from './assetImageSlot.js';
 
-export function storyboardImageFollowsAsset(ref, shot, binding) {
- if(typeof ref.followAdoptedImage==='boolean')return ref.followAdoptedImage;
- if(ref.autoAssetImage===true)return true;
- const config=shot?.generationConfig;
- if(!shot?.storyboardPublicationId||!config?.bindingExpectedReferences?.includes(ref.id))return undefined;
- const version=binding?.saved?.versions?.[config.bindingVersionId];
- const snapshot=version?.decisionSnapshot||version?.snapshot;
- const decision=version?.decisions?.[shot.sourcePromptId];
- const needList=decision?.needs||[];
- const cards=snapshot?.cards||[];
- const matching=needList.filter(need=>need.visibility==='visible' && need.imageId===ref.imageId
-   && cards.some(card=>card.uid===need.cardUid && card.assetId===ref.assetId));
- if(!matching.length)return undefined;
- if(!matching.every(bindingFollowsAdoptedImage))return false;
- const entry=snapshot.entries?.find(row=>row.id===shot.sourcePromptId && row.prompt===shot.sourceContent);
- const review=version.reviews?.[shot.sourcePromptId];
- return entry && review?.published && promptReviewMatches(snapshot,entry,decision,review) ? true : undefined;
-}
+export const storyboardAssetSlots = (references,projectId) => {
+ const slots=(references||[]).map(ref=>assetImageSlot(ref,projectId));
+ return references && slots.every((ref,index)=>ref===references[index])?references:slots;
+};
 
-// Repair the image under its existing reference ID so edited @imageN slots stay in place.
-export function repairStoryboardAssetReferences(value,{shot,binding,assets,projectId}){
- let changed=false;
- const references=(value.references||[]).map(ref=>{
-  if(ref.kind!=='image'||!ref.assetId||!ref.imageId||!isProjectGenerationReference(ref,projectId))return ref;
-  if(storyboardImageFollowsAsset(ref,shot,binding)!==true)return ref;
-  const asset=assets.find(asset=>asset.id===ref.assetId && (!asset.project_id||asset.project_id===projectId)
-    && (!asset.projectId||asset.projectId===projectId));
-  const exists=asset?.images?.some(image=>image.id===ref.imageId);
-  const next=exists?null:adoptedAssetImage(asset,{exact:true});
-  if(!next?.id||!(next.url||next.filePath)){
-   if(ref.followAdoptedImage===true)return ref;
-   changed=true;
-   return {...ref,followAdoptedImage:true};
-  }
-  changed=true;
-  const {filePath,objectKey,expiresAt,url,...metadata}=ref;
-  return {...metadata,projectId,followAdoptedImage:true,imageId:next.id,
-    ...Object.fromEntries(['url','filePath','objectKey','expiresAt'].filter(key=>next[key]!==undefined).map(key=>[key,next[key]]))};
- });
- return changed?{...value,references}:value;
-}
-
-// collab_media also stores internal asset-image rows. Those belong to the art
-// library, not the separately uploaded image/audio/video reference collection.
+// Canonicalize existing slots and recovery history without changing alias order.
 export function cleanStoryboardReferenceValue(value,projectId) {
- const refs=value.references||[],references=refs.filter(ref=>isProjectGenerationReference(ref,projectId));
- if(references.length===refs.length)return value;
+ const refs=value.references||[],mapped=storyboardAssetSlots(refs,projectId);
+ const regularImages=new Set(refs.filter(ref=>ref.kind==='image'&&isProjectGenerationReference(ref,projectId)).map(ref=>ref.id));
+ const references=mapped.filter((ref,index)=>isProjectGenerationReference(ref,projectId)
+  && !(refs[index].kind==='asset-image'&&regularImages.has(ref.id)));
+ const removed=value.storyboardRemovedReferences,baseline=value.storyboardReferenceBaseline;
+ const removedSlots=removed&&storyboardAssetSlots(removed,projectId);
+ const baselineSlots=baseline?.references&&storyboardAssetSlots(baseline.references,projectId);
+ const recovery={...(removed!==removedSlots?{storyboardRemovedReferences:removedSlots}:{}),
+  ...(baseline?.references!==baselineSlots?{storyboardReferenceBaseline:{...baseline,references:baselineSlots}}:{})};
+ const orderChanged=references.length!==refs.length||refs.some((ref,index)=>ref.kind!==mapped[index].kind);
+ if(!orderChanged)return mapped===refs&&removed===removedSlots&&baseline?.references===baselineSlots?value:{...value,references:mapped,...recovery};
  const order=items=>numberedReferences(items).map(ref=>({key:generationReferenceKey(ref),alias:ref.alias}));
  const after=order(references);
- return {...value,references,prompt:remapGenerationAliases(value.prompt,value.autoReferenceOrder||order(refs),after),autoReferenceOrder:after,autoReferenceSignature:null};
+ return {...value,...recovery,references,prompt:remapGenerationAliases(value.prompt,value.autoReferenceOrder||order(refs),after),autoReferenceOrder:after,autoReferenceSignature:null};
+}
+
+export function storyboardReferencePreviews(references,assets,media,projectId) {
+ const assetById=new Map((assets||[]).filter(asset=>(!asset.projectId||asset.projectId===projectId)&&(!asset.project_id||asset.project_id===projectId)).map(asset=>[asset.id,asset]));
+ return normalizeGenerationReferences(storyboardAssetSlots(references,projectId)).map(ref=>{
+  if(ref.assetImageSlot){
+   const asset=assetById.get(ref.assetId);
+   return {...ref,displayName:asset?.displayName||ref.displayName,nameAliases:asset?.nameAliases||ref.nameAliases,
+    adoptedRevision:`${asset?.adoptedImageId||''}:${String(asset?.image_url||'').split('?')[0]}`};
+  }
+  const file=media?.find(m=>m.id===ref.id);
+  return file?{...ref,url:file.url}:ref;
+ });
 }

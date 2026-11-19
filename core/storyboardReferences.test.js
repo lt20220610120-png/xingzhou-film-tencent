@@ -21,7 +21,7 @@ test('legacy saved/draft raw asset rows are removed without deleting legitimate 
  const local={id:'manual',kind:'video',filePath:'C:/manual.mp4'};
  const value={prompt:'人物（参考@image2），音色@audio1。',references:[{id:'foreign',kind:'image',projectId:'other'},image,assetRow,voice,local],autoReferenceOrder:[{key:'image:foreign',alias:'@image1'},{key:'image:pic',alias:'@image2'},{key:'audio:voice',alias:'@audio1'}],autoReferenceSignature:'stale',libtvParams:{audio:'on'}};
  const next=cleanStoryboardReferenceValue(value,'p');
- assert.deepEqual(next.references,[image,voice,local]);
+ assert.deepEqual(next.references,[{id:'pic',kind:'image',projectId:'p',assetId:'hero',assetImageSlot:true},voice,local]);
  assert.equal(next.prompt,'人物（参考@image1），音色@audio1。');
  assert.equal(next.autoReferenceSignature,null);
  assert.deepEqual(next.libtvParams,value.libtvParams);
@@ -31,5 +31,6 @@ test('legacy saved/draft raw asset rows are removed without deleting legitimate 
 test('a clean storyboard remains identical and unknown media never get silently reclassified as audio',()=>{
  const value={prompt:'正常分镜',references:[{id:'audio',kind:'audio',project_id:'p'},{id:'img',kind:'image',projectId:'p'}]};
  assert.strictEqual(cleanStoryboardReferenceValue(value,'p'),value);
- assert.deepEqual(cleanStoryboardReferenceValue({references:[{id:'x',kind:'file'},assetRow]},'p').references,[]);
+ const legacy=cleanStoryboardReferenceValue({references:[{id:'x',kind:'file'},assetRow]},'p');
+ assert.deepEqual(legacy.references,[{id:'pic',kind:'image',projectId:'p',assetId:'hero',episode:1,assetImageSlot:true}]);
 });

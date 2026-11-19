@@ -96,7 +96,9 @@ function isReference(row) {
 function assetImage(asset) {
   const images = asset.images || [];
   const pointer = remoteIdentity(asset.image_url) || asset.image_url;
-  return images.find(row => row.id === asset.adoptedImageId) || images.find(row => [row.url, remoteIdentity(row.url), row.objectKey].includes(pointer)) || images.at(-1);
+  return images.find(row => row.id === asset.adoptedImageId)
+    || (pointer && images.find(row => [row.url, remoteIdentity(row.url), row.objectKey].includes(pointer)))
+    || (!Object.hasOwn(asset,'adoptedImageId')&&!Object.hasOwn(asset,'image_url') ? images.at(-1) : null);
 }
 function makeIndex(assets, rows, projectId) {
   const ids = new Map();
@@ -214,8 +216,8 @@ function projectRows(assets, media, projectId) {
   const withImages = assets.map(asset => {
     assertProject(asset,projectId);
     let images = asset.images || [];
-    if (!images.length && remoteIdentity(asset.image_url)) {
-      images = [{id:stableId(projectId,`legacy:${asset.id}:${remoteIdentity(asset.image_url)}`),url:asset.image_url,filename:filenameOf(new URL(asset.image_url).pathname),mime:'image/png'}];
+    if (!assetImage(asset) && remoteIdentity(asset.image_url)) {
+      images = [...images,{id:stableId(projectId,`legacy:${asset.id}:${remoteIdentity(asset.image_url)}`),url:asset.image_url,filename:filenameOf(new URL(asset.image_url).pathname),mime:'image/png'}];
     }
     images = images.map(image => {
       assertProject(image,projectId);
@@ -311,6 +313,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     const cloudIndex = makeIndex(canonical.assets,canonical.rows,projectId);
     const copiedLocal = new Map();
     const savedProject = await transformReferences(project,async row => {
+      if(row.assetImageSlot===true&&row.assetId&&inProject(row,projectId))return withoutSource(row);
       const clean = withoutSource(row);
       const source = byId.get(cloudIndex.find(row)?.id);
       if (source?.filePath) return {...clean,...playback(root,source.localPath,projectId),...(source.objectKey?{objectKey:source.objectKey}:{}),mediaId:source.id,localUnavailable:false};
@@ -380,6 +383,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     }
     const copied = new Map();
     const projectWithIds = await transformReferences(project,async (row, required)=>{
+      if(row.assetImageSlot===true&&row.assetId&&inProject(row,projectId))return withoutSource(row);
       let source = index.find(row);
       if (!source && row.kind!=='video' && inProject(row,projectId) && row.localPath && !row.localUnavailable) {
         const id = UUID.test(row.id || '') ? row.id : stableId(projectId,row.localPath);

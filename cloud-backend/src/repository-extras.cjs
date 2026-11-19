@@ -411,8 +411,22 @@ function extendRepository(pool) {
         await client.query('COMMIT');return saved;
       } catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     },
+    async getAssetImageProjectAccess(pid,uid) {
+      return one(`select p.id,p.genre from collab_projects p where p.id=$1
+        and (p.owner_id=$2 or exists(select 1 from collab_members member where member.project_id=p.id and member.user_id=$2))`,[pid,uid]);
+    },
+    async findAdoptedAssetImage(pid,assetId,uid) {
+      return one(`select a.image_url,m.id as image_id,m.filename,m.mime from collab_assets a
+        join collab_projects p on p.id=a.project_id
+        left join lateral (select id,filename,mime from collab_media
+          where asset_id=a.id and project_id=a.project_id and kind='asset-image'
+            and coalesce(nullif(object_path,''),url)=nullif(a.image_url,'')
+          order by created_at desc,id desc limit 1) m on true
+        where a.project_id=$1 and a.id::text=$2
+          and (p.owner_id=$3 or exists(select 1 from collab_members member where member.project_id=p.id and member.user_id=$3))`,[pid,assetId,uid]);
+    },
     async listAssetImages(pid, uid) {
-      const sql = 'select media.id, media.asset_id, media.object_path, media.filename, media.mime from collab_media media join collab_projects p on p.id=media.project_id where media.project_id=$1 and media.kind=$2 and (p.owner_id=$3 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$3)) order by media.created_at';
+      const sql = 'select media.id, media.asset_id, media.object_path, media.url, media.filename, media.mime from collab_media media join collab_projects p on p.id=media.project_id where media.project_id=$1 and media.kind=$2 and (p.owner_id=$3 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$3)) order by media.created_at';
       return many(sql, [pid, 'asset-image', uid]);
     },
     async setProducer(userId, isProducer) {

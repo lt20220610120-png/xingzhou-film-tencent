@@ -382,7 +382,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const explicitlyNoReference=refId==='';
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = uniqueAssetImages([...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages]).map(image => ({...image, projectId:project.id, assetId:asset.id}));
-  const adoptedImage=adoptedAssetImage({...asset,images});
+  const adoptedImage=adoptedAssetImage({...asset,images},{exact:asset.adoptedImageId===null&&!asset.image_url});
   useEffect(()=>setSelectedImageId(adoptedImage?.id||''),[adoptedImage?.id,images.map(i=>i.id).join(',')]);
   const adoptImage=async()=>{if(!selectedImage||!canEdit)return;setBusy(true);setError('');try{await api.collabUpdateAsset({projectId:project.id,assetId:asset.id,updates:{adoptedImageId:selectedImage.id}});await refresh();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const selectedImage = images.find((image) => image.id === selectedImageId) || adoptedImage || images[images.length - 1] || null;

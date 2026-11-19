@@ -66,6 +66,23 @@ test('captures one cloud object for the asset, media and nested reference while 
   assert.deepEqual(seen,[imageKey,imageKey]);
 });
 
+test('capture and share keep an empty asset seat without promoting a historical image', async t => {
+  const f = await fixture(t,{download:async()=>Buffer.from('historical bytes')});
+  const reference={id:'saved-slot',kind:'image',projectId,assetId,assetImageSlot:true};
+  const project=withRefs([reference]);
+  const assets=[{id:assetId,project_id:projectId,adoptedImageId:null,image_url:'',images:[image]}];
+  const captured=await f.helper.capture({project,assets,media:[image]});
+  const materialized=f.helper.materialize(captured);
+  assert.equal(materialized.assets[0].image_url,'');
+  assert.equal(materialized.assets[0].adoptedImageId,null);
+  assert.deepEqual(refs(materialized),[reference]);
+  const shared=await f.helper.prepareShare(materialized);
+  assert.equal(shared.assets[0].image_url,'');
+  assert.equal(shared.assets[0].adoptedImageId,null);
+  assert.deepEqual(refs(shared),[reference]);
+  assert.equal(shared.unavailableCount,0);
+});
+
 test('a truncated cloud transfer leaves no completed blob and capture retries with a fresh body', async t => {
   let count=0;
   const f=await fixture(t,{download:async()=>{count++;return count===1?{body:Readable.from([Buffer.from('half')]),size:10}:{bytes:Buffer.from('valid data'),size:10};}});

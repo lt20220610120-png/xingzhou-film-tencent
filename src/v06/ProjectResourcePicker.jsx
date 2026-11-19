@@ -6,19 +6,22 @@ import CloudAssetImage from './CloudAssetImage.jsx';
 import {displayAssetName} from '../../core/collabStore.js';
 import {projectAudioReferences,mediaSource,isProjectGenerationReference,canDeleteUploadedReference} from '../../core/generationReferences.js';
 import {generationReferenceKey} from '../../core/automaticReferences.js';
+import {referenceForAssetCard,sameAssetImageSlot} from '../../core/assetImageSlot.js';
+import {storyboardReferencePreviews,storyboardAssetSlots} from '../../core/storyboardReferences.js';
 import './ProjectResourcePicker.css';
 
 export default function ProjectResourcePicker({api,projectId,accountId,canEdit=false,assets,media,voiceCards=[],selected,onClose,onSelect,onUpload,onRefresh,onDelete,initialTab}) {
- const [tab,setTab]=useState(['audio','video'].includes(initialTab)?initialTab:'character'),[query,setQuery]=useState(''),[picked,setPicked]=useState(selected),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [tab,setTab]=useState(['audio','video'].includes(initialTab)?initialTab:'character'),[query,setQuery]=useState(''),[picked,setPicked]=useState(()=>storyboardAssetSlots(selected,projectId)),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [deleting,setDeleting]=useState(null),[removed,setRemoved]=useState([]);
  const categories=[['character','角色'],['prop','物品'],['scene','场景'],['image','参考图'],['audio','音频'],['video','视频']];
- const assetRows=assets.flatMap(a=>(a.images?.length?a.images:(a.image_url?[{id:a.id,url:a.image_url}]:[])).filter(i=>i.url).map(i=>({id:i.id,imageId:i.id===a.id?'legacy':i.id,projectId,assetId:a.id,url:i.url,kind:'image',name:a.name,displayName:displayAssetName(a,assets),nameAliases:a.nameAliases,filename:i.filename,category:a.category})));
- const protectedReferences=[...assetRows,...voiceCards.filter(card=>!card.pendingAudio).map(card=>card.reference)];
+ const assetRows=storyboardReferencePreviews(assets.map(a=>referenceForAssetCard({...a,displayName:displayAssetName(a,assets)},projectId)).filter(r=>r.assetImageSlot),assets,null,projectId);
+ const protectedReferences=[...assets.flatMap(a=>a.images?.length?a.images:[{url:a.image_url}]),...voiceCards.filter(card=>!card.pendingAudio).map(card=>card.reference)];
  const canRemove=ref=>canDeleteUploadedReference(ref,{projectId,accountId,canEdit,protectedReferences});
  const rows=['character','prop','scene'].includes(tab)?assetRows.filter(a=>a.category===tab):tab==='audio'?projectAudioReferences(media,voiceCards,projectId):media.filter(m=>m.kind===tab&&isProjectGenerationReference(m,projectId)).map(m=>({...m,name:m.filename||m.note||'参考素材'}));
  const shown=rows.filter(r=>!removed.includes(generationReferenceKey(r))&&[r.name,r.displayName,r.characterName].filter(Boolean).some(name=>name.toLowerCase().includes(query.trim().toLowerCase())));
- const has=r=>picked.some(p=>generationReferenceKey(p)===generationReferenceKey(r));
- const toggle=r=>setPicked(current=>current.some(p=>generationReferenceKey(p)===generationReferenceKey(r))?current.filter(p=>generationReferenceKey(p)!==generationReferenceKey(r)):[...current,r]);
+ const matches=(p,r)=>sameAssetImageSlot(p,r)||generationReferenceKey(p)===generationReferenceKey(r);
+ const has=r=>picked.some(p=>matches(p,r));
+ const toggle=r=>setPicked(current=>current.some(p=>matches(p,r))?current.filter(p=>!matches(p,r)):[...current,r]);
  const run=async action=>{setBusy(true);setError('');try{await action();}catch(e){setError(e.message);}finally{setBusy(false);}};
  const upload=()=>run(async()=>{const item=await onUpload(tab);if(item)setPicked(current=>current.some(p=>generationReferenceKey(p)===generationReferenceKey(item))?current:[...current,item]);});
  const remove=()=>run(async()=>{

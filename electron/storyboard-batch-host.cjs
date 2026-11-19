@@ -8,6 +8,8 @@ function createStoryboardBatchHost({directory,owner,license,getProject,listMedia
   const project=await check(run),ep=project.episodes.find(e=>e.id===item.episodeId),shot=(ep?.storyboardPrompts||ep?.prompts||[]).find(s=>s.id===item.shotId);
   if(!shot||(shot.storyboardPublicationId||'')!==item.publicationId||shot.content!==item.baseContent||JSON.stringify(shot.generationConfig||{})!==JSON.stringify(item.baseGenerationConfig||{}))throw Error('分镜已变更，请重新加入队列');
   const {storyboardGenerationInput}=await import('../core/storyboardBatch.js'),{storyboardSaveUpdates}=await import('../core/promptAssetUsage.js');
+  const {cleanStoryboardReferenceValue}=await import('../core/storyboardReferences.js');
+  item.value=cleanStoryboardReferenceValue(item.value,run.projectId);
   const input=await storyboardGenerationInput({state:getState(),value:item.value,getLibTVModel:model=>schema(run.accountId,model)});
   await queue.assertDispatch({storyboardBatchRunId:run.id});
   const savedProject=await patchShot({projectId:run.projectId,episodeId:item.episodeId,shotId:item.shotId,editPolicy:'direct',requireExactBase:true,storyboardPublicationId:item.publicationId,...(!ep.storyboardPrompts?{promptEditionId:ep.promptEditionId||'legacy'}:{}),base:{content:shot.content,generationConfig:shot.generationConfig},updates:storyboardSaveUpdates({...item.value,referenceBindingMode:'storyboard'})});

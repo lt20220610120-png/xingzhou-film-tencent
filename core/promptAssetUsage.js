@@ -34,20 +34,14 @@ export function storyboardPromptValue(binding,shot,value,accountId){
    const {snapshot,decisions}=selectBindingVersion(binding.currentSnapshot,binding.saved,value.bindingVersionId);
    const entry=snapshot.entries.find(e=>e.id===shot.sourcePromptId&&e.prompt===shot.sourceContent);
    if(!entry)return result;
-   const compiled=compileEntryBinding(snapshot,entry,decisions[entry.id],{preview:true});
-   // Keep the published slots when an original asset image has vanished.
-   // The caller repairs proven automatic choices against the current assets.
-   const missingImage=result.references?.some(ref=>ref.kind==='image' && ref.assetId
-    && !compiled.references.some(next=>next.assetId===ref.assetId && next.imageId===ref.imageId));
-   if(missingImage)return result;
+   const compiled=compileEntryBinding(snapshot,entry,decisions[entry.id],{preview:true,storyboardSlots:true});
    const references=compiled.references.map(ref=>{
-    const original=result.references?.find(previous=>ref.assetId&&previous.assetId===ref.assetId&&previous.imageId===ref.imageId);
-    if(!original)return ref;
-    const {followAdoptedImage,...metadata}=ref;
-    return Object.hasOwn(original,'followAdoptedImage')
-     ? {...metadata,followAdoptedImage:original.followAdoptedImage}
-     : metadata;
+    const original=result.references?.find(previous=>ref.assetImageSlot&&ref.assetId===(previous.assetId||previous.asset_id)
+     && previous.kind==='image'&&(!previous.projectId||previous.projectId===ref.projectId)&&(!previous.project_id||previous.project_id===ref.projectId));
+    return original?{...ref,id:original.id}:ref;
    });
+   // Late material can append. Never shrink or reorder the saved numbered seats.
+   if(result.references?.some((ref,index)=>ref.id!==references[index]?.id))return result;
    return {...result,...compiled,references,referenceBindingMode:'storyboard',bindingIssue:'',bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:references.map(r=>r.id)};
   }catch{return result;}
  }
@@ -70,7 +64,7 @@ export function storyboardPromptValue(binding,shot,value,accountId){
  const entry=rows[0];
  if(entry.label!==shot.label||entry.prompt!==storyboardSourcePrompt(shot))return pending('提示词正文已变化，请返回清单核实重新分发');
  try{
-  const compiled=compileEntryBinding(snapshot,entry,decisions?.[entry.id],{preview:true});
+  const compiled=compileEntryBinding(snapshot,entry,decisions?.[entry.id],{preview:true,storyboardSlots:true});
   const generated=value.prompt===value.bindingCompiledPrompt&&value.bindingSourcePrompt===entry.prompt;
   if(value.prompt!==entry.prompt&&value.prompt!==compiled.prompt&&!generated)return {...value,referenceBindingMode:'storyboard',bindingIssue:''};
   return {...value,...compiled,referenceBindingMode:compiled.pendingMedia.length?'pending':'confirmed',bindingIssue:compiled.pendingMedia.join('；'),bindingSourcePrompt:entry.prompt,bindingCompiledPrompt:compiled.prompt,bindingExpectedReferences:compiled.references.map(ref=>ref.id),bindingEntrySignature:entryBindingSignature(snapshot,entry),bindingProjectId:snapshot.projectId,bindingAccountId:accountId,bindingSourcePromptId:entry.id,bindingVersionId:snapshot.versionId||'',autoReferenceExclusions:[],autoReferenceSignature:null};

@@ -15,9 +15,9 @@ test('two accounts share decisions and storyboard images before either clicks ge
  const api={promptArtLoad:p=>guest.load({...p,accountId:'guest'}),collabGetProject:async()=>f.project,collabListAssets:async()=>f.assets,artReviewLoadLocal:async()=>null};
  let fresh=await loadFreshBinding({api,projectId:pid,accountId:'guest'}),shot=f.project.episodes[0].prompts[0];
  assert.equal(fresh.saved.accountId,'guest');assert.equal(fresh.decisions[shot.id].confirmed,true);
- let value=storyboardPromptValue(fresh,shot,{prompt:shot.content,references:[]},'guest');assert.equal(value.references.length,3);
+ let value=storyboardPromptValue(fresh,shot,{prompt:shot.content,references:[]},'guest');assert.equal(value.references.length,3);const references=value.references;
  f.assets[0].images.push({id:'adopted-new',url:'https://example.test/new.png'});f.assets[0].adoptedImageId='adopted-new';
- fresh=await loadFreshBinding({api,projectId:pid,accountId:'guest'});value=storyboardPromptValue(fresh,shot,value,'guest');assert.ok(value.references.some(r=>r.imageId==='adopted-new'));assert.equal(f.calls,0);
+ fresh=await loadFreshBinding({api,projectId:pid,accountId:'guest'});value=storyboardPromptValue(fresh,shot,value,'guest');assert.deepEqual(value.references,references);assert.ok(value.references.every(r=>r.assetImageSlot&&!r.imageId));assert.equal(f.calls,0);
  await assert.rejects(guest.save({projectId:pid,accountId:'guest',baseRevision:1,data:fresh.saved}),/没有关联编辑权限/);
 });
 test('unpublished shared inventory is readable on a second machine and refreshes without replacing local edits',async()=>{

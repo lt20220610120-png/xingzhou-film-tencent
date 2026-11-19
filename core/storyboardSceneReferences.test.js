@@ -21,9 +21,9 @@ const fixture=()=>({projectId:'p',episode:1,scene:'1-1',assets:[{...asset('hero'
 
 test('scene import uses all scene inventory instead of per-prompt decisions, adopted pictures and ready voices only',()=>{
  const f=fixture();f.binding.snapshot.cards=[{assetId:'prop',sceneIds:['1-1'],entryIds:['another-prompt']}];
- assert.deepEqual(storyboardSceneReferences(f).map(r=>r.id),['new','prop','upload','numeric','voice']);
+ assert.deepEqual(storyboardSceneReferences(f).map(r=>r.id),['hero','prop','upload','numeric','voice']);
  // Scene inventory remains usable even when this prompt's old edition is gone.
- assert.deepEqual(storyboardSceneReferences({...f,binding:{currentSnapshot:f.binding.snapshot},shot:{generationConfig:{bindingVersionId:'deleted-edition'}}}).map(r=>r.id),['new','prop','upload','numeric','voice']);
+ assert.deepEqual(storyboardSceneReferences({...f,binding:{currentSnapshot:f.binding.snapshot},shot:{generationConfig:{bindingVersionId:'deleted-edition'}}}).map(r=>r.id),['hero','prop','upload','numeric','voice']);
  assert.deepEqual(storyboardSceneReferences({...f,scene:'2-1'}),[]);
 });
 test('scene links in the shared inventory supplement incomplete asset scene IDs, without duplicate identities',()=>{

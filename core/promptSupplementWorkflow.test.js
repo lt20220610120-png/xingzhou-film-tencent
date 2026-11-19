@@ -26,7 +26,7 @@ test('supplement → refresh → distribution → first image → storyboard ret
  const binding={...f.snapshot(),saved:f.saved};
  for(const prompt of all){
   const value=storyboardPromptValue(binding,{id:prompt.id,sourcePromptId:prompt.id,label:prompt.label,content:prompt.content},{prompt:prompt.content,references:[]},'u');
-  assert.equal(value.referenceBindingMode,'confirmed');assert.equal(value.references.length,1);assert.equal(value.references[0].assetId,'asset-character');assert.equal(value.references[0].imageId,'first-image');assert.match(value.prompt,/@image1/);assert.equal(storyboardSaveUpdates(value).content,prompt.content);
+  assert.equal(value.referenceBindingMode,'confirmed');assert.equal(value.references.length,1);assert.equal(value.references[0].assetId,'asset-character');assert.equal(value.references[0].assetImageSlot,true);assert.equal(value.references[0].imageId,undefined);assert.match(value.prompt,/@image1/);assert.equal(storyboardSaveUpdates(value).content,prompt.content);
  }
  assert.equal(f.calls,0,'image publication and storyboard compilation need no new paid analysis');
 });
