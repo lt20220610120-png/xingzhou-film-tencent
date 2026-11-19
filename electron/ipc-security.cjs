@@ -4,6 +4,7 @@ const onlineChannels = new Set(['ai-chat', 'test-ai-connection', 'discover-model
 onlineChannels.add('audio-generate');
 for(const c of ['storyboard-batch-start','storyboard-batch-list','storyboard-batch-stop','storyboard-batch-resume','collab-delete-media'])onlineChannels.add(c);
 onlineChannels.add('project-video-delete');
+onlineChannels.add('project-video-share');
 onlineChannels.add('muse-local-connect');
 onlineChannels.add('codex-local-catalog');
 for(const c of ['like-status','like-pairing','like-bind','like-open-project'])onlineChannels.add(c);

@@ -6,6 +6,7 @@ const officialHost=host=>/^canva\.xingliu\.art$/i.test(host)||/^(?:[a-z0-9-]+\.)
 // Exact buckets are published in the pinned official CLI's public config.
 const mediaHost=host=>/^liblibai-(?:online|tmp-image)\.oss-(?:accelerate|[a-z]{2}-[a-z0-9-]+)\.aliyuncs\.com$/i.test(host)&&!/-internal\./i.test(host);
 const safeCode=error=>String(error?.cause?.code||error?.code||error?.name||'NETWORK_ERROR').replace(/[^A-Z0-9_]/gi,'').slice(0,60)||'NETWORK_ERROR';
+const acceptsHost=host=>officialHost(host)||mediaHost(host);
 function proxyFromRules(rules){for(const rule of String(rules||'DIRECT').split(';')){const match=/^\s*(PROXY|HTTPS)\s+([^\s]+)\s*$/i.exec(rule);if(match){try{const url=new URL((match[1].toUpperCase()==='HTTPS'?'https':'http')+'://'+match[2]);if(url.username||url.password||url.pathname!=='/'||!url.hostname)return null;return url.href;}catch{return null;}}if(/^\s*DIRECT\s*$/i.test(rule))return null;}return null;}
 async function desktopProxy(url){try{const electron=require('electron');if(electron.session?.defaultSession)return await electron.session.defaultSession.resolveProxy(url);}catch{}const configured=process.env.HTTPS_PROXY||process.env.https_proxy||process.env.HTTP_PROXY||process.env.http_proxy;if(configured){try{const u=new URL(configured);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)return (u.protocol==='https:'?'HTTPS ':'PROXY ')+u.host;}catch{}}return 'DIRECT';}
 function openRoute(row){
@@ -56,7 +57,7 @@ function createLibTVNetwork({resolveProxy=desktopProxy,probe=probeRoute,connect=
   const deny=status=>{if(!client.destroyed)client.end('HTTP/1.1 '+status+'\r\nConnection: close\r\n\r\n');};
   if(request.headers['proxy-authorization']!==authorization)return deny('407 Proxy Authentication Required');
   const match=/^([a-z0-9.-]+):443$/i.exec(request.url||'');
-  if(!match||!(officialHost(match[1])||mediaHost(match[1])))return deny('403 Forbidden');
+  if(!match||!acceptsHost(match[1]))return deny('403 Forbidden');
   const host=match[1].toLowerCase();
   try{
    const row=selected?.routes.find(row=>row.host===host)||await dynamicRoute(host);
@@ -93,11 +94,19 @@ function createLibTVNetwork({resolveProxy=desktopProxy,probe=probeRoute,connect=
   });
   try{await starting;}finally{starting=null;}
  }
- async function environment(){if(closed)throw Error('LibTV 网络连接已关闭');const rules=await Promise.all(API_HOSTS.map(host=>resolveProxy('https://'+host))),signature=JSON.stringify(rules);if(selected?.signature===signature&&Date.now()-selected.time<60000)return output();if(pending)return pending;
-  pending=(async()=>{const settled=await Promise.allSettled(API_HOSTS.map((host,index)=>selectRoute(host,rules[index])));if(closed)throw Error('LibTV 网络连接已关闭');const routes=settled.filter(row=>row.status==='fulfilled').map(row=>row.value);if(!routes.length)throw settled.find(row=>row.status==='rejected')?.reason||Error('LibTV 网络连接失败');dynamicRoutes.clear();selected={signature,time:Date.now(),routes,proxyConfigured:rules.some(rule=>proxyFromRules(rule))};if(selected.proxyConfigured||routes.some(row=>row.mode!=='direct'))await start();return output();})();try{return await pending;}finally{pending=null;}
+ async function getPlan(){if(closed)throw Error('LibTV 网络连接已关闭');const rules=await Promise.all(API_HOSTS.map(host=>resolveProxy('https://'+host))),signature=JSON.stringify(rules);if(selected?.signature===signature&&Date.now()-selected.time<60000)return selected;if(pending)return pending;
+  pending=(async()=>{const settled=await Promise.allSettled(API_HOSTS.map((host,index)=>selectRoute(host,rules[index])));if(closed)throw Error('LibTV 网络连接已关闭');const routes=settled.filter(row=>row.status==='fulfilled').map(row=>row.value);if(!routes.length)throw settled.find(row=>row.status==='rejected')?.reason||Error('LibTV 网络连接失败');dynamicRoutes.clear();selected={signature,time:Date.now(),routes,proxyConfigured:rules.some(rule=>proxyFromRules(rule))};return selected;})();try{return await pending;}finally{pending=null;}
  }
- function output(){const routes=selected.routes.map(({host,mode})=>({host,mode}));if(!selected.proxyConfigured&&selected.routes.every(row=>row.mode==='direct'))return{env:{HTTP_PROXY:'',HTTPS_PROXY:'',ALL_PROXY:'',http_proxy:'',https_proxy:'',all_proxy:'',NODE_USE_ENV_PROXY:undefined},routes};const url='http://xz:'+secret+'@127.0.0.1:'+server.address().port;return{env:{HTTP_PROXY:url,HTTPS_PROXY:url,ALL_PROXY:'',http_proxy:url,https_proxy:url,all_proxy:'',NO_PROXY:'localhost,127.0.0.1,::1',no_proxy:'localhost,127.0.0.1,::1',NODE_USE_ENV_PROXY:'1'},routes};}
+ async function environment({upload=false}={}){
+  const plan=await getPlan();
+  // Uploads discover storage hosts dynamically, and PAC can route those
+  // differently even when account and project APIs all use DIRECT.
+  const tunnel=upload||plan.proxyConfigured;
+  if(tunnel)await start();
+  return output(plan,tunnel);
+ }
+ function output(plan,tunnel){const routes=plan.routes.map(({host,mode})=>({host,mode}));if(!tunnel)return{env:{HTTP_PROXY:'',HTTPS_PROXY:'',ALL_PROXY:'',http_proxy:'',https_proxy:'',all_proxy:'',NODE_USE_ENV_PROXY:undefined},routes};const url='http://xz:'+secret+'@127.0.0.1:'+server.address().port;return{env:{HTTP_PROXY:url,HTTPS_PROXY:url,ALL_PROXY:'',http_proxy:url,https_proxy:url,all_proxy:'',NO_PROXY:'localhost,127.0.0.1,::1',no_proxy:'localhost,127.0.0.1,::1',NODE_USE_ENV_PROXY:'1'},routes};}
  async function close(){closed=true;controller.abort();for(const socket of sockets)socket.destroy();if(server?.listening)await new Promise(resolve=>server.close(resolve));}
- return{environment,close,invalidate:()=>{selected=null;dynamicRoutes.clear();}};
+ return{environment,close,invalidate:()=>{if(selected)selected.time=0;dynamicRoutes.clear();}};
 }
-module.exports={createLibTVNetwork,officialHost,proxyFromRules};
+module.exports={createLibTVNetwork,officialHost,acceptsHost,proxyFromRules};

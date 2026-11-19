@@ -38,3 +38,6 @@ export function groupProjectVideos(rows){
 export function selectedProjectVideos(groups,overrides=new Map()){
  return groups.flatMap(g=>overrides.has(g.id)?g.successful.filter(r=>overrides.get(g.id).includes(videoResultKey(r))):g.latest?[g.latest]:[]);
 }
+export function shareableProjectVideos(groups,overrides){
+ return selectedProjectVideos(groups,overrides).filter(row=>row.localResult&&!row.mediaId);
+}

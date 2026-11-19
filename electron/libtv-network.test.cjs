@@ -3,6 +3,24 @@ const source=path.join(__dirname,'libtv-network.cjs'),network=fs.existsSync(sour
 function create(options={}){assert.equal(typeof network.createLibTVNetwork,'function');return network.createLibTVNetwork({resolveProxy:async()=> 'DIRECT',probe:async()=>{},...options});}
 test('ordinary desktop networking keeps native direct transport after read-only TLS capability checks',async()=>{const seen=[],n=create({probe:async row=>seen.push(row)});try{const result=await n.environment();assert.equal(result.env.NODE_USE_ENV_PROXY,undefined);assert(seen.length>=3);assert(seen.every(row=>row.mode==='direct'));assert.equal(result.routes.every(row=>row.mode==='direct'),true);}finally{await n.close();}});
 test('normal system proxy opts bundled Node fetch into proxy support',async()=>{const seen=[],n=create({resolveProxy:async()=> 'PROXY 127.0.0.1:7897',probe:async row=>seen.push(row)});try{const result=await n.environment();assert.equal(result.env.NODE_USE_ENV_PROXY,'1');assert(result.env.HTTPS_PROXY.startsWith('http://'));assert(seen.every(row=>row.mode==='system-proxy'));assert(result.routes.every(row=>row.mode==='system-proxy'));}finally{await n.close();}});
+test('reference uploads resolve the storage host’s PAC route even when all API hosts are direct',async t=>{
+ const host='liblibai-online.oss-accelerate.aliyuncs.com',attempts=[];
+ const n=create({
+  resolveProxy:async url=>new URL(url).hostname===host?'PROXY 127.0.0.1:7897':'DIRECT',
+  connect:row=>{attempts.push(row);const stream=new (require('node:stream').PassThrough)();queueMicrotask(()=>stream.emit('connect'));return stream;}
+ });
+ t.after(()=>n.close());
+ const [ordinary,upload]=await Promise.all([n.environment(),n.environment({upload:true})]);
+ assert.equal(ordinary.env.NODE_USE_ENV_PROXY,undefined);
+ assert.equal(upload.env.NODE_USE_ENV_PROXY,'1');
+ const proxy=new URL(upload.env.HTTPS_PROXY);
+ await new Promise((resolve,reject)=>{
+  const request=http.request({host:proxy.hostname,port:proxy.port,path:host+':443',method:'CONNECT',headers:{'Proxy-Authorization':'Basic '+Buffer.from(proxy.username+':'+proxy.password).toString('base64')}});
+  request.on('connect',(response,socket)=>{socket.destroy();try{assert.equal(response.statusCode,200);resolve();}catch(error){reject(error);}});
+  request.on('error',reject);request.end();
+ });
+ assert.deepEqual(attempts.map(row=>[row.host,row.mode]),[[host,'system-proxy']]);
+});
 test('when the system proxy drops a fresh CONNECT, direct fallback runs before any CLI bytes',async t=>{
  const echo=net.createServer(socket=>socket.pipe(socket));
  await new Promise(resolve=>echo.listen(0,'127.0.0.1',resolve));

@@ -38,7 +38,20 @@ function createGenerationJobs(dir,options={}) {
   const libtv=()=>typeof options.libtvService==='function'?options.libtvService():options.libtvService;
   const libtvNodes=raw=>raw?.nodes||raw?.data?.nodes||[raw?.node||raw];
   const libtvResult=(raw,job)=>require('./libtv-service.cjs').libtvResultURLs(raw).some(u=>!(job.libtvInitialUrls||[]).includes(u));
-  const libtvFailed=raw=>libtvNodes(raw).some(n=>{const status=n?.data?.taskInfo?.status??n?.data?.status??n?.taskInfo?.status??n?.status;return status===3||['failed','error','canceled','cancelled'].includes(String(status).toLowerCase());});
+  const libtvFailure=raw=>{
+    for(const node of libtvNodes(raw)){
+      const info=node?.data?.taskInfo||node?.taskInfo;
+      const status=String(info?.status??node?.data?.status??node?.status??'').toLowerCase();
+      if(!['3','failed','error','canceled','cancelled'].includes(status))continue;
+      const reason=typeof info?.failedReason==='string'?info.failedReason
+        .replace(/https?:\/\/[^\s"'<>]+/gi,'[地址已隐藏]')
+        .replace(/\bBearer\s+[^\s"',;]+|\bsk-[a-z0-9_-]{8,}/gi,'[凭据已隐藏]')
+        .replace(/\b(token|api[_-]?key|secret|authorization)\s*[:=]\s*["']?[^\s"',;]+/gi,'$1=[已隐藏]')
+        .replace(/[\x00-\x1f]/g,' ').trim().slice(0,240):'';
+      return reason?'LibTV 生成失败 · '+reason:'LibTV 生成失败，请在原画布核对';
+    }
+    return '';
+  };
   return {
     list: ({includeArchived=false}={}) => read().filter(j=>includeArchived===true||!j.archived),
     hideProjectVideos({projectId,ids}){const selected=new Set(ids),rows=read();let count=0;for(const job of rows)if(job.projectId===projectId&&job.kind==='video'&&selected.has(job.id)){job.archived=true;job.projectVideoDeleted=true;job.archivedAt=new Date().toISOString();count++;}if(count)atomic(file,rows);return count;},
@@ -129,10 +142,10 @@ function createGenerationJobs(dir,options={}) {
           if(options.beforeDispatch)await dispatchGuard();
           const prepared=await libtv().prepare(accountId,{...input,id:job.id});
           task=save({...job,...prepared,status:'submitted',libtvRunStarted:!canvasOnly,...(canvasOnly?{remoteStatus:'awaiting-canvas',warning:'素材已上传，请在 LibTV 原画布点击生成',nextPollAt:Date.now()+30000}:{})});
-        }catch(e){save({...job,status:'failed',error:e.message});throw e;}
+        }catch(e){save({...job,status:'failed',submissionAttempted:false,error:e.message});throw e;}
         if(canvasOnly)return task;
         const work=(async()=>{
-          try{if(options.beforeDispatch)await dispatchGuard();const result=await libtv().run(accountId,task,{signal});if(libtvFailed(result)){save({...task,status:'failed',error:'LibTV 官方任务失败，请在原画布核对'});return;}
+          try{if(options.beforeDispatch)await dispatchGuard();const result=await libtv().run(accountId,task,{signal});const failure=libtvFailure(result);if(failure){save({...task,status:'failed',warning:'',error:failure});return;}
             if(linkResult(task,require('./libtv-service.cjs').libtvResultURLs(result).filter(u=>!(task.libtvInitialUrls||[]).includes(u))))return;task=save({...task,status:'downloading'});try{save({...task,...await libtv().download(accountId,task,dir),status:'success',warning:''});}catch(e){save({...task,warning:e.message});}
           }catch(e){if(e.beforeSubmission){save({...task,status:'failed',submissionAttempted:false,error:e.message});return;}save({...task,status:'submitted',warning:e.message+'；请刷新或打开原画布核对，不会自动重新生成'});}
         })();
@@ -203,8 +216,8 @@ function createGenerationJobs(dir,options={}) {
           }catch(e){return save({...job,warning:e.message});}
         }
         if(job.provider==='libtv'){
-          if(job.status==='success'||job.status==='failed')return job;
-          try{const raw=await libtv().query(accountId,job);if(libtvFailed(raw))return save({...job,status:'failed',error:'LibTV 官方任务失败，请打开原画布核对'});
+          if(job.status==='success'||job.status==='failed'||!job.libtvNodeId)return job;
+          try{const raw=await libtv().query(accountId,job),failure=libtvFailure(raw);if(failure)return save({...job,status:'failed',warning:'',error:failure});
             if(job.status!=='downloading'&&!libtvResult(raw,job)){
               const pendingManual=job.libtvSubmissionMode==='canvas'&&job.libtvRunStarted===false;
               const running=libtvNodes(raw).some(node=>{

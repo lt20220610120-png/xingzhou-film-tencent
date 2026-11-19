@@ -1,5 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {projectVideoRows,filterProjectVideos,groupProjectVideos,selectedProjectVideos,videoResultKey,videoExportId} from './projectVideoPool.js';
+import {projectVideoRows,filterProjectVideos,groupProjectVideos,selectedProjectVideos,shareableProjectVideos,videoResultKey,videoExportId} from './projectVideoPool.js';
+test('only selected, completed and unshared local videos can be uploaded',()=>{
+ const results=['selected','unselected','already','cloud','incomplete'].map(id=>({id,label:'1-1-1',status:id==='incomplete'?'submitted':'success',localResult:id!=='cloud',mediaId:id==='already'||id==='cloud'?'existing':undefined}));
+ const groups=groupProjectVideos(results),selection=new Map([[groups[0].id,results.filter(r=>r.id!=='unselected').map(videoResultKey)]]);
+ assert.deepEqual(shareableProjectVideos(groups,selection).map(row=>row.id),['selected']);
+});
 test('video pool isolates project, omits reference uploads, joins receipts and sorts numeric labels',()=>{
  const project={id:'p',episodes:[{id:'e',title:'第2集',prompts:[{id:'s',label:'2-1-2'},{id:'t',label:'2-1-10'}]}]};
  const rows=projectVideoRows(project,[{id:'a',projectId:'p',kind:'video',shotId:'t',mediaId:'m',status:'success'},{id:'x',projectId:'other',kind:'video',shotId:'s'}],[{id:'m',kind:'video',note:'[shot:t]'},{id:'ref',kind:'video',note:'参考素材'}]);

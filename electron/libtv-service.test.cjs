@@ -2,6 +2,27 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {createLibTVService,parseCLIJSON,loginURL}=require('./libtv-service.cjs');
 const safeStorage={isEncryptionAvailable:()=>true,encryptString:s=>Buffer.from('encrypted:'+s),decryptString:b=>b.toString().slice(10)};
 const aliceKey=require('node:crypto').createHash('sha256').update('alice').digest('hex').slice(0,32);
+test('a connection timeout retries only the affected reference, and repeated failure identifies its alias',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-upload-')),attempts=[];
+ t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ let failures=1,creates=0;
+ const service=createLibTVService({root,safeStorage,ensureBinary:async()=>'/fixture',runCLI:async(args)=>{
+  if(args[0]==='account')return {user:{uuid:'u'},activeAccount:{accountId:1}};
+  if(args[0]==='model')return {modelKey:'i',modelName:'模型',schema:{properties:{modeType:{items:{image2image:[0,7]}}}}};
+  if(args[0]==='project')return {projectUuid:'p'};
+  if(args[0]==='upload'){const file=args.at(-1);attempts.push(file);if(file==='second.png'&&failures-->0)throw Object.assign(Error('connection timed out'),{code:'LIBTV_NETWORK',networkCode:'UND_ERR_CONNECT_TIMEOUT'});return {nodeKey:file};}
+  if(args[1]==='create')creates++;
+  return {nodeKey:'n'};
+ }});
+ t.after(()=>service.close());
+ const input={libtvOwnerKey:aliceKey,kind:'image',model:'i',prompt:'test',references:['first.png','second.png'].map(filePath=>({kind:'image',filePath}))};
+ assert.equal((await service.prepare('alice',input)).libtvNodeId,'n');
+ assert.deepEqual(attempts,['first.png','second.png','second.png']);
+ failures=10;attempts.length=0;
+ await assert.rejects(service.prepare('alice',input),error=>error.beforeSubmission===true&&/@image2/.test(error.message)&&/未提交生成/.test(error.message));
+ assert.deepEqual(attempts,['first.png','second.png','second.png','second.png']);
+ assert.equal(creates,1);
+});
 test('download accepts official CLI path-text stdout, not JSON',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-text-')),dir=path.join(root,'accounts',aliceKey);fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'credentials.enc'),safeStorage.encryptString('{}'));const service=createLibTVService({root,safeStorage,ensureBinary:async()=>'/fixture',runCLI:async args=>{if(args[0]==='account')return{user:{uuid:'u'},activeAccount:{accountId:1},teamId:0};if(args[0]==='download'){const f=path.join(args.at(-1),'image.png');fs.writeFileSync(f,'bytes');return f+'\n';}}});const info=await service.status('alice');const out=await service.download('alice',{id:'j',kind:'image',libtvProjectId:'p',libtvNodeId:'n',libtvIdentity:info.identity,libtvOwnerKey:info.ownerKey},root);assert.equal(fs.readFileSync(out.filePath,'utf8'),'bytes');await service.close();});
 test('startup seals credentials left plaintext by a hard crash without loading that account',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-crash-')),dir=path.join(root,'accounts','a'.repeat(32));fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'credentials.json'),'secret-test');const service=createLibTVService({root,safeStorage,ensureBinary:async()=>'/fixture',runCLI:async()=>({})});await service.close();assert.equal(fs.existsSync(path.join(dir,'credentials.json')),false);assert.ok(fs.existsSync(path.join(dir,'credentials.enc')));});
 test('legacy canvas firstFramePath is uploaded and download leases protect directory migration',async()=>{const f=fixture();await f.service.login('alice');const filePath=path.join(f.root,'frame.png');fs.writeFileSync(filePath,'fake');const task=await f.service.prepare('alice',{libtvOwnerKey:aliceKey,kind:'image',model:'image-key',prompt:'x',firstFramePath:filePath});assert.equal(f.calls.filter(c=>c[0]==='upload').length,1);await f.service.close();});

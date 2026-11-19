@@ -481,6 +481,12 @@ const shareGeneratedVideo=require('./video-sharing.cjs').createVideoSharing({
  upload:p=>collabService.recordGeneratedMedia(p),saveLocal:(id,filePath)=>jobs().markLocal({id,filePath}),
  markRecorded:(id,mediaId)=>jobs().markRecorded({id,mediaId}),guard:async p=>{const session=await accessService.session();if(String(session?.account?.id||session?.id||'')!==p.owner)throw Error('账号已切换，请回到原账号上传');}
 });
+ipcMain.handle('project-video-share',async(event,p)=>{
+ const owner=String(readCloudSession()?.account?.id||'');
+ if(!owner)throw Error('请先登录行舟影视');
+ if(await collabService.isLocal(p.projectId))throw Error('本机项目请先通过邀请协作分享到云端，再上传视频');
+ return require('./video-sharing.cjs').shareProjectVideos({owner,projectId:p.projectId,jobIds:p.jobIds,signal:event.securitySignal,share:shareGeneratedVideo});
+});
 ipcMain.handle('collab-record-generated-media',async(_,payload)=>{
  if(payload.shareToCloud===true){
   if(await collabService.isLocal(payload.projectId))throw Error('本机项目请先通过邀请协作分享到云端，再上传视频');

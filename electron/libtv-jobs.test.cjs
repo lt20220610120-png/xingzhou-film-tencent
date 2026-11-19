@@ -1,6 +1,25 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createGenerationJobs}=require('./generation-jobs.cjs');
 global.fetch=async()=>{throw Error('Test forbids production network calls');};
+test('preparing LibTV references has no node to poll and is kept separate from official generation failure',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-receipt-'));
+ t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ fs.writeFileSync(path.join(dir,'generation-jobs.json'),JSON.stringify([
+  {id:'preparing',provider:'libtv',status:'submitting',kind:'video'},
+  {id:'sent',provider:'libtv',status:'submitted',kind:'video',libtvNodeId:'n',libtvProjectId:'p'},
+ ]));
+ let reads=0;
+ const jobs=createGenerationJobs(dir,{libtvService:{query:async()=>{
+  reads++;return{data:{taskInfo:{status:'3',failedReason:'模型拒绝该请求 https://example.test/file?token=private Bearer hidden123'}}};
+ }}});
+ assert.equal((await jobs.refresh({id:'preparing'})).status,'submitting');
+ assert.equal(reads,0);
+ const failed=await jobs.refresh({id:'sent'});
+ assert.equal(failed.status,'failed');
+ assert.match(failed.error,/LibTV 生成失败 · 模型拒绝该请求/);
+ assert.doesNotMatch(failed.error,/https:|private|hidden123/);
+ assert.equal(reads,1);
+});
 test('official query taskInfo numeric failure is terminal and never downloads placeholders',async()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-status-'));fs.writeFileSync(path.join(dir,'generation-jobs.json'),JSON.stringify([{id:'j',provider:'libtv',status:'submitted',kind:'video',libtvNodeId:'n',libtvProjectId:'p'}]));const jobs=createGenerationJobs(dir,{libtvService:{query:async()=>({nodeKey:'n',data:{taskInfo:{loading:false,status:3,failedReason:'model failed'},url:[]}}),download:async()=>{throw Error('must not download failed');}}});assert.equal((await jobs.refresh({id:'j',accountId:'user'})).status,'failed');});
 test('LibTV returns submitted job while official run is pending, downloads result and preserves project association',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-jobs-'));let finish,runs=0,downloads=0;

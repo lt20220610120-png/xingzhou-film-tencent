@@ -1,4 +1,19 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+test('sharing selected videos handles partial failure, skips duplicates and stops on account change',async()=>{
+ const {shareProjectVideos}=require('./video-sharing.cjs'),calls=[];
+ const share=async({owner,projectId,jobId})=>{
+  assert.equal(owner,'member');assert.equal(projectId,'project');calls.push(jobId);
+  if(jobId==='missing')throw Error('文件不存在');
+  return {id:'media-'+jobId};
+ };
+ const result=await shareProjectVideos({owner:'member',projectId:'project',jobIds:['first','missing','first','last'],share});
+ assert.deepEqual(calls,['first','missing','last']);
+ assert.deepEqual(result,{shared:[{jobId:'first',mediaId:'media-first'},{jobId:'last',mediaId:'media-last'}],errors:[{jobId:'missing',message:'文件不存在'}]});
+ const controller=new AbortController();
+ await assert.rejects(shareProjectVideos({owner:'member',projectId:'project',jobIds:['first','last'],signal:controller.signal,share:async({jobId})=>{
+  assert.equal(jobId,'first');controller.abort();return {id:'media'};
+ }}),{name:'AbortError'});
+});
 test('ordinary video results are persisted as links without fetching the video; explicit automation still downloads',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-link-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let posts=0,downloads=0;
  t.mock.method(global,'fetch',async(url,init)=>{if(init?.method==='POST'){posts++;return Response.json({video_url:'https://cdn.test/movie.mp4'});}downloads++;return new Response('video',{headers:{'content-type':'video/mp4'}});});

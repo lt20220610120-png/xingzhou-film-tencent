@@ -359,7 +359,7 @@ const resolveAssetImageReference = (asset, assets, choice, projectId, accountId)
   return localReference?{id:'__local__',name:localReference.name||'本机参考图',category:'reference',image_url:`xzmedia://local/${encodeURIComponent(localReference.filePath)}`,localReference}:null;
 };
 const assetImageReferences = refAsset => refAsset?.localReference?[refAsset.localReference]:refAsset?autoReferences(`@${refAsset.name}`,[refAsset]):[];
-function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId, refId, setRefId, refAsset, portraitReference }) {
+function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId, refId, setRefId, refAsset }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -472,7 +472,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
           <small>恢复只取回原结果；放弃后再点“生成图片”会提交新任务，可能产生费用。</small>
           {error&&<div className="image-recovery-error" role="status">{error}</div>}
         </section>:<div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit}>{generating||busy?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {generating||busy?'处理中…':'生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传</button></div>}
-        {refAsset && <small className="collab-ref-hint">{portraitReference?'沿用参考图的脸、皮肤和妆容，仅换服装及搭配的发型、饰品':refAsset.localReference?`将使用本机参考图：${refAsset.name}`:asset.category==='scene'&&parseAssetName(asset.name).base===parseAssetName(refAsset.name).base?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`已选参考图：${refAsset.name}`}</small>}
+        {refAsset&&asset.category==='scene'&&parseAssetName(asset.name).base===parseAssetName(refAsset.name).base&&<small className="collab-ref-hint">将参考 {refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线</small>}
         {referenceRequired&&asset.category!=='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
         {referenceRequired&&asset.category==='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次无法保证场景布局一致。</small>}
         {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">{asset.category==='scene'?'请先生成或选择场景基准参考图，避免只改变光线时重新设计布局。':'请先生成或选择人物基准参考图，避免差异造型生成另一张脸。'}</small>}
@@ -606,7 +606,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         {revisionJob?.status==='conflict'&&<div className="collab-notice" role="status">{revisionJob.error}<button type="button" className="secondary" disabled={!canEdit||modifying} onClick={()=>{edit(revisionJob.description);void save().catch(()=>{});}}>采用 AI 结果</button></div>}
         {saveError && <div className="collab-error" role="alert">{saveError}</div>}
       </section>
-      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} refId={refId} setRefId={setRefId} refAsset={refAsset} portraitReference={portraitReference} />
+      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} refId={refId} setRefId={setRefId} refAsset={refAsset} />
       {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
           <h2>AI 修改提示词</h2><ModelSelect profiles={state.apiProfiles||[]} value={revisionModelId} onChange={setRevisionModelId} disabled={modifying} label="修改提示词模型"/>
