@@ -210,7 +210,7 @@ test('同地点场景引用只发送时间光线差异并沿用最早布局', ()
   assert.doesNotMatch(prompt, /错误重复|错误新增|画风与服装设定/);
 });
 
-test('后续人物套装只保留服装妆造状态差异，首次基准完整保留', () => {
+test('参考换装保留服装及配饰差异，首次基准仍有完整定妆', () => {
   const parsed = parseArtAnalysis(`### 第1集
 人物：
 - 【林夏-基准造型】（实际出镜，首次）资产身份：青年女性；脸型与五官：鹅蛋脸、柳叶眉、杏眼、直鼻、薄唇；发型发色：黑色长发；身材比例：修长；肤色肤质：白皙细腻；服装：白衬衫与黑长裤；妆造：淡妆。
@@ -232,8 +232,8 @@ test('后续人物套装只保留服装妆造状态差异，首次基准完整�
   assert.match(baseline.description, /柳叶眉.*直鼻.*肤色肤质/);
   assert.match(evening.description, /服装总轮廓：深蓝色曳地礼服/);
   assert.match(evening.description, /【外层】：丝绒披肩/);
-  assert.match(evening.description, /妆造：红唇晚宴妆/);
-  assert.doesNotMatch(evening.description, /资产身份|脸型|柳叶眉|杏眼|直鼻|薄唇|身材比例|肤色肤质/);
+  assert.match(evening.description, /配饰：珍珠耳钉/);
+  assert.doesNotMatch(evening.description, /资产身份|脸型|柳叶眉|杏眼|直鼻|薄唇|身材比例|肤色肤质|红唇晚宴妆/);
 });
 
 test('normalizeArtAssets 以 generationDescription 提供差异裁剪且不改手动 description', () => {
@@ -245,8 +245,7 @@ test('normalizeArtAssets 以 generationDescription 提供差异裁剪且不改�
   const evening = normalized.find((asset) => asset.id === 'evening');
   assert.equal(evening.description, repeated.description);
   assert.match(evening.generationDescription, /服装：深蓝礼服/);
-  assert.match(evening.generationDescription, /妆造：红唇晚宴妆/);
-  assert.doesNotMatch(evening.generationDescription, /脸型|发型发色|身材比例|肤色肤质/);
+  assert.doesNotMatch(evening.generationDescription, /脸型|发型发色|身材比例|肤色肤质|红唇晚宴妆/);
   assert.equal(evening.images[0].id, 'history');
   const prompt = buildImagePrompt(evening, normalized.find((asset) => asset.id === 'base'), 'AI真人');
   assert.match(prompt, /鹅蛋脸/);
@@ -273,7 +272,7 @@ test('V5 换装参考 metadata 随差异描述进入资产行', () => {
   const variant = rows.find((row) => row.name === '【林夏-晚宴礼服】');
   assert.match(variant.description, /参考【林夏-基准造型】/);
   assert.match(variant.description, /服装差异：深蓝色曳地礼服/);
-  assert.match(variant.description, /妆造差异：红唇晚宴妆/);
+  assert.doesNotMatch(variant.description, /妆造差异|红唇晚宴妆/);
 });
 
 test('同地点时间卡裁成光线差异，不模糊合并出租屋与出租屋客厅', () => {
@@ -324,7 +323,7 @@ test('V4 句号字段边界完整保留新衣，不重复脸骨眉眼鼻唇身�
   assert.match(variant.generationDescription, /服装总体：深灰修身西装/);
   assert.match(variant.generationDescription, /服装层次：白衬衫、深灰西装外套/);
   assert.match(variant.generationDescription, /分层服装细节：羊毛面料、窄驳领/);
-  assert.match(variant.generationDescription, /妆造差异：商务淡妆/);
+  assert.doesNotMatch(variant.generationDescription, /妆造差异|商务淡妆/);
   assert.match(variant.generationDescription, /配饰与随身物：银色腕表/);
   assert.doesNotMatch(variant.generationDescription, /身份与依据|脸型骨相|眉眼|鼻唇与耳部|肤质与辨识点|发型与发饰|身形比例/);
 });

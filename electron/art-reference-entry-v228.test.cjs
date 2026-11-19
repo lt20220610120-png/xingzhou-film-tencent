@@ -38,7 +38,7 @@ async function fixture(kind,{cancel=false,baseImage=false,baseline=false,mode='s
   if(baseImage)rows[0].images=[{id:'real-baseline',url:'https://example.test/base.png'}];
   const assets=core.normalizeArtAssets(rows);
   const asset=assets[baseline?0:1];
-  if(!baseline){assert.doesNotMatch(asset.description,/脸型|发型/);assert.equal(asset.generationDescription,undefined);assert.doesNotMatch(asset.description,/参考【/);}
+  if(!baseline){assert.doesNotMatch(asset.generationDescription??asset.description,/脸型|发型|红唇/);assert.doesNotMatch(asset.description,/参考【/);}
   if(!factory)asset.description=core.serializeAssetPrompt({mode,prefix:'',content:asset.description});
   const calls=[],errors=[],busyStates=[];
   let busyIds=new Set();

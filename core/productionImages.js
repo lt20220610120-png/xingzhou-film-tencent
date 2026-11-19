@@ -1,6 +1,6 @@
 import {planArtImageBatch,runArtImageBatch} from './artImageBatch.js';
 import {requestAssetImage,readAssetImageRecovery,clearAssetImageRecovery} from './assetImageRecovery.js';
-import {resolveAssetReference,characterAppearanceIssue} from './collabStore.js';
+import {resolveAssetReference,characterAppearanceIssue,usesCharacterPortraitReference} from './collabStore.js';
 import {buildComposedImagePrompt} from './artImageComposition.js';
 import {autoReferences} from './generationReferences.js';
 import {assetHasImages} from './assetImages.js';
@@ -23,14 +23,20 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
   item.policyAttempts||=Object.fromEntries(chain.map((m,i)=>[m.policyKey,Math.max(0,Math.min(Number(m.attempts),(item.attempts||0)-chain.slice(0,i).reduce((n,v)=>n+Number(v.attempts),0)))]));
   const ref=resolveAssetReference(asset,assets),issue=!ref&&characterAppearanceIssue(asset,assets);if(issue)return skipImage(asset,item,issue);
   const limit=chain.reduce((n,m)=>n+Number(m.attempts),0);
-  let prompt=item.promptOverride||buildComposedImagePrompt(asset,ref,c.artStyle,c.composition,p);
+  const portraitReference=usesCharacterPortraitReference(asset,ref);
+  const compose=wardrobeOverride=>buildComposedImagePrompt(asset,ref,c.artStyle,c.composition,p,{wardrobeOverride});
+  let prompt=portraitReference?compose(item.wardrobePromptOverride):item.promptOverride||compose();
   const usable=chain.filter(m=>!budgets.has(m.id)),exhausted=usable.length>0&&usable.every(m=>(item.policyAttempts[m.policyKey]||0)>=Number(m.attempts));
   if((item.attempts>=limit||exhausted)&&!readAssetImageRecovery(p.id,asset.id)){
    const repairKey=bindingHash([stamp,asset.name,prompt,item.error]);
    if(work&&(item.repairCount||0)<1&&item.lastRepairKey!==repairKey){ctx.guard();await ctx.log?.(`Agent 目标：修复「${asset.name}」生成失败的提示词，保持主体、年龄、画风与构图。`);item.lastRepairKey=repairKey;item.repairCount=(item.repairCount||0)+1;await ctx.checkpoint();
-    let raw;try{raw=await work('image-prompt',[{role:'system',content:'修复这张影视美术图片的生成描述。保留主体、年龄/物种、人物身份、服饰和用户画风构图；只能修正文法、矛盾、缺细节和格式，不通过删除真实敏感事实或改年龄规避内容限制。不要新增剧情。只返回JSON {"assetName":"原名称","prompt":"完整修订提示词","reason":"具体修复点"}。若原文无法在约束内改善则prompt返回原文并说明。'}, {role:'user',content:JSON.stringify({assetName:asset.name,category:asset.category,prompt,error:item.error,style:c.artStyle,composition:c.composition})}]);}catch(error){ctx.guard();return skipImage(asset,item,'修复失败：'+error.message);}ctx.guard();let value;try{value=JSON.parse(String(raw).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));}catch{return skipImage(asset,item,'修复结果格式无效');}
+    const promptField=portraitReference?'改后的换装差异，仅服装鞋履与必要发型饰品。脸、皮肤与妆容沿用参考；省略参考和构图说明':'完整修订提示词';
+    let raw;try{raw=await work('image-prompt',[{role:'system',content:`修复这张影视美术图片的生成描述。保留主体、年龄/物种、人物身份、服饰和用户画风构图；只能修正文法、矛盾、缺细节和格式，不通过删除真实敏感事实或改年龄规避内容限制。不要新增剧情。只返回JSON {"assetName":"原名称","prompt":"${promptField}","reason":"具体修复点"}。若原文无法在约束内改善则prompt返回原文并说明。`}, {role:'user',content:JSON.stringify({assetName:asset.name,category:asset.category,prompt,error:item.error,style:c.artStyle,composition:c.composition})}]);}catch(error){ctx.guard();return skipImage(asset,item,'修复失败：'+error.message);}ctx.guard();let value;try{value=JSON.parse(String(raw).replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,''));}catch{return skipImage(asset,item,'修复结果格式无效');}
     if(value.assetName!==asset.name||typeof value.prompt!=='string'||!value.prompt.trim()||value.prompt.length>24000||!value.reason?.trim()||value.prompt===prompt)return skipImage(asset,item,'修复未提供可用的新描述');
-    item.promptOverride=value.prompt;item.promptRepair={reason:value.reason,at:Date.now(),originalHash:bindingHash(prompt)};item.attempts=0;item.policyAttempts={};prompt=value.prompt;await ctx.checkpoint();
+    const revised=portraitReference?compose(value.prompt):value.prompt;
+    if(revised===prompt||portraitReference&&!revised.includes('\n\n本次换装：'))return skipImage(asset,item,'修复未提供可用的换装差异');
+    if(portraitReference)item.wardrobePromptOverride=value.prompt;else item.promptOverride=value.prompt;
+    item.promptRepair={reason:value.reason,at:Date.now(),originalHash:bindingHash(prompt)};item.attempts=0;item.policyAttempts={};prompt=revised;await ctx.checkpoint();
    }else return skipImage(asset,item,item.error||'主备模型和一次修复均未成功');
   }
   while(item.attempts<limit||readAssetImageRecovery(p.id,asset.id)){

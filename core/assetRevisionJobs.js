@@ -1,6 +1,7 @@
-import {buildAssetRevisionMessages,characterBaselineAsset,isCharacterWardrobeVariant,wardrobeDescription} from './collabStore.js';
+import {buildAssetRevisionMessages,characterBaselineAsset,isCharacterWardrobeVariant,referencedWardrobeContent,wardrobeDescription} from './collabStore.js';
 import {readComposedAssetPrompt,serializeComposedAssetPrompt,projectCharacterComposition} from './artImageComposition.js';
 import {withStorageWork} from './storageWork.js';
+import {retainCostumeContinuity} from './characterWardrobePrompt.js';
 const stores=new WeakMap();
 export const assetRevisionJobs=store=>{if(!stores.has(store))stores.set(store,createAssetRevisionJobs(store));return stores.get(store);};
 export function createAssetRevisionJobs(draftStore){
@@ -10,7 +11,7 @@ export function createAssetRevisionJobs(draftStore){
  const manager={
   read:(p,a)=>jobs.get(key(p,a))||null,
   subscribe(p,a,listener){const id=key(p,a);if(!listeners.has(id))listeners.set(id,new Set());listeners.get(id).add(listener);return()=>{listeners.get(id)?.delete(listener);if(!listeners.get(id)?.size)listeners.delete(id);};},
-  start({projectId,asset,assets=[],project={},inputDescription,instruction,profile,api,refresh}){
+  start({projectId,asset,assets=[],project={},inputDescription,instruction,profile,api,refresh,portraitReference=false}){
    const id=key(projectId,asset.id),prior=jobs.get(id);if(prior?.status==='running')return prior.promise;
    const original=inputDescription??asset.description??'',settings=readComposedAssetPrompt({...asset,description:original},project.style,projectCharacterComposition(project));
    const root=asset.category==='character'?characterBaselineAsset(asset,assets):null;
@@ -20,7 +21,7 @@ export function createAssetRevisionJobs(draftStore){
    job.promise=withStorageWork(async()=>{
     try{
      scope();
-     const messages=buildAssetRevisionMessages({instruction,originalContent:settings.content,category:asset.category,baseline:baseline?.id!==asset.id?baseline:null,world:project});
+     const messages=buildAssetRevisionMessages({instruction,originalContent:settings.content,category:asset.category,baseline:baseline?.id!==asset.id?baseline:null,portraitReference,world:project});
      const raw=await api.aiChat({profileId:profile.profileId||profile.id,protocol:profile.protocol,provider:profile.provider,libtvOwnerKey:profile.libtvOwnerKey,endpoint:profile.endpoint,apiKey:profile.apiKey,model:profile.model,reasoningEffort:profile.reasoningEffort,messages,timeout:600000});
      // The whole workspace can have unmounted during logout. Its old React ref
      // cannot observe the new account, so verify through the desktop bridge too.
@@ -29,8 +30,11 @@ export function createAssetRevisionJobs(draftStore){
      }
      scope();if(raw&&typeof raw==='object'&&raw.ok===false)throw Error(raw.error||'模型请求失败');
      const output=typeof raw==='string'?raw:raw?.ok===true?raw.output:null;if(!output?.trim())throw Error('模型没有返回新的提示词');
-     const content=baseline?.id!==asset.id&&baseline&&isCharacterWardrobeVariant(asset,assets)?wardrobeDescription(baseline,output.trim()):output.trim();
-     const description=settings.customized?serializeComposedAssetPrompt({...settings,content}):content;
+     const content=baseline?.id!==asset.id&&baseline&&isCharacterWardrobeVariant(asset,assets)?wardrobeDescription(baseline,output.trim())
+      :portraitReference?referencedWardrobeContent(output):output.trim();
+     if(!content)throw Error('参考换装仅保留服装、发型和饰品变化，请补充换装要求');
+     const savedContent=portraitReference?retainCostumeContinuity(content,settings.content):content;
+     const description=original.startsWith('【生图前置 · ')?serializeComposedAssetPrompt({...settings,content:savedContent}):savedContent;
      if((draftStore.read(projectId,asset.id)?.content??original)!==original)return publish(id,{...job,status:'conflict',description,error:'你已继续编辑，AI结果未覆盖新草稿，可选择采用。'});
      draftStore.write(projectId,asset.id,description);
      await draftStore.save(api,projectId,asset.id,description);scope();

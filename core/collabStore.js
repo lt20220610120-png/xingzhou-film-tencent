@@ -1,5 +1,6 @@
 import {isCreatureAsset,creaturePromptPrefix} from './artSubjectType.js';
 import {reuseCharacterCostumes} from './characterCostumeReuse.js';
+import {CHARACTER_REFERENCE_LEAD,filterReferencedWardrobe} from './characterWardrobePrompt.js';
 // ============================================================
 // collabStore.js — 项目协作领域逻辑（纯函数）
 // 身份权限 / 美术清单解析 / 资产复用识别
@@ -153,14 +154,14 @@ export const withAssetPrefix = (category, description = '', style = 'AI真人') 
   return [prefix, content].filter(Boolean).join('\n');
 };
 
-export const buildAssetRevisionMessages = ({ instruction, originalContent, category,baseline,world }) => {
+export const buildAssetRevisionMessages = ({ instruction, originalContent, category, baseline, portraitReference, world }) => {
   const revision = String(instruction || '').trim();
   if (!revision) throw new Error('修改意见不能为空');
   const categoryLabel = ASSET_CATEGORIES[category] || '资产';
   return [
     {
       role: 'system',
-      content: `你是影视美术提示词编辑。请严格按照用户的修改意见，重写${categoryLabel}提示词；保留未要求删除的重要细节，只输出修改后的完整提示词，不要解释。${baseline?'这是同一主体的新妆造/状态：必须读取第一套基准的完整提示词，继承其年龄、族群、脸型、五官、体型与身份；只按用户要求更换服装、妆造或状态，不照搬旧制服覆盖新要求，不重新设计人物。输出明确参考基准的名称和本次差异。':''}`,
+      content: `你是影视美术提示词编辑。请严格按照用户的修改意见，重写${categoryLabel}提示词；保留未要求删除的重要细节，只输出修改后的完整提示词，不要解释。${portraitReference||baseline&&!isCreatureAsset(baseline)?'这是有参考基准的同一人物。保留已有参考资产名称，输出本次改变的服装、鞋履；只有为新服装搭配时才写发型或饰品差异。脸型、五官、肤色、肤质和妆容沿用参考，不描写或改变任何皮肤与妆面细节，身形、年龄和身份也保持一致。':baseline?'以已有生物基准为参考，保留物种和体型，只输出本次可见差异。':''}`,
     },
     {
       role: 'user',
@@ -274,8 +275,9 @@ export const characterBaselineAsset = (asset,assets=[]) => {
   return null;
 };
 export function wardrobeDescription(baseline,description=''){
- const content=String(description).replace(/^\s*参考\s*【[^】]+】\s*[；;，,]?\s*/,'').trim();
- return `参考${baseline.name}；${content||'服装/妆造/状态差异：待补充。保持人物身份与外貌不变。'}`;
+ const text = String(description).replace(CHARACTER_REFERENCE_LEAD, '').trim();
+ const content = isCreatureAsset(baseline) ? text : referencedWardrobeContent(text, { keepSurfaceState: true });
+ return `参考${baseline.name}；${content || '服装差异：待补充。'}`;
 }
 export const resolveAssetReference = (asset, assets, selectedId = null) => {
   const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
@@ -285,6 +287,10 @@ export const resolveAssetReference = (asset, assets, selectedId = null) => {
   const first = asset.category==='character'?characterBaselineAsset(asset,assets):peers.find(hasImage);
   return first && first.id !== asset.id && hasImage(first) ? first : null;
 };
+
+export const usesCharacterPortraitReference = (asset, reference, mode = readAssetPrompt(asset).mode) => asset.category === 'character'
+  && mode !== 'creature' && mode !== 'group' && Boolean(reference?.image_url || reference?.images?.some(image => image.url))
+  && Boolean(reference.localReference || reference.category === 'character' && !['creature', 'group'].includes(readAssetPrompt(reference).mode));
 
 // Wardrobe identity is independent of prompt projections and image availability.
 export const isCharacterWardrobeVariant = (asset, assets = []) => {
@@ -368,11 +374,11 @@ const HUMAN_DESCRIPTION = /脸型|五官|眉眼|鼻型|鼻梁|唇形|发型|发�
 const HUMAN_FIELD = /(?:脸型(?:与)?五官|脸型|五官|眉眼|鼻型|鼻梁|唇形|发型(?:发色)?|发色|身材(?:比例|体态)?|体态|肤色(?:肤质)?|肤质|服装(?:与鞋履)?|穿着|妆造(?:与固定配饰)?)[：:]([^；;\n。！？]+)/g;
 const OBJECT_VISUAL_DESCRIPTION = /外观[：:]|材质[：:]|尺寸[：:]|大小感[：:]|屏幕|英寸|边框|玻璃面板|金属机身|机身|科技界面|提示界面|来电界面|界面|UI|面板|矩形|智能手机|设备主体|按键|镜头|接口|型号|图标|提示框/gi;
 // Recognized fields distinguish repeated identity from wardrobe/body differences.
-const CHARACTER_DIFFERENCE_FIELDS = '(?:服装与鞋履|服装总体|服装总轮廓|服装层次|分层服装(?:细节)?|服装差异|服装|穿着|妆造与固定配饰|妆造差异|妆造|妆发差异|妆发|发型变化|发式变化|配饰与随身(?:物|道具)|配饰|随身物|状态差异|可见状态|伤情|伤口|做旧|破损|污损|【(?:内层|中层|外层|下装|足饰)】)';
+const CHARACTER_DIFFERENCE_FIELDS = '(?:服装与鞋履|服装总体|服装总轮廓|服装层次|分层服装(?:细节)?|服装差异|服装|穿着|妆造与固定配饰|妆造差异|妆造|妆发差异|妆发|发型(?:变化|差异)|发式(?:变化|差异)|配饰与随身(?:物|道具)|配饰(?:差异)?|随身物|状态差异|可见状态|伤情|伤口|做旧|破损|污损|【(?:内层|中层|外层|下装|足饰)】)';
 const CHARACTER_IDENTITY_FIELDS = '(?:身份与依据|资产身份|脸型骨相(?:与五官)?|脸型(?:与)?五官|脸型|五官|眉眼|鼻唇(?:与耳部)?|鼻型|鼻梁|唇形|肤质与辨识点|肤色肤质|发型与发饰|发型(?:发色)?|发色|身形(?:与肤质|比例)|身材(?:比例|体态)?|稳定气质)';
 const CHARACTER_DIFFERENCE_FIELD = new RegExp(`^${CHARACTER_DIFFERENCE_FIELDS}[：:]`);
 const CHARACTER_IDENTITY_FIELD = new RegExp(`${CHARACTER_IDENTITY_FIELDS}[：:]`);
-const characterVariantDifference = (description) => {
+const characterVariantDifference = (description, { keepMixedFields = false } = {}) => {
   const text = String(description || '').trim();
   // Remove only known identity fields. A difference is often ordinary prose
   // (e.g. “服装改为居家服”), so selecting a whitelist of fields loses the edit.
@@ -384,12 +390,18 @@ const characterVariantDifference = (description) => {
     if (!fields.length) return part;
     return part.slice(0, fields[0].index) + fields.map((field, index) => {
       const fragment = part.slice(field.index, fields[index + 1]?.index ?? part.length);
-      if (CHARACTER_IDENTITY_FIELD.test(field[0])) return '';
+      if (CHARACTER_IDENTITY_FIELD.test(field[0])) {
+        // Legacy cards occasionally put a requested hairstyle under the baseline field.
+        return /^发型[：:](?:\s*改|[^，,；;。]{0,15}(?:换成|为搭配|改为|改成))/.test(fragment)
+          ? fragment.replace(/^发型/, '发型差异')
+          : keepMixedFields ? fragment : '';
+      }
       const value = fragment.replace(CHARACTER_DIFFERENCE_FIELD, '').trim().replace(/[；;\n。！？\s]+$/g, '');
       return !value || /^(?:不适用|无|不存在|非人物|N\/?A)$/i.test(value) ? '' : fragment;
     }).join('');
   }).join('').replace(/^[；;\n。！？\s]+|[；;\n。！？\s]+$/g, '');
 };
+export const referencedWardrobeContent = (content, options) => filterReferencedWardrobe(characterVariantDifference(content, { keepMixedFields: true }), options);
 const UNSUPPORTED_AUTOMATIC_VARIANT = /(?:无(?:剧本|原文|明确)依据|剧本未提及|原文未提及)[^。；;\n]*(?:换装|服装|造型)|(?:自动|自行|额外)(?:设计|补充|生成)[^。；;\n]*(?:换装|服装|造型)/;
 const inflatedCharacterVariant = (asset) => {
   const description = String(asset.description || '');
@@ -476,7 +488,9 @@ export const normalizeArtAssets = (assets) => {
     if(!baselineName)return asset;
     const relatedAsset = { ...asset, characterBaselineName: baselineName };
     if (readAssetPrompt(asset).customized) return relatedAsset;
-    const generationDescription = characterVariantDifference(readAssetPrompt(asset).content);
+    const settings = readAssetPrompt(asset);
+    const generationDescription = ['creature', 'group'].includes(settings.mode) ? characterVariantDifference(settings.content)
+      : referencedWardrobeContent(settings.content, { keepSurfaceState: true });
     return generationDescription !== asset.description
       ? { ...relatedAsset, generationDescription, generationDescriptionSource: asset.description }
       : relatedAsset;
@@ -620,7 +634,10 @@ export const buildAssetRows = (parsed, existingAssets = []) => {
     const baseline=characterBaselineAsset(row,rows);
     if(baseline?.name===row.name)return {...row,episodes};
     const baselineName=baseline?.name||characterReferenceName(row);
-    return baselineName?{...row,characterBaselineName:baselineName,description:characterVariantDifference(row.description),episodes}:{...row,episodes};
+    if (!baselineName) return { ...row, episodes };
+    const description = ['creature', 'group'].includes(inferAssetPromptMode(row)) ? characterVariantDifference(row.description)
+      : referencedWardrobeContent(row.description, { keepSurfaceState: true });
+    return { ...row, characterBaselineName: baselineName, description, episodes };
   });
 };
 
@@ -654,6 +671,18 @@ export const buildImagePrompt = (asset, refAsset, style, options) => {
   // Historical callers pass an analysis genre as the fourth argument. It must
   // remain ignored; only the typed option explicitly overrides the prefix.
   const prefix=typeof options?.prefix==='string'?options.prefix:settings.prefix;
+  if (usesCharacterPortraitReference(asset, refAsset, settings.mode)) {
+    const updatedProjection = typeof asset.generationDescription === 'string' && asset.generationDescriptionSource === asset.description;
+    const content = options?.wardrobeOverride ?? (updatedProjection ? asset.generationDescription : settings.content);
+    const clothing = referencedWardrobeContent(content.replace(CHARACTER_REFERENCE_LEAD, ''));
+    const referenceId = refAsset.id && !refAsset.localReference ? `资产ID：${refAsset.id}，` : '';
+    return [
+      filterReferencedWardrobe(prefix, { prefix: true }),
+      style && `画风：${style}`,
+      `参考角色图片（${referenceId}保持同一人物）：${refAsset.name}。脸型、五官、肤色、肤质、原有皮肤特征和妆容完全沿用参考图，年龄和身材比例保持一致。只换明确写出的服装、鞋履及与之搭配的发型和饰品。发型、饰品未注明变化时沿用参考图。`,
+      clothing && `本次换装：${clothing}`,
+    ].filter(Boolean).join('\n\n');
+  }
   if (prefix) parts.push(prefix);
   if (style) parts.push(`画风：${settings.mode==='creature'&&style==='AI真人'?'写实生物摄影':style}`);
   if (refAsset) {

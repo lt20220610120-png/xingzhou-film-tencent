@@ -7,8 +7,8 @@ import {requestAssetImage,clearAssetImageRecovery} from './assetImageRecovery.js
 const base={id:'base',category:'character',name:'【郑立成-日常西装】',description:'脸型：长脸；服装：藏青西装。',first_episode:1,episodes:[1],image_url:'https://example.test/reference-suit.png'};
 const description='参考【郑立成-日常西装】；本次差异：服装改为日常居家服一套，日常居家服一套，上身浅灰色棉质圆领短袖T恤，外搭深藏青色薄棉长袖开衫家居服；下装深灰色棉质直筒家居长裤，松紧腰；足穿深灰色软底居家拖鞋。妆造：无底妆，眉毛自然未修但浓整有型，唇色自然偏淡；无配饰。';
 const variant={id:'home',category:'character',name:'【郑立成-居家服】',first_episode:9,episodes:[9],description};
-const expected=['服装改为日常居家服','浅灰色棉质圆领短袖T恤','深藏青色薄棉长袖开衫','深灰色棉质直筒家居长裤','深灰色软底居家拖鞋','唇色自然偏淡'];
-function retainsChange(prompt){for(const text of expected)assert.ok(prompt.includes(text),`Missing ${text}`);}
+const expected=['服装改为日常居家服','浅灰色棉质圆领短袖T恤','深藏青色薄棉长袖开衫','深灰色棉质直筒家居长裤','深灰色软底居家拖鞋'];
+function retainsChange(prompt){for(const text of expected)assert.ok(prompt.includes(text),`Missing ${text}`);assert.doesNotMatch(prompt,/唇色自然偏淡|无底妆|眉毛自然未修/);}
 
 test('natural-language wardrobe changes survive normalization, composition and repeated normalization',()=>{
   let assets=normalizeArtAssets([base,variant]);
@@ -22,8 +22,8 @@ test('natural-language wardrobe changes survive normalization, composition and r
 test('natural changes before and after identity fields survive without repeating identity',()=>{
   const a={...variant,description:'换上红色外套；脸型：错误方脸；战斗后左臂有擦伤。服装：黑色长裤；足穿棕色靴子。发型发色：黑色短发；右手缠白色绷带。妆造：无。'};
   const prompt=buildImagePrompt(a,base);
-  for(const text of ['红色外套','左臂有擦伤','黑色长裤','棕色靴子','右手缠白色绷带'])assert.ok(prompt.includes(text));
-  assert.doesNotMatch(prompt,/错误方脸|黑色短发|妆造：无/);
+  for(const text of ['红色外套','黑色长裤','棕色靴子','右手缠白色绷带'])assert.ok(prompt.includes(text));
+  assert.doesNotMatch(prompt,/错误方脸|黑色短发|妆造：无|左臂有擦伤/);
 });
 
 test('saved and edited asset prompts keep natural wardrobe instructions',()=>{

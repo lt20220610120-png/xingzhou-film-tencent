@@ -14,6 +14,7 @@ import {retainAssetOrder} from '../../core/stableAssetOrder.js';
 import {assetRevisionJobs} from '../../core/assetRevisionJobs.js';
 import ProjectCompositionControl from './ProjectCompositionControl.jsx';
 import{CHARACTER_COMPOSITIONS,projectCharacterComposition,readComposedAssetPrompt as readAssetPrompt,serializeComposedAssetPrompt as serializeAssetPrompt,defaultComposedAssetPromptPrefix as defaultAssetPromptPrefix,buildComposedImagePrompt as buildImagePrompt}from'../../core/artImageComposition.js';
+import {retainCostumeContinuity} from '../../core/characterWardrobePrompt.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery, assetImageRecoverySummary } from '../../core/assetImageRecovery.js';
@@ -55,7 +56,7 @@ import {
   sectionsForRole, parseAssetName, displayAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
   buildAssetRows, assetsForEpisode, episodeNumbersFromAssets,
   summarizeActivity, ensureArtEpisodeCoverage, withAssetPrefix, buildAssetGenerationJobs,
-  ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant, characterBaselineAsset, wardrobeDescription,
+  ASSET_PROMPT_MODES, normalizeArtAssets, characterAppearanceIssue, isSceneLightingVariant, characterBaselineAsset, wardrobeDescription, referencedWardrobeContent, usesCharacterPortraitReference,
 } from '../../core/collabStore.js';
 import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabilities } from '../../core/canvasStore.js';
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
@@ -358,7 +359,7 @@ const resolveAssetImageReference = (asset, assets, choice, projectId, accountId)
   return localReference?{id:'__local__',name:localReference.name||'本机参考图',category:'reference',image_url:`xzmedia://local/${encodeURIComponent(localReference.filePath)}`,localReference}:null;
 };
 const assetImageReferences = refAsset => refAsset?.localReference?[refAsset.localReference]:refAsset?autoReferences(`@${refAsset.name}`,[refAsset]):[];
-function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId }) {
+function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId, refId, setRefId, refAsset, portraitReference }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -374,16 +375,8 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const formats = imageModelFormats(profile);
   const [preferredSize, setSize] = useState(IMAGE_FORMATS[0].size);
   const size = formats.some(f=>f.size===preferredSize)?preferredSize:formats[0].size;
-  const referenceScope = assetReferenceKey(project.id, asset.id);
-  const [referenceChoice, setReferenceChoice] = useState(() => ({ scope: referenceScope, id: readAssetReferenceChoice(project.id, asset.id) }));
-  const refId = referenceChoice.scope === referenceScope ? referenceChoice.id : readAssetReferenceChoice(project.id, asset.id);
-  const setRefId = (id) => {
-    try { if (id === null) localStorage.removeItem(referenceScope); else localStorage.setItem(referenceScope, id); } catch {}
-    setReferenceChoice({ scope: referenceScope, id });
-  };
   const mates = useMemo(() => assets.filter((m) => m.id !== asset.id && (m.image_url || m.images?.some((image) => image.url))), [assets, asset.id]);
   const defaultReference = resolveAssetReference(asset, assets);
-  const refAsset = resolveAssetImageReference(asset, assets, refId, project.id, typeof accountId==='string'?accountId:'local');
   const localReference=readAssetLocalReference(accountId,project.id,asset.id);
   const referenceRequired=requiresAssetImageReference(asset, assets);
   const explicitlyNoReference=refId==='';
@@ -481,7 +474,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
           <small>恢复只取回原结果；放弃后再点“生成图片”会提交新任务，可能产生费用。</small>
           {error&&<div className="image-recovery-error" role="status">{error}</div>}
         </section>:<div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit}>{generating||busy?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {generating||busy?'处理中…':'生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传</button></div>}
-        {refAsset && <small className="collab-ref-hint">{refAsset.localReference?`将使用本机参考图：${refAsset.name}`:parseAssetName(asset.name).base===parseAssetName(refAsset.name).base?(asset.category==='scene'?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`将参考 ${refAsset.name} 的第一张图片，保持人物样貌，仅替换服饰/状态`):`已手选项目参考图：${refAsset.name}`}</small>}
+        {refAsset && <small className="collab-ref-hint">{portraitReference?'沿用参考图的脸、皮肤和妆容，仅换服装及搭配的发型、饰品':refAsset.localReference?`将使用本机参考图：${refAsset.name}`:asset.category==='scene'&&parseAssetName(asset.name).base===parseAssetName(refAsset.name).base?`将参考 ${refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线`:`已选参考图：${refAsset.name}`}</small>}
         {referenceRequired&&asset.category!=='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
         {referenceRequired&&asset.category==='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次无法保证场景布局一致。</small>}
         {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">{asset.category==='scene'?'请先生成或选择场景基准参考图，避免只改变光线时重新设计布局。':'请先生成或选择人物基准参考图，避免差异造型生成另一张脸。'}</small>}
@@ -514,6 +507,16 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const modifying=revisionJob?.status==='running';
   const [modifyError, setModifyError] = useState('');
   const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style, projectCharacterComposition(project));
+  const [refId, setReferenceId] = useState(() => readAssetReferenceChoice(project.id, asset.id));
+  const setRefId = id => {
+    const key = assetReferenceKey(project.id, asset.id);
+    try { if (id === null) localStorage.removeItem(key); else localStorage.setItem(key, id); } catch {}
+    setReferenceId(id);
+  };
+  const refAsset = resolveAssetImageReference(asset, assets, refId, project.id, typeof accountId==='string'?accountId:'local');
+  const portraitReference = usesCharacterPortraitReference(asset, refAsset, promptSettings.mode);
+  const referenceCostume = portraitReference && requiresCharacterReference(asset, assets);
+  const projectedContent = referenceCostume ? referencedWardrobeContent(promptSettings.content) : promptSettings.content;
   const completedDescription=completedReviewPrompt({...asset,description:draft});
   useEffect(() => {
     draftStore.reconcile(project.id, asset);
@@ -535,7 +538,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
 
   const editContent = (content) => {
     const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style, projectCharacterComposition(project));
-    edit(current.customized ? serializeAssetPrompt({ ...current, content }) : content);
+    edit(draftRef.current.startsWith('【生图前置 · ') ? serializeAssetPrompt({ ...current, content }) : content);
   };
   const editSettings = (updates) => {
     const current = readAssetPrompt({ ...asset, description: draftRef.current }, project.style, projectCharacterComposition(project));
@@ -549,8 +552,17 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const changeComposition=composition=>{const current=readAssetPrompt({...asset,description:draftRef.current},project.style,projectCharacterComposition(project));editSettings({composition,prefix:composition==='custom'?current.prefix:defaultAssetPromptPrefix({...asset,description:current.content},project.style,current.mode,composition==='project'?projectCharacterComposition(project):composition)});};
 
   const save = async () => {
-    const content = draftRef.current;
+    let content = draftRef.current;
     if (!canEdit || content === savedRef.current && !draftStore.read(project.id, asset.id)) return;
+    const current = readAssetPrompt({ ...asset, description: content }, project.style, projectCharacterComposition(project));
+    const previous = referenceCostume ? readAssetPrompt({ ...asset, description: savedRef.current }).content : '';
+    if (referenceCostume && usesCharacterPortraitReference(asset, refAsset, current.mode) && current.content !== previous) {
+      const filtered = retainCostumeContinuity(referencedWardrobeContent(current.content), previous);
+      if (filtered !== current.content) {
+        content = content.startsWith('【生图前置 · ') ? serializeAssetPrompt({ ...current, content: filtered }) : filtered;
+        edit(content);
+      }
+    }
     setSaving(true); setSaveError('');
     try {
       await draftStore.save(api, project.id, asset.id, content);
@@ -567,7 +579,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const modifyPrompt = () => {
     if (!canEdit || !instruction.trim() || modifying) return;
     if (!revisionProfile) { setModifyError('请先在「API 接口」中添加并启用一个大语言模型'); return; }
-    const request={projectId:project.id,asset,assets,project,inputDescription:draftRef.current,instruction:instruction.trim(),profile:{...revisionProfile},api,refresh};
+    const request={projectId:project.id,asset,assets,project,inputDescription:draftRef.current,instruction:instruction.trim(),profile:{...revisionProfile},api,refresh,portraitReference:referenceCostume};
     setModifyError('');setModifyOpen(false);setInstruction('');
     void revisionJobs.start(request);
   };
@@ -580,7 +592,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
           <span className="collab-ep-badge">出现于：{(asset.episodes || []).map((e) => `第${e}集`).join('、') || '—'}</span>
         </div>
         {completedDescription&&<div className="collab-notice" role="status">清单已有补齐外貌的信息卡；原提示词保留，可直接采用完整版本后生图。<button className="secondary" disabled={!canEdit||modifying||saving} onClick={async()=>{editContent(completedDescription);await save().catch(()=>{});}}>采用已补齐信息卡</button></div>}
-        <FormattedEditor commitDelay={1200} aria-label="资产提示词" value={promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
+        <FormattedEditor commitDelay={1200} aria-label="资产提示词" value={draft === savedRef.current ? projectedContent : promptSettings.content} readOnly={!canEdit || modifying} onChange={(e) => editContent(e.target.value)} onBlur={() => save().catch(() => {})} placeholder="可直接修改；生成图片会使用这里的最新提示词。" />
         {!!asset.reviewPromptAlternatives?.length&&<label className="art-prompt-mode">读取的提示词版本<select aria-label="读取的提示词版本" value="" disabled={!canEdit||modifying} onChange={e=>{if(e.target.value==='')return;const item=asset.reviewPromptAlternatives[Number(e.target.value)];if(item)editContent(item.description);}} onBlur={()=>save().catch(()=>{})}><option value="">沿用当前提示词</option>{asset.reviewPromptAlternatives.map((item,index)=><option key={index} value={index}>{index===0?'第一次读取':`后续读取 ${index}`}</option>)}</select><small>选择后保存到当前美术卡片，核实名单不变。</small></label>}
         <div className="art-prompt-settings"><div className="art-prompt-toolbar">
           <div className="art-prompt-mode"><b>生图前置</b>{asset.category === 'character' ? <select aria-label="人物构图模式" value={promptSettings.mode} disabled={!canEdit || modifying} onChange={event => changePromptMode(event.target.value)} onBlur={() => save().catch(() => {})}>{['single', 'creature', 'group', 'free'].map(mode => <option key={mode} value={mode}>{ASSET_PROMPT_MODES[mode]}</option>)}</select> : <span>{ASSET_PROMPT_MODES[promptSettings.mode]}</span>}<small>{promptSettings.mode==='creature'&&promptSettings.composition!=='custom'?'生物三视图 · 无人物场景':promptSettings.composition==='custom'?'手写前置 · 已保留':promptSettings.composition==='project'?'跟随项目默认':'本卡独立构图'}</small></div>
@@ -597,12 +609,12 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         {revisionJob?.status==='conflict'&&<div className="collab-notice" role="status">{revisionJob.error}<button type="button" className="secondary" disabled={!canEdit||modifying} onClick={()=>{edit(revisionJob.description);void save().catch(()=>{});}}>采用 AI 结果</button></div>}
         {saveError && <div className="collab-error" role="alert">{saveError}</div>}
       </section>
-      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} />
+      <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} refId={refId} setRefId={setRefId} refAsset={refAsset} portraitReference={portraitReference} />
       {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
           <h2>AI 修改提示词</h2><ModelSelect profiles={state.apiProfiles||[]} value={revisionModelId} onChange={setRevisionModelId} disabled={modifying} label="修改提示词模型"/>
           <label>当前提示词</label>
-          <FormattedEditor className="modify-original-content" value={promptSettings.content} readOnly />
+          <FormattedEditor className="modify-original-content" value={projectedContent} readOnly />
           <label>修改意见</label>
           <textarea aria-label="修改意见" value={instruction} disabled={modifying} onChange={(event) => setInstruction(event.target.value)} placeholder="描述你希望 AI 调整的内容，例如建筑年代、人物服装或构图。" autoFocus />
           {modifyError && <div className="collab-error">{modifyError}</div>}

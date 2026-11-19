@@ -35,8 +35,8 @@ export function serializeComposedAssetPrompt({composition,...settings}){
  if(!bindingValues.has(composition))return serializeAssetPrompt(settings);
  return serializeAssetPrompt({...settings,prefix:`【构图绑定 · ${composition}】\n${settings.prefix||''}`});
 }
-export function buildComposedImagePrompt(asset,refAsset,style,projectComposition=DEFAULT_CHARACTER_COMPOSITION,world){
+export function buildComposedImagePrompt(asset,refAsset,style,projectComposition=DEFAULT_CHARACTER_COMPOSITION,world,options){
  const settings=readComposedAssetPrompt(asset,style,projectComposition);
- const prompt=buildImagePrompt(asset,refAsset,style,{prefix:settings.prefix});
+ const prompt=buildImagePrompt(asset,refAsset,style,{prefix:settings.prefix,wardrobeOverride:options?.wardrobeOverride});
  return world ? `${prompt}\n\n${artLocaleConstraint(world)}` : prompt;
 }

@@ -42,3 +42,30 @@ test('image policy exhausts main and backup, repairs once, then durably skips an
 test('a skipped baseline only blocks its dependent variant, never independent scene or prop jobs',async()=>{
  const f=setup(0);f.assets.push({id:'base',name:'【林舟-日常服】',category:'character',first_episode:1,images:[]},{id:'variant',name:'【林舟-西服】',category:'character',first_episode:2,images:[]},{id:'room',name:'【客厅】',category:'scene',images:[]});f.ctx.run.imageItems.base={status:'skipped'};await produceImages(f);assert(f.assets.find(a=>a.id==='room').images.length);assert.notEqual(f.ctx.run.imageItems.room.status,'skipped');
 });
+
+test('portrait production retries compose a filtered wardrobe delta over the same reference', async () => {
+ const f = setup(0), prompts = [];
+ const base = { id: 'base', name: '【林舟-日常服】', category: 'character', first_episode: 1, images: [{ url: 'https://example.invalid/portrait' }] };
+ const costume = { id: 'variant', name: '【林舟-西服】', category: 'character', first_episode: 2, description: '服装：蓝西装。' };
+ f.assets.push(base, costume);
+ f.fallback = null;
+ f.ctx.run.imageItems.variant = { attempts: 0, promptOverride: '旧整段指令：加蓝色眼影、烟熏妆。' };
+ f.api.mediaGenerateImage = async input => {
+  prompts.push(input.prompt);
+  assert.equal(input.references.length, 1);
+  if (prompts.length === 1) throw Error('model unavailable');
+  return { filePath: 'fixture.png' };
+ };
+ f.work = async (_, messages) => {
+  assert.match(messages[0].content, /仅服装鞋履与必要发型饰品/);
+  return JSON.stringify({ assetName: costume.name, prompt: '服装：深蓝双排扣西装，烟熏妆，肤色改白。', reason: '细化剪裁' });
+ };
+ assert.equal((await produceImages(f)).partial, false);
+ assert.equal(prompts.length, 2);
+ assert.match(prompts[0], /蓝西装/);
+ assert.match(prompts[1], /深蓝双排扣西装/);
+ for (const prompt of prompts) {
+  assert.match(prompt, /妆容完全沿用参考图/);
+  assert.doesNotMatch(prompt, /蓝色眼影|烟熏妆|肤色改白/);
+ }
+});
