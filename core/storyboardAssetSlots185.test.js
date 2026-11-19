@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cleanStoryboardReferenceValue} from './storyboardReferences.js';
+import {cleanStoryboardReferenceValue,storyboardReferencePreviews,visibleStoryboardReference} from './storyboardReferences.js';
 
 const projectId='project';
 const slot={kind:'image',id:'adult:deleted',projectId,assetId:'adult',imageId:'deleted',url:'old.png',followAdoptedImage:false};
@@ -15,4 +15,15 @@ test('all same-project storyboard assets migrate to a card seat without changing
  assert.deepEqual(migrated.references[1],{kind:'image',id:'adult:deleted',projectId,assetId:'adult',assetImageSlot:true});
  assert.equal(migrated.references[2].assetImageSlot,true);
  assert.equal(cleanStoryboardReferenceValue(migrated,projectId),migrated);
+});
+
+test('only an adopted asset image becomes a visible storyboard reference',()=>{
+ const refs=[slot,upload];
+ const historical={id:'old',url:'old.png'};
+ const asset={id:'adult',projectId,adoptedImageId:null,image_url:'',images:[historical]};
+ assert.deepEqual(storyboardReferencePreviews(refs,[asset],[],projectId).filter(visibleStoryboardReference).map(r=>r.id),[upload.id]);
+ const adopted={...asset,adoptedImageId:'old',image_url:historical.url};
+ const active=storyboardReferencePreviews(refs,[adopted],[],projectId).filter(visibleStoryboardReference);
+ assert.deepEqual(active.map(r=>r.id),refs.map(r=>r.id));
+ assert.equal(active[0].assetId,slot.assetId);
 });

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {imagePreviewIdentity} from '../../core/cloudTraffic.js';
 
 // Load authorized previews only once visible; a renewed signature is not a new image.
-export default function CloudAssetImage({ api, projectId, assetId, image, onResolved, retryable = false, ...props }) {
+export default function CloudAssetImage({ api, projectId, assetId, image, onResolved, onAssetSlotEmpty, retryable = false, ...props }) {
   const seat = Boolean(image.assetImageSlot && projectId && assetId);
   const cachedPreview = Boolean(api?.collabLoadAssetImage && (
     seat || /^https?:/i.test(image.url || '') && (assetId || image.projectId || image.objectKey)
@@ -14,6 +14,7 @@ export default function CloudAssetImage({ api, projectId, assetId, image, onReso
   const [retry, setRetry] = useState(0);
   const element = useRef(null);
   const callback = useRef(onResolved); callback.current = onResolved;
+  const onEmpty = useRef(onAssetSlotEmpty); onEmpty.current = onAssetSlotEmpty;
   const latest = useRef(scope); latest.current = scope;
   useEffect(() => {
     let cancelled = false, started = false;
@@ -34,6 +35,7 @@ export default function CloudAssetImage({ api, projectId, assetId, image, onReso
           const removed = String(error.message).includes('这张参考图已移除');
           const empty = seat && String(error.message).includes('资产卡片暂无已采用图片');
           setLoaded({scope,failed:true,removed,empty});
+          if(empty)onEmpty.current?.();
         }
       }
     };
@@ -54,9 +56,10 @@ export default function CloudAssetImage({ api, projectId, assetId, image, onReso
     if (retry >= 1 || (!cachedPreview && !api?.collabResolveAssetImage)) setLoaded({scope,failed:true});
     else { setLoaded(null); setRetry(value=>value+1); }
   };
+  if (current?.empty) return <span hidden data-empty-asset-slot />;
   if (current?.failed) {
     return <span className="collab-image-load-error" role="status">
-      {current.empty ? '资产卡片暂无采用图' : current.removed ? '参考图已失效，请重新选择' : retryable ? '图片暂未加载' : '图片暂时无法加载，请刷新图片重试'}
+      {current.removed ? '参考图已失效，请重新选择' : retryable ? '图片暂未加载' : '图片暂时无法加载，请刷新图片重试'}
       {retryable && !current.removed && <button type="button" onClick={() => {setLoaded(null);setRetry(value=>value+1);}}>重试</button>}
     </span>;
   }

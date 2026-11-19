@@ -1,7 +1,7 @@
 // Keep legacy reference IDs so saved aliases and draft exclusions stay valid.
 const photoFields = ['imageId','mediaId','url','originalUrl','imageUrl','image_url','filePath','localPath','objectKey',
  'objectPath','object_path','expiresAt','previewDataUrl','filename','mime','autoAssetImage','followAdoptedImage',
- 'assetAdopted','localUnavailable','adoptedRevision'];
+ 'assetAdopted','localUnavailable','adoptedRevision','adoptedImageReady'];
 
 export const assetImageSlot = (reference, projectId) => {
  const assetId = reference?.assetId || reference?.asset_id;

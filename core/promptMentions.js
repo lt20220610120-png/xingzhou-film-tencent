@@ -19,7 +19,8 @@ export function insertPromptReference(text,selectionStart,selectionEnd,alias){
  return {text:before+prefix+alias+suffix+after,caret:before.length+prefix.length+alias.length};
 }
 
-export function matchingPromptReferences(references,query){
+export function matchingPromptReferences(references,query,{numbered=false}={}){
  const needle=String(query||'').trim().toLocaleLowerCase();
- return numberedReferences(references||[]).filter(ref=>!needle||[ref.alias.slice(1),ref.name,referenceName(ref.name),{image:'图片',audio:'音频',video:'视频'}[ref.kind]].some(value=>String(value||'').toLocaleLowerCase().includes(needle)));
+ const candidates=numbered?references||[]:numberedReferences(references||[]);
+ return candidates.filter(ref=>!needle||[ref.alias.slice(1),ref.name,referenceName(ref.name),{image:'图片',audio:'音频',video:'视频'}[ref.kind]].some(value=>String(value||'').toLocaleLowerCase().includes(needle)));
 }

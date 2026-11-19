@@ -91,3 +91,4 @@
 .collab-stage .storyboard-reference-actions>.storyboard-import-scene{color:#624c9d;background:#f2edf9;border-color:#d9cdea}
 .storyboard-scene-import-status{margin:0;color:#655383;font-size:12px}
 .storyboard-reference-actions>button:focus-visible{outline:2px solid #9c82c6;outline-offset:2px}
+.collab-shot-card .generation-references figure:has([data-empty-asset-slot]){display:none}

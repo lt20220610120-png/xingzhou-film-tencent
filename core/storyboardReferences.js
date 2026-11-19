@@ -30,10 +30,13 @@ export function storyboardReferencePreviews(references,assets,media,projectId) {
  return normalizeGenerationReferences(storyboardAssetSlots(references,projectId)).map(ref=>{
   if(ref.assetImageSlot){
    const asset=assetById.get(ref.assetId);
-   return {...ref,displayName:asset?.displayName||ref.displayName,nameAliases:asset?.nameAliases||ref.nameAliases,
-    adoptedRevision:`${asset?.adoptedImageId||''}:${String(asset?.image_url||'').split('?')[0]}`};
+   const adoptedImageReady=Boolean(asset?.image_url||asset?.adoptedImageId);
+   return {...ref,displayName:asset?.displayName||ref.displayName,nameAliases:asset?.nameAliases||ref.nameAliases,adoptedImageReady,
+    adoptedRevision:`${asset?.adoptedImageId||''}:${String(asset?.image_url||'').split('?')[0]}:${asset?.updated_at||''}`};
   }
   const file=media?.find(m=>m.id===ref.id);
   return file?{...ref,url:file.url}:ref;
  });
 }
+
+export const visibleStoryboardReference = ref => ref.assetImageSlot!==true || ref.adoptedImageReady!==false;

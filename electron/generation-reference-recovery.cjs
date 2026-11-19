@@ -8,14 +8,14 @@ async function renewImageReferences(payload, collabService) {
   const media = !local && projectId && original.some(ref=>!ref.assetId&&(ref.mediaId||(!ref.url&&ref.objectKey)))
     ? await collabService.listMedia({projectId}) : [];
   const {numberedReferences}=await import('../core/generationReferences.js');
-  const aliases=numberedReferences(local||original).map(ref=>ref.alias);
+  const ordered=numberedReferences(local||original);
   const adoptedImages=new Map();
-  const references = await Promise.all((local||original).map(async (ref,index) => {
+  const resolved = await Promise.all((local||original).map(async (ref,index) => {
     const assetId=ref.assetId||ref.asset_id;
     if (assetId) {
       const ownerProject=ref.projectId||ref.project_id||projectId;
       const imageId=ref.imageId||ref.mediaId||(ref.id===assetId?'legacy':ref.id)||'legacy';
-      const label=aliases[index]+(ref.name ? '「'+ref.name.replace(/^[【]|[】]$/g,'')+'」' : '');
+      const label=ordered[index].alias+(ref.name ? '「'+ref.name.replace(/^[【]|[】]$/g,'')+'」' : '');
       if(payload.storyboardEdit && (ownerProject!==projectId||ref.project_id&&ref.project_id!==projectId))throw Error(label+' 的资产卡不属于当前项目');
       const slot=ref.assetImageSlot===true&&ownerProject===projectId;
       const follows=ref.followAdoptedImage ?? ref.autoAssetImage;
@@ -27,6 +27,7 @@ async function renewImageReferences(payload, collabService) {
         }else image=await collabService.resolveAssetImage({projectId:ownerProject,assetId,imageId,
           ...(follows===true&&ownerProject===projectId?{followAdoptedImage:true}:{})});
       } catch(error) {
+        if(error.code==='ASSET_SLOT_EMPTY'&&slot&&payload.storyboardEdit)return null;
         if(error.code==='ASSET_SLOT_EMPTY')throw Error(label+' 的资产卡片暂无已采用图片，请到资产中采用一张图片');
         if(error.code==='ASSET_IMAGE_UNAVAILABLE')throw Error(label+' 的图片已失效，请重新选择图片');
         throw Error(label+' 无法读取：'+error.message);
@@ -40,6 +41,12 @@ async function renewImageReferences(payload, collabService) {
     const found=media.find(row=>row.id===ref.mediaId||row.id===ref.id||row.objectKey&&row.objectKey===ref.objectKey);
     return found ? {...ref,url:found.url,filePath:found.filePath,mediaId:found.id} : ref;
   }));
-  return {...payload,references};
+  if(!resolved.includes(null))return {...payload,references:resolved};
+  const {generationReferenceKey,remapGenerationAliases}=await import('../core/automaticReferences.js');
+  const references=resolved.filter(Boolean);
+  const aliases=refs=>refs.filter(ref=>ref.kind==='image').map(ref=>({key:generationReferenceKey(ref),alias:ref.alias}));
+  const prompt=String(payload.prompt||'').replace(/@(?:图片|图)(\d+)/g,'@image$1');
+  return {...payload,references,storyboardSourceReferences:original,
+    prompt:remapGenerationAliases(prompt,aliases(ordered),aliases(numberedReferences(references)))};
 }
 module.exports={renewImageReferences};

@@ -554,7 +554,17 @@ async function submitGeneration(event,p){
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
  input=await renewImageReferences(p);accountId=p.provider==='libtv'?await libtvAccountId(p.projectId):undefined;
  if(p.workflowRunId){try{input=await productionHost.selectReferences({runId:p.workflowRunId,input});}catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}}
- if(input.kind==='video')input=(await import('../core/audioReferenceSelection.js')).selectAudioReferences(input,input.modelCapabilities||{});
+ if(input.kind==='video'){
+  input=(await import('../core/audioReferenceSelection.js')).selectAudioReferences(input,input.modelCapabilities||{});
+  if(p.storyboardEdit&&input.provider!=='libtv'&&p.references?.some(ref=>ref.assetImageSlot)){
+   const {referencePolicy}=await import('../core/promptBook.js');
+   const {videoModelCapabilities,isFeituoEndpoint}=await import('../core/canvasStore.js');
+   const limits=referencePolicy(isFeituoEndpoint(input.endpoint),{...videoModelCapabilities(input.model,{}),...input.modelCapabilities});
+   for(const [kind,key,label] of [['image','maxImages','图片'],['audio','maxAudios','音频'],['video','maxVideos','视频']]){
+    if(limits[key]!=null&&input.references.filter(ref=>ref.kind===kind).length>limits[key])throw Error(`当前模型的${label}参考超出上限`);
+   }
+  }
+ }
  if(p.bindingOrigin==='imported')await require('./imported-binding-media.cjs').verifiedImportedImages(input.references,mediaDir());
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
  }catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}

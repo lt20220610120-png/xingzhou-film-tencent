@@ -49,8 +49,9 @@ export async function storyboardGenerationInput({state,value,getLibTVModel}){
  const allowed=libtv?['image','audio','video']:['image','audio','video'].filter(k=>limits?.[key(k)]!==0);
  const input=matchBasicReferences(value,value.references||[],{allowedKinds:[...new Set([...allowed,'audio'])]});validateCompiledBinding(input,[...new Set([...allowed,'audio'])]);
  const selected=selectAudioReferences(input,caps),refs=(selected.references||[]).filter(r=>allowed.includes(r.kind));
- if(limits)for(const k of allowed)if(limits[key(k)]!=null&&refs.filter(r=>r.kind===k).length>limits[key(k)])throw Error(`当前模型的${{image:'图片',audio:'音频',video:'视频'}[k]}参考超出上限`);
+ const hasAssetSlots=input.references?.some(r=>r.assetImageSlot);
+ if(!hasAssetSlots&&limits)for(const k of allowed)if(limits[key(k)]!=null&&refs.filter(r=>r.kind===k).length>limits[key(k)])throw Error(`当前模型的${{image:'图片',audio:'音频',video:'视频'}[k]}参考超出上限`);
  if(model.protocol==='metadata-content'&&refs.some(r=>r.filePath&&!r.url))throw Error('当前官转模型要求公网素材链接');
- if(libtv)libtvGenerationParams(model,{...selected,kind:'video',ratio,duration,resolution,references:refs});
+ if(libtv&&!hasAssetSlots)libtvGenerationParams(model,{...selected,kind:'video',ratio,duration,resolution,references:refs});
  return {...input,provider:profile.provider,libtvOwnerKey:profile.libtvOwnerKey,likeBindingId:profile.likeBindingId,likeOwnerKey:profile.likeOwnerKey,prompt:bindReferencePrompt(input.prompt,(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind))),originalPrompt:input.prompt,profileId:profile.id,kind:'video',model:model.id,endpoint:profile.endpoint,apiKey:profile.apiKey,videoProtocol:profile.videoProtocol||'auto',videoAdapter:profile.videoAdapter,modelCapabilities:normalizeCapabilities(model.capabilities||model),ratio,duration,resolution:resolution==='固定'?undefined:resolution,references:(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind))};
 }

@@ -32,5 +32,19 @@ test('storyboard preflight reads the adopted seat despite the presence of a prev
  const result=await renewImageReferences(input,service);
  assert.equal(result.references[0].url,'third.png');
  assert.equal(result.references[0].id,ref.id);
- await assert.rejects(renewImageReferences(input,services(async()=>{throw Object.assign(Error('资产卡片暂无已采用图片'),{code:'ASSET_SLOT_EMPTY'});})),/@image1「陈大山」.*暂无已采用/);
+});
+test('empty storyboard seats skip upload and compact only the sent aliases, keeping originals for reuse',async()=>{
+ const other={...ref,id:'second',assetId:'other',name:'第二张'};
+ const audio={kind:'audio',id:'voice',url:'voice.wav'};
+ const body='陈大山（参考@image1 @图片1），第二张（参考@图2），音色@audio1。';
+ const input={projectId:'p',storyboardEdit:true,prompt:body,originalPrompt:body,references:[ref,other,audio]};
+ const result=await renewImageReferences(input,services(async payload=>{
+  if(payload.assetId==='asset')throw Object.assign(Error('空位'),{code:'ASSET_SLOT_EMPTY'});
+  return {id:'adopted',url:'adopted.png'};
+ }));
+ assert.deepEqual(result.references.map(r=>r.id),[other.id,audio.id]);
+ assert.equal(result.originalPrompt,body);
+ assert.equal(result.prompt,'陈大山，第二张（参考@image1），音色@audio1。');
+ assert.deepEqual(result.storyboardSourceReferences.map(r=>r.id),[ref.id,other.id,audio.id]);
+ await assert.rejects(renewImageReferences(input,services(async()=>{throw Error('无权访问');})),/无权访问/);
 });

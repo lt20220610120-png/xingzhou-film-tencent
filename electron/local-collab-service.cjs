@@ -376,8 +376,9 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     resolveAssetImage: p => read('resolveAssetImage', p, record => {
       const asset = assetIn(record, p.assetId);
       if(p.assetImageSlot===true || p.imageId===p.assetId || typeof p.imageId==='string'&&p.imageId.startsWith(p.assetId+':')){
+        if(!asset.adoptedImageId)throw Object.assign(error('资产卡片暂无已采用图片，请到资产中采用一张图片',404),{code:'ASSET_SLOT_EMPTY'});
         const adopted=asset.images?.find(row=>row.id===asset.adoptedImageId);
-        if(!adopted?.filePath)throw Object.assign(error('资产卡片暂无已采用图片，请到资产中采用一张图片',404),{code:'ASSET_SLOT_EMPTY'});
+        if(!adopted?.filePath)throw error('资产卡片的采用图尚未保存在本机，请刷新项目资料后重试',404);
         return adopted;
       }
       const id = p.imageId && p.imageId !== 'legacy' ? p.imageId : asset.adoptedImageId;
