@@ -7,13 +7,16 @@ const localDirectorId = source => typeof source === 'string' && source === sourc
 const directorLookupId = source => typeof source === 'string'
   && /^cloud-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(source)
   ? source.slice(6) : source;
+const matchesDirectorSource = (director, source) =>
+  directorLookupId(source) === director.id || source === director.analysis_output;
 
 async function readableDirector(query, source, uid) {
   if (typeof source !== 'string' || !source || source.length > 500 || /[\[\]\r\n]/.test(source) || !uid) return null;
-  source = directorLookupId(source);
-  const rows = (await query(`select p.* from collab_projects p where (p.id::text=$1 or p.analysis_output=$1)
+  const lookupId = directorLookupId(source);
+  const predicate = lookupId === source ? '(p.id::text=$1 or p.analysis_output=$1)' : 'p.id::text=$1';
+  const rows = (await query(`select p.* from collab_projects p where ${predicate}
     and p.genre like '%[DIRECTOR_PROJECT]%' and p.deleted_at is null
-    and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2))`, [source, uid])).rows;
+    and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2))`, [lookupId, uid])).rows;
   const directors = rows.filter(directorRow);
   return directors.length === 1 ? directors[0] : null;
 }
@@ -39,7 +42,13 @@ async function lockDirectorReferences(client, row, uid) {
     if(localDirectorId(row.director_project_id))return true;
     if(uuidDirectorId(row.director_project_id))return !(await client.query('select 1 as found from collab_projects where id::text=$1 or analysis_output=$1 limit 1',[row.director_project_id])).rows.length;
   }
-  const sources = [...new Set([row.director_project_id, ...[...String(row.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1])].filter(Boolean))];
+  const markers = [...String(row.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1]);
+  const pinned = markers.length === 1 && directorLookupId(markers[0]) !== markers[0] ? markers[0] : '';
+  if (pinned) {
+    const director = await lockReadableDirector(client, pinned, uid);
+    return Boolean(director && (!row.director_project_id || matchesDirectorSource(director, row.director_project_id)));
+  }
+  const sources = [...new Set([row.director_project_id, ...markers].filter(Boolean))];
   if (!sources.length) return true;
   const director = await lockReadableDirector(client, sources[0], uid);
   if (!director) {
@@ -75,4 +84,24 @@ async function resolveCreationSource(client, source, uid, {allowLocalUuid=false}
   throw Object.assign(new Error('无权关联这个导演项目，或关联不唯一'), {status:403});
 }
 
-module.exports = {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences, resolveCreationSource};
+async function resolveShareDirectorSource(client, source, cloudId, uid) {
+  if (cloudId !== undefined) {
+    if (!uuidDirectorId(cloudId)) {
+      throw Object.assign(new Error('导演工作台的云端项目编号无效，请刷新后重试邀请'), {status:400});
+    }
+    const marker = 'cloud-' + cloudId.toLowerCase();
+    const director = await lockReadableDirector(client, marker, uid);
+    if (director && source && matchesDirectorSource(director, source)) return {id:source, marker};
+  } else {
+    try {
+      return await resolveCreationSource(client, source, uid, {allowLocalUuid:true});
+    } catch (error) {
+      if (error.status !== 403) throw error;
+    }
+  }
+  throw Object.assign(new Error('无法确认此项目对应的云端导演文档，请在导演工作台核对关联后重试邀请'), {
+    status:403, code:'INVITE_DIRECTOR_SOURCE_UNAVAILABLE',
+  });
+}
+
+module.exports = {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences, resolveCreationSource, resolveShareDirectorSource, directorLookupId};

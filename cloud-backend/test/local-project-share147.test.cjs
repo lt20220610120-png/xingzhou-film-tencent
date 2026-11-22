@@ -40,7 +40,7 @@ function payload(revision) {
   };
 }
 
-function database(project = null, {rejectMedia = false} = {}) {
+function database(project = null, {rejectMedia = false, directors = []} = {}) {
   let state = {project, assets: [], media: [], members: []};
   const writes = [];
   const client = {
@@ -51,6 +51,15 @@ function database(project = null, {rejectMedia = false} = {}) {
       if (/^rollback$/i.test(sql)) {state = this.before; return rows([]);}
       if (/^commit$|^set local/i.test(sql)) return rows([]);
       if (/^select .* from app_users/.test(sql)) return rows(values[0] === target.username ? [target] : []);
+      if (sql.includes('p.genre like')) return rows(directors.filter(row => !row.deleted_at &&
+        (row.id === values[0] || sql.includes('or p.analysis_output') && row.analysis_output === values[0]) &&
+        row.owner_id === values[1]));
+      if (sql.includes('from collab_projects where id::text=')) return rows(directors.filter(
+        row => row.id === values[0] || row.analysis_output === values[0],
+      ));
+      if (sql.includes('where p.id=$1 for update') && values[0] !== projectId) {
+        return rows(directors.filter(row => row.id === values[0]));
+      }
       if (/^select .* from collab_projects/.test(sql)) return rows(state.project ? [state.project] : []);
       for (const [table, name] of [['collab_assets','assets'],['collab_media','media'],['collab_members','members']]) {
         if (sql.startsWith('select * from ' + table)) return rows(state[name]);
@@ -133,6 +142,37 @@ test('first invite reserves same UUID and atomically publishes saved content and
   const finalizeRetry = await handleAction('project-local-share', payload(pending.body.revision), owner, f.repo);
   assert.equal(finalizeRetry.body.member.user_id, memberId);
   assert.equal(f.writes.length, writes, 'lost acknowledgements must not repeat writes');
+});
+
+test('first invite retries a duplicate director alias using the exact saved cloud binding', async () => {
+  const alias = '1795323477214-blxktuy';
+  const boundId = '894d33cf-1faa-4113-8aed-9ad311462ca5';
+  const otherId = '957dd31c-db47-40f0-8898-2fb69b6e40f5';
+  const unrelatedId = 'afbc4bb3-368a-46a1-acef-64c774fc39a5';
+  const foreignId = 'e5d53585-a7b4-4a58-8cad-04e325230581';
+  const director = (id, analysis_output = alias, owner_id = ownerId) =>
+    ({id, analysis_output, owner_id, genre:'[DIRECTOR_PROJECT]'});
+  const f = database(null, {directors:[
+    director(otherId), director(boundId), director(unrelatedId, 'another-alias'), director(foreignId, alias, memberId),
+  ]});
+  const pending = await handleAction('project-local-share-prepare', prepare, owner, f.repo);
+  const input = payload(pending.body.revision);
+  input.project.director_project_id = alias;
+  for (const id of [undefined, unrelatedId, foreignId]) {
+    const result = await handleAction('project-local-share', {...input, directorCloudProjectId:id}, owner, f.repo);
+    assert.equal(result.status, 403);
+    assert.equal(f.state.members.some(row => row.user_id === memberId), false);
+    assert.match(result.body.error, /导演工作台/);
+  }
+  const shared = await handleAction('project-local-share', {...input, directorCloudProjectId:boundId}, owner, f.repo);
+  assert.equal(shared.status, 200);
+  assert.equal(shared.body.member.user_id, memberId);
+  assert.equal(shared.body.project.director_project_id, alias);
+  assert.ok(f.state.project.genre.includes('[COLLAB_SOURCE:cloud-' + boundId + ']'));
+  const {referencesDirector} = require('../src/cloud-recycle.cjs');
+  assert.equal(referencesDirector(f.state.project, director(boundId)), true);
+  assert.equal(referencesDirector(f.state.project, director(otherId)), false);
+  assert.equal(f.state.assets[0].image_url, objectKey);
 });
 
 test('large invitation returns a compact receipt and an owner can read the same receipt without writing',async()=>{

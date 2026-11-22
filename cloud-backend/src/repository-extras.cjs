@@ -4,7 +4,7 @@ const {composeDirectorScript, numberedEpisodes, publicGenre, collabGenre, editab
 const {isDeepStrictEqual}=require('node:util');
 const {applyEpisodeIdentityChange,composeEpisodeIdentityScript,filterRemovedDirectorEpisodes}=require('./episode-identity-repair.cjs');
 const {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences}=require('./director-source.cjs');
-const {sourceProtection}=require('./cloud-recycle.cjs');
+const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
 // 导演协作 / 统计 / 资产图片 的仓储扩展。
 // 说明：导演项目与协作项目共用 collab_projects 表，用 genre 中的哨兵标记区分。
@@ -93,14 +93,14 @@ function extendRepository(pool) {
         if(!directorRow(row)){await client.query('ROLLBACK');return null;}
         if(String(row.genre).includes(LOCK_SENTINEL))throw statusError(423,'项目已锁定，不能删除');
         // Both historical local-ID links and cloud-ID links are live references.
-        const links=(await client.query(`select c.id,c.genre,c.deleted_at,c.purge_after from collab_projects c where c.id<>$1
+        const links=(await client.query(`select c.id,c.genre,c.deleted_at,c.purge_after,c.director_project_id from collab_projects c where c.id<>$1
           and position('[COLLAB_PROJECT]' in c.genre)>0
           and (c.director_project_id=$1::text or ($2<>'' and c.director_project_id=$2) or
             c.director_project_id='cloud-'||$1::text or
             position('[COLLAB_SOURCE:'||$1::text||']' in c.genre)>0 or
             position('[COLLAB_SOURCE:cloud-'||$1::text||']' in c.genre)>0 or
             ($2<>'' and position('[COLLAB_SOURCE:'||$2||']' in c.genre)>0))`,[pid,String(row.analysis_output||'').trim()])).rows;
-        if(links.some(link=>sourceProtection(link)!=='expired'))throw statusError(409,'导演项目仍被协作项目引用或处于云端三天恢复期，请待关联解除或恢复期到期后删除');
+        if(links.some(link=>referencesDirector(link,row)&&sourceProtection(link)!=='expired'))throw statusError(409,'导演项目仍被协作项目引用或处于云端三天恢复期，请待关联解除或恢复期到期后删除');
         const removed=(await client.query('delete from collab_projects where id=$1 and owner_id=$2 returning id',[pid,uid])).rows[0]||null;
         await client.query('COMMIT');return removed;
       }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}

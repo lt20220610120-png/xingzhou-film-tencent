@@ -1,3 +1,5 @@
+const {directorLookupId} = require('./director-source.cjs');
+
 // Active projects and projects still recoverable in the cloud protect their
 // director source. Malformed/missing deletion deadlines fail closed.
 function sourceProtection(row,now=Date.now()) {
@@ -9,8 +11,10 @@ function sourceProtection(row,now=Date.now()) {
  return times.some(t=>t<=now)?'expired':'recycle';
 }
 function referencesDirector(link,director) {
+ const markers=[...String(link.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1]);
+ if(markers.length===1 && directorLookupId(markers[0])!==markers[0])return directorLookupId(markers[0])===director.id;
  const aliases=new Set([director.id,`cloud-${director.id}`,director.analysis_output].filter(Boolean));
- const sources=[link.director_project_id,...[...String(link.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(m=>m[1])];
+ const sources=[link.director_project_id,...markers];
  return sources.some(source=>aliases.has(source));
 }
 module.exports={sourceProtection,referencesDirector};

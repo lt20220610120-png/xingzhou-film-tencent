@@ -1,6 +1,6 @@
 const { createHash } = require('node:crypto');
 const { collabGenre, editableCollab } = require('./collab-episodes.cjs');
-const { resolveCreationSource } = require('./director-source.cjs');
+const { resolveShareDirectorSource } = require('./director-source.cjs');
 const { validateImageComposition } = require('./image-composition.cjs');
 const { sourceProtection } = require('./cloud-recycle.cjs');
 
@@ -378,10 +378,10 @@ function createLocalShareRepository(pool) {
         let directorId = project.director_project_id || '';
         let markers = String(project.genre || '').replace(PENDING, '').replace(RECEIPT, '');
         if (pending) {
-          const source = await resolveCreationSource(client, next.project.director_project_id, user.id,{allowLocalUuid:true});
+          const source = await resolveShareDirectorSource(client, next.project.director_project_id, payload.directorCloudProjectId, user.id);
           directorId = source.id;
           if (source.local) markers += '\n[COLLAB_LOCAL_SOURCE]';
-          else if (directorId) markers += '\n[COLLAB_SOURCE:' + directorId + ']';
+          else if (directorId) markers += '\n[COLLAB_SOURCE:' + (source.marker || directorId) + ']';
         }
         const genre = collabGenre(next.project.genre, markers)
           + '\n[LOCAL_SHARE_RECEIPT:' + requestId + ':' + target.id + ':' + invited.role + ']';

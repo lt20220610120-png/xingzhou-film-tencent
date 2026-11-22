@@ -34,7 +34,7 @@ test('reverse domain: repository get/update/delete require exact director type a
  }
  for(const kind of ['locked','linked']) {
   const row=director(kind==='locked'?{genre:'[DIRECTOR_PROJECT]\n[PROJECT_LOCKED]'}:{});
-  const queries=[];const client={query:async(q)=>{queries.push(q);if(/from collab_projects p where p.id=\$1/i.test(q))return {rows:[row]};if(/from collab_projects where id=\$1/i.test(q))return {rows:[row]};if(/from collab_projects c/i.test(q))return {rows:kind==='linked'?[{ok:1}]:[]};return {rows:[],rowCount:0};},release(){}};
+  const queries=[];const client={query:async(q)=>{queries.push(q);if(/from collab_projects p where p.id=\$1/i.test(q))return {rows:[row]};if(/from collab_projects where id=\$1/i.test(q))return {rows:[row]};if(/from collab_projects c/i.test(q))return {rows:kind==='linked'?[{director_project_id:row.id}]:[]};return {rows:[],rowCount:0};},release(){}};
   const repo=extendRepository({query:client.query,connect:async()=>client});
   await assert.rejects(repo.deleteDirectorProject('source','owner'),e=>e.status===423||e.status===409);
   assert.ok(queries.some(q=>/for update/i.test(q)),kind);

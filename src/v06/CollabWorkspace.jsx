@@ -1185,13 +1185,14 @@ function StoryboardSection(props) { return <StoryboardWorkbench {...props}/>; }
 /* ================================================================
  * 邀请协作：协作者管理 + 任务分配
  * ================================================================ */
-export function InviteSection({ project, api, refresh }) {
+export function InviteSection({ project, directorCloudProjectId, api, refresh }) {
   const [tab, setTab] = useState('members');
   const [members, setMembers] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [username, setUsername] = useState('');
   const [role, setRole] = useState('artist');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [assignEp, setAssignEp] = useState('');
@@ -1202,16 +1203,17 @@ export function InviteSection({ project, api, refresh }) {
   const load = useCallback(async () => {
     try {
       const [m, t] = await Promise.all([api.collabListMembers({ projectId: project.id }), api.collabListTasks({ projectId: project.id })]);
-      setMembers(m || []); setTasks(t || []); setError('');
-    } catch (e) { setError(`成员读取失败：${e.message || '网络连接异常'}`); }
-  }, [project.id]);
+      setMembers(m || []); setTasks(t || []); setLoadError('');
+    } catch (e) { setLoadError(`成员读取失败：${readableCloudError(e)}`); }
+  }, [api, project.id]);
   useEffect(() => { load(); const timer = setInterval(load, 10000); return () => clearInterval(timer); }, [load]);
 
   const invite = async () => {
     if (busy) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      const added = await api.collabAddMember({ projectId: project.id, username, role });
+      const directorSource = directorCloudProjectId ? {id:project.director_project_id, cloudProjectId:directorCloudProjectId} : undefined;
+      const added = await api.collabAddMember({ projectId: project.id, username, role, directorSource });
       if (added?.id) setMembers((current) => [...current.filter((member) => member.id !== added.id && member.user_id !== added.user_id), added]);
       setUsername(''); await load(); await refresh();
       setNotice(`已邀请 ${username}。${added?.unavailableCount?`有 ${added.unavailableCount} 项素材不可用，请在分镜、音色或资产中补选。`:'对方可在「项目协作」中查看。'}`);
@@ -1237,7 +1239,7 @@ export function InviteSection({ project, api, refresh }) {
         <button className={tab === 'members' ? 'active' : ''} onClick={() => setTab('members')}>协作者</button>
         <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}>任务</button>
       </div>
-      {error && <div className="collab-error">{error}</div>}
+      {(error || loadError) && <div className="collab-error" role="alert">{error || loadError}</div>}
       {notice && <div className="collab-notice">{notice}</div>}
       {tab === 'members' && (
         <>
@@ -1798,7 +1800,8 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection onOpenReview={sectionsForRole(myRole).includes('art-review')?entry=>{const navScope={accountId:account?.id,projectId:project.id,section:'art-review'},nav=readCollabNavigation(navScope);rememberCollabNavigation(navScope,{episodeNumber:entry.episode,scenes:{...nav.scenes,[entry.episode]:entry.sceneId},promptId:entry.id});setSection('art-review');}:undefined} project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
         {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} canDelete={canEditBoard} accountId={account?.id} onOpenStoryboard={row=>{rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'storyboard'},{episodeNumber:row.episode,sceneId:row.scene,shotId:row.shotId});setSection('storyboard');}} />}
-        {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject} />}
+        {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject}
+          directorCloudProjectId={state.directorProjects?.find(source => source.id === project.director_project_id)?.cloudProjectId} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
         {section === 'group' && <GroupSection project={project} api={api} account={account} />}
       </main>

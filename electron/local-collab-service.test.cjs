@@ -36,6 +36,27 @@ function fixture(t, overrides = {}) {
 
 const source = { name: '单人制作', episodes: [{ id: 'e1', title: '第一集', prompts: [{ id: 's1', label: '1-1-1', content: '原稿' }] }] };
 
+test('an existing first invitation can retry with the selected director cloud binding', async t => {
+  const requests = [];
+  const f = fixture(t, {
+    prepareLocalShare: () => ({revision:'reserved'}),
+    commitLocalShare: p => {
+      requests.push(p);
+      if (!p.directorCloudProjectId) throw Object.assign(Error('source conflict'), {status:403});
+      return {project:{...p.project,id:p.projectId},member:{id:'member',user_id:'other'}};
+    },
+  });
+  const directorProjectId = '1795323477214-blxktuy';
+  const directorCloudProjectId = '894d33cf-1faa-4113-8aed-9ad311462ca5';
+  const project = await f.setup().createProject({...source,directorProjectId});
+  const invite = {projectId:project.id,username:'other',role:'collaborator'};
+  await assert.rejects(f.setup().addMember({...invite,directorSource:{id:'unrelated',cloudProjectId:directorCloudProjectId}}), /source conflict/);
+  await f.setup().addMember({...invite,directorSource:{id:directorProjectId,cloudProjectId:directorCloudProjectId}});
+  assert.equal(requests[1].requestId, requests[0].requestId);
+  assert.equal(requests[1].directorCloudProjectId, directorCloudProjectId);
+  assert.equal(requests[1].project.director_project_id, directorProjectId);
+});
+
 test('local prompt associations survive restart and enter the invitation snapshot',async t=>{
  let shared;
  const f=fixture(t,{prepareLocalShare:()=>({revision:'reserved'}),commitLocalShare:p=>{

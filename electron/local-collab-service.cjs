@@ -226,7 +226,10 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
           record.share.committing = true;
           await save(current, record);
           try {
-            completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, deletedMediaIds:record.deletedMediaIds || [] });
+            const directorSource = payload.directorSource;
+            const directorCloudProjectId = directorSource?.id === record.project.director_project_id && UUID.test(directorSource?.cloudProjectId)
+              ? directorSource.cloudProjectId : undefined;
+            completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, directorCloudProjectId, deletedMediaIds:record.deletedMediaIds || [] });
           } catch (cause) {
             if(cause.status&&cause.status<500)throw cause;
             completed=await readShareReceipt(current,record);
