@@ -373,7 +373,16 @@ function adoptedLocalVoices(account, projectId) {
   return Object.fromEntries(Object.entries(ledger.voiceProfiles || {}).filter(([,row]) => row.confirmed).map(([id,row]) => [id,{manual:row.manual,confirmed:{...row.confirmed,kind:'audio',projectId}}]));
 }
 function createProjectCollab() {
-  const cloud = createCollabService(readCloudSession);
+  const cloud = createCollabService(readCloudSession,{
+    async verifyStoryboardAudio(file) {
+      if (!/\.(?:wav|mp3|m4a|aac|ogg|flac)$/i.test(file)) return null;
+      try {
+        const source = await verifiedDataFile(file,mediaDir());
+        const stat = await fs.promises.stat(source);
+        return stat.isFile() && stat.size > 0 ? source : null;
+      } catch { return null; }
+    },
+  });
   const {createLocalCollabService} = require('./local-collab-service.cjs');
   const {createLocalProjectMedia} = require('./local-project-media.cjs');
   return createLocalCollabService({

@@ -31,7 +31,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
   }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }
-function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, fetchFn=require('./win-ai-api-fetch.cjs').winAIFetch} = {}) {
+function createCollabService(getSession, {callGateway=gateway, upload=uploadToBucket, verifyStoryboardAudio, fetchFn=require('./win-ai-api-fetch.cjs').winAIFetch} = {}) {
   const session = () => getSession() || {};
   const account = () => { const a = session().account || session(); if (!a?.id) throw new Error('请先登录账号'); return a; };
   const call = (action, payload = {}) => callGateway(action, payload, session().token || '');
@@ -43,6 +43,65 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     return result;
   };
   const attaching = new Map();
+  const sharingAudio = new Map();
+  async function shareStoryboardAudio(p, token, sameSession) {
+    const publishing = p.operation === 'publish';
+    const shots = publishing ? p.prompts : !p.operation && p.editPolicy === 'direct' ? [p.updates] : [];
+    if (!verifyStoryboardAudio || !shots?.some(shot=>shot?.generationConfig?.references?.some(
+      ref=>ref.kind==='audio'&&ref.filePath,
+    ))) return p;
+    const {findStoryboardAudioMedia,storyboardAudioNote} = await import('../core/storyboardAudioReferences.js');
+    const projectId = p.projectId;
+    const guard = () => { if (!sameSession()) throw Error('账号已变化，音频共享已停止'); };
+    guard();
+    const media = [...await callGateway('media-list', {projectId}, token)];
+    let permission;
+    const roles = publishing ? ['producer','artist','artist_collaborator'] : ['producer','collaborator','artist_collaborator'];
+    async function share(ref) {
+      const note = storyboardAudioNote(ref);
+      if (ref.kind !== 'audio' || !ref.filePath || !note || [ref.projectId,ref.project_id].some(id=>id&&id!==projectId)) {
+        return ref;
+      }
+      let row = findStoryboardAudioMedia(ref, media, projectId);
+      const filePath = row ? null : await verifyStoryboardAudio(ref.filePath);
+      if (filePath) {
+        permission ||= callGateway('project-get', {projectId}, token);
+        const project = await permission;
+        if (project.locked || project.deleted_at || !roles.includes(project.myRole)) {
+          throw Error('项目已锁定或没有编辑权限');
+        }
+        guard();
+        const key = JSON.stringify([account().id,projectId,note]);
+        let work = sharingAudio.get(key);
+        if (!work) {
+          work = (async()=>{
+            const uploaded = await upload(projectId,filePath,'audio',token);
+            guard();
+            if (uploaded.kind !== 'audio') throw Error('参考文件的类型不属于音频');
+            return callGateway('media-record', {projectId,note,...uploaded}, token);
+          })();
+          sharingAudio.set(key,work);
+          void work.finally(()=>sharingAudio.delete(key)).catch(()=>{});
+        }
+        try { row = await work; }
+        catch(error) { throw Error(`「${ref.name||'参考音频'}」共享失败：${error.message}`); }
+        if (row?.id) media.push(row);
+      }
+      guard();
+      if (!row?.id || !row.objectKey) return ref;
+      const {filePath:localPath,url,...portable} = ref;
+      return {...portable,projectId,mediaId:row.id,objectKey:row.objectKey,filename:row.filename,mime:row.mime};
+    }
+    const updated = [];
+    for (const shot of shots) {
+      const config = shot?.generationConfig;
+      if (!Array.isArray(config?.references)) { updated.push(shot); continue; }
+      const references = [];
+      for (const ref of config.references) references.push(await share(ref));
+      updated.push({...shot,generationConfig:{...config,references}});
+    }
+    return publishing ? {...p,prompts:updated} : {...p,updates:updated[0]};
+  }
   const attachGenerated = p => {
     const key = `${account().id}:${p.projectId}:${p.assetId}:${p.filePath}`;
     if (attaching.has(key)) return attaching.get(key);
@@ -70,8 +129,10 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
       const expectedToken=session().token||'';
       const expectedAccount=String(session().account?.id||session().id||'');
       const sameSession=()=>String(session().token||'')===String(expectedToken)&&String(session().account?.id||session().id||'')===expectedAccount;
+      p=await shareStoryboardAudio(p,expectedToken,sameSession);
+      if(!sameSession())throw Error('账号已变化，分镜保存已停止');
       try {
-        const result=await call('storyboard-patch',p);
+        const result=await callGateway('storyboard-patch',p,expectedToken);
         if(!sameSession())throw Error('账号已变化，保存回执已保留，请回到原账号继续');
         return result;
       }

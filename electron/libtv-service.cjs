@@ -49,7 +49,8 @@ async function installBinary(root,fetchFn=fetch){
  fs.unlinkSync(zip);fs.unlinkSync(extracted);fs.rmdirSync(path.dirname(extracted));fs.rmdirSync(stage);
  return dest;
 }
-function cliFailure(text){
+function cliFailure(text, operation){
+ if(operation==='upload'&&/\bENOENT\b|no such file or directory|找不到.*文件/i.test(text))return Error('参考文件已移动或当前电脑无法读取，请从项目素材重新载入');
  const code=/(?:\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|UND_ERR_[A-Z_]+|ERR_TLS_[A-Z_]+|CERT_[A-Z_]+|DEPTH_ZERO_SELF_SIGNED_CERT)\b)/.exec(text)?.[0];
  const candidate=/\b(?:host|hostname)\s*:\s*['"]([a-z0-9.-]+)['"]/i.exec(text)?.[1]||/attempted address(?:es)?:\s*([a-z0-9.-]+)(?::443|,|\s|\))/i.exec(text)?.[1];
  const host=candidate&&require('./libtv-network.cjs').acceptsHost(candidate)?candidate:'';
@@ -70,11 +71,42 @@ function spawnCLI(binary,args,{configDir,cwd,onStderr,signal,children,networkEnv
   child.on('error',()=>reject(Error('LibTV 连接器无法启动，请重新安装连接器')));
   child.on('close',code=>{children.delete(child);signal?.removeEventListener('abort',abort);
    if(signal?.aborted)return reject(Error('本地等待已停止，官方任务可能仍在运行；请查询原画布，不要重复生成'));
-   if(code!==0){try{const terminal=parseCLIJSON(stdout);if(terminal.status===3)return resolve(terminal);}catch{}return reject(cliFailure(errorText));}
+   if(code!==0){try{const terminal=parseCLIJSON(stdout);if(terminal.status===3)return resolve(terminal);}catch{}return reject(cliFailure(errorText,args[0]));}
    if(args[0]==='download')return resolve({ok:true});
    try{resolve(parseCLIJSON(stdout));}catch{if(args[0]==='login'||args[0]==='logout')resolve({ok:true});else reject(Error('LibTV 返回格式暂无法识别，请查看官方画布'));}
   });
  });
+}
+function audioExtension(bytes, ref, mime=''){
+ if(bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WAVE')return 'wav';
+ if(bytes.subarray(0,3).toString()==='ID3')return 'mp3';
+ if(bytes.subarray(0,4).toString()==='OggS')return 'ogg';
+ if(bytes.subarray(0,4).toString()==='fLaC')return 'flac';
+ if(bytes.subarray(4,8).toString()==='ftyp')return 'm4a';
+ const ext=({'audio/wav':'wav','audio/x-wav':'wav','audio/mpeg':'mp3','audio/mp4':'m4a',
+  'audio/aac':'aac','audio/ogg':'ogg','audio/flac':'flac'})[mime||ref.mime];
+ const filename=String(ref.filename||ref.url||'').split(/[?#]/,1)[0];
+ return ext||/\.(wav|mp3|m4a|aac|ogg|flac)$/i.exec(filename)?.[1]?.toLowerCase();
+}
+async function prepareAudioReference(ref,index,dir,signal,readReference){
+ if(ref.filePath){
+  const file=await fs.promises.stat(ref.filePath).catch(()=>null);
+  if(file?.isFile()&&file.size>0)return {filePath:ref.filePath};
+ }
+ if(!/^https?:\/\//i.test(ref.url||''))throw Error('当前电脑没有可读取的音频，项目里也没有可用地址。请在原电脑打开该分镜并保存以同步音频，或重新上传原音频');
+ const {bytes,mime}=readReference
+  ? {bytes:Buffer.from(await readReference(ref))}
+  : await require('./media-network.cjs').readMediaBytes(ref.url,{label:'LibTV 参考音频下载',signal});
+ const ext=audioExtension(bytes,ref,mime);
+ if(!bytes.length||!ext)throw Error('无法识别参考音频格式，请核对原音频');
+ await fs.promises.mkdir(dir,{recursive:true});
+ const filePath=path.join(dir,index+'.'+ext);
+ await fs.promises.writeFile(filePath,bytes);
+ return {filePath,temporary:true};
+}
+function referenceError(alias,ref,error){
+ const name=String(ref.name||ref.assetName||'').trim().slice(0,60);
+ return Object.assign(Error(alias+(name?'「'+name+'」':'')+' 准备失败，未提交生成。'+error.message),{beforeSubmission:true});
 }
 function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,fetchFn=fetch,readReference,network}={}){
  let transport=network||(runCLI?null:require('./libtv-network.cjs').createLibTVNetwork());
@@ -186,16 +218,28 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
    if(input.libtvOwnerKey!==ownerKey(id))throw Error('此 LibTV 配置缺少当前账号绑定或属于其他行舟账号，请重新连接');
    if(!input.references?.length&&(input.firstFramePath||input.firstFrameUrl))input={...input,references:[{kind:'image',...(input.firstFramePath?{filePath:input.firstFramePath}:{url:input.firstFrameUrl})}]};
    const scope=session(id);if(scope.pendingLogin||scope.switching)throw Error('LibTV 账号正在授权或切换，请稍后生成');scope.runs++;
+   const dir=path.join(scope.dir,'references',crypto.randomUUID()),temporaryAudio=[],audioFiles=new Map();
    try{const expected=epoch;const info=await identity(id),model=await schema(id,input.model,input.kind),core=await import('../core/libtv.js'),params=core.libtvGenerationParams(model,input);
    if(expected!==epoch||input.signal?.aborted)throw Error('LibTV 本机连接已停止，未提交生成');
    if(input.libtvOwnerKey&&input.libtvOwnerKey!==info.ownerKey)throw Error('此 LibTV 配置属于其他行舟账号，请重新连接');
+   const references=input.references||[];
+   let audioIndex=0;
+   for(const [index,ref] of references.entries()){
+    if(ref.kind!=='audio')continue;
+    const alias='@audio'+(++audioIndex);
+    try{
+     const audio=await prepareAudioReference(ref,index,dir,input.signal,readReference);
+     audioFiles.set(index,audio.filePath);
+     if(audio.temporary)temporaryAudio.push(audio.filePath);
+    }catch(error){throw referenceError(alias,ref,error);}
+   }
    const label='行舟影视-'+input.kind+'-'+(input.id||crypto.randomUUID());
    const project=await ensureProject(id,info,{signal:input.signal}),projectId=project.id;
-   const dir=path.join(session(id).dir,'references',crypto.randomUUID()),ids=[],counts={image:0,audio:0,video:0};
-   for(const [index,ref] of (input.references||[]).entries()){
+   const ids=[],counts={image:0,audio:0,video:0};
+   for(const [index,ref] of references.entries()){
     if(!['image','video','audio'].includes(ref.kind))throw Error('LibTV 参考类型无效');
     const alias='@'+ref.kind+(++counts[ref.kind]);
-    let filePath=ref.filePath,temporary;
+    let filePath=audioFiles.get(index)||ref.filePath,temporary;
     try{
      if(!filePath){
       const ext={image:'png',video:'mp4',audio:'mp3'}[ref.kind];
@@ -207,8 +251,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
      if(!key)throw Error('LibTV 参考上传未确认');
      ids.push(key);
     }catch(error){
-     const name=String(ref.name||ref.assetName||'').trim().slice(0,60);
-     throw Object.assign(Error(alias+(name?'「'+name+'」':'')+' 准备失败，未提交生成。'+error.message),{beforeSubmission:true});
+     throw referenceError(alias,ref,error);
     }finally{
      if(temporary)try{fs.rmSync(temporary,{force:true});fs.rmdirSync(dir);}catch{}
     }
@@ -220,7 +263,11 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
    if(typeof nodeId!=='string'||!nodeId)throw Error('LibTV 节点创建未确认，未提交生成');
    const baseline=await command(id,['node',nodeId,'-p',projectId],{signal:input.signal});
    return{libtvOwnerKey:info.ownerKey,libtvIdentity:info.identity,libtvProjectId:projectId,libtvProjectName:project.name,libtvNodeId:nodeId,libtvCanvasUrl:taskUrl({libtvProjectId:projectId}),libtvInitialUrls:libtvResultURLs(baseline),jobId:nodeId};
-   }finally{scope.runs--;}
+   }finally{
+    for(const file of temporaryAudio)await fs.promises.unlink(file).catch(()=>{});
+    await fs.promises.rmdir(dir).catch(()=>{});
+    scope.runs--;
+   }
   },
   async run(id,task,{signal}={}){const s=session(id);if(s.pendingLogin||s.switching)throw Error('LibTV 账号正在授权或切换，请稍后查询原任务');s.runs++;try{await authorizeTask(id,task);return await command(id,['node',task.libtvNodeId,'-p',task.libtvProjectId,'--run'],{signal});}finally{s.runs--;}},
   query,

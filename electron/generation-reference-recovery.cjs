@@ -5,8 +5,10 @@ async function renewImageReferences(payload, collabService) {
   const original = payload.storyboardEdit ? supplied.map(ref=>assetImageSlot(ref,projectId)) : supplied;
   if (!original.length) return {...payload,references:original};
   const local = projectId ? await collabService.resolveLocalReferences(projectId,original) : null;
-  const media = !local && projectId && original.some(ref=>!ref.assetId&&(ref.mediaId||(!ref.url&&ref.objectKey)))
+  const media = !local && projectId && original.some(ref=>!ref.assetId&&(ref.mediaId||(!ref.url&&ref.objectKey)
+    ||payload.storyboardEdit&&ref.kind==='audio'&&ref.filePath))
     ? await collabService.listMedia({projectId}) : [];
+  const {findStoryboardAudioMedia}=await import('../core/storyboardAudioReferences.js');
   const {numberedReferences}=await import('../core/generationReferences.js');
   const ordered=numberedReferences(local||original);
   const adoptedImages=new Map();
@@ -40,7 +42,9 @@ async function renewImageReferences(payload, collabService) {
       return next;
     }
     if(local && (ref.localUnavailable || !ref.filePath)) throw Error('有参考素材尚未保存在本机，请重新选择素材');
-    const found=media.find(row=>row.id===ref.mediaId||row.id===ref.id||row.objectKey&&row.objectKey===ref.objectKey);
+    const found=ref.kind==='audio' && payload.storyboardEdit
+      ? findStoryboardAudioMedia(ref,media,projectId)
+      : media.find(row=>row.id===ref.mediaId||row.id===ref.id||row.objectKey&&row.objectKey===ref.objectKey);
     return found ? {...ref,url:found.url,filePath:found.filePath,mediaId:found.id} : ref;
   }));
   if(!resolved.includes(null))return {...payload,references:resolved};

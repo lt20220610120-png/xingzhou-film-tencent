@@ -1,6 +1,7 @@
 import {numberedReferences,isProjectGenerationReference,normalizeGenerationReferences} from './generationReferences.js';
 import {generationReferenceKey,remapGenerationAliases} from './automaticReferences.js';
 import {assetImageSlot} from './assetImageSlot.js';
+import {findStoryboardAudioMedia} from './storyboardAudioReferences.js';
 
 export const storyboardAssetSlots = (references,projectId) => {
  const slots=(references||[]).map(ref=>assetImageSlot(ref,projectId));
@@ -33,6 +34,10 @@ export function storyboardReferencePreviews(references,assets,media,projectId) {
    const adoptedImageReady=Boolean(asset?.image_url||asset?.adoptedImageId);
    return {...ref,displayName:asset?.displayName||ref.displayName,nameAliases:asset?.nameAliases||ref.nameAliases,adoptedImageReady,
     adoptedRevision:`${asset?.adoptedImageId||''}:${String(asset?.image_url||'').split('?')[0]}:${asset?.updated_at||''}`};
+  }
+  if(ref.kind==='audio'){
+   const file=findStoryboardAudioMedia(ref,media||[],projectId);
+   return file?{...ref,mediaId:file.id,objectKey:file.objectKey,url:file.url,filePath:file.filePath}:ref;
   }
   const file=media?.find(m=>m.id===ref.id);
   return file?{...ref,url:file.url}:ref;

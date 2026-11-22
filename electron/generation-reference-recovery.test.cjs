@@ -48,3 +48,15 @@ test('empty storyboard seats skip upload and compact only the sent aliases, keep
  assert.deepEqual(result.storyboardSourceReferences.map(r=>r.id),[ref.id,other.id,audio.id]);
  await assert.rejects(renewImageReferences(input,services(async()=>{throw Error('无权访问');})),/无权访问/);
 });
+test('legacy voice identity resolves the shared audio and replaces the unavailable machine path',async()=>{
+ const ref={id:'voice:陆承骁:sample',name:'陆承骁音色',kind:'audio',projectId:'p',filePath:'X:/media/voice.wav'};
+ const audio={id:'cloud-audio',projectId:'p',kind:'audio',note:'分镜音频 [voice:陆承骁:sample]',objectKey:'projects/p/audio/voice.wav',url:'https://cos.test/voice.wav'};
+ const local={...audio,id:'foreign',projectId:'other'};
+ const result=await renewImageReferences({projectId:'p',storyboardEdit:true,references:[ref]},{
+  resolveLocalReferences:async()=>null,listMedia:async()=>[local,audio],
+ });
+ assert.equal(result.references[0].mediaId,audio.id);
+ assert.equal(result.references[0].id,ref.id);
+ assert.equal(result.references[0].filePath,undefined);
+ assert.equal(result.references[0].url,audio.url);
+});
