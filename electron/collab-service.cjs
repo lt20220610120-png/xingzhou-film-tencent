@@ -63,7 +63,7 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
         return ref;
       }
       let row = findStoryboardAudioMedia(ref, media, projectId);
-      const filePath = row ? null : await verifyStoryboardAudio(ref.filePath);
+      const filePath = row ? null : await verifyStoryboardAudio(ref.filePath,{projectId,reference:ref});
       if (filePath) {
         permission ||= callGateway('project-get', {projectId}, token);
         const project = await permission;

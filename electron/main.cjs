@@ -374,9 +374,17 @@ function adoptedLocalVoices(account, projectId) {
 }
 function createProjectCollab() {
   const cloud = createCollabService(readCloudSession,{
-    async verifyStoryboardAudio(file) {
+    async verifyStoryboardAudio(file,{projectId,reference}) {
       if (!/\.(?:wav|mp3|m4a|aac|ogg|flac)$/i.test(file)) return null;
+      const account = readCloudSession()?.account;
+      if(!account?.id)return null;
       try {
+        const voices = adoptedLocalVoices(account,projectId);
+        // A shared storyboard can contain paths from another device. Only this
+        // account's locally adopted audio can be uploaded by a save.
+        const adopted = Object.entries(voices).some(([key,{confirmed}])=>
+          confirmed.filePath===file && `voice:${key}:${confirmed.id}`===reference.id);
+        if(!adopted)return null;
         const source = await verifiedDataFile(file,mediaDir());
         const stat = await fs.promises.stat(source);
         return stat.isFile() && stat.size > 0 ? source : null;
