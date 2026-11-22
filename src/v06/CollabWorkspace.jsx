@@ -858,7 +858,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
         liveAssets=liveAssets.map(a=>a.id===asset.id?{...a,images:[...(a.images||[]),attached]}:a);
         return attached;
       }});
-      const failed = outcome.results.flatMap(result => result.status === 'rejected' ? [`${result.asset.name}：${result.reason?.message || '生成失败'}`] : []);
+      const failed = outcome.results.flatMap(result => result.status === 'rejected' ? [`${result.asset.name}：${readableCloudError(result.reason || '生成失败')}`] : []);
       setExportError([outcome.remaining?`已暂停，剩余 ${outcome.remaining} 项未开始；进行中的结果已保存。`:'',failed.length ? `${failed.length} 项未完成：${failed.join('；')}` : ''].filter(Boolean).join(' '));
       await refresh();
     } catch(error){setExportError(readableCloudError(error));
@@ -1068,7 +1068,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
       }});
       const completedIds=new Set(outcome.results.filter(result=>result.status==='fulfilled').map(result=>result.asset.id));
       setBatchSelectedIds(current=>current.filter(id=>!completedIds.has(id)));
-      const failed = outcome.results.flatMap(result => result.status === 'rejected' ? [`${result.asset.name}：${result.reason?.message || '生成失败'}`] : []);
+      const failed = outcome.results.flatMap(result => result.status === 'rejected' ? [`${result.asset.name}：${readableCloudError(result.reason || '生成失败')}`] : []);
       setBatchError([outcome.remaining?`已暂停，剩余 ${outcome.remaining} 项未开始；进行中的结果已保存。`:'',failed.length ? `${failed.length} 项未完成：${failed.join('；')}` : ''].filter(Boolean).join(' '));
       await refresh();
     } catch(error){setBatchError(readableCloudError(error));

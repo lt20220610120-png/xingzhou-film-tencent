@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { generateImage } = require('./media-service.cjs');
+const { renewImageReferences } = require('./generation-reference-recovery.cjs');
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jWZkAAAAASUVORK5CYII=', 'base64');
 
 async function fixture(t, inspect) {
@@ -45,6 +46,25 @@ test('custom image API receives the selected remote reference as multipart bytes
   const output = await generateImage({...f.input,references:[{kind:'image',url:`${f.base}/ref.png`}]});
   assert.deepEqual(fs.readFileSync(output),png);
   assert.deepEqual(f.calls,['/ref.png','/v1/images/edits']);
+});
+
+test('locally adopted project asset remains an image when sent to the custom edits API', async t => {
+  const f = await fixture(t, async (req, request) => {
+    assert.equal(req.url, '/v1/images/edits');
+    const form = await request.formData();
+    assert.equal(form.get('model'), 'gpt-image-2');
+    assert.deepEqual(Buffer.from(await form.get('image').arrayBuffer()), png);
+  });
+  const filePath = path.join(f.dir, 'adopted.png');
+  fs.writeFileSync(filePath, png);
+  const reference = {kind:'image',id:'asset:adopted',imageId:'adopted',assetId:'asset',projectId:'project'};
+  const payload = await renewImageReferences({...f.input,model:'gpt-image-2',projectId:'project',references:[reference]}, {
+    resolveLocalReferences: async () => [{...reference,kind:'asset-image',filePath}],
+    resolveAssetImage: async () => ({id:'adopted',kind:'asset-image',filePath}),
+  });
+  const generated = await generateImage(payload);
+  assert.deepEqual(fs.readFileSync(generated),png);
+  assert.deepEqual(f.calls,['/v1/images/edits']);
 });
 
 test('multiple local/data references preserve order and explicit edits endpoints are normalized', async t => {

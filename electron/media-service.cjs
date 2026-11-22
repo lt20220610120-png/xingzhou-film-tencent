@@ -199,7 +199,7 @@ async function generateImage({ provider, endpoint, apiKey, model, prompt, size =
   }
   if (!response.ok) {
     const reason = data?.error?.message || data?.message || `图片接口请求失败（${response.status}）`;
-    throw new Error(references.length ? `参考图生成失败：${reason}。请确认该接口与模型支持 /images/edits 图片编辑协议` : reason);
+    throw new Error(references.length ? `参考图生成失败（HTTP ${response.status}）：${reason}` : reason);
   }
   const item = data?.data?.[0] || {};
   const url = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url || '';

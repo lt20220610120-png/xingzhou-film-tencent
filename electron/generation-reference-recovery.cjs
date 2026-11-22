@@ -34,6 +34,8 @@ async function renewImageReferences(payload, collabService) {
       }
       if(!image?.url&&!image?.filePath)throw Error(label+' 的图片地址不可用，请重新选择图片');
       const next={...ref,...image,id:ref.id,imageId:image.id||imageId};
+      // Project storage records asset images separately from generation inputs.
+      if(next.kind==='asset-image')next.kind='image';
       if(slot||next.imageId!==imageId)next.filePath=image.filePath;
       return next;
     }
