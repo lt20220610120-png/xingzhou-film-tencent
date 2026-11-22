@@ -52,3 +52,18 @@ test('adding a missing extension never silently overwrites another saved video',
  await assert.rejects(exportMediaFile({filePath:source,kind:'video'},{showSaveDialog:async()=>({filePath:dest.slice(0,-4)}),mediaDir:()=>root}),/已存在/);
  assert.equal(fs.readFileSync(dest,'utf8'),'keep');
 });
+test('cache access is evaluated under the canonical data directory even through a junction',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-media-real-root-'));
+ t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const real=path.join(root,'real'),alias=path.join(root,'alias');
+ fs.mkdirSync(path.join(real,'.cloud-image-cache'),{recursive:true});
+ fs.symlinkSync(real,alias,process.platform==='win32'?'junction':'dir');
+ const file=path.join(alias,'.cloud-image-cache','private.wav');
+ fs.writeFileSync(file,'fixture');
+ const handle=createLocalMediaHandler(()=>alias,(target,canonical)=>{
+  assert.equal(canonical,fs.realpathSync(real));
+  return path.relative(canonical,target).split(path.sep)[0]!=='.cloud-image-cache';
+ });
+ const result=await handle(new Request('xzmedia://local/'+encodeURIComponent(file)));
+ assert.equal(result.status,403);
+});

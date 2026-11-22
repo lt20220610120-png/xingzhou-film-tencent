@@ -161,6 +161,7 @@ module.exports = function configurePackagedSmoke(app) {
         report.localMedia={results,image};
         report.videoPreview=await require('./video-preview-smoke.cjs')(win,mediaDir);
         report.audioPreview=await require('./audio-preview-smoke.cjs')(win,mediaDir);
+        report.cosMedia=await require('./cos-media-smoke.cjs')(root);
         report.workBuddy.bridge = await win.webContents.executeJavaScript('typeof window.xingzhou?.workBuddyOpen === "function" && typeof window.xingzhou?.onWorkBuddyState === "function"');
         report.artReview = await win.webContents.executeJavaScript(`(async () => {
           const api = window.xingzhou;

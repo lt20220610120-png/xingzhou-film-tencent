@@ -126,7 +126,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
   const snapshot = snapshots.prepare(action,payload,token);
   const read=readAction(action),licensePreflight=licensePreflightActions.has(action);
   const retryable=read||licensePreflight,timeoutMs=options.timeoutMs || 30000;
-  const urls=orderedUrls(),attempts=retryable?[...urls,urls.at(-1)]:urls;
+  const urls=orderedUrls(),attempts=options.singleAttempt?urls.slice(0,1):retryable?[...urls,urls.at(-1)]:urls;
   for(let index=0;index<attempts.length;index++){
     const url=attempts[index],controller=new AbortController();
     let response,timer;
@@ -157,7 +157,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
     } catch(error) {
       const network=error.timeout||isNetworkFailure(error)||/terminated|aborted|CERT_PIN/i.test(error.message || '') || /CERT_PIN/i.test(String(error.code || ''));
       if(!network&&!error.transient)throw error;
-      if(activeUrl===url)activeUrl=null;
+      if(activeUrl===url&&!options.singleAttempt)activeUrl=null;
       // DNS/refused/TLS errors prove no HTTP write was delivered. A reset can
       // occur after the server committed it, so it never authorizes write replay.
       const preConnection=!response&&!error.timeout&&failedBeforeConnection(error);

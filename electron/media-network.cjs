@@ -22,17 +22,27 @@ function isMediaNetworkError(error) {
 
 let imageCache;
 let mediaFetch;
+let smallMediaRead;
+let mediaTraffic;
 // Electron's Chromium network stack follows the desktop's system proxy/PAC.
 // Node fetch does not, which can make generation succeed but result GETs fail.
 function configureMediaFetch(fetcher) { mediaFetch = fetcher; }
 function fetchMedia(url,options) { return (mediaFetch||globalThis.fetch)(url,options); }
 let cacheScope = () => '';
-function configureMediaCache(cache, scope) { imageCache = cache; cacheScope = scope || (()=>''); }
+function configureMediaCache(cache, scope, relay, onRead) { imageCache = cache; cacheScope = scope || (()=>''); smallMediaRead = relay; mediaTraffic=onRead; }
 async function readMediaBytes(url, options = {}) {
-  // Explicitly cancellable requests keep their own lifecycle; ordinary preview,
-  // export and reference reads coalesce through the same persistent cache.
-  if (imageCache && !options.signal) return imageCache.read(url, cacheScope(), () => downloadMediaBytes(url, options));
-  return downloadMediaBytes(url, options);
+  const scope = cacheScope();
+  const load = async () => {
+    const relayed = await smallMediaRead?.(url,scope,options.signal);
+    options.signal?.throwIfAborted();
+    if(relayed) return relayed;
+    const result=await downloadMediaBytes(url, options);
+    if(mediaTraffic && require('./cos-image-cache.cjs').cacheIdentity(url,scope)) mediaTraffic('direct',result.bytes.length);
+    return result;
+  };
+  const result = imageCache ? await imageCache.read(url,scope,load,options) : await load();
+  if (scope && cacheScope() !== scope) throw Error('账号已切换，请重新读取素材');
+  return result;
 }
 async function downloadMediaBytes(url, { fetchFn = mediaFetch || globalThis.fetch, timeoutMs = 60000, attempts = 3, delayMs = 400, signal, label = '媒体下载' } = {}) {
   if (!/^https?:\/\//i.test(String(url))) throw new Error(`${label}地址无效`);

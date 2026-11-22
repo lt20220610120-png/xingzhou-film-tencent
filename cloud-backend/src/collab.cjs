@@ -351,7 +351,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     const { assetImageLink } = require('./asset-image-links.cjs');
     const withPreview = async image => {
       if (payload.preview === true && imagePreview) {
-        const previewDataUrl = await imagePreview(image).catch(() => null);
+        const previewDataUrl = await imagePreview(image,{quick:payload.quickPreview===true}).catch(() => null);
         if (previewDataUrl) return ok({...image, previewDataUrl});
       }
       return ok(image);

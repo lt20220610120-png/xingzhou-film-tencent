@@ -10,10 +10,12 @@ const releaseRoot = path.join(root, 'release');
 let staging;
 const output = path.join(root, 'release', pkg.version);
 const installed = new Map();
+const developmentFolders = new Set(['coverage','test','tests','__tests__','fixtures','__fixtures__','.nyc_output','.playwright-mcp']);
 function copyTree(source,destination,skip=new Set()) {
   fs.mkdirSync(destination,{recursive:true});
   for(const entry of fs.readdirSync(source,{withFileTypes:true})) {
-    if(skip.has(entry.name) || /\.(?:test|fixtures)\.(?:js|cjs)$/.test(entry.name)) continue;
+    if(skip.has(entry.name) || (entry.isDirectory() && developmentFolders.has(entry.name))
+      || /\.(?:test|spec|fixtures)\.(?:js|cjs|mjs|ts|tsx)$|\.(?:map|pdb|log)$/i.test(entry.name)) continue;
     const from=path.join(source,entry.name), to=path.join(destination,entry.name);
     if(entry.isDirectory()) copyTree(from,to,skip);
     else if(entry.isFile()) fs.copyFileSync(from,to);
@@ -66,9 +68,17 @@ function copyDependency(name, from) {
   await require('electron-builder').build({projectDir:staging,targets:require('electron-builder').Platform.WINDOWS.createTarget(['nsis'],require('electron-builder').Arch.x64),config});
   const exe = path.join(output,'win-unpacked',`${pkg.build.productName}.exe`);
   await require('./verify-packaged-runtime.cjs').verify(exe,pkg.version,Object.fromEntries(installed));
-  // Only remove this run's temporary copy after the packaged app passed smoke tests.
+  // Retain the installer. The expanded copy belongs to this successful run.
   if (path.dirname(fs.realpathSync(staging)) === fs.realpathSync(releaseRoot)) {
     fs.rmSync(staging, {recursive:true, force:true, maxRetries:3});
+  }
+  const expanded=path.dirname(exe);
+  if (process.env.XINGZHOU_KEEP_VERIFIED_UNPACKED!=='1' && fs.realpathSync(expanded)===expanded
+    && path.dirname(fs.realpathSync(output))===fs.realpathSync(releaseRoot)) {
+    fs.rmSync(expanded,{recursive:true,force:true,maxRetries:3});
+  }
+  if(!pkg.version.includes('-private')) {
+    console.log(JSON.stringify(require('./release-retention.cjs').pruneReleaseInstallers(releaseRoot)));
   }
   console.log(`VERIFIED_INSTALLER ${path.join(output,`Xingzhou-Film-Tencent-Setup-${pkg.version}.exe`)}`);
 })().catch(error=>{console.error(error);process.exit(1);});

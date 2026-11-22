@@ -25,10 +25,10 @@ function buildObjectKey({ projectId, kind, filename }) {
 }
 
 // 腾讯云 COS 请求签名：https://cloud.tencent.com/document/product/436/7778
-function signRequest({ secretId, secretKey, method, objectKey, ttlSeconds, maxTtlSeconds=MAX_TTL_SECONDS, headers={} }) {
+function signRequest({ secretId, secretKey, method, objectKey, ttlSeconds, maxTtlSeconds=MAX_TTL_SECONDS, headers={}, signedTime }) {
   const now = Math.floor(Date.now() / 1000) - 60;
   const expire = now + Math.min(Number(ttlSeconds) || MAX_TTL_SECONDS, maxTtlSeconds);
-  const keyTime = `${now};${expire}`;
+  const keyTime = signedTime || `${now};${expire}`;
   const signKey = hmacSha1(secretKey, keyTime);
   const pathname = '/' + String(objectKey).replace(/^\/+/, '');
   const keys=Object.keys(headers).sort(),headerString=keys.map(k=>encodeURIComponent(k)+'='+encodeURIComponent(String(headers[k]))).join('&');
@@ -72,6 +72,27 @@ function createCosSigner(env = {}) {
       const signed = sign('GET', objectKey, ttlSeconds);
       // 下载地址把签名放进查询串，客户端可直接使用。
       return { ...signed, objectKey, url: `${signed.url}?${signed.authorization}` };
+    },
+    verifyProjectDownload(address) {
+      if (typeof address !== 'string' || address.length > 2048) return null;
+      try {
+        const url = new URL(address);
+        if (url.origin !== `https://${host}` || url.username || url.password || url.hash
+          || !/^\/projects\/[\w-]+\/(?:image|audio)\/[\w.-]+$/.test(url.pathname)) return null;
+        const signedTime = url.searchParams.get('q-key-time');
+        if (!/^\d{10};\d{10}$/.test(signedTime || '')) return null;
+        const [start,end] = signedTime.split(';').map(Number), now = Date.now()/1000;
+        if (start > now || end <= now || end-start > MAX_TTL_SECONDS) return null;
+        const {authorization} = signRequest({secretId,secretKey,method:'GET',objectKey:url.pathname,signedTime});
+        const expected = new URLSearchParams(authorization);
+        if ([...url.searchParams].length !== [...expected].length) return null;
+        for (const [key,value] of expected) {
+          const supplied = Buffer.from(url.searchParams.get(key)||'');
+          const wanted = Buffer.from(value);
+          if (supplied.length !== wanted.length || !crypto.timingSafeEqual(supplied,wanted) || !url.searchParams.has(key)) return null;
+        }
+        return url;
+      } catch { return null; }
     },
     signDelete({ objectKey, ttlSeconds }) {
       return { ...sign('DELETE', objectKey, ttlSeconds), objectKey };

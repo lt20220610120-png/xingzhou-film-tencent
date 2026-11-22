@@ -6,7 +6,7 @@ const {Readable}=require('node:stream');
 const LOCAL_MEDIA_PRIVILEGES={standard:true,secure:true,supportFetchAPI:true,stream:true};
 const types={'.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime','.wav':'audio/wav','.mp3':'audio/mpeg','.m4a':'audio/mp4','.aac':'audio/aac','.flac':'audio/flac','.ogg':'audio/ogg','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'};
 const inside=(root,file)=>{const relative=path.relative(root,file);return !!relative&&relative!=='..'&&!relative.startsWith(`..${path.sep}`)&&!path.isAbsolute(relative);};
-function createLocalMediaHandler(getDataDir){
+function createLocalMediaHandler(getDataDir,allowFile=()=>true){
  return async request=>{
   if(!['GET','HEAD'].includes(request.method))return new Response(null,{status:405,headers:{allow:'GET, HEAD'}});
   let file;
@@ -15,7 +15,7 @@ function createLocalMediaHandler(getDataDir){
    const root=await fs.promises.realpath(getDataDir());
    if(!inside(path.resolve(getDataDir()),file))return new Response(null,{status:403});
    file=await fs.promises.realpath(file);
-   if(!inside(root,file))return new Response(null,{status:403});
+   if(!inside(root,file)||!allowFile(file,root))return new Response(null,{status:403});
    const stat=await fs.promises.stat(file);
    if(!stat.isFile())return new Response(null,{status:404});
    const headers={'content-type':types[path.extname(file).toLowerCase()]||'application/octet-stream','accept-ranges':'bytes','content-length':String(stat.size)};

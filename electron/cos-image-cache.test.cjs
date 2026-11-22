@@ -55,3 +55,14 @@ test('disk cache evicts older entries within the byte limit and skips oversized 
   assert.equal(large.filePath,undefined);
   assert.ok(fs.readdirSync(dir).filter(x=>!x.endsWith('.json')).reduce((sum,x)=>sum+fs.statSync(path.join(dir,x)).size,0)<=8);
 });
+test('上传字节能立即复用到续签的音频，账号和取消状态仍隔离', async t => {
+  const {cache} = setup(t);
+  const address = url().replace('/image/1-image.png', '/audio/1-asset.wav');
+  const bytes = Buffer.from('original audio bytes');
+  const stored = await cache.seed(address.split('?')[0], 'alice', {bytes,mime:'audio/wav'});
+  assert.ok(stored.filePath);
+  const result = await cache.read(address, 'alice', () => assert.fail('不得重新下载'), {signal:new AbortController().signal});
+  assert.deepEqual(result.bytes, bytes);
+  assert.equal(await cache.peek(address, 'bob'), null);
+  await assert.rejects(cache.read(address,'alice',()=>assert.fail(),{signal:AbortSignal.abort()}), {name:'AbortError'});
+});

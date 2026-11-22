@@ -30,3 +30,29 @@ test('only proven legacy failures change status; real uncertain tasks may be hid
  fs.writeFileSync(path.join(root,'generation-jobs.json'),JSON.stringify([{...base,id:'local'},{...base,id:'real',jobId:'paid'},{...base,id:'network',error:'提交未确认：network lost'}]));
  const jobs=require('./generation-jobs.cjs').createGenerationJobs(root);assert.equal(jobs.list().find(j=>j.id==='local').status,'failed');assert.equal(jobs.list().find(j=>j.id==='real').status,'uncertain');assert.equal(jobs.list().find(j=>j.id==='network').status,'uncertain');assert.equal(jobs.clear({ids:['local']}).removed,1);assert.equal(jobs.clear({ids:['real']}).archived,1);const kept=JSON.parse(fs.readFileSync(path.join(root,'generation-jobs.json'),'utf8')).find(j=>j.id==='real');assert.equal(kept.jobId,'paid');assert.equal(kept.status,'uncertain');assert.equal(kept.archived,true);assert.equal(jobs.list().some(j=>j.id==='real'),false);
 });
+test('临时参考链接提交瘦身后的字节，保留原图、参考角色和源链接',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-reference-copy-'));
+ t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const file=path.join(dir,'reference.png'),original=Buffer.alloc(300000,77),copy=Buffer.alloc(50000,88);
+ fs.writeFileSync(file,original);
+ const {createNineyReferenceUploader}=require('./niney-reference-upload.cjs');
+ const {COS_HOST}=require('./cos-image-cache.cjs');
+ const shared='https://'+COS_HOST+'/projects/p/image/original.png?q-signature=test&q-key-time=1;9999999999';
+ let sent;
+ const prepare=createNineyReferenceUploader({getSession:()=>({account:{id:'alice'},token:'fixture'}),
+  readLocalOriginal:async()=>({bytes:fs.readFileSync(file),mime:'image/png'}),
+  compress:(bytes,mime)=>{assert.deepEqual(bytes,original);assert.equal(mime,'image/png');return copy;},
+  gateway:async(_,p)=>{assert.equal(p.size,copy.length);assert.equal(p.mime,'image/jpeg');assert.match(p.filename,/\.jpg$/);
+   const url='https://mock.cos.ap-guangzhou.myqcloud.com/temporary/generation/abc/reference.jpg';
+   return {url,downloadUrl:url+'?signed=fixture',expiresAt:Date.now()+3600000};
+  },
+  fetchFn:async(_,options)=>{const chunks=[];for await(const bytes of options.body)chunks.push(bytes);sent=Buffer.concat(chunks);return new Response(null,{status:200});},
+ });
+ const ref={id:'same',url:shared,kind:'image',role:'first_frame'};
+ const result=await prepare({kind:'video',videoProtocol:'niney',references:[ref]});
+ assert.deepEqual(sent,copy);
+ assert.equal(result.references[0].role,'first_frame');
+ assert.match(result.references[0].url,/temporary\/generation/);
+ assert.equal(ref.url,shared);
+ assert.deepEqual(fs.readFileSync(file),original);
+});

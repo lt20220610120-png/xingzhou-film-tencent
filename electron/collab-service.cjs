@@ -6,18 +6,20 @@ const { isMediaNetworkError } = require('./media-network.cjs');
 const { gateway: sharedGateway } = require('./cloud-access-service.cjs');
 const gateway = (action, payload = {}, token = '') => sharedGateway(action, payload, token);
 // 通过服务端签名直传腾讯云 COS：大文件不再经过 JSON base64，避免内存暴涨与请求体超限。
-async function uploadToBucket(projectId, filePath, kindHint, token) {
+async function uploadToBucket(projectId, filePath, kindHint, token, onUploaded, {
+  requestSignature=gateway, putObject=require('./win-ai-api-fetch.cjs').winAIFetch,
+}={}) {
   if (!filePath || !fs.existsSync(filePath)) throw new Error('素材文件不存在');
   const ext = (path.extname(filePath) || '.bin').toLowerCase();
   const mime = projectMediaMime(ext, kindHint);
   const filename = path.basename(filePath);
   const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
-  const signed = await gateway('media-upload-url', { projectId, filename, kind, mime }, token);
+  const signed = await requestSignature('media-upload-url', { projectId, filename, kind, mime }, token);
   const body = fs.readFileSync(filePath);
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const put = await require('./win-ai-api-fetch.cjs').winAIFetch(signed.url, {
+      const put = await putObject(signed.url, {
         method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
         body, signal: AbortSignal.timeout(120000),
       });
@@ -28,6 +30,9 @@ async function uploadToBucket(projectId, filePath, kindHint, token) {
       if (attempt === 2 || !(error.retryable || isMediaNetworkError(error))) throw new Error(`图片或素材保存到云端失败，本地文件已保留，请重试保存：${String(error.message||'上传失败').replace(/https?:\/\/[^\s]+/g,'[上传地址]')}`);
       await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)));
     }
+  }
+  if (onUploaded) {
+    try { await onUploaded(signed.url,{bytes:body,mime}); } catch {}
   }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };
 }

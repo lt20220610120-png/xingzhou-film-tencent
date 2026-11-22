@@ -49,7 +49,15 @@ export function autoReferences(prompt, assets) {
     return image ? [{id:image.id || a.id,imageId:image.id || 'legacy',projectId:a.project_id || a.projectId,assetId:a.id,name:a.name,displayName:a.displayName,nameAliases:a.nameAliases,kind:'image',url:image.url}] : [];
   });
 }
-export const mediaSource = item => item.filePath ? `xzmedia://local/${encodeURIComponent(item.filePath)}` : (item.url || '').replace(/^xzmedia:\/\/\//, 'xzmedia://local/');
+export const mediaSource = item => {
+  if (item.filePath) return `xzmedia://local/${encodeURIComponent(item.filePath)}`;
+  const id = item.mediaId || item.id;
+  if (item.kind === 'audio' && /^[\w-]{1,100}$/.test(id || '') && globalThis.window?.xingzhou
+    && /^https:\/\/xingzhou-media-test-1469762028\.cos\.ap-guangzhou\.myqcloud\.com\/projects\/[\w-]+\/audio\//i.test(item.url || '')) {
+    return `xzmedia://project-audio/${id}`;
+  }
+  return (item.url || '').replace(/^xzmedia:\/\/\//, 'xzmedia://local/');
+};
 
 // The voice ledger stores adopted samples separately from uploaded project media.
 // Reuse binding identities so selecting an adopted voice never creates a second alias.

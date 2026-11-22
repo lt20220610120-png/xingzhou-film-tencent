@@ -1,6 +1,6 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
-const {cacheIdentity}=require('./cos-image-cache.cjs');
-function createLocalPreviewCache({directory,maxBytes=128*1024*1024,maxAgeMs=30*86400000}) {
+const {cacheIdentity,CACHE_MAX_AGE}=require('./cos-image-cache.cjs');
+function createLocalPreviewCache({directory,maxBytes=512*1024*1024,maxAgeMs=CACHE_MAX_AGE}) {
  const filename=(url,account)=>{
   const identity=cacheIdentity(url,'preview-v1:'+account);
   return account&&identity?path.join(typeof directory==='function'?directory():directory,identity.replace(/\.[^.]+$/,'.webp')):null;

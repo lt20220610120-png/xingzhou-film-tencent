@@ -29,6 +29,8 @@ function createServer(env = process.env, deps = {}) {
   const licenseTraffic=new Map();
   const mailer = deps.mailer !== undefined ? deps.mailer : createMailer(env);
   const cosSigner = deps.cosSigner !== undefined ? deps.cosSigner : createCosSigner(env);
+  const smallMediaRelay = deps.smallMediaRelay || (cosSigner?.verifyProjectDownload && env.COS_SMALL_MEDIA_RELAY !== '0'
+    ? require('./small-media-relay.cjs').createSmallMediaRelay({signer:cosSigner}) : null);
   const referenceStore=deps.referenceStore || (cosSigner?require('./generation-references.cjs').createGenerationReferenceStore({directory:env.GENERATION_REFERENCE_DIR||require('node:path').join(process.cwd(),'var','generation-references'),signer:cosSigner}):null);
   const imagePreview = deps.imagePreview || (env.COS_PREVIEW_ENABLED === '1' && cosSigner
     ? require('./image-preview.cjs').createImagePreview({host:cosSigner.host,
@@ -173,6 +175,9 @@ function createServer(env = process.env, deps = {}) {
             try{return send({status:200,body:await (method==='list'?referenceStore.list(user):referenceStore[method](payload,user))});}catch(error){return send({status:error.status||503,body:{error:error.status?error.message:'临时素材服务暂不可用，请重试'}});}
           }
           if (action.startsWith('admin-')) return send(await handleAdminAction(action, payload, user, repository));
+          if (action === 'media-read-small') {
+            return send({status:200,body:smallMediaRelay ? await smallMediaRelay(payload,user,repository) : {route:'disabled'}});
+          }
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
           return send(await handleAction(action, payload, user, repository, cosSigner, imagePreview));
         } catch (error) {

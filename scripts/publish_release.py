@@ -121,4 +121,5 @@ for manifest_repo in MANIFEST_REPOS:
 # Keep the checkout's release snapshot in sync after both remote manifests succeed.
 with open(os.path.join(ROOT, 'latest.json'), 'w', encoding='utf-8') as snapshot:
     snapshot.write(manifest_text)
+subprocess.run(['node', os.path.join(ROOT, 'scripts', 'release-retention.cjs')], check=True)
 print(json.dumps({'release': f'https://github.com/{REPO}/releases/tag/{TAG}', 'asset': dl, 'size': size}, ensure_ascii=False))

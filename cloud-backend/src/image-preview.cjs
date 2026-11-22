@@ -7,9 +7,9 @@ const {createHash, randomUUID} = require('node:crypto');
 function createImagePreview({directory, host, fetchFn = fetch, maxBytes = 256*1024*1024, queueWaitMs = 6000}) {
   const pending = new Map(), waiters = [];
   let active = 0, lastTrim = 0;
-  const slot = async () => {
+  const slot = async quick => {
     if (active < 2) { active++; return true; }
-    if (waiters.length>=64) return false;
+    if (quick || waiters.length>=64) return false;
     return new Promise(resolve => {
       const waiter={resolve};
       waiter.timer=setTimeout(()=>{
@@ -37,14 +37,14 @@ function createImagePreview({directory, host, fetchFn = fetch, maxBytes = 256*10
       await fs.unlink(path.join(directory,item.name)).catch(()=>{}); total-=item.size;
     }
   };
-  return async image => {
+  return async (image,{quick=false}={}) => {
     let url;
     try { url = new URL(image.url); } catch { return null; }
     if (url.protocol!=='https:' || url.host!==host || url.username || url.password
       || !/^projects\/[\w-]+\/image\/[\w.-]+\.(png|jpe?g|webp)$/i.test(image.objectKey || '')
       || decodeURIComponent(url.pathname)!=='/'+image.objectKey) return null;
     const key=createHash('sha256').update(`preview-v1:${host}:${image.objectKey}`).digest('hex');
-    if (pending.has(key)) return pending.get(key);
+    if (pending.has(key)) return quick ? null : pending.get(key);
     const work=(async()=>{
       let temporary, acquired=false;
       try {
@@ -55,10 +55,10 @@ function createImagePreview({directory, host, fetchFn = fetch, maxBytes = 256*10
           await fs.utimes(filename,new Date(),new Date()).catch(()=>{});
           return 'data:image/webp;base64,'+bytes.toString('base64');
         } catch (error) { if (error.code!=='ENOENT') throw error; }
-        acquired=await slot();
+        acquired=await slot(quick);
         if(!acquired) return null;
-        const response=await fetchFn(url.href,{redirect:'error',signal:AbortSignal.timeout(15000)});
-        const limit=32*1024*1024;
+        const response=await fetchFn(url.href,{redirect:'error',signal:AbortSignal.timeout(quick ? 700 : 15000)});
+        const limit=(quick ? 12 : 32)*1024*1024;
         if (!response.ok || Number(response.headers.get('content-length'))>limit) {
           await response.body?.cancel(); return null;
         }

@@ -176,7 +176,7 @@ function createGenerationJobs(dir,options={}) {
         client.validate(input);
         save(job);
         try {
-          if(options.beforeDispatch)await dispatchGuard();const result = await client.submit(input);
+          const result = await client.submit({...input,referenceTaskId:job.id,beforePaidDispatch:options.beforeDispatch?dispatchGuard:undefined});
           const saved=save({...job, jobId:result.jobId, status:input.kind==='image'?'downloading':'submitted', urls:result.resultUrls, costYuan:result.costYuan, normalizedPrompt:result.normalizedPrompt, referenceMappings:result.referenceMappings});
           if(input.kind==='image') {
             if(!result.resultUrls?.length) throw new Error('未返回图片结果地址');

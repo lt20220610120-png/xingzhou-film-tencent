@@ -4,6 +4,8 @@ const path = require('node:path');
 const { readMediaBytes } = require('./media-network.cjs');
 const models = require('../core/feituo-models.json');
 const BASE = 'https://feituokuajing.com';
+let preparePublicImages;
+function configurePublicImagePreparation(prepare) { preparePublicImages=prepare; }
 function validate(input) {
   const builtin = models.find(m => m.id === input.model);
   const fallback = builtin || (input.kind==='video'&&input.modelCapabilities?{id:input.model,name:input.model,kind:'video',durations:[],ratios:[],resolutions:[],maxImages:null,maxVideos:null,maxAudios:null,audioRequiresImage:false}:null);
@@ -46,8 +48,14 @@ async function json(response) {
   return data;
 }
 async function submit(input) {
-  const model = validate(input), refs = input.references || [];
+  const model = validate(input);
   const h = headers(input.apiKey);
+  const sourceRefs=input.references || [];
+  let refs=sourceRefs;
+  if(preparePublicImages && !sourceRefs.some(ref=>ref.filePath)) {
+    try { refs=(await preparePublicImages(input)).references || []; }
+    catch(error) { error.beforeSubmission=true; throw error; }
+  }
   const payload = { model: input.model, prompt: input.prompt.trim(), ratio: input.ratio, duration: Number(input.duration) };
   if (model.kind === 'image') { delete payload.duration; if (input.imageSize) payload.imageSize=input.imageSize; }
   if (model.resolutions.length) payload.resolution = input.resolution;
@@ -71,6 +79,7 @@ async function submit(input) {
     for (const kind of ['image','video','audio']) payload[`${kind}Urls`] = refs.filter(r => r.kind === kind).map(r => r.url);
     h['Content-Type'] = 'application/json'; body = JSON.stringify(payload);
   }
+  await input.beforePaidDispatch?.();
   const data = await json(await fetch(`${BASE}/api/open/v1/${model.kind}/generate`, { method: 'POST', headers: h, body, signal: input.signal ? AbortSignal.any([input.signal,AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000)]) : AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000) }));
   if (!data.jobId) throw new Error('提交响应缺少 jobId，请在飞拓任务日志核对后再操作');
   return data;
@@ -79,4 +88,4 @@ async function status({ jobId, apiKey }) {
   if (!jobId) throw new Error('缺少任务编号');
   return json(await fetch(`${BASE}/api/open/v1/video/status?jobId=${encodeURIComponent(jobId)}&_=${Date.now()}`, { cache: 'no-store', headers: { ...headers(apiKey), 'Cache-Control':'no-cache' }, signal: AbortSignal.timeout(60000) }));
 }
-module.exports = { submit, status, validate };
+module.exports = { submit, status, validate, configurePublicImagePreparation };

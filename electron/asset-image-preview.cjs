@@ -1,5 +1,5 @@
 const {cacheIdentity} = require('./cos-image-cache.cjs');
-function createAssetImagePreview({resolveImage,readBytes,readAccount,previewCache}) {
+function createAssetImagePreview({resolveImage,readBytes,readAccount,previewCache,peekOriginal}) {
   return async payload => {
     const account=readAccount();
     if(!account)throw new Error('请先登录账号');
@@ -11,9 +11,12 @@ function createAssetImagePreview({resolveImage,readBytes,readAccount,previewCach
       const local=await previewCache.get(image.url,account);
       if(readAccount()!==account)throw new Error('账号已切换，请重新打开图片');
       if(local)return {...image,originalUrl:image.url,url:local};
-      image=await resolveImage({...payload,preview:true});
-      if(readAccount()!==account)throw new Error('账号已切换，请重新打开图片');
-      if(!image?.url)throw new Error('图片地址不可用');
+      const original=peekOriginal?.(image.url,account);
+      if(!original) {
+        image=await resolveImage({...payload,preview:true,quickPreview:!!peekOriginal});
+        if(readAccount()!==account)throw new Error('账号已切换，请重新打开图片');
+        if(!image?.url)throw new Error('图片地址不可用');
+      }
     }
     if(payload.original!==true && /^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(image.previewDataUrl || '') && image.previewDataUrl.length<2*1024*1024) {
       const local=await previewCache?.put(image.url,account,image.previewDataUrl);

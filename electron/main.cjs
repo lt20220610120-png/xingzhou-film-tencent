@@ -31,7 +31,7 @@ configureMediaFetch(require('./media-read-transport.cjs').createMediaReadFetch(n
 const desktopAPIFetch=require('./desktop-api-transport.cjs').createDesktopAPIFetch(net);
 require('./win-ai-api-fetch.cjs').configureAPIFetch(desktopAPIFetch);
 require('./cloud-access-service.cjs').configureCloudFetch(desktopAPIFetch);
-const { createCosImageCache } = require('./cos-image-cache.cjs');
+const { createCosImageCache, cacheIdentity } = require('./cos-image-cache.cjs');
 const { createAssetImagePreview } = require('./asset-image-preview.cjs');
 const { discoverModels } = require('./model-discovery.cjs');
 const { importMediaFiles } = require('./media-import.cjs');
@@ -374,6 +374,12 @@ function adoptedLocalVoices(account, projectId) {
 }
 function createProjectCollab() {
   const cloud = createCollabService(readCloudSession,{
+    upload(projectId,filePath,kind,token) {
+      const account = imageCacheAccount(), cache = currentMediaCache();
+      return require('./collab-service.cjs').uploadToBucket(projectId,filePath,kind,token,(url,result)=>{
+        if (account && account===imageCacheAccount() && cache===currentMediaCache()) cache.seed(url,account,result);
+      });
+    },
     async verifyStoryboardAudio(file,{projectId,reference}) {
       if (!/\.(?:wav|mp3|m4a|aac|ogg|flac)$/i.test(file)) return null;
       const account = readCloudSession()?.account;
@@ -469,14 +475,54 @@ ipcMain.handle('discover-models', (_, config) => config?.provider==='codexLocal'
 ipcMain.handle('collab-resolve-asset-image', (_, payload) => collabService.resolveAssetImage(payload));
 const imageCacheAccount = () => readCloudSession()?.account?.id || '';
 let activeImageCache, activeImageCacheDir;
-configureMediaCache({read:(url,scope,load)=>{
+function currentMediaCache() {
  const directory=path.join(getDataDir(),'.cloud-image-cache');
- if(directory!==activeImageCacheDir){activeImageCache=createCosImageCache({directory});activeImageCacheDir=directory;}
- return activeImageCache.read(url,scope,load);
-}},imageCacheAccount);
+ if(directory!==activeImageCacheDir){activeImageCache=createCosImageCache({directory,onRead:recordMediaTraffic});activeImageCacheDir=directory;}
+ return activeImageCache;
+}
+const mediaTraffic = new Map();
+let lastMediaTraffic = Date.now();
+function recordMediaTraffic(route,bytes) {
+  const count=mediaTraffic.get(route)||{requests:0,bytes:0};
+  count.requests++;count.bytes+=bytes;mediaTraffic.set(route,count);
+  if(Date.now()-lastMediaTraffic >= 300000) {
+    appendStartupLog('cos_media_traffic '+JSON.stringify(Object.fromEntries(mediaTraffic)));
+    lastMediaTraffic=Date.now();mediaTraffic.clear();
+  }
+}
+const smallMediaRead=require('./small-media-reader.cjs').createSmallMediaReader({
+  call:cloudGateway,getToken:()=>readCloudSession()?.token,onRead:recordMediaTraffic,
+});
+configureMediaCache({read:(...args)=>currentMediaCache().read(...args)},imageCacheAccount,smallMediaRead,recordMediaTraffic);
 const localPreviewCache = require('./local-preview-cache.cjs').createLocalPreviewCache({directory:()=>path.join(getDataDir(),'.cloud-preview-cache')});
-const loadAssetImage = createAssetImagePreview({resolveImage:p=>collabService.resolveAssetImage(p),readBytes:readMediaBytes,readAccount:imageCacheAccount,previewCache:localPreviewCache});
+const loadAssetImage = createAssetImagePreview({resolveImage:p=>collabService.resolveAssetImage(p),readBytes:readMediaBytes,readAccount:imageCacheAccount,previewCache:localPreviewCache,peekOriginal:(url,account)=>currentMediaCache().peek(url,account)});
 ipcMain.handle('collab-load-asset-image', (_, payload) => loadAssetImage(payload));
+
+function registerLocalMediaProtocol() {
+  const local = createLocalMediaHandler(getDataDir,(file,root)=>{
+    if(path.relative(root,file).split(path.sep)[0].toLowerCase()!=='.cloud-image-cache') return true;
+    const account=imageCacheAccount();
+    try {
+      if(!account || fs.statSync(file+'.json').size>1024) return false;
+      const {scope}=JSON.parse(fs.readFileSync(file+'.json','utf8'));
+      return scope===require('node:crypto').createHash('sha256').update(account).digest('hex');
+    } catch { return false; }
+  });
+  protocol.handle('xzmedia',async request=>{
+    const url=new URL(request.url);
+    if(url.hostname!=='project-audio') return local(request);
+    const id=url.pathname.slice(1), account=imageCacheAccount();
+    if(!account || !/^[\w-]{1,100}$/.test(id) || !['GET','HEAD'].includes(request.method)) return new Response(null,{status:404});
+    try {
+      const signed=await cloudGateway('media-download-url',{mediaId:id},readCloudSession()?.token||'');
+      if(account!==imageCacheAccount() || !cacheIdentity(signed.url,account) || !/^audio\//.test(signed.mime)) return new Response(null,{status:404});
+      return require('./project-audio-read.cjs').readProjectAudio(request,signed.url,account,{
+        readScope:imageCacheAccount,cache:currentMediaCache(),relay:smallMediaRead,local,fetchFn:(url,options)=>net.fetch(url,options),
+        onDirect:bytes=>recordMediaTraffic('direct',bytes),
+      });
+    } catch { return new Response(null,{status:503}); }
+  });
+}
 const renewImageReferences = payload => require('./generation-reference-recovery.cjs').renewImageReferences(payload, collabService);
 ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=[],archive=true,filename='图片',layout='flat'})=>{
  const safe=s=>String(s||'图片').replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
@@ -546,7 +592,18 @@ ipcMain.handle('collab-get-stats',(_,payload)=>collabService.getStats(payload));
 function mediaDir(){return ensureDir(path.join(getDataDir(),'画布素材'))}
 const audioResults=()=>require('./audio-results.cjs').createAudioResultStore({dataDir:getDataDir(),resultsDir:()=>path.join(mediaDir(),'语音生成')});
 const {createGenerationManagers,generationRetainedPaths}=require('./generation-jobs.cjs');
-const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({getSession:()=>accessService.readSession()});
+const prepareVideoReferences=require('./niney-reference-upload.cjs').createNineyReferenceUploader({
+  getSession:readCloudSession,
+  compress:(bytes,mime,ref)=>require('./reference-image-copy.cjs').compressReferenceImage(bytes,mime,{
+    nativeImage,maxEdge:['first_frame','last_frame'].includes(ref.role)?2560:2304,
+  }),
+  readLocalOriginal:(url,account)=>{
+    const cache=currentMediaCache();
+    if(!cache.peek(url,account)) return null;
+    return cache.read(url,account,()=>null);
+  },
+});
+require('./feituo-client.cjs').configurePublicImagePreparation(prepareVideoReferences.publicImages);
 const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),beforeDispatch:async input=>{await storyboardBatchHost?.assertDispatch(input);await productionHost.assertSubmission(input);},libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
 const jobs=()=>generationManagers(mediaDir());
 async function manageGenerationReferences(action,payload={}){
@@ -710,7 +767,7 @@ let canvasWindow=null;
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});protectWindow(canvasWindow,{allowUrl:canvasPage,openExternal:url=>shell.openExternal(url)});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:LOCAL_MEDIA_PRIVILEGES},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 function registerCanvasAppProtocol(){const appDir=path.normalize(path.join(__dirname,'../canvas-app'));protocol.handle('xzapp',(request)=>{const url=new URL(request.url);let rel=decodeURIComponent(url.pathname).replace(/^\/+/,'');if(!rel||rel==='')rel='index.html';if(rel==='config.js'){const profile=readJson(dataFile(),{}).mediaProfiles?.find(p=>p.provider==='museLocal');return new Response(require('./muse-canvas-runtime.cjs').canvasRuntime(profile),{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'}});}const resolved=path.normalize(path.join(appDir,rel));if(!resolved.startsWith(appDir))return new Response('forbidden',{status:403});if(!fs.existsSync(resolved))return net.fetch(pathToFileURL(path.join(appDir,'index.html')).toString());return net.fetch(pathToFileURL(resolved).toString())})}
-app.whenReady().then(async()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));try{const moved=isPackagedSmoke?[]:migrateLegacyAccountState({appData:app.getPath('appData'),userData:app.getPath('userData')});if(moved.length)appendStartupLog('旧版账号状态已迁移：'+moved.join('、'));}catch{appendStartupLog('旧版账号状态迁移未完成，原文件保留');}try{require('./local-provider-migration.cjs').applyLocalProviderMigration(app.getPath('userData'),getDataDir());}catch{appendStartupLog('本机接口维护计划未应用，原配置保留');}try{require('./like-extension.cjs').syncLikeExtension(app.getPath('userData'),{existingOnly:true});}catch{appendStartupLog('Like连接组件更新未完成，请打开连接设置重试');}try{getLibTV();}catch{appendStartupLog('LibTV 本机凭据保护初始化失败，可在连接界面重试');}if(!isPackagedSmoke){try{void getLike().start().catch(()=>appendStartupLog('Like本机服务未启动，请在连接界面检查'));}catch{appendStartupLog('Like凭据保护暂不可用');}}await pruneUpdateCache(path.join(app.getPath('userData'),'updates')).catch(()=>{});const pruneStorage=()=>require('./storage-cache-prune.cjs').pruneStorageCaches(getDataDir()).catch(()=>{});void pruneStorage();const cacheTimer=setInterval(pruneStorage,6*60*60*1000);cacheTimer.unref();try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{protocol.handle('xzmedia',createLocalMediaHandler(getDataDir))}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'),{safeStorage,onInvalidSession:()=>{licenseClient?.reset();ipcMain.invalidate();Promise.resolve(workBuddyPanel?.revoke()).catch(()=>{});Promise.resolve(winAiPanel?.revoke()).catch(()=>{});}});licenseClient=require('./software-license-client.cjs').createLicenseClient({directory:app.getPath('userData'),safeStorage,call:cloudGateway,token:()=>accessService.token(),version:app.getVersion(),onChange:value=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('license-state',value);}});require('./cloud-access-service.cjs').setLicenseDecorator(licenseClient.decorate);const licenseTimer=setInterval(()=>{if(licenseClient.shouldHeartbeat())void licenseClient.check().catch(()=>{});},60000);licenseTimer.unref();collabService=createProjectCollab();setupWorkBuddy();startWorkflowTimer();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
+app.whenReady().then(async()=>{if(!isPackagedSmoke)app.setPath('userData',path.join(app.getPath('appData'),'行舟影视-腾讯云版'));try{const moved=isPackagedSmoke?[]:migrateLegacyAccountState({appData:app.getPath('appData'),userData:app.getPath('userData')});if(moved.length)appendStartupLog('旧版账号状态已迁移：'+moved.join('、'));}catch{appendStartupLog('旧版账号状态迁移未完成，原文件保留');}try{require('./local-provider-migration.cjs').applyLocalProviderMigration(app.getPath('userData'),getDataDir());}catch{appendStartupLog('本机接口维护计划未应用，原配置保留');}try{require('./like-extension.cjs').syncLikeExtension(app.getPath('userData'),{existingOnly:true});}catch{appendStartupLog('Like连接组件更新未完成，请打开连接设置重试');}try{getLibTV();}catch{appendStartupLog('LibTV 本机凭据保护初始化失败，可在连接界面重试');}if(!isPackagedSmoke){try{void getLike().start().catch(()=>appendStartupLog('Like本机服务未启动，请在连接界面检查'));}catch{appendStartupLog('Like凭据保护暂不可用');}}await pruneUpdateCache(path.join(app.getPath('userData'),'updates')).catch(()=>{});const pruneStorage=()=>require('./storage-cache-prune.cjs').pruneStorageCaches(getDataDir()).catch(()=>{});void pruneStorage();const cacheTimer=setInterval(pruneStorage,6*60*60*1000);cacheTimer.unref();try{registerCanvasAppProtocol()}catch(error){appendStartupLog(`canvas-protocol ${error?.stack||error}`)}try{registerLocalMediaProtocol()}catch(error){appendStartupLog(`media-protocol ${error?.stack||error}`)}accessService=createCloudAccessService(app.getPath('userData'),{safeStorage,onInvalidSession:()=>{licenseClient?.reset();ipcMain.invalidate();Promise.resolve(workBuddyPanel?.revoke()).catch(()=>{});Promise.resolve(winAiPanel?.revoke()).catch(()=>{});}});licenseClient=require('./software-license-client.cjs').createLicenseClient({directory:app.getPath('userData'),safeStorage,call:cloudGateway,token:()=>accessService.token(),version:app.getVersion(),onChange:value=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('license-state',value);}});require('./cloud-access-service.cjs').setLicenseDecorator(licenseClient.decorate);const licenseTimer=setInterval(()=>{if(licenseClient.shouldHeartbeat())void licenseClient.check().catch(()=>{});},60000);licenseTimer.unref();collabService=createProjectCollab();setupWorkBuddy();startWorkflowTimer();createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})}).catch(error=>{try{appendStartupLog(`ready ${error?.stack||error}`);createWindow()}catch(fallbackError){appendStartupLog(`fallback-window ${fallbackError?.stack||fallbackError}`)}});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
 
 const quitHandler=createGeminiQuitHandler({beforeCleanup:async()=>{if(mainWindow&&!mainWindow.isDestroyed())await mainWindow.webContents.executeJavaScript('window.__xingzhouBeforeQuit?.()');await require('./state-writer.cjs').flushStateWrites();},onSaveError:()=>dialog.showErrorBox('保存未完成','本地保存失败，已取消退出。请检查磁盘空间和权限，保存成功后再退出。'),getService:()=>({close:()=>Promise.all([likeConnector?{close:()=>likeConnector.stop()}:null,geminiWebService,doubaoWorkService,chatgptWebService,libtvService].filter(Boolean).map(service=>service.close()))}),isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit()});
 app.on('before-quit',quitHandler);

@@ -3,7 +3,7 @@ module.exports=async function verifyVideoPreview(win,mediaDir){
  const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
  const {net}=require('electron');
  const {exportMediaFile}=require('./local-media.cjs');
- const source=path.join(__dirname,'fixtures','preview-seek.mp4'),file=path.join(mediaDir,'视频拖动验证.mp4');
+ const source=path.join(process.env.XINGZHOU_SMOKE_TEST_ROOT,'preview-seek.mp4'),file=path.join(mediaDir,'视频拖动验证.mp4');
  fs.copyFileSync(source,file);
  const url=`xzmedia://local/${encodeURIComponent(file)}`;
  const range=await net.fetch(url,{headers:{Range:'bytes=-1024'}});
