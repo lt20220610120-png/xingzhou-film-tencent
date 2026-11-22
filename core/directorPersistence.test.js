@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDirectorPersistence } from './directorPersistence.js';
+test('desktop persistence sends only changed projects and retries against the last acknowledged snapshot',async()=>{
+ const one={id:'one',episodes:['old']},two={id:'two',episodes:['kept']},state={directorProjects:[one,two],theme:'light',other:'old'};
+ let fail=true;const deltas=[];
+ const writer=createDirectorPersistence({saveState:()=>assert.fail('full state'),saveDirectorProjects:()=>assert.fail('full project list'),saveDelta:async delta=>{
+  deltas.push(delta);if(fail)throw Error('interrupted');
+ }});
+ writer.seed(state);writer.enqueue({...state,directorProjects:[{...one},{...two}]});await writer.flush();
+ const updated={...one,episodes:['new']},next={directorProjects:[updated,two],theme:'dark'};
+ writer.enqueue(next);await assert.rejects(writer.flush(),/interrupted/);fail=false;
+ writer.enqueue(next);await writer.flush();
+ assert.deepEqual(deltas,[0,1].map(()=>({workspace:{set:{theme:'dark'},remove:['other']},directors:{order:['one','two'],changed:[updated]}})));
+ writer.enqueue({...next,directorProjects:[two]});await writer.flush();
+ assert.deepEqual(deltas.at(-1),{directors:{order:['two'],changed:[]}});
+});
 
 function deferred() {
   let resolve, reject;

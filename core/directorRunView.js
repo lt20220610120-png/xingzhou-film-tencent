@@ -1,3 +1,9 @@
+export function completedDirectorReceipt(run){
+ const {id,kind,phase,createdAt,updatedAt,revision}=run;
+ const {accountId,projectId,episodeId,sceneLabel,promptEditionId}=run.snapshot;
+ return {id,kind,phase,createdAt,updatedAt,revision,storedSummary:true,snapshot:{accountId,projectId,episodeId,sceneLabel,promptEditionId}};
+}
+
 // UI lists carry identities/status only. Full paid replies are loaded for the
 // selected scene, rather than cloned for every historical run on every render.
 export function directorRunEntries(records,{summary=false,projectId,episodeId,sceneLabel,accountId}={}){

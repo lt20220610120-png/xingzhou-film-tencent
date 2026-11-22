@@ -1,5 +1,5 @@
 import React,{useState} from 'react';
-import {isDirectorBatchActive} from '../../core/directorBatchGeneration.js';
+import {isDirectorBatchActive,MAX_DIRECTOR_SCENES_IN_FLIGHT} from '../../core/directorBatchGeneration.js';
 import {useRememberedState} from '../useRememberedState.js';
 import {DEFAULT_DIRECTOR_PACE,directorPaceLabel,effectiveDirectorDurationLimit,normalizeDirectorDurationSelection,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
 import {Dialog} from './GlobalTools.jsx';
@@ -16,8 +16,8 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const batchDuration=durationOverride??defaultDuration;
  const batchPace=normalizeDirectorPace(segmentationMode==='auto'?calibration?.pace:pace);
  const durationLabel=value=>value===0?'自动估算（单条最高35秒）':`最高 ${value} 秒`;
- const concurrency=settings.concurrency==='all'||Number.isInteger(settings.concurrency)&&settings.concurrency>0?settings.concurrency:'all';
- const concurrencyLabel=value=>value==='all'?'全部场景并发':`${value} 场并发`;
+ const concurrency=Number.isInteger(settings.concurrency)&&settings.concurrency>0?Math.min(settings.concurrency,MAX_DIRECTOR_SCENES_IN_FLIGHT):'all';
+ const concurrencyLabel=value=>value==='all'?`自动排队（最多 ${MAX_DIRECTOR_SCENES_IN_FLIGHT} 场并发）`:`${Math.min(value,MAX_DIRECTOR_SCENES_IN_FLIGHT)} 场并发`;
  const batch=quickGeneration?.getProjectBatch(project.id),active=isDirectorBatchActive(batch);
  const invoke=async operation=>{setError('');try{await operation();}catch(e){setError(e.message);}};
  const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,maxDurationSeconds:batchDuration,pace:batchPace,timingScale:segmentationMode==='auto'?calibration?.timingScale:undefined,concurrency,existingPolicy:policy,segmentationMode,...updates});};
@@ -35,7 +35,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
     {segmentationMode==='auto'&&calibration&&<p className="director-batch-calibration">基准 {calibration.episodeTitle} · 场景 {calibration.sceneLabel} · {directorPaceLabel(batchPace)} · {calibration.totalEstimatedSeconds} 秒 / {Math.ceil(calibration.totalEstimatedSeconds/effectiveDirectorDurationLimit(batchDuration))} 条 · {durationLabel(batchDuration)}</p>}
     {segmentationMode==='auto'&&!calibration&&<p>请先在具体场景调整预估，再点「应用到全剧」。</p>}
     {segmentationMode==='auto'&&<label><span>单条最高时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled||preparing} onChange={e=>{setDurationOverride(Number(e.target.value));setPreview(null);}}>{Array.from({length:36},(_,i)=><option key={i} value={i}>{i===0?'自动（≤35秒）':`${i} 秒`}</option>)}</select></label>}
-    <label><span>场景并发</span><select aria-label="整本场景并发" value={concurrency} disabled={active||disabled||preparing} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">全部场景</option>{[1,2,4,8,16,32].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
+    <label><span>场景并发</span><select aria-label="整本场景并发" value={concurrency} disabled={active||disabled||preparing} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">自动（最多 {MAX_DIRECTOR_SCENES_IN_FLIGHT} 场）</option>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
    <button className="secondary" disabled={disabled||active||sceneBusy||preparing||!skill||!profile||(segmentationMode==='auto'&&!calibration)} onClick={prepare}>{preparing?'读取整本分段…':'预览整本任务'}</button>
    </div>
   </div>

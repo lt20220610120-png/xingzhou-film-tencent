@@ -3,9 +3,12 @@
 function createGenerationMonitor({jobs,getProfiles,authorize,concurrency=4,now=Date.now,onUpdate=()=>{}}){
  const active=new Set(),cooldown=new Map();
  return {async pump(){
-  const owner=await authorize();if(!owner?.id)return;const manager=jobs(),profiles=await getProfiles(),tasks=manager.list({includeArchived:true});
+  const owner=await authorize();if(!owner?.id)return;const manager=jobs(),tasks=manager.list({includeArchived:true});
   const due=tasks.filter(j=>j.kind==='video'&&!['success','failed'].includes(j.status)&&(j.jobId||j.status==='downloading'&&(j.url||j.urls?.length))&&j.referenceAccountId===String(owner.id)&&!active.has(j.id)&&Math.max(j.nextPollAt||0,cooldown.get(j.id)||0)<=now()).sort((a,b)=>(a.checkedAt?Date.parse(a.checkedAt):0)-(b.checkedAt?Date.parse(b.checkedAt):0));
+  if(!due.length||active.size>=concurrency)return;
+  const profiles=await getProfiles();
   const work=[];for(const job of due){if(active.size>=concurrency)break;
+   if(active.has(job.id)||(cooldown.get(job.id)||0)>now())continue;
    const profile=profiles.find(p=>p.id===job.profileId);let match=false;try{match=profile&&new URL(profile.endpoint).origin===new URL(job.endpoint).origin;}catch{}
    if(!match&&!['libtv','likeai'].includes(job.provider))continue;
    active.add(job.id);cooldown.set(job.id,now()+5000);

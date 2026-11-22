@@ -7,9 +7,13 @@ function installRuntimeHealth({app,getWindow,intervalMs=60000}){
   const memory=process.memoryUsage();
   fs.appendFileSync(file,JSON.stringify({at:new Date().toISOString(),version:app.getVersion(),type,...details,memory:{rss:memory.rss,heapUsed:memory.heapUsed,heapTotal:memory.heapTotal,external:memory.external}})+'\n');
  }catch{}};
- const sample=async()=>{const win=getWindow();if(!win||win.isDestroyed())return;try{const renderer=await win.webContents.getProcessMemoryInfo();record('memory',{renderer});}catch{}};
+ const sample=async()=>{const win=getWindow();if(!win||win.isDestroyed())return;try{
+  const renderer=app.getAppMetrics().find(metric=>metric.pid===win.webContents.getOSProcessId())?.memory;
+  record('memory',renderer?{renderer}:{});
+ }catch{}};
  app.on('child-process-gone',(_event,d)=>record('child-process-gone',{reason:d.reason,exitCode:d.exitCode,processType:d.type}));
  app.on('render-process-gone',(_event,_contents,d)=>record('render-process-gone',{reason:d.reason,exitCode:d.exitCode}));
+ app.on('will-quit',()=>record('will-quit'));
  process.on('uncaughtExceptionMonitor',error=>record('uncaughtException',{code:error.code||'',name:error.name||'Error'}));
  const timer=setInterval(()=>void sample(),intervalMs);timer.unref();record('startup');
  return {record,sample,close:()=>clearInterval(timer)};

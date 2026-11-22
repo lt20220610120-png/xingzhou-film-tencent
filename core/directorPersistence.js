@@ -3,7 +3,7 @@
  * the most recent pending immutable React state is saved, so an old debounce
  * cannot finish after a confirmed generation commit.
  */
-export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
+export function createDirectorPersistence({ saveState, saveDirectorProjects, saveDelta }) {
   if (typeof saveState !== 'function' || typeof saveDirectorProjects !== 'function') {
     throw new TypeError('导演资料保存需要两份本地文件的保存函数。');
   }
@@ -14,6 +14,26 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
   let disposed = false;
   let suspended = false;
   let savedDirectorProjects;
+  let savedSnapshot;
+
+  function deltaFor(state) {
+    const {directorProjects=[], ...workspace}=state;
+    const previous=savedSnapshot;
+    const set={};
+    for(const [key,value] of Object.entries(workspace))if(!previous||!Object.hasOwn(previous,key)||value!==previous[key])set[key]=value;
+    const remove=Object.keys(previous||{}).filter(key=>key!=='directorProjects'&&!Object.hasOwn(workspace,key));
+    const oldProjects=previous?.directorProjects||[];
+    const oldById=new Map(oldProjects.map(row=>[row.id,row]));
+    const changed=directorProjects.filter(row=>{
+      const old=oldById.get(row.id);
+      return !old||old!==row&&(Object.keys(old).length!==Object.keys(row).length||Object.keys(row).some(key=>old[key]!==row[key]));
+    });
+    const orderChanged=oldProjects.length!==directorProjects.length||directorProjects.some((row,index)=>oldProjects[index]?.id!==row.id);
+    return {
+      ...(Object.keys(set).length||remove.length?{workspace:{set,remove}}:{}),
+      ...(!previous||orderChanged||changed.length?{directors:{order:directorProjects.map(row=>row.id),changed}}:{}),
+    };
+  }
 
   function assertSaved(result, label) {
     if (result === false || (result && typeof result === 'object' && result.ok === false)) {
@@ -26,6 +46,13 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
       const next = pending;
       pending = null;
       try {
+        if (saveDelta) {
+          const delta=deltaFor(next.state);
+          if (Object.keys(delta).length) assertSaved(await saveDelta(delta), '本地资料');
+          savedSnapshot=next.state;
+          lastOutcome={revision:next.revision,error:null};
+          continue;
+        }
         assertSaved(await saveState(next.state), '本地资料');
         // Immutable state keeps the same director array when creator edits.
         // Only remember a successful write; failed writes remain retryable.
@@ -71,6 +98,7 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
   }
 
   return {
+    seed(state) { if (!worker&&!pending) savedSnapshot=state; },
     enqueue(state) {
       queueSnapshot(state);
       start();
@@ -98,6 +126,7 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects }) {
       if (state !== undefined) queueSnapshot(state);
       suspended = false;
       savedDirectorProjects = undefined;
+      savedSnapshot = undefined;
       start();
     },
     dispose() {

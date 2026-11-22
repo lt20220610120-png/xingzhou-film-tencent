@@ -43,9 +43,9 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
         skill:current.skills?.find(s=>s.id===target.skillId),profile:current.apiProfiles?.find(p=>p.id===target.profileId),
         permissions:{canGenerate:Boolean(scene)&&!directorySwitchRef.current&&!project?.cloudLocked&&!project?.cloudConflict&&!project?.cloudLiveNeedsRepair&&project?.canWrite!==false&&project?.permissions?.canGenerate!==false&&project?.permissions?.canWrite!==false&&episode?.canWrite!==false}};
     };
-    const readList=createDirectorCheckpointReader({readPage:options=>api.directorQuickListRuns(options),getScope:()=>accountRef.current+':'+directoryEpochRef.current,onIssues:issues=>setRestoreError(`有 ${issues.length} 条旧任务记录无法读取，其他进度已恢复；原文件已保留。`)});
+    const readList=createDirectorCheckpointReader({readPage:options=>api.directorQuickListRuns({...options,compactCompleted:true}),getScope:()=>accountRef.current+':'+directoryEpochRef.current,onIssues:issues=>setRestoreError(`有 ${issues.length} 条旧任务记录无法读取，其他进度已恢复；原文件已保留。`)});
     const checkpoints=api.directorQuickSaveRun?{
-      list:readList,load:p=>api.directorQuickLoadRun(p),save:p=>api.directorQuickSaveRun(p),
+      list:readList,load:p=>api.directorQuickLoadRun(p),save:p=>api.directorQuickSaveRun(p),compactCompleted:true,
     }:browserCheckpoints(accountRef);
     const unwrap=result=>{
       if(result?.ok===false)throw Object.assign(new Error(result.error||'生成失败'),{partialText:result.partialText||'',code:result.code||'FAILED'});

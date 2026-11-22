@@ -9,6 +9,7 @@ const clone=value=>structuredClone(value);
 const active=new Set(['running','pausing']);
 const finished=new Set(['completed','skipped','stale']);
 export const isDirectorBatchActive=batch=>Boolean(batch&&active.has(batch.phase));
+export const MAX_DIRECTOR_SCENES_IN_FLIGHT=6;
 const fault=(message,code='FAILED')=>Object.assign(new Error(message),{code});
 const fingerprintFields=['accountId','projectId','episodeId','sceneLabel','sourceHash','settingsHash','skillId','skillHash','profileId','profileHash'];
 const contextFor=(context,target)=>({...context,inputText:context.inputText??directorSceneInput(context.project,context.episode,target.sceneLabel),sceneLabel:target.sceneLabel,maxDurationSeconds:target.maxDurationSeconds,pace:target.pace,timingScale:target.timingScale,segmentationMode:target.segmentationMode||'auto'});
@@ -128,7 +129,8 @@ export function createDirectorBatchController({sceneController,checkpoints,getCo
  const execute=async batch=>{
   try{
    const pending=batch.targets.filter(target=>!finished.has(target.status));
-   const configured=concurrencyOf(batch.concurrency),limit=configured==='all'?pending.length:Math.min(configured,pending.length);
+   const configured=concurrencyOf(batch.concurrency);
+   const limit=Math.min(configured==='all'?MAX_DIRECTOR_SCENES_IN_FLIGHT:configured,MAX_DIRECTOR_SCENES_IN_FLIGHT,pending.length);
    let next=0;
    const worker=async()=>{
     while(!disposed&&batch.phase==='running'&&next<pending.length){const target=pending[next++];await executeTarget(batch,target);}

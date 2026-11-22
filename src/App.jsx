@@ -1178,6 +1178,7 @@ function App() {
   if (!persistenceRef.current) persistenceRef.current = createDirectorPersistence({
     saveState: value => api.saveState(value),
     saveDirectorProjects: projects => api.saveDirectorProjects?.(projects),
+    saveDelta: api.saveWorkspaceDelta,
   });
   const persistence = persistenceRef.current;
   useEffect(()=>{
@@ -1218,12 +1219,13 @@ function App() {
       const [saved, directorProjects, info] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null), api.storageInfo()]);
       const cachedDirectory=localStorage.getItem(STORAGE+'-data-dir');
       const recoverRecycle=!cachedDirectory||cachedDirectory===info.dataDir;
+      persistence.seed(mergeDirectorSnapshot(saved,directorProjects));
       setState(current => initializeClientDistribution(upgradeMuseProfiles(recoverCreatorTasks(mergePersistedState(current, mergeDirectorSnapshot(saved,directorProjects),{recoverRecycle}))),{fresh:saved===null&&directorProjects===null&&!localStorage.getItem(STORAGE)}));
       try { localStorage.setItem(STORAGE+'-data-dir',info.dataDir); } catch { /* disk remains primary */ }
       setStorageLoadError('');
       setInitialized(true);
     } catch (error) { setInitialized(false); setStorageLoadError(error.message || '本地资料读取失败'); }
-  }, [setState]);
+  }, [setState,persistence]);
   useEffect(() => { loadSavedState(); }, [loadSavedState]);
 
   useEffect(() => {

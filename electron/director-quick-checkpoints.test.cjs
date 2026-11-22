@@ -16,6 +16,16 @@ function run(id = 'run-1', accountId = 'account-a') {
   return { id, phase: 'generating', snapshot: { accountId, projectId: 'p-1', episodeId: 'e-1', sceneLabel: '1-1' }, segmentDrafts: [], updatedAt: '2026-10-02T01:00:00.000Z' };
 }
 
+test('desktop recovery lists completed scenes without copying their original replies into memory',t=>{
+ const {store}=fixture(t),output='完整原始回包';
+ store.save({run:{...run('completed'),kind:'manual-scene',phase:'completed',output}});
+ store.save({run:{...run('interrupted'),kind:'manual-scene',phase:'paused',output}});
+ const {runs}=store.list({recoverable:true,compactCompleted:true});
+ assert.equal(runs[0].storedSummary,true);
+ assert.equal(runs[0].output,undefined);
+ assert.equal(runs[1].output,output);
+ assert.equal(store.load({runId:'completed'}).output,output);
+});
 test('检查点按主进程当前账号隔离，不能由 renderer 指定其他账号', (t) => {
   const { store, setAccount } = fixture(t);
   store.save({ run: run() });

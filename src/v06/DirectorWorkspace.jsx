@@ -361,11 +361,26 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const manualOutputRevision=(episode.manualSceneReplies||[]).length;
   const savedReplies=currentManualSceneReplies(episode,currentScene);
   const activeRunId=episode.activeSceneGenerationRuns?.[currentScene]?.runId;
-  const sceneManualRuns=quickGeneration?.getSceneManualRuns?.(project.id,episode.id,currentScene)||[];
+  const storedManualRuns=quickGeneration?.getSceneManualRuns?.(project.id,episode.id,currentScene)||[];
+  const storedAutoRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
+  const historyIds=(mode!=='quick'?[]:quickSettings.segmentationMode==='auto'?[storedAutoRun]:storedManualRuns.filter(r=>!activeRunId||r.id===activeRunId))
+    .filter(r=>r?.storedSummary).map(r=>r.id).sort().join(',');
+  const historyKey=JSON.stringify([accountId,project.id,episode.id,currentScene,historyIds]);
+  const [historyDetails,setHistoryDetails]=useState(null);
+  useEffect(()=>{
+    if(!historyIds||!api.directorQuickLoadRun)return;
+    let active=true;
+    Promise.allSettled(historyIds.split(',').map(runId=>api.directorQuickLoadRun({runId}))).then(results=>{
+      if(active)setHistoryDetails({key:historyKey,byId:new Map(results.filter(result=>result.status==='fulfilled'&&result.value).map(({value})=>[value.id,value]))});
+    });
+    return()=>{active=false;};
+  },[api,historyKey,historyIds]);
+  const details=historyDetails?.key===historyKey?historyDetails.byId:null;
+  const sceneManualRuns=storedManualRuns.map(run=>details?.get(run.id)||run);
   const manualRun=sceneManualRuns.filter(r=>!activeRunId||r.id===activeRunId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
   const manualOutputs=[...savedReplies,...(sceneManualRuns.length?sceneManualRuns:quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&(!activeRunId||r.id===activeRunId)&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
   const [autoError,setAutoError]=useState('');
-  const localRun=quickGeneration?.getSceneRun(project.id,episode.id,currentScene);
+  const localRun=storedAutoRun?.storedSummary?details?.get(storedAutoRun.id):storedAutoRun;
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
   const autoRun=localRun&&(!activeRunId||localRun.id===activeRunId)?localRun:(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
   const autoBusy=isQuickRunActive(localRun);

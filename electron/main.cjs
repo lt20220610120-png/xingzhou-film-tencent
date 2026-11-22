@@ -134,13 +134,14 @@ ipcMain.handle('import-creator-video', () => importCreatorVideo({ dialog, window
 ipcMain.handle('save-txt-batch',async(_,{folderName,files})=>{const r=await dialog.showOpenDialog({title:'选择导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;const safe=(s)=>String(s||'导出').replace(/[\\/:*?"<>|]/g,'_').slice(0,120);const dir=ensureDir(path.join(r.filePaths[0],safe(folderName)));for(const f of files||[]){fs.writeFileSync(path.join(dir,`${safe(f.name)}.txt`),'\ufeff'+(f.content||''),'utf8')}return dir});
 ipcMain.handle('storage-info',()=>storageInfo());
 const stateBackupLoads = new Map();
+let videoProfileCache;
 let directoryMigration=false;
 let preparedDirectory=null;
 function loadPersistedState() {
  const file = dataFile();
  const pending = loadCreatorStateWithBackup(file);
  // Retain failures to block automatic writes until the renderer successfully reloads.
- const barrier=pending.then(()=>true);barrier.catch(()=>{});stateBackupLoads.set(file, barrier);
+ const barrier=pending.then(state=>{videoProfileCache={file,mediaProfiles:state?.mediaProfiles||[]};return true;});barrier.catch(()=>{});stateBackupLoads.set(file, barrier);
  return pending;
 }
 ipcMain.handle('load-state',()=>loadPersistedState());
@@ -148,7 +149,19 @@ ipcMain.handle('save-state',async(_,state)=>{
  if(directoryMigration)throw new Error('资料目录正在迁移，请稍后保存');
  ensureDir(getDataDir());const file=dataFile();
  await (stateBackupLoads.get(file)||loadPersistedState());
- await require('./state-writer.cjs').writeStateAsync(file,state);return storageInfo();
+ await require('./state-writer.cjs').writeStateAsync(file,state);
+ videoProfileCache={file,mediaProfiles:state?.mediaProfiles||[]};
+ return storageInfo();
+});
+ipcMain.handle('save-workspace-delta',async(_,delta)=>{
+ if(directoryMigration)throw Error('资料目录正在迁移，请稍后保存');
+ const file=dataFile();
+ await (stateBackupLoads.get(file)||loadPersistedState());
+ await require('./state-writer.cjs').writeStateAsync(file,delta,{directorFile:directorProjectsFile(path.dirname(file))});
+ if(delta.workspace?.remove.includes('mediaProfiles')||Object.hasOwn(delta.workspace?.set||{},'mediaProfiles')){
+  videoProfileCache={file,mediaProfiles:delta.workspace.set.mediaProfiles||[]};
+ }
+ return true;
 });
 ipcMain.handle('load-director-projects',()=>{const file=directorProjectsFile();const data=readJson(file,null);if(Array.isArray(data))return data;const backup=readJson(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
 ipcMain.handle('save-director-projects',async(_,projects)=>{if(directoryMigration)throw new Error('资料目录正在迁移，请稍后保存');const file=directorProjectsFile();await require('./state-writer.cjs').writeStateAsync(file,projects||[],{backup:true});return file});
@@ -632,7 +645,12 @@ ipcMain.handle('admin-workflow-create',async(_,p)=>{
 ipcMain.handle('admin-workflow-action',async(_,p)=>{await workflowAdmin();return currentWorkflow().action(p);});
 ipcMain.handle('admin-workflow-open',async(_,p)=>{await workflowAdmin();const folder=await currentWorkflow().output(p.id);fs.mkdirSync(folder,{recursive:true});return shell.openPath(folder);});
 function startWorkflowTimer(){
- const videoMonitor=require('./generation-monitor.cjs').createGenerationMonitor({jobs,getProfiles:async()=>{const {generationMediaProfiles}=await import('../core/canvasStore.js');return generationMediaProfiles(readJson(dataFile(),{}),'video');},authorize:async()=>{if(directoryMigration)return null;try{await licenseClient?.requireActive();return readCloudSession()?.account;}catch{return null;}}});
+ const videoMonitor=require('./generation-monitor.cjs').createGenerationMonitor({jobs,getProfiles:async()=>{
+  const file=dataFile();
+  if(videoProfileCache?.file!==file)await loadPersistedState();
+  const {generationMediaProfiles}=await import('../core/canvasStore.js');
+  return generationMediaProfiles(videoProfileCache||{},'video');
+ },authorize:async()=>{if(directoryMigration)return null;try{await licenseClient?.requireActive();return readCloudSession()?.account;}catch{return null;}}});
  const tick=()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());void videoMonitor.pump().catch(()=>{});};const timer=setInterval(tick,5000);timer.unref();void tick();
 }
 

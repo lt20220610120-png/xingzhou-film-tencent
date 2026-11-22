@@ -1,5 +1,5 @@
 import {sameDirectorEdition} from './directorPromptEditions.js';
-import {directorRunEntries} from './directorRunView.js';
+import {directorRunEntries,completedDirectorReceipt} from './directorRunView.js';
 import { parseScenePlanningJson, recoverScenePlan } from './directorPlanRecovery.js';
 import { buildSceneSourceTape, validateScenePlan } from './directorSegmentation.js';
 import { recalibrateScenePlanTimings, getDirectorSegmentTimingFacts } from './directorTiming.js';
@@ -51,7 +51,9 @@ export function createQuickGenerationController({getContext,executeText,executeS
     run.updatedAt=new Date().toISOString();run.revision=(run.revision||0)+1;
     const copy=clone(run);
     const tail=(saveTails.get(run.id)||Promise.resolve()).catch(()=>{}).then(()=>checkpoints.save({run:copy}));
-    saveTails.set(run.id,tail);await tail;emit();
+    saveTails.set(run.id,tail);await tail;
+    if(checkpoints.compactCompleted&&run.phase==='completed'&&runs.get(run.id)===run)runs.set(run.id,completedDirectorReceipt(run));
+    emit();
   };
   const assertCurrent=async(run,version)=>{
     if(disposed || versions.get(run.id)!==version)throw error('任务已停止','STOPPED');
@@ -498,7 +500,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       return schedule(run);
     },
     async resume(runId,{profileId,restoreOutput=false}={}){
-      let run=runs.get(runId);if(!run){run=await checkpoints.load({runId});if(!run)throw error('找不到生成进度');if(run.kind==='manual-scene'||run.kind==='batch')throw error('这是人工分段或整本任务，请从整本任务继续','STALE');runs.set(runId,run);}
+      let run=runs.get(runId);if(!run||run.storedSummary){run=await checkpoints.load({runId});if(!run)throw error('找不到生成进度');if(run.kind==='manual-scene'||run.kind==='batch')throw error('这是人工分段或整本任务，请从整本任务继续','STALE');runs.set(runId,run);}
       if(profileId&&profileId!==run.snapshot.profileId){
        if(isQuickRunActive(run)||executions.has(runId))throw error('当前场景正在生成','BUSY');
        const context=await getContext({...run.snapshot,profileId});

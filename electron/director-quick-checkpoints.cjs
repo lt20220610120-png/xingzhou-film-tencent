@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {completedDirectorReceipt}=require('../core/directorRunView.js');
 
 const RUN_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
 const CREDENTIAL_FIELDS = new Set([
@@ -101,7 +102,7 @@ function createDirectorQuickCheckpoints(dataDir, getAccountId) {
   }
 
   return {
-    list({recoverable=false,limit=64,after=''}={}) {
+    list({recoverable=false,limit=64,after='',compactCompleted=false}={}) {
       const { accountId, directory } = scope();
       let names;
       try {
@@ -114,7 +115,10 @@ function createDirectorQuickCheckpoints(dataDir, getAccountId) {
       if(recoverable){
         if(!Number.isInteger(limit)||limit<1||limit>128||after&&!RUN_ID.test(after))throw checkpointError('DIRECTOR_QUICK_INVALID_RUN_ID','任务列表分页参数无效');
         const valid=names.filter(name=>RUN_ID.test(name.slice(0,-5))),remaining=valid.filter(name=>!after||name>after+'.json'),page=remaining.slice(0,limit),runs=[],issues=after?[]:names.filter(name=>!RUN_ID.test(name.slice(0,-5))).map(()=>({runId:null,code:'DIRECTOR_QUICK_INVALID_RUN_ID'}));
-        for(const name of page){const runId=name.slice(0,-5);try{assertRunId(runId);runs.push(readRun(path.join(directory,name),accountId,runId));}catch(e){issues.push({runId:RUN_ID.test(runId)?runId:null,code:e.code||'DIRECTOR_QUICK_READ_FAILED'});}}
+        for(const name of page){const runId=name.slice(0,-5);try{
+          const run=readRun(path.join(directory,name),accountId,runId);
+          runs.push(compactCompleted===true&&run.phase==='completed'&&run.kind!=='batch'?completedDirectorReceipt(run):run);
+        }catch(e){issues.push({runId:RUN_ID.test(runId)?runId:null,code:e.code||'DIRECTOR_QUICK_READ_FAILED'});}}
         return {runs,issues,nextCursor:remaining.length>page.length?page.at(-1).slice(0,-5):null};
       }
       return names.map((name) => {

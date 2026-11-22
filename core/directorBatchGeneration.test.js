@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDirectorBatchPlan,createDirectorBatchController} from './directorBatchGeneration.js';
+import {createDirectorBatchPlan,createDirectorBatchController,MAX_DIRECTOR_SCENES_IN_FLIGHT} from './directorBatchGeneration.js';
 import {createQuickGenerationController} from './directorQuickGeneration.js';
 import {commitQuickSceneRun,directorSceneInput} from './directorQuickStore.js';
 
@@ -147,6 +147,25 @@ test('a selected concurrency limit pauses all active workers and leaves unstarte
  const id=f.batch.entries()[0].id;assert.equal(f.maxActiveSkills,2);await f.batch.pause(id);release();await task;
  assert.equal(f.calls.some(call=>call.scene==='3-1'),false);assert.equal(f.batch.get(id).targets[2].status,'pending');
  await f.batch.resume(id);assert.equal(f.batch.get(id).phase,'completed');assert.equal(f.calls.filter(call=>call.kind==='skill').length,3);
+});
+
+test('all 59 scenes finish with a bounded number of simultaneous workers',async()=>{
+ const f=fixture(),episode=f.state.directorProjects[0].episodes[1];
+ episode.content=Array.from({length:59},(_,i)=>`1-${i+1} 景：房间 日 内\n甲：我回来了。`).join('\n');
+ f.state.directorProjects[0].episodes[3].content='';
+ const plan=await f.plan({concurrency:'all'});
+ assert.equal(plan.targets.filter(row=>row.status==='pending').length,59);
+ let active=0,maximum=0;const completed=new Set();
+ const sceneController={get:()=>null,start:async context=>{
+  active++;maximum=Math.max(maximum,active);
+  await new Promise(resolve=>setTimeout(resolve,4));
+  active--;completed.add(context.sceneLabel);
+  return {phase:'completed'};
+ }};
+ const result=await createDirectorBatchController({...f.deps,sceneController}).start(plan);
+ assert.equal(result.phase,'completed');
+ assert.equal(completed.size,59);
+ assert.equal(maximum,MAX_DIRECTOR_SCENES_IN_FLIGHT);
 });
 
 test('changed source is marked stale while other untouched scenes can proceed',async()=>{

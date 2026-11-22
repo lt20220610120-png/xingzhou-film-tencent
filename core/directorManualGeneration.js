@@ -1,4 +1,4 @@
-import {directorRunEntries} from './directorRunView.js';
+import {directorRunEntries,completedDirectorReceipt} from './directorRunView.js';
 import {createSceneSnapshot,snapshotMatchesContext,directorSceneInput} from './directorQuickStore.js';
 import {buildNumberedSceneTasks,buildWholeSceneSubmission,splitNumberedPromptOutput} from './directorCreative.js';
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
@@ -47,7 +47,12 @@ export function commitManualSceneRun(state,run){
  * per scene; paid replies are checkpointed before parsing or publishing. */
 export function createDirectorManualController({getContext,executeSkill,reviewSkill=null,checkpoints,commitRun,beginRun=null,cancelRequest=()=>{},onChange=()=>{}}){
  const runs=new Map(),executions=new Map(),tails=new Map();let disposed=false;
- const persist=async run=>{run.updatedAt=new Date().toISOString();run.revision=(run.revision||0)+1;const copy=clone(run),tail=(tails.get(run.id)||Promise.resolve()).catch(()=>{}).then(()=>checkpoints.save({run:copy}));tails.set(run.id,tail);await tail;if(!disposed)onChange();};
+ const persist=async run=>{
+  run.updatedAt=new Date().toISOString();run.revision=(run.revision||0)+1;
+  const copy=clone(run),tail=(tails.get(run.id)||Promise.resolve()).catch(()=>{}).then(()=>checkpoints.save({run:copy}));tails.set(run.id,tail);await tail;
+  if(checkpoints.compactCompleted&&run.phase==='completed'&&runs.get(run.id)===run)runs.set(run.id,completedDirectorReceipt(run));
+  if(!disposed)onChange();
+ };
  const assertCurrent=async run=>{
   if(disposed||run.stopRequested)throw fault('整本任务已停止，已返回内容保留','PAUSED');
   const context=await getContext(run.snapshot);
@@ -110,7 +115,7 @@ export function createDirectorManualController({getContext,executeSkill,reviewSk
    if(beginRun){try{const result=await beginRun(clone(run));if(!result?.applied)throw fault(result?.conflict||'新批次准备失败','STALE');}catch(e){run.phase=e.code==='STALE'?'stale':'failed';run.errors=[{code:e.code||'SAVE_FAILED',message:e.message}];await persist(run);return clone(run);}}
    return schedule(run);
   },
-  async resume(id){let run=runs.get(id);if(!run){run=await checkpoints.load({runId:id});if(run?.kind!=='manual-scene')throw fault('找不到人工分段进度');runs.set(id,run);}if(run.phase==='completed')return clone(run);if(executions.has(id))return executions.get(id);run.stopRequested=false;run.pauseRequested=false;return schedule(run);},
+  async resume(id){let run=runs.get(id);if(!run||run.storedSummary){run=await checkpoints.load({runId:id});if(run?.kind!=='manual-scene')throw fault('找不到人工分段进度');runs.set(id,run);}if(run.phase==='completed')return clone(run);if(executions.has(id))return executions.get(id);run.stopRequested=false;run.pauseRequested=false;return schedule(run);},
   async pauseAfterRequest(id){const run=runs.get(id);if(run&&isQuickRunActive(run)){run.pauseRequested=true;await persist(run);}},
   async stop(id){const run=runs.get(id);if(!run||!isQuickRunActive(run))return;run.stopRequested=true;run.phase='paused';await persist(run);if(run.pendingRequestId)try{await cancelRequest(run.pendingRequestId);}catch{}},
   async restore(){for(const run of await checkpoints.list()){if(run?.kind!=='manual-scene'||runs.has(run.id))continue;if(isQuickRunActive(run))run.phase='paused';runs.set(run.id,run);}if(!disposed)onChange();},

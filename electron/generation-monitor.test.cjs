@@ -1,5 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {createGenerationMonitor}=require('./generation-monitor.cjs');
+test('a video monitor with no due work never loads the workspace profiles',async()=>{
+ const monitor=createGenerationMonitor({authorize:async()=>({id:'owner'}),jobs:()=>({list:()=>[{id:'a',kind:'video',status:'success',jobId:'finished',referenceAccountId:'owner'}]}),getProfiles:()=>assert.fail('profiles must only load for due work')});
+ await monitor.pump();
+});
 test('independent monitor polls own original tasks concurrently and never submits',async()=>{
  let release;const blocked=new Promise(r=>release=r),calls=[];const tasks=['slow','ready','failed','other','unknown'].map(id=>({id,kind:'video',status:id==='failed'?'failed':id==='unknown'?'uncertain':'submitted',jobId:id==='unknown'?null:'up-'+id,profileId:'v',endpoint:'https://provider.invalid/v1',referenceAccountId:id==='other'?'other':'owner'}));
  const m=createGenerationMonitor({authorize:async()=>({id:'owner'}),jobs:()=>({list:()=>tasks,refresh:async p=>{calls.push(p.id);if(p.id==='slow')await blocked;return {id:p.id,status:'success'};}}),getProfiles:async()=>[{id:'v',endpoint:'https://provider.invalid/v1',apiKey:'fixture'}],concurrency:2});
