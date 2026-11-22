@@ -13,7 +13,7 @@ const matchesDirectorSource = (director, source) =>
 async function readableDirector(query, source, uid) {
   if (typeof source !== 'string' || !source || source.length > 500 || /[\[\]\r\n]/.test(source) || !uid) return null;
   const lookupId = directorLookupId(source);
-  const predicate = lookupId === source ? '(p.id::text=$1 or p.analysis_output=$1)' : 'p.id::text=$1';
+  const predicate = lookupId === source ? '(p.id::text=$1 or p.analysis_output=$1 and length(p.analysis_output)<=500)' : 'p.id::text=$1';
   const rows = (await query(`select p.* from collab_projects p where ${predicate}
     and p.genre like '%[DIRECTOR_PROJECT]%' and p.deleted_at is null
     and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2))`, [lookupId, uid])).rows;

@@ -12,10 +12,13 @@ test('导演本地项目必须使用独立的导演工作台项目目录', () =>
   assert.match(main, /prepareDataDirectory/);
 });
 
-test('导演工作台状态保存不能用空的旧 masterDraft 覆盖已导入剧本', () => {
+test('导演总剧本加载时切换草稿身份，编辑时保留有意清空的内容及分集', () => {
   const ui = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(ui, /value=\{masterDraft !== '' \? masterDraft : selectedProject\.masterScript \|\| ''\}/);
-  assert.match(ui, /const sourceDraft = masterDraft\.trim\(\) \? masterDraft : selectedProject\.masterScript \|\| ''/);
+  assert.match(ui, /useLayoutEffect\(\(\)=>\{\s*const incoming=\{id:selectedProject\?\.id,script:selectedProject\?\.masterScript/);
+  assert.match(ui, /reconcileDirectorMasterDraft\(masterDraftRef\.current,previous,incoming\)/);
+  assert.match(ui, /value=\{masterDraft\}/);
+  assert.match(ui, /const sourceDraft = masterDraftRef\.current/);
+  assert.match(ui, /masterScript:sourceDraft,\.\.\.\(sourceDraft\.trim\(\)\?\{episodes\}:\{\}\)/);
 });
 
 test('分组弹窗使用 body portal 并居中覆盖视口', () => {

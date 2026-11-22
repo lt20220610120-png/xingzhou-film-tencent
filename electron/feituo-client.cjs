@@ -15,8 +15,8 @@ function validate(input) {
   if (model.maxPrompt && input.prompt.length > model.maxPrompt) throw new Error(`提示词最多 ${model.maxPrompt} 字`);
   const durations = model.durationByResolution?.[input.resolution] || model.durations;
   if (model.kind === 'video' && durations?.length && !durations.includes(Number(input.duration))) throw new Error('所选模型不支持该时长');
-  if (model.ratios.length&&!model.ratios.includes(input.ratio)) throw new Error('所选模型不支持该比例');
-  if (model.resolutions.length && !model.resolutions.includes(input.resolution)) throw new Error('所选模型不支持该分辨率');
+  if (model.ratios?.length&&!model.ratios.includes(input.ratio)) throw new Error('所选模型不支持该比例');
+  if (model.resolutions?.length && !model.resolutions.includes(input.resolution)) throw new Error('所选模型不支持该分辨率');
   const refs = input.references || [];
   if (refs.filter(r=>r.kind==='image').length < (model.minImages||0)) throw new Error(`${model.name} 至少需要 ${model.minImages} 张参考图片`);
   if(model.protocol==='metadata-content') {
@@ -58,12 +58,12 @@ async function submit(input) {
   }
   const payload = { model: input.model, prompt: input.prompt.trim(), ratio: input.ratio, duration: Number(input.duration) };
   if (model.kind === 'image') { delete payload.duration; if (input.imageSize) payload.imageSize=input.imageSize; }
-  if (model.resolutions.length) payload.resolution = input.resolution;
+  if (model.resolutions?.length) payload.resolution = input.resolution;
   let body;
   if (model.protocol === 'metadata-content') {
     // This endpoint documents only public URL references for metadata.content.
     if (refs.some(r => r.filePath)) throw new Error('官转模型请先将本地素材上传到项目素材库，再选择引用');
-    body = JSON.stringify({ model: input.model, prompt: payload.prompt, seconds: String(input.duration), metadata: { ratio: input.ratio, content: refs.map(r => ({ type: `${r.kind}_url`, role: r.kind === 'image' ? (r.role || 'reference_image') : 'reference_audio', [`${r.kind}_url`]: { url: r.url } })) } });
+    body = JSON.stringify({ model: input.model, prompt: payload.prompt, seconds: String(input.duration), metadata: { ratio: input.ratio, content: refs.map(r => ({ type: `${r.kind}_url`, role: r.kind === 'image' ? (r.role || 'reference_image') : `reference_${r.kind}`, [`${r.kind}_url`]: { url: r.url } })) } });
     h['Content-Type'] = 'application/json';
   } else if (refs.some(r => r.filePath)) {
     // Convert every reference to a file, preserving per-kind order in mixed local/remote input.
@@ -72,7 +72,7 @@ async function submit(input) {
     for (const r of refs) {
       let blob;
       if (r.filePath) {const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4','.aac':'audio/aac','.ogg':'audio/ogg'}[path.extname(r.filePath).toLowerCase()];if(!mime)throw new Error('不支持此参考文件格式');blob = new Blob([fs.readFileSync(r.filePath)],{type:mime});}
-      else { const result = await readMediaBytes(r.url, { timeoutMs:120000, label:`参考素材 ${r.name || ''}` }); blob = new Blob([result.bytes],{type:result.mime}); }
+      else { const result = await readMediaBytes(r.url, { timeoutMs:120000, signal:input.signal, label:`参考素材 ${r.name || ''}` }); blob = new Blob([result.bytes],{type:result.mime}); }
       body.append(`${r.kind}s`, blob, r.filePath ? path.basename(r.filePath) : (r.filename || `${r.kind}.${r.kind === 'image' ? 'png' : r.kind === 'video' ? 'mp4' : 'mp3'}`));
     }
   } else {
@@ -80,12 +80,13 @@ async function submit(input) {
     h['Content-Type'] = 'application/json'; body = JSON.stringify(payload);
   }
   await input.beforePaidDispatch?.();
-  const data = await json(await fetch(`${BASE}/api/open/v1/${model.kind}/generate`, { method: 'POST', headers: h, body, signal: input.signal ? AbortSignal.any([input.signal,AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000)]) : AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000) }));
+  const data = await json(await fetch(`${BASE}/api/open/v1/${model.kind}/generate`, { method: 'POST', headers: h, body, redirect:'error', signal: input.signal ? AbortSignal.any([input.signal,AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000)]) : AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000) }));
   if (!data.jobId) throw new Error('提交响应缺少 jobId，请在飞拓任务日志核对后再操作');
   return data;
 }
-async function status({ jobId, apiKey }) {
+async function status({ jobId, apiKey, signal }) {
   if (!jobId) throw new Error('缺少任务编号');
-  return json(await fetch(`${BASE}/api/open/v1/video/status?jobId=${encodeURIComponent(jobId)}&_=${Date.now()}`, { cache: 'no-store', headers: { ...headers(apiKey), 'Cache-Control':'no-cache' }, signal: AbortSignal.timeout(60000) }));
+  const timeout=AbortSignal.timeout(60000);
+  return json(await fetch(`${BASE}/api/open/v1/video/status?jobId=${encodeURIComponent(jobId)}&_=${Date.now()}`, { cache:'no-store', redirect:'error', headers:{...headers(apiKey),'Cache-Control':'no-cache'}, signal:signal?AbortSignal.any([signal,timeout]):timeout }));
 }
 module.exports = { submit, status, validate, configurePublicImagePreparation };

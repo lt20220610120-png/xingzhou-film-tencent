@@ -1,5 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {createGenerationMonitor}=require('./generation-monitor.cjs');
+test('invalidating the monitor aborts an in-flight provider read without publishing stale updates',async()=>{
+ let signal,started;const entered=new Promise(resolve=>started=resolve),updates=[];
+ const task={id:'a',kind:'video',status:'submitted',jobId:'remote-a',profileId:'v',endpoint:'https://provider.invalid',referenceAccountId:'owner'};
+ const monitor=createGenerationMonitor({authorize:async()=>({id:'owner'}),jobs:()=>({list:()=>[task],refresh:async options=>{
+  signal=options.signal;started();
+  if(signal)await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));
+  return task;
+ }}),getProfiles:async()=>[{id:'v',endpoint:task.endpoint}],onUpdate:row=>updates.push(row)});
+ const work=monitor.pump();await entered;assert.ok(signal);
+ monitor.cancel();await work;
+ assert.equal(signal.aborted,true);assert.deepEqual(updates,[]);
+});
 test('a video monitor with no due work never loads the workspace profiles',async()=>{
  const monitor=createGenerationMonitor({authorize:async()=>({id:'owner'}),jobs:()=>({list:()=>[{id:'a',kind:'video',status:'success',jobId:'finished',referenceAccountId:'owner'}]}),getProfiles:()=>assert.fail('profiles must only load for due work')});
  await monitor.pump();

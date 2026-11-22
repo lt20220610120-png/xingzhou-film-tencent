@@ -9,19 +9,19 @@ const gateway = (action, payload = {}, token = '') => sharedGateway(action, payl
 async function uploadToBucket(projectId, filePath, kindHint, token, onUploaded, {
   requestSignature=gateway, putObject=require('./win-ai-api-fetch.cjs').winAIFetch,
 }={}) {
-  if (!filePath || !fs.existsSync(filePath)) throw new Error('素材文件不存在');
+  if (!filePath || !path.isAbsolute(filePath) || !fs.statSync(filePath,{throwIfNoEntry:false})?.isFile()) throw new Error('素材文件不存在');
   const ext = (path.extname(filePath) || '.bin').toLowerCase();
   const mime = projectMediaMime(ext, kindHint);
   const filename = path.basename(filePath);
   const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
-  const signed = await requestSignature('media-upload-url', { projectId, filename, kind, mime }, token);
   const body = fs.readFileSync(filePath);
+  const signed = await requestSignature('media-upload-url', { projectId, filename, kind, mime, ...(kindHint==='asset'?{purpose:'asset-image'}:{}) }, token);
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const put = await putObject(signed.url, {
         method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
-        body, signal: AbortSignal.timeout(120000),
+        body, redirect:'error', signal: AbortSignal.timeout(120000),
       });
       await put.body?.cancel?.();
       if (!put.ok) throw Object.assign(new Error(`素材上传失败（${put.status}）`), {retryable:[408,429,500,502,503,504].includes(put.status)});
@@ -161,14 +161,14 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     directorListVersions:p=>call('director-version-list',p),directorGetVersion:p=>call('director-version-get',p),directorPublishVersion:p=>call('director-version-publish',p),directorRestoreVersion:p=>call('director-version-restore',p),
     createAsset: (p) => call('asset-create', p), listAssets: (p) => call('assets-list', p), updateAsset: (p) => call('asset-update', p),
     resolveAssetImage: (p) => call('asset-image-url', p),
-    attachAssetImage: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, 'asset', session().token || ''); return call('asset-image-record', { ...p, ...uploaded }); },
+    attachAssetImage: async (p) => { const uploaded = await upload(p.projectId, p.filePath, 'asset', session().token || ''); return call('asset-image-record', { ...p, ...uploaded }); },
     attachGeneratedAssetImage: attachGenerated,
     deleteAssetImage: (p) => call('asset-image-delete', p), clearAssetImages: (p) => call('asset-images-clear', p),
     listMembers: (p) => call('members-list', p), addMember: (p) => call('member-add', p), updateMemberRole: (p) => call('member-role', p), removeMember: (p) => call('member-remove', p),
     listTasks: (p) => call('tasks-list', p), assignTask: (p) => call('task-assign', p), updateTask: (p) => call('task-update', p), deleteTask: (p) => call('task-delete', p),
     listMedia: (p) => call('media-list', p),
-    uploadMedia: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, p.kind, session().token || ''); return call('media-record', { ...p, ...uploaded }); },
-    recordGeneratedMedia: async (p) => { const uploaded = await uploadToBucket(p.projectId, p.filePath, p.kind || 'media', session().token || ''); return call('media-record', { ...p, ...uploaded }); },
+    uploadMedia: async (p) => { const uploaded = await upload(p.projectId, p.filePath, p.kind, session().token || ''); return call('media-record', { ...p, ...uploaded }); },
+    recordGeneratedMedia: async (p) => { const uploaded = await upload(p.projectId, p.filePath, p.kind || 'media', session().token || ''); return call('media-record', { ...p, ...uploaded }); },
     deleteMedia: async ({accountId:expected,...p}) => {
       if(expected!==undefined&&String(account().id)!==String(expected))throw Error('账号已切换，删除已停止');
       const result=await call('media-delete',p);
@@ -181,7 +181,7 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
         if(!response.ok&&response.status!==404)throw Error('object cleanup failed');
         return {...result,objectDeleted:true};
       } catch {return {...result,objectDeleted:false,cleanupWarning:'素材记录已删除，云端文件清理暂未完成'};}
-    }, listMessages: (p) => call('messages-list', p), sendMessage: async (p) => { const uploaded = p.imagePath ? await uploadToBucket(p.projectId, p.imagePath, 'chat', session().token || '') : null; return call('message-send', { ...p, imageUrl:uploaded?.url||'' }); }, getStats: (p) => call('stats-get', p),
+    }, listMessages: (p) => call('messages-list', p), sendMessage: async (p) => { const uploaded = p.imagePath ? await upload(p.projectId, p.imagePath, 'chat', session().token || '') : null; return call('message-send', { projectId:p.projectId,content:p.content,imageUrl:uploaded?.url||'' }); }, getStats: (p) => call('stats-get', p),
     _account: account,
   };
 }

@@ -2,6 +2,25 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const tick=()=>new Promise(r=>setImmediate(r));
 async function fixture(t,overrides={}){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-sb-batch-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const jobs=[],sent=[];let account='a';const mod=require('./storyboard-batch.cjs');const q=mod.createStoryboardBatchQueue({directory:dir,owner:()=>account,loadJobs:()=>jobs,guard:async()=>{},submit:async(item,run)=>{sent.push(item.shotId);const job={id:'j'+item.shotId,projectId:'p',shotId:item.shotId,storyboardBatchRunId:run.id,storyboardBatchItemId:item.id,status:'submitted'};jobs.push(job);return job;},...overrides});return {q,jobs,sent,dir,switchAccount:()=>account='b'};}
 const items=()=>[1,2,3].map(n=>({shotId:'s'+n,label:`1-1-${n}`,value:{prompt:'原词'+n,references:[]}}));
+test('stop aborts the active batch request, and a retry receives a fresh signal',async t=>{
+ let signal,started;
+ const ready=new Promise(resolve=>started=resolve);
+ const f=await fixture(t,{submit:async(_item,_run,currentSignal)=>{
+  signal=currentSignal;started();
+  if(!signal)return {id:'missing-signal',status:'submitted'};
+  await new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+ }});
+ const run=f.q.start({projectId:'p',accountId:'a',items:items()});
+ await ready;
+ assert.ok(signal);
+ f.q.stop({id:run.id,accountId:'a'});
+ assert.equal(signal.aborted,true);
+ await f.q.idle();
+ assert.equal(f.q.list({accountId:'a',projectId:'p'})[0].counts.stopped,3);
+ const previous=signal;f.q.resume({id:run.id,accountId:'a'});await tick();
+ assert.notEqual(signal,previous);assert.equal(signal.aborted,false);
+ f.q.stopAll();await f.q.idle();assert.equal(signal.aborted,true);
+});
 test('interrupted submitting job remains uncertain after reconciliation and is never resumed',async t=>{const f=await fixture(t,{submit:async()=>new Promise(()=>{})});const r=f.q.start({projectId:'p',accountId:'a',items:items().slice(0,1)});await tick();const disk=JSON.parse(fs.readFileSync(path.join(f.dir,'batches.json'),'utf8')),item=disk[0].items[0];let sends=0;const recovered=require('./storyboard-batch.cjs').createStoryboardBatchQueue({directory:f.dir,owner:()=>'a',loadJobs:()=>[{id:'uncertain-original',status:'submitting',storyboardBatchRunId:r.id,storyboardBatchItemId:item.id}],guard:async()=>{},submit:async()=>{sends++;}});assert.equal(recovered.list({projectId:'p',accountId:'a'})[0].items[0].status,'uncertain');recovered.resume({id:r.id,accountId:'a'});await recovered.idle();assert.equal(sends,0);});
 test('Fnko paid dispatch obeys the final batch stop/account guard',async t=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-sb-fnko-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let paid=0;const fnko=require('./fnko-client.cjs');t.mock.method(fnko,'submit',async()=>{paid++;return {jobId:'paid',status:'submitted'}});const jobs=require('./generation-jobs.cjs').createGenerationJobs(dir,{beforeDispatch:async()=>{throw Error('批量已停止')}});await assert.rejects(jobs.submit({kind:'video',endpoint:'https://fanke2026.xyz',apiKey:'fixture',model:'video',prompt:'原词',storyboardBatchRunId:'r'}),/停止/);assert.equal(paid,0);assert.equal(jobs.list()[0].submissionAttempted,false);});
 test('batch queues every item once, skips existing work, and reconciles durable original job progress',async t=>{const f=await fixture(t);f.jobs.push({id:'old',projectId:'p',shotId:'s2',kind:'video',status:'success'});const run=f.q.start({projectId:'p',accountId:'a',items:items()});await f.q.idle();assert.deepEqual(f.sent,['s1','s3']);assert.throws(()=>f.q.start({projectId:'p',accountId:'b',items:items()}),/账号/);f.jobs.find(j=>j.shotId==='s1').status='success';f.jobs.find(j=>j.shotId==='s3').status='downloading';let view=f.q.list({projectId:'p',accountId:'a'})[0];assert.equal(view.counts.success,1);assert.equal(view.counts.skipped,1);assert.equal(view.counts.downloading,1);assert.equal(view.percent,67);assert.equal(view.id,run.id);assert(!JSON.stringify(view).includes('原词'));});

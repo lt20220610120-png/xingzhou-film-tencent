@@ -41,3 +41,19 @@ test('explicit manual version stays untouched while inheritance fills only autom
  await fillArtReviewDetails({...f.args,episode:f.episodes[1]});
  assert.equal(f.calls.length,0);assert.equal(f.records[2].roster[0].description,wardrobe);
 });
+
+test('parallel detail batches retain their own errors when one model reply is null',async()=>{
+ const f=fixture(),record=f.records[1];
+ record.roster=[card(),card({id:'other',name:'【助理-制服】'})];record.unassigned=record.roster;
+ const api={aiChat:async payload=>{
+  const name=JSON.parse(payload.messages[1].content).untrustedData.requestedItems[0].name;
+  if(name.includes('博士'))return null;
+  await new Promise(resolve=>setTimeout(resolve,10));
+  return {ok:true,output:JSON.stringify({items:[]})};
+ }};
+ const errors=await fillArtReviewDetails({...f.args,api,episode:f.episodes[0],batchSize:1,deferMissing:true,detailAttemptLimit:1});
+ assert.ok(errors.some(message=>message.includes('未返回有效信息卡')));
+ assert.match(f.records[1].detailDeferrals[card().id].reason,/未返回有效信息卡/);
+ assert.match(f.records[1].detailDeferrals.other.reason,/助理/);
+ assert.equal(f.records[1].roster.length,2);
+});

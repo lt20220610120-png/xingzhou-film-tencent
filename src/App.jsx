@@ -9,7 +9,7 @@ import {cleanupRecycle} from '../core/projectRecycle.js';
 import {commitDirectoryChange} from '../core/dataDirectoryCommit.js';
 import {createPortal} from 'react-dom';
 import {FormattedEditor} from './components/FormattedText.jsx';
-import {flushEditing,settleEditing} from './editing.js';
+import {flushEditing,interruptEditingComposition,settleEditing} from './editing.js';
 import {UserProfile} from './v06/UserProfile.jsx';
 import {SidebarGroup} from './components/SidebarGroup.jsx';
 import {QuickRoleSwitch} from './components/QuickRoleSwitch.jsx';
@@ -1194,7 +1194,7 @@ function App() {
   useEffect(()=>{
     const beforeQuit=async()=>{
       if(!initialized||storageLoadError)return true;
-      document.activeElement?.blur?.();await settleEditing();
+      document.activeElement?.blur?.();interruptEditingComposition();await settleEditing();
       persistence.enqueue(stateRef.current);await persistence.flush();return true;
     };
     window.__xingzhouBeforeQuit=beforeQuit;
@@ -1285,18 +1285,21 @@ function App() {
     };
     const composing = () => { inputComposing.current = true; clearTimeout(saveQuiet.current); };
     const composed = event => { inputComposing.current = false; if (savePending.current) scheduleSaveDeadline(); input(event); };
+    const interrupted = event => composed({target:event.detail});
     const hidden = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', hidden);
     document.addEventListener('input', input, true);
     document.addEventListener('compositionstart', composing, true);
     document.addEventListener('compositionend', composed, true);
+    document.addEventListener('xz-composition-interrupted', interrupted);
     return () => {
       window.removeEventListener('pagehide', flush);
       document.removeEventListener('visibilitychange', hidden);
       document.removeEventListener('input', input, true);
       document.removeEventListener('compositionstart', composing, true);
       document.removeEventListener('compositionend', composed, true);
+      document.removeEventListener('xz-composition-interrupted', interrupted);
       clearTimeout(saveQuiet.current);
       clearTimeout(saveDeadline.current); saveDeadline.current = null;
     };
@@ -1419,19 +1422,19 @@ function App() {
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
-        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <div className="workspace-preserved" hidden={!['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { flushEditing(); setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></div>}
+        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <WorkspacePresence active={!!role&&['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { flushEditing(); setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></WorkspacePresence>}
         {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
         {!!role&&nav==='winai'&&<WinAIWorkspace key={account?.id} account={account}/>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
         {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} setState={setState} production={production} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
-        {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} api={api} account={account} />}
-        {(visitedWorkspaces.collab || nav === 'collab') && <div className="workspace-preserved" hidden={nav !== 'collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></div>}
+        {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} getState={()=>stateRef.current} saveLocal={quickGeneration.saveLocal} api={api} account={account} />}
+        {(visitedWorkspaces.collab || nav === 'collab') && <WorkspacePresence active={!!role&&nav==='collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></WorkspacePresence>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
           ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html?v=${packageInfo.version}${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />
           : <CanvasWorkspace state={state} setState={setState} api={api} />}</div>}
-        {(visitedWorkspaces.director || nav === 'director') && <div className="workspace-preserved" hidden={nav !== 'director'}>
+        {(visitedWorkspaces.director || nav === 'director') && <WorkspacePresence active={!!role&&nav==='director'}>
           <DirectorWorkspace
             key={account?.id}
             active={!!role&&nav === 'director'}
@@ -1442,7 +1445,7 @@ function App() {
             quickGeneration={quickGeneration}
             onAttach={(attachment) => { setAiAttachment(attachment); setAiOpen(true); }}
           />
-        </div>}
+        </WorkspacePresence>}
       </section>
 
       {/* 全局 AI 持久会话抽屉 */}
@@ -1453,6 +1456,7 @@ function App() {
         setState={setState}
         api={api}
         attachment={aiAttachment}
+        onRemoveAttachment={() => setAiAttachment(null)}
       />
     </div></WorkspaceActiveContext.Provider><LogoutConfirm open={logoutOpen} onCancel={()=>setLogoutOpen(false)} onConfirm={performLogout}/>{!role&&<StudioRoleScreen account={account} onSelect={handleRoleSelect} onLogout={handleLogout}/>}{lockedRole&&<LockedRoleDialog targetRole={lockedRole} onClose={()=>setLockedRole(null)} onUnlocked={unlockRole}/>}</>
   );

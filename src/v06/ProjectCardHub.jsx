@@ -1,5 +1,6 @@
 import React, { useState,useEffect,useRef } from 'react';
 import { createPortal } from 'react-dom';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import { Plus, BookOpen, FileText, Upload, Trash2, PenLine, FolderPlus, FolderCog, Users, Film, ArrowUpRight } from 'lucide-react';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { defaultProjectGroupName } from '../../core/projectGroups.js';
@@ -10,6 +11,7 @@ export function ProjectCardHub({
   groups = [], onRename, onMoveToGroup, onCreateGroup, onRenameGroup, onDeleteGroup,
   onManageCollab, canManageCollab = () => false, canDeleteProject = () => true,
 }) {
+  const workspaceActive=useWorkspaceActive();
   const isDirector = !!onUpload && !!library;
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
@@ -154,7 +156,7 @@ export function ProjectCardHub({
         })}
       </div>
       <DeleteConfirm open={!!deleteTarget} title="删除项目" name={deleteTarget?.name} detail={deleteDetail||'项目及完整内容会移入本地回收站，可按回收站规则恢复。'} confirmLabel="移入回收站" busy={deleting} error={deleteError} onCancel={() => {setDeleteTarget(null);setDeleteError('');}} onConfirm={trash}/>
-      {groupDialog && createPortal(<div className="veil group-dialog-veil" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null); }}>
+      {workspaceActive && groupDialog && createPortal(<div className="veil group-dialog-veil" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null); }}>
           <form className="modal group-dialog" onSubmit={submitGroup}>
             <h2>{groupDialog.mode === 'rename' ? '重命名分组' : '新建分组'}</h2>
 

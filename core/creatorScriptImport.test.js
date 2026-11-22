@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseMasterScript,splitFullScript,replaceMasterSetting} from './scriptImport.js';
+
+test('director and creator imports recognize EP markers and extended Chinese episode numbers',()=>{
+ const titles=['EP1','EP2','第一百零一集','第一百〇二集','第两集'];
+ const script=titles.map((title,index)=>`${title}\n甲：第${index+1}段正文。`).join('\n');
+ assert.deepEqual(parseMasterScript(script).episodes.filter(row=>row.kind==='episode').map(row=>row.title),titles);
+ assert.deepEqual(splitFullScript(script).episodes.map(row=>row.title),titles);
+ assert.equal(splitFullScript('EP1\n甲：你好。').detected,true);
+ assert.equal(replaceMasterSetting('人物小传\n第两集\n正文','新小传'),'新小传\n\n第两集\n正文');
+});
 import {buildCreatorText,normalizeCreatorProject} from './creatorWorkspace.js';
 test('creator archived episode headings import as separate director episodes',()=>{
  const p=normalizeCreatorProject({id:'p',mode:'original',episodes:[{id:'a',title:'第1集',result:'1-1 客厅 日 内\n人物：甲\n△出门。'},{id:'b',title:'第2集',result:'2-1 公园 夜 外\n人物：甲\n△归来。'}]},'script');

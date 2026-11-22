@@ -8,6 +8,7 @@ import {normalizeDirectorImportText} from './directorImportText.js';
 import {markPromptTimingStale,formatPromptTimingMetadata} from './promptTiming.js';
 import { normalizeCreatorProject } from './creatorWorkspace.js';
 import {isProtectedSkill} from './clientDistribution.js';
+import {newDirectorSkillBinding} from './directorSkillSelection.js';
 
 // ---------- 工具函数 ----------
 let _uidCounter = 0;
@@ -494,6 +495,7 @@ export const importDirectorProject = (state, sourceId, sourceType, masterScript)
     sourceType,
     masterScript: masterScript || '',
     episodes,
+    ...newDirectorSkillBinding(state.skills),
     createdAt: now(),
     updatedAt: now(),
   };
@@ -788,9 +790,16 @@ export const addChatMessage = (state, sessionId, role, content) => {
   const idx = state.chatSessions.findIndex(s => s.id === sessionId);
   if (idx === -1) return state;
   const msg = { id: uid(), role, content, createdAt: now() };
-  const sessions = state.chatSessions.map((s, i) =>
-    i === idx ? { ...s, messages: [...s.messages, msg], updatedAt: now() } : s
-  );
+  const sessions = state.chatSessions.map((s, i) => {
+    if(i!==idx)return s;
+    const firstUserMessage=role==='user'&&!s.messages.some(message=>message.role==='user');
+    let title=s.title;
+    if(firstUserMessage&&['新对话','新会话'].includes(title)){
+      const chars=Array.from(String(content).trim().split(/\r?\n/,1)[0]);
+      if(chars.length)title=chars.slice(0,20).join('')+(chars.length>20?'…':'');
+    }
+    return {...s,title,messages:[...s.messages,msg],updatedAt:msg.createdAt};
+  });
   return { ...state, chatSessions: sessions };
 };
 

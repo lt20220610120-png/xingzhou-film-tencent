@@ -127,6 +127,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
   const read=readAction(action),licensePreflight=licensePreflightActions.has(action);
   const retryable=read||licensePreflight,timeoutMs=options.timeoutMs || 30000;
   const urls=orderedUrls(),attempts=options.singleAttempt?urls.slice(0,1):retryable?[...urls,urls.at(-1)]:urls;
+  let forbidden=false;
   for(let index=0;index<attempts.length;index++){
     const url=attempts[index],controller=new AbortController();
     let response,timer;
@@ -143,7 +144,10 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
           ...(!retryable?{redirect:'error'}:{}),
         },{read});
         const text=await response.text();
-        let data;try{data=text?JSON.parse(text):null;}catch{throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});}
+        let data;try{data=text?JSON.parse(text):null;}catch{
+          forbidden ||= response.status===403;
+          throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});
+        }
         if (![502,503,504].includes(response.status)) activeUrl=url;
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,...(typeof data?.code==='string'?{code:data.code}:{}),transient:[502,503,504].includes(response.status)});
         activeUrl=url;return snapshots.resolve(snapshot,data);
@@ -162,6 +166,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       // occur after the server committed it, so it never authorizes write replay.
       const preConnection=!response&&!error.timeout&&failedBeforeConnection(error);
       if(index+1<attempts.length&&(retryable||preConnection))continue;
+      if(action==='session'&&forbidden)throw Object.assign(new Error('云端暂时无法验证登录状态'),{status:403});
       throw new Error(licensePreflight?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
     } finally {clearTimeout(timer);}
   }
@@ -182,7 +187,7 @@ function createCloudAccessService(userDataDir, options = {}) {
   const clearSession = () => {store.clear();options.onInvalidSession?.();};
   const token = () => readSession()?.token || '';
   return {
-    async session({allowCached} = {}) {
+    async session({allowCached,allowForbiddenCached=false} = {}) {
       const expectedEpoch = sessionEpoch;
       const saved = readSession();
       if (!saved?.token) return null;
@@ -194,10 +199,11 @@ function createCloudAccessService(userDataDir, options = {}) {
         writeSession({ token: saved.token, account: a });
         return a;
       } catch (error) {
-        // Only an explicit 401 proves that the token is invalid. Temporary
-        // network/TLS/5xx failures must not destroy the user's session.
+        // Edge/WAF 403 responses do not establish application-level revocation.
         if (sessionEpoch !== expectedEpoch || token() !== saved.token) return null;
-        if ([401,403].includes(error?.status)) { clearSession(); return null; }
+        const banned=error?.status===403&&(error.code==='ACCOUNT_BANNED'||/^账号(?:已(?:被)?)?(?:停用|封禁)[。！!]?$/.test(error.message));
+        if (error?.status===401||banned) { clearSession(); return null; }
+        if (error?.status===403&&allowForbiddenCached&&!saved.account?.banned&&saved.account?.id) return saved.account;
         if ((!error?.status || error.status >= 500) && !saved.account?.banned && saved.account?.id && await allowCached?.()) {
           if (sessionEpoch === expectedEpoch && token() === saved.token) return saved.account;
         }

@@ -16,6 +16,11 @@ test('real App autosave recovers its maximum checkpoint after a deadline falls i
  for(let t=15400;t<=46000;t+=300){advance(t);input();}
  assert.ok(saves.length>=2,'continuous typing must resume bounded checkpoints after composition');
  assert.ok(saves[0]>=15100&&saves[0]<=30100);
+ advance(47000);saves.length=0;
+ events.compositionstart();input();
+ advance(63000);assert.deepEqual(saves,[]);
+ events['xz-composition-interrupted']({detail:{matches:()=>true}});
+ advance(64400);assert.deepEqual(saves,[64200]);
 });
 
 test('DOM-buffered continuous input starts the App checkpoint immediately, without waiting for a React edit commit',()=>{

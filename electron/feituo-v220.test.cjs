@@ -29,8 +29,9 @@ test('mixed local and remote references use multipart without dropping or reorde
 });
 test('official channel uses seconds and metadata roles, never generic duration/arrays',async t=>{
  let payload;t.mock.method(global,'fetch',async(url,options)=>{payload=JSON.parse(options.body);return Response.json({success:true,jobId:'job'});});
- const official=models.find(m=>m.protocol==='metadata-content');await client.submit(input({model:official.id,duration:8,references:[{kind:'image',role:'first_frame',url:'https://example.test/frame.png'}]}));
+ const official=models.find(m=>m.protocol==='metadata-content');await client.submit(input({model:official.id,duration:8,modelCapabilities:{maxVideos:1},references:[{kind:'image',role:'first_frame',url:'https://example.test/frame.png'},{kind:'video',url:'https://example.test/clip.mp4'},{kind:'audio',url:'https://example.test/voice.mp3'}]}));
  assert.equal(payload.seconds,'8');assert.equal(payload.duration,undefined);assert.equal(payload.imageUrls,undefined);assert.equal(payload.metadata.content[0].role,'first_frame');
+ assert.equal(payload.metadata.content[1].role,'reference_video');assert.equal(payload.metadata.content[2].role,'reference_audio');
 });
 test('image endpoint reads resultUrls, status queries disable caching',async t=>{
  const calls=[];t.mock.method(global,'fetch',async(url,options)=>{calls.push({url,options});return Response.json({success:true,jobId:'job',status:'success',resultUrls:['https://feituokuajing.com/image.png']});});

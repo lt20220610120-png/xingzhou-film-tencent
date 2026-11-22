@@ -72,7 +72,7 @@ test('publication rejects later 第21部 and prefixed cross-episode units before
  assert.equal(validatePublicationAssets([{name:'【本集角色】',category:'character'}],parsePublicationOutput(good,20),20).length,1);
 });
 
-test('refresh and storyboard lock target with current member authorization; revoked membership returns no target',async()=>{
+test('refresh denies revoked membership without locking; storyboard rechecks after locking',async()=>{
  for(const operation of ['refreshDirectorPrompts','patchStoryboard']) {
   const sql=[];const row=collab({genre:'[COLLAB_PROJECT]\n[COLLAB_SOURCE:local-source]'});
   const client={query:async(q)=>{sql.push(q);if(/^select .*collab_projects/i.test(q))return {rows:[row]};if(/select 1 as ok from collab_members/i.test(q))return {rows:[]};return {rows:[]};},release(){}};
@@ -81,7 +81,8 @@ test('refresh and storyboard lock target with current member authorization; revo
   assert.equal(result,null);
   const lockIndex=sql.findIndex(q=>/from collab_projects/i.test(q)&&/for update/i.test(q));
   const authIndex=sql.findIndex(q=>/select 1 as ok from collab_members/i.test(q));
-  assert.ok(lockIndex>=0&&authIndex>lockIndex,operation);
+  if(operation==='refreshDirectorPrompts'){assert.equal(lockIndex,-1);assert.match(sql[0],/left join collab_members/);}
+  else assert.ok(lockIndex>=0&&authIndex>lockIndex,operation);
   assert.equal(sql.some(q=>/from collab_projects p where \(p.id::text|^update /i.test(q)),false);
  }
 });
@@ -114,12 +115,17 @@ test('append and publish recheck the current role after locking instead of using
 
 test('message send fails closed in the repository and handler when current membership is gone',async()=>{
  const {createRepository}=require('../src/postgres-repository.cjs');
- let statement='';const repository=createRepository('',{pool:{query:async(q)=>{statement=q;return {rows:[]};},end:async()=>{}}});
+ const statements=[];
+ const client={release(){},query:async q=>{
+  statements.push(q);
+  if(/^select p.id,p.owner_id/.test(q))return {rows:[collab()]};
+  return {rows:[]};
+ }};
+ const repository=createRepository('',{pool:{connect:async()=>client}});
  assert.equal(await repository.sendMessage('copy',{content:'x'},'former'),null);
- assert.match(statement,/insert into collab_messages[\s\S]*select/i);
- assert.match(statement,/exists\s*\(select 1 from collab_members/i);
- assert.match(statement,/deleted_at is null/i);
- assert.match(statement,/PROJECT_LOCKED/i);
+ assert.ok(statements.some(q=>q.includes('for update')));
+ assert.ok(statements.some(q=>q.includes('from collab_members')&&q.includes('for share')));
+ assert.equal(statements.some(q=>q.startsWith('insert into collab_messages')),false);
  const repo={getProject:async()=>collab(),findMembership:async()=>({role:'artist'}),isProjectLocked:async()=>false,sendMessage:async()=>null};
  assert.equal((await handleAction('message-send',{projectId:'copy',content:'x'},{id:'former'},repo)).status,403);
 });

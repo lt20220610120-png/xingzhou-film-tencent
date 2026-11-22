@@ -5,10 +5,10 @@ const hasContent=prompt=>Boolean(prompt.id&&String(prompt.content||'').replace(/
 
 // Count the persisted, active scene edition that can actually be displayed.
 // Episode.status is a historical activity label and cannot prove completeness.
-export function directorPromptCoverage(project){
+export function directorPromptCoverage(project,{positionNumbers=false}={}){
  const episodes=(project?.episodes||[]).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传');
  return episodes.map((ep,i)=>{
-  const number=inferDirectorEpisodeNumber(ep,i+1),scenes=parseDirectorScenes(ep.content||'',number).map(scene=>{
+  const number=positionNumbers?i+1:inferDirectorEpisodeNumber(ep,i+1),scenes=parseDirectorScenes(ep.content||'',number).map(scene=>{
    const plan=(ep.quickScenePlans||[]).find(p=>p.id===ep.activeQuickScenePlanIds?.[scene.label]);
    const current=currentDirectorScenePrompts(ep,scene.label);
    const source=Object.hasOwn(ep.quickSceneEdits||{},scene.label)?ep.quickSceneEdits[scene.label]:scene.content;

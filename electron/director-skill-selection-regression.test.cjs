@@ -6,11 +6,12 @@ const source=()=>fs.readFileSync(path.join(__dirname,'../src/v06/DirectorWorkspa
 
 test('导演Skill下拉用唯一ID保存和执行，避免显示video-prompt却实际调用其他Skill',()=>{
  const s=source();
- assert.match(s,/const \[selectedSkillId, setSelectedSkillId\]/);
+ assert.match(s,/const storedSkillId=project\.lastUsedSkillId/);
  assert.match(s,/skills\.find\(\(s\) => s\.id === selectedSkillId\)/);
  assert.doesNotMatch(s,/skills\.find\(\(s\) => s\.name === selectedSkill/);
  assert.match(s,/<option key=\{skill\.id\} value=\{skill\.id\}>\{skill\.name\}<\/option>/);
- assert.match(s,/rememberPreference\('xz-last-used-skill', event\.target\.value\)/);
+ assert.match(s,/updateDirectorProject\(s,project\.id,\{lastUsedSkillId:skill\.id,lastUsedSkill:skill\.name\}\)/);
+ assert.match(s,/newDirectorSkillBinding\(s\.skills\)/);
 });
 
 test('人工快速模式把完整场景一次提交Skill，按用户括号核对输出数量和编号',()=>{

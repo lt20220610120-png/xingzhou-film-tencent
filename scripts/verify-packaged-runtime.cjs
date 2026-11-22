@@ -8,6 +8,10 @@ exports.verify = async (exe,version,dependencies={}) => {
   const archive = path.join(path.dirname(exe),'resources/app.asar');
   const bundled = JSON.parse(asar.extractFile(archive,'package.json').toString());
   assert.equal(bundled.version,version);
+  for(const name of ['mammoth','yjs','p-queue','jszip']) {
+    const manifest=JSON.parse(asar.extractFile(archive,path.join('node_modules',name,'package.json')).toString());
+    assert.equal(bundled.dependencies[name],manifest.version,`Direct runtime dependency missing: ${name}`);
+  }
   const entries=asar.listPackage(archive);
   assert.deepEqual(fs.readdirSync(path.join(path.dirname(exe),'locales')).sort(),['en-US.pak','zh-CN.pak','zh-TW.pak']);
   assert.ok(!entries.some(name=>/(?:^|[\\/])(?:coverage|tests?|__tests__|fixtures|__fixtures__|\.nyc_output|\.playwright-mcp)(?:$|[\\/])|\.(?:map|pdb|log)$/i.test(name)),'Development-only files must stay out of the installer');

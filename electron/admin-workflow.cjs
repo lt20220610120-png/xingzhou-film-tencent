@@ -1,15 +1,27 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const safe=value=>String(value||'未命名').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,90)||'未命名';
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,mediaRoot,clock=()=>Date.now()}){
- const runs=new Map(),busy=new Set();fs.mkdirSync(root,{recursive:true});
+function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,mediaRoot,onActivity=()=>{},clock=()=>Date.now()}){
+ const runs=new Map(),busy=new Map();fs.mkdirSync(root,{recursive:true});
  const file=id=>path.join(root,`${id}.json`);
  const save=run=>{run.updatedAt=new Date(clock()).toISOString();fs.writeFileSync(file(run.id)+'.tmp',JSON.stringify(run));fs.renameSync(file(run.id)+'.tmp',file(run.id));return run;};
  for(const name of fs.readdirSync(root).filter(n=>/^[a-f0-9-]+\.json$/.test(n))){const run=JSON.parse(fs.readFileSync(path.join(root,name),'utf8'));if(run.status==='running'){run.status='paused';run.message='软件重新启动，请检查后继续；原任务不会重复提交';}runs.set(run.id,run);}
  const owner=async()=>{const a=await authorize();if(!a?.id||a.isAdmin!==true||a.banned)throw Error('仅有效管理员可使用工作流');return String(a.id);};
  const get=async id=>{const accountId=await owner(),run=runs.get(id);if(!run||run.accountId!==accountId)throw Error('找不到当前管理员的工作流');return run;};
  const publicRun=run=>{const {book,...out}=run;return structuredClone(out);};
- async function guard(run){try{if(await owner()!==run.accountId)throw Error('管理员已切换，工作流已暂停');}catch(error){run.status='paused';save(run);throw error;}if(run.status!=='running')throw Error('工作流已暂停');}
+ function setStatus(run,status){
+  const wasRunning=run.status==='running';run.status=status;
+  if(wasRunning===(status==='running'))return;
+  if(wasRunning)busy.get(run.id)?.abort();
+  onActivity(run.id,status==='running');
+ }
+ async function guard(run,signal){
+  signal?.throwIfAborted();
+  try{if(await owner()!==run.accountId)throw Error('管理员已切换，工作流已暂停');}
+  catch(error){setStatus(run,'paused');save(run);throw error;}
+  signal?.throwIfAborted();
+  if(run.status!=='running')throw Error('工作流已暂停');
+ }
  function publishEpisodes(run){
   for(const episode of [...new Set(run.items.map(i=>i.episode))]){
    const items=run.items.filter(i=>i.episode===episode);
@@ -36,16 +48,17 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
   Object.assign(item,{status:'downloaded',outputFile:dest,sha256:digest,error:''});save(run);publishEpisodes(run);
  }
  async function tick(id){
-  if(busy.has(id))return;const run=runs.get(id);if(!run||run.status!=='running')return;busy.add(id);
+  if(busy.has(id))return;const run=runs.get(id);if(!run||run.status!=='running')return;
+  const controller=new AbortController(),{signal}=controller;busy.set(id,controller);
   try{
-   await guard(run);
+   await guard(run,signal);
    const item=run.items.find(i=>['queued','preparing','submitting','submitted','downloading'].includes(i.status));
-   if(!item){run.status=run.items.every(i=>i.status==='downloaded')?'awaiting-post':'needs-attention';run.message=run.status==='awaiting-post'?'本剧原始视频已齐全，等待超分与剪辑接入':'有待处理条目，其余可运行条目已完成';save(run);return;}
+   if(!item){setStatus(run,run.items.every(i=>i.status==='downloaded')?'awaiting-post':'needs-attention');run.message=run.status==='awaiting-post'?'本剧原始视频已齐全，等待超分与剪辑接入':'有待处理条目，其余可运行条目已完成';save(run);return;}
    if(['queued','preparing'].includes(item.status)){
     item.status='preparing';run.message=`AI 检查与准备 ${item.label}`;save(run);
-    const input=await prepare(run,item,()=>guard(run),()=>save(run));await guard(run);
+    const input=await prepare(run,item,()=>guard(run,signal),()=>save(run),signal);await guard(run,signal);
     item.status='submitting';save(run); // durable before any paid request
-    try{const job=await submit({...input,workflowRunId:run.id,workflowItemId:item.id});item.jobId=job.id;item.status='submitted';save(run);}
+    try{const job=await submit({...input,workflowRunId:run.id,workflowItemId:item.id},signal);item.jobId=job.id;item.status='submitted';save(run);}
     catch(error){const job=listJobs().find(j=>j.workflowRunId===run.id&&j.workflowItemId===item.id);item.jobId=job?.id;item.status=job?'submitted':'uncertain';item.error='提交结果需要核对，不自动重发：'+error.message;save(run);}
    }
    if(item.status==='submitting'){
@@ -53,18 +66,19 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
     if(job){item.jobId=job.id;item.status='submitted';}else{item.status='uncertain';item.error='提交期间中断，未找到原任务记录；请人工核对上游，不自动重发';}save(run);
    }
    if(['submitted','downloading'].includes(item.status)){
-    await guard(run);let job=listJobs().find(j=>j.id===item.jobId);
+    await guard(run,signal);let job=listJobs().find(j=>j.id===item.jobId);
     if(!job){item.status='uncertain';item.error='原任务记录不存在，停止该条';save(run);return;}
-    if(!['success','failed','uncertain'].includes(job.status)&&(!job.nextPollAt||job.nextPollAt<=clock()))job=await refresh(job,run);
-    await guard(run);
+    if(!['success','failed','uncertain'].includes(job.status)&&(!job.nextPollAt||job.nextPollAt<=clock()))job=await refresh(job,run,signal);
+    await guard(run,signal);
     if(job.status==='success')download(run,item,job);
     else if(['failed','uncertain'].includes(job.status)){item.status=job.status;item.error=job.error||job.warning||'原任务需要核对';save(run);}
     else{item.status='submitted';run.message=`等待 ${item.label} 的原生成任务`;save(run);}
    }
   }catch(error){
    const item=run.items.find(i=>i.status==='preparing');
+   if(signal.aborted)return;
    if(run.status==='running'&&item){item.status='blocked';item.error=error.message;}
-   else if(run.status==='running'){run.status='paused';}
+   else if(run.status==='running'){setStatus(run,'paused');}
    run.message=error.message;save(run);
   }finally{busy.delete(id);}
  }
@@ -80,8 +94,9 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
    const run={id,accountId,book:structuredClone(book),name:book.name,bookId:book.id,settings,outputDir,status:'paused',message:'设置已保存，点击开始后将调用所选 AI 与视频接口',createdAt:new Date(clock()).toISOString(),items:book.entries.map(e=>({id:e.id,label:e.label,episode:e.episode,scene:e.scene,status:'queued'})),episodes:[]};
    runs.set(id,run);save(run);return publicRun(run);
   },
-  async action({id,action,itemId}){const run=await get(id);if(action==='start'){const {workflowPreflightIssues}=await import('../core/workflowPreflight.js');const issues=workflowPreflightIssues(run.settings);if(issues.length)throw Error(issues.join('；'));run.status='running';run.message='工作流已启动';}else if(action==='pause'){run.status='paused';run.message='已暂停，已提交的上游任务仍保留';}else if(action==='retry'){const item=run.items.find(i=>i.id===itemId);if(!item||item.status!=='blocked')throw Error('仅生成前被拦截的条目可重新检查；已提交项不能自动重发');item.status='queued';item.error='';}else throw Error('未知操作');save(run);return publicRun(run);},
-  pauseAll(){for(const run of runs.values())if(run.status==='running'){run.status='paused';run.message='身份或环境变化，已暂停';save(run);}},
+  async action({id,action,itemId}){const run=await get(id);if(action==='start'){const {workflowPreflightIssues}=await import('../core/workflowPreflight.js');const issues=workflowPreflightIssues(run.settings);if(issues.length)throw Error(issues.join('；'));setStatus(run,'running');run.message='工作流已启动';}else if(action==='pause'){setStatus(run,'paused');run.message='已暂停，已提交的上游任务仍保留';}else if(action==='retry'){const item=run.items.find(i=>i.id===itemId);if(!item||item.status!=='blocked')throw Error('仅生成前被拦截的条目可重新检查；已提交项不能自动重发');item.status='queued';item.error='';}else throw Error('未知操作');save(run);return publicRun(run);},
+  pauseAll(){for(const run of runs.values())if(run.status==='running'){setStatus(run,'paused');run.message='身份或环境变化，已暂停';save(run);}},
+  async assertDispatch(id,signal){const run=runs.get(id);if(!run)throw Error('工作流已停止');await guard(run,signal);},
   async pump(){for(const run of runs.values())if(run.status==='running')await tick(run.id);},tick,
   async output(id){return (await get(id)).outputDir;}
  };

@@ -8,8 +8,8 @@ const {handleAction} = require('../src/collab.cjs');
 const writes = ['asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','message-send','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','storyboard-patch','member-add','member-remove','member-role'];
 function guardRepo(row, lock) {
   const mutations = [];
-  const base = {getProject:async()=>row, isProjectLocked:lock, findMembership:async()=>({role:'producer'}), listMembers:async()=>[]};
-  return {mutations, repo:new Proxy(base, {get:(obj,key) => obj[key] || (async () => {mutations.push(key); return row || {ok:true};})})};
+  const base = {getProject:async()=>row, getProjectAccess:undefined, isProjectLocked:lock, findMembership:async()=>({role:'producer'}), listMembers:async()=>[]};
+  return {mutations, repo:new Proxy(base, {get:(obj,key) => Object.hasOwn(obj,key) ? obj[key] : (async () => {mutations.push(key); return row || {ok:true};})})};
 }
 
 test('retired wholesale asset replacement reaches no repository operation', async () => {

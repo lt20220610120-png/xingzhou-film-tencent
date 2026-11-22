@@ -2,7 +2,8 @@ import {adoptedAssetImage,bindingFollowsAdoptedImage,bindingImageId} from './ado
 import {projectVoiceCards} from './characterVoices.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,applyVoiceBinding,compileVoiceBinding,declaredPromptSpeakers} from './voiceBinding.js';
 import {sceneIdentities,lockedIdentityOmission,isNonvisualFoundationText} from './sceneIdentityContext.js';
-import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation} from './promptFoundation.js';
+import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation,isCharacterAttributeFragment,readPromptFoundationFields} from './promptFoundation.js';
+export {isCharacterAttributeFragment} from './promptFoundation.js';
 import {parseAssetName} from './collabStore.js';
 import {inspectCollabEpisodes} from './collabEpisodes.js';
 import {isReviewCurrent,isSceneVerified,reviewSceneSignature} from './artReview.js';
@@ -22,8 +23,6 @@ export function bindingHash(value){
 }
 export const bindingImages=asset=>asset?.images?.length?asset.images.filter(image=>image.id&&image.url):asset?.image_url?[{id:'legacy',url:asset.image_url}]:[];
 const imageIdentity=image=>image?.objectKey||String(image?.url||'').split('?')[0];
-const CHARACTER_ATTRIBUTE_FRAGMENT=/^(?:人物)?(?:肤色|发色|发型|短发|长发|胡须|妆容|穿着|衣着|服装|上衣|裤子|裙子|鞋子|鞋|牛仔裤|旧胶鞋|皮肤|身材|年龄|气质|外貌|外观|体型|发型略显|短黑发|长黑发|黑发|白发|偏深|略显凌乱).*$/u;
-export const isCharacterAttributeFragment=text=>CHARACTER_ATTRIBUTE_FRAGMENT.test(String(text||'').trim());
 export function bindingSnapshot(project,ledger,assets,previous={},includeEditions=true){
  const inspection=inspectCollabEpisodes(project.episodes),cards=[],entries=[],issues=[],invalidEntries=[],promptIds=new Set();
  const explicitEdition=activeDirectorEditionId(project),editionId=explicitEdition||(project.director_project_id?'original:'+project.director_project_id:null);
@@ -104,7 +103,6 @@ export function extractBindingNeeds(prompt,cards=[]){
    for(const match of text.matchAll(new RegExp(`(?:^|[，,、；;\\n])\\s*[【\\[]?(${escaped})[】\\]]?(?=[，,、；;\\n（(]|\\s|$)`,'g'))){
     const start=offset+from+match.index+match[0].indexOf(match[1]),finish=start+match[1].length;
     if(needs.some(need=>need.category===categories[field[1]]&&need.start<finish&&need.end>start))continue;
-    if(category==='character'&&isCharacterAttributeFragment(match[1]))continue;
     needs.push({id:`${field[1]}:${start}`,category,text:match[1],start,end:finish,visibility:'visible',cardUid:null,reason:'',imageId:null});
    }
   }
@@ -138,7 +136,7 @@ export function currentEntryBinding(snapshot,entry,saved){
  if(saved)next.needs=next.needs.map(need=>{
   const old=saved.needs?.find(row=>row.locked&&row.start===need.start&&row.end===need.end&&row.category===need.category&&row.text===need.text);
   const card=snapshot.cards.find(card=>card.uid===old?.cardUid&&card.category===need.category&&cardInEntry(card,entry));
-  return old?{...old,cardUid:card?.uid||null,imageId:card?.images.some(image=>image.id===old.imageId)?old.imageId:null}:need;
+  return old?{...old,cardUid:card?.uid||null,imageId:bindingImageId(card,old)}:need;
  });
  // Roster-based manual selections need not have a same-name token in the prompt.
  // Keep them while the card still belongs to this scene; re-anchor changed text
@@ -148,7 +146,7 @@ export function currentEntryBinding(snapshot,entry,saved){
   if(!card||next.needs.some(n=>n.locked&&n.cardUid===old.cardUid))continue;
   const valid=entry.prompt.slice(old.start,old.end)===old.text&&old.end>old.start;
   next.needs=next.needs.filter(n=>n.cardUid!==card.uid);
-  next.needs.push({...old,...(valid?{}:{manualReference:true,start:0,end:0,text:card.name}),imageId:card.images.some(i=>i.id===old.imageId)?old.imageId:null});
+  next.needs.push({...old,...(valid?{}:{manualReference:true,start:0,end:0,text:card.name}),imageId:bindingImageId(card,old)});
  }
  return next;
 }
@@ -214,6 +212,7 @@ export function compileEntryBinding(snapshot,entry,decision,{voiceEnabled=true,o
  if(problems.length)throw Error(`${entry.label}：${problems.join('；')}`);
  if(/@(image|audio|video)\d+|@【|@\[/.test(entry.prompt))throw Error(`${entry.label} 已有手动引用，请先核对原引用后再载入联动模式`);
  const references=[],spans=new Map(),manual=[];
+ const sourceFields=decision.origin==='scene-inventory-ai'?readPromptFoundationFields(entry.prompt):null;
  for(const need of effective.needs.filter(row=>row.visibility==='visible')){
   const card=snapshot.cards.find(card=>card.uid===need.cardUid),image=card.images.find(image=>image.id===need.imageId);
   const identity={assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image'};
@@ -223,7 +222,9 @@ export function compileEntryBinding(snapshot,entry,decision,{voiceEnabled=true,o
   const existing=references.find(item=>item.id===ref.id);
   if(!existing)references.push(ref);
   else if(ref.followAdoptedImage===false)existing.followAdoptedImage=false;
-  if(need.manualReference){manual.push({name:card.name,id:ref.id});continue;}
+  const validSpan=Number.isInteger(need.start)&&Number.isInteger(need.end)&&need.start>=0&&need.end>need.start&&need.end<=entry.prompt.length&&entry.prompt.slice(need.start,need.end)===need.text;
+  const validField=!sourceFields||sourceFields.some(field=>field.category===need.category&&need.start>=field.start&&need.end<=field.start+field.text.length);
+  if(need.manualReference||!validSpan||!validField){manual.push({name:card.name,id:ref.id});continue;}
   const key=`${need.start}:${need.end}`,group=spans.get(key)||{start:need.start,end:need.end,ids:[]};group.ids.push(ref.id);spans.set(key,group);
  }
  const aliases=new Map(numberedReferences(references).map(ref=>[ref.id,ref.alias]));let prompt=entry.prompt;
@@ -273,7 +274,7 @@ export function validateCompiledBinding(value,allowedKinds){
  for(const alias of value.prompt.match(/@(image|audio|video)\d+/g)||[])if(!aliases.has(alias))throw Error('存在没有对应图片的引用');
 }
 export async function loadFreshBinding({api,projectId,accountId,localSources=[],versionId,allowUnbound=false}){
- const [saved,project,assets,ledger]=await Promise.all([api.promptArtLoad({projectId,accountId}),api.collabGetProject({projectId}),api.collabListAssets({projectId}),api.artReviewLoadLocal({projectId})]);
+ const [saved,project,assets,ledger]=await Promise.all([api.promptArtLoad({projectId,accountId}),api.collabGetProject({projectId}),api.collabListAssets({projectId}),api.artReviewLoadLocal({projectId,accountId})]);
  if(!saved?.enabled&&!allowUnbound)throw Error('该项目已关闭联动模式，请重新核对');
  const source=localSources.find(row=>!row.cloudProjectId&&row.id===project.director_project_id);
  const effectiveLedger=mergeSharedReviewLedger(ledger,project);effectiveLedger.episodes||={};

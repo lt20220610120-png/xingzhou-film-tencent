@@ -53,7 +53,7 @@ async function generateFeituoVideo({ apiKey, model, prompt, ratio, duration, res
   if (!model?.trim()) throw new Error('请先选择飞拓视频模型');
   const base = 'https://feituokuajing.com';
   const auth = `Bearer ${apiKey.trim()}`;
-  const create = await fetch(`${base}/api/open/v1/video/generate`, { method: 'POST', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(buildFeituoVideoPayload({ model, prompt, ratio, duration, resolution, imageUrls })), signal: requestSignal(signal,120000) });
+  const create = await fetch(`${base}/api/open/v1/video/generate`, { method: 'POST', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(buildFeituoVideoPayload({ model, prompt, ratio, duration, resolution, imageUrls })), redirect:'error', signal: requestSignal(signal,120000) });
   const submitted = await readJson(create);
   if (!create.ok || submitted.success === false) throw new Error(submitted.error || submitted.errorMessage || `飞拓提交失败（${create.status}）`);
   if (!submitted.jobId) throw new Error('飞拓接口未返回 jobId');
@@ -61,19 +61,21 @@ async function generateFeituoVideo({ apiKey, model, prompt, ratio, duration, res
   const deadline = Date.now() + 30 * 60 * 1000;
   while (Date.now() < deadline) {
     await waitForPoll(15000,signal);
-    const response = await fetch(`${base}/api/open/v1/video/status?jobId=${encodeURIComponent(submitted.jobId)}&_=${Date.now()}`, { cache: 'no-store', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Cache-Control': 'no-cache' }, signal: requestSignal(signal,60000) });
+    const response = await fetch(`${base}/api/open/v1/video/status?jobId=${encodeURIComponent(submitted.jobId)}&_=${Date.now()}`, { cache: 'no-store', redirect:'error', headers: { Authorization: auth, 'X-Public-Model-Ids': '1', 'Cache-Control': 'no-cache' }, signal: requestSignal(signal,60000) });
     const result = await readJson(response);
     if (!response.ok || result.success === false) throw new Error(result.error || result.errorMessage || `飞拓状态查询失败（${response.status}）`);
     const parsed = parseFeituoStatus(result); onStatus(parsed.state);
-    if (parsed.state === 'success') return downloadToFile(parsed.url, destDir, 'mp4');
+    if (parsed.state === 'success') return downloadToFile(parsed.url, destDir, 'mp4',{signal});
   }
   throw new Error('飞拓视频生成超时，请稍后在任务记录中查看');
 }
 
-async function downloadToFile(url, destDir, ext,{verifyImage=false,fileName}={}) {
+async function downloadToFile(url, destDir, ext,{verifyImage=false,fileName,signal}={}) {
+  signal?.throwIfAborted();
   const file = path.join(destDir, fileName||`${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`);
-  const bytes=url.startsWith('data:')?Buffer.from(url.split(',')[1]||'','base64'):(await readMediaBytes(url, { timeoutMs: ext === 'mp4' ? 120000 : 60000 })).bytes;
+  const bytes=url.startsWith('data:')?Buffer.from(url.split(',')[1]||'','base64'):(await readMediaBytes(url, { timeoutMs: ext === 'mp4' ? 120000 : 60000,signal })).bytes;
   if(verifyImage)await validateGeneratedImage(bytes);
+  signal?.throwIfAborted();
   const temporary=file+'.'+crypto.randomBytes(4).toString('hex')+'.part';
   try{fs.mkdirSync(destDir,{recursive:true});fs.writeFileSync(temporary,bytes);fs.renameSync(temporary,file);return file;}
   catch(error){try{fs.unlinkSync(temporary);}catch{}if(verifyImage)error.imageVerified=true;throw error;}
@@ -244,14 +246,14 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   if (!createResponse.ok) throw new Error(created?.error?.message || created?.message || `视频接口请求失败（${createResponse.status}）`);
   // 一次性返回视频地址的兼容分支
   const direct = created?.content?.video_url || created?.data?.[0]?.url;
-  if (direct) return await downloadToFile(direct, destDir, 'mp4');
+  if (direct) return await downloadToFile(direct, destDir, 'mp4',{signal});
   const taskId = created?.id || created?.task_id;
   if (!taskId) throw new Error('接口未返回任务 ID，无法查询视频生成进度');
   // 轮询任务状态
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline) {
     await waitForPoll(5000,signal);
-    const pollResponse = await fetch(`${base}/contents/generations/tasks/${taskId}`, { headers: authHeaders(apiKey), signal: requestSignal(signal,60000) });
+    const pollResponse = await fetch(`${base}/contents/generations/tasks/${encodeURIComponent(taskId)}`, { headers: authHeaders(apiKey), redirect:'error', signal: requestSignal(signal,60000) });
     const task = await readJson(pollResponse);
     if (!pollResponse.ok) throw new Error(task?.error?.message || `任务查询失败（${pollResponse.status}）`);
     const status = String(task.status || '').toLowerCase();
@@ -259,7 +261,7 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
     if (['succeeded', 'success', 'completed'].includes(status)) {
       const url = task?.content?.video_url || task?.outputs?.[0]?.url || task?.result?.video_url;
       if (!url) throw new Error('任务已完成，但没有返回视频地址');
-      return await downloadToFile(url, destDir, 'mp4');
+      return await downloadToFile(url, destDir, 'mp4',{signal});
     }
     if (['failed', 'cancelled', 'canceled', 'error'].includes(status)) {
       throw new Error(task?.error?.message || task?.failure_reason || '视频生成任务失败');

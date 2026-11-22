@@ -8,17 +8,30 @@ export const PROMPT_DISTRIBUTION_SKILL=`【内置分发 Skill】
 const empty=()=>({character:[],scene:[],prop:[]});
 const name=text=>text.replace(/[（(][^）)]*[）)]/g,'').replace(/[【】\[\]]/g,'').replace(/[。\s]+$/g,'').trim();
 const attribute=/^(?:肤色|发色|发型|短黑发|长黑发|短发|身材|年龄|穿|牛仔裤|旧胶鞋|驾驶台|副驾驶|车座|脚垫|前挡风|本段|同一时段|无其他|没有其他)/;
+const characterAttribute=/^(?:人物)?(?:肤色|发色|发型|短发|长发|胡须|妆容|穿着|衣着|服装|上衣|裤子|裙子|鞋子|鞋|牛仔裤|旧胶鞋|皮肤|身材|年龄|气质|外貌|外观|体型|短黑发|长黑发|黑发|白发|偏深|略显凌乱)/u;
+const appearanceNamedRole=/^(?:短黑发|长黑发|短发|长发|黑发|白发)(?:的)?(?:老者|老人|老翁|老妇|少年|少女|青年|女孩|男孩|男生|女生|男人|女人|男子|女子|小孩|孩童|骑士|保镖|医生|护士|司机|警察)(?:[甲乙丙丁]|\d+)?$/u;
+export function isCharacterAttributeFragment(value){
+ const text=String(value||'').trim();
+ return characterAttribute.test(text)&&!appearanceNamedRole.test(text);
+}
 const sceneAttribute=/^(?:墙面|墙壁|地面|天花板|顶部|走廊顶部|走廊尽头|两人所在|灯光|光线|环境|背景|室内陈设|门窗|房门|窗外|摆放|悬挂|整体色调)/;
 const sceneContinuation=text=>sceneAttribute.test(text)||/(?:门框|墙面|墙壁|地板|沙发|茶几|书架|窗帘|地毯|防盗门|向.*延伸|通向|通往|摆放|悬挂|斑驳|铺着|亮着|可开合)/.test(text);
-export function readPromptFoundation(prompt=''){
- const source=readPromptFoundationBlock(prompt),out=empty();if(!source)return out;
- const block=source.text;
- const fields=[...block.matchAll(/(?:^|\n)\s*(人物|场景|道具|音色|声音|限制)\s*[：:]/g)],types={人物:'character',场景:'scene',道具:'prop'};
- for(let i=0;i<fields.length;i++){
-  const field=fields[i],category=types[field[1]];if(!category)continue;
-  const value=block.slice(field.index+field[0].length,fields[i+1]?.index??block.length).trim();
+export function readPromptFoundationFields(prompt=''){
+ const source=readPromptFoundationBlock(prompt);
+ if(!source)return [];
+ const fields=[...source.text.matchAll(/(?:^|\n)\s*(人物|场景|道具|音色|声音|限制)\s*[：:]/g)],types={人物:'character',场景:'scene',道具:'prop'};
+ return fields.flatMap((field,index)=>{
+  const category=types[field[1]],start=field.index+field[0].length;
+  return category?[{category,start:source.start+start,text:source.text.slice(start,fields[index+1]?.index??source.text.length)}]:[];
+ });
+}
+export function readPromptFoundation(prompt='',{withSpans=false}={}){
+ const out=empty();
+ for(const field of readPromptFoundationFields(prompt)){
+  const {category}=field;
   let sceneFound=false;
-  for(const text of value.split(/[；;]/).map(s=>s.trim()).filter(Boolean)){
+  for(const part of field.text.matchAll(/[^；;]+/g)){
+   const raw=part[0],text=raw.trim();if(!text)continue;
    if(/^(?:无|没有|暂无)(?:关键|其他|任何|手持|道具|人物|角色|场景|参考)|^(?:不需要|无需)(?:参考|道具|人物|场景)/.test(text)||category==='scene'&&sceneAttribute.test(text))continue;
    // After a location declaration, unmarked clauses describe that location.
    // Another reference placeholder or explicit time/interior heading declares
@@ -35,8 +48,12 @@ export function readPromptFoundation(prompt=''){
     names=head.split(category==='prop'?/[、与及]/:'、').map(name);
     if(category==='prop')names=names.map(s=>s.replace(/^.{1,12}的(?=.{1,12}$)/,'').replace(/^(?:[一二三四五六七八九十两\d]+[只个把件台瓶杯本])/,'').replace(/(?:各[一二三四五六七八九十两\d]+|[一二三四五六七八九十两\d]+[只个把件台瓶杯本具])$/,''));
    }
-   names=names.filter(s=>s&&!attribute.test(s)&&! /^(?:无|没有|暂无|不需要)$/.test(s));
-   if(names.length){out[category].push({text,names});if(category==='scene')sceneFound=true;}
+   names=names.filter(s=>s&&(!attribute.test(s)||category==='character'&&appearanceNamedRole.test(s))&&!(category==='character'&&isCharacterAttributeFragment(s))&&!/^(?:无|没有|暂无|不需要)$/.test(s));
+   if(names.length){
+    const start=field.start+part.index+raw.indexOf(text);
+    out[category].push({text,names,...(withSpans?{start,end:start+text.length}:{})});
+    if(category==='scene')sceneFound=true;
+   }
   }
  }
  return out;

@@ -42,11 +42,16 @@ function createLocalMediaHandler(getDataDir,allowFile=()=>true){
   }catch(error){return new Response(null,{status:['ENOENT','ENOTDIR'].includes(error.code)?404:500});}
  };
 }
-async function exportMediaFile({filePath,url,kind,filename},{showSaveDialog,downloadToFile,mediaDir}){
+async function exportMediaFile({filePath,url,kind,filename},{showSaveDialog,downloadToFile,mediaDir,dataDir}){
+ const verify=dataDir?file=>require('./workspace-file.cjs').verifiedDataFile(file,dataDir()):async file=>file;
+ if(filePath){
+  try{filePath=await verify(filePath);}
+  catch(error){if(!['ENOENT','ENOTDIR'].includes(error.code))throw error;filePath=null;}
+ }
  if(!filePath||!fs.existsSync(filePath)){
   if(!url)throw new Error('素材文件不存在，请刷新结果或检查本地资料目录');
   if(!/^https?:\/\//i.test(url))throw new Error('下载地址无效');
-  filePath=await downloadToFile(url,mediaDir(),kind==='image'?'png':kind==='audio'?'wav':'mp4');
+  filePath=await verify(await downloadToFile(url,mediaDir(),kind==='image'?'png':kind==='audio'?'wav':'mp4'));
  }
  if(!filePath||!fs.existsSync(filePath)||!fs.statSync(filePath).isFile())throw new Error('素材文件不存在');
  const sourceExt=path.extname(filePath).toLowerCase(),ext=types[sourceExt]?sourceExt:kind==='image'?'.png':kind==='audio'?'.wav':'.mp4';

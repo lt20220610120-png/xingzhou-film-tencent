@@ -1,5 +1,7 @@
 const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
+const {ART_ROLES,assetImageObject,objectFromLink}=require('./project-media-policy.cjs');
+const {assetImageLink}=require('./asset-image-links.cjs');
 const DENY = { status: 403, body: { error: '你没有这个项目的操作权限' } };
 const NOT_FOUND = { status: 404, body: { error: '项目不存在或无权访问' } };
 const LOCKED = { status: 423, body: { error: '项目已锁定，暂不可编辑' } };
@@ -25,35 +27,46 @@ const stripInternalGenre = (genre) => String(genre || '')
 // 所有者恒为 producer，其余取成员表角色，默认 collaborator。
 // 统一对外表示：剥离内部标记、暴露 director_project_id 与 locked。
 function present(row, myRole) {
+  const {viewer_role,...fields}=row;
+  const legacyPurge = recycleUntil(row.genre);
+  const marked = String(row.genre||'').includes('[RECYCLE_UNTIL:');
+  const parseDate = value => value ? new Date(value).getTime() : NaN;
+  const purgeTime = parseDate(row.purge_after ?? legacyPurge);
+  const legacyDeleted = purgeTime - 3 * 86400000;
   return {
-    ...row,
+    ...fields,
     genre: stripInternalGenre(row.genre),
     director_project_id: row.director_project_id || collabSource(row.genre),
     locked: String(row.genre || '').includes(LOCK_SENTINEL),
     // 回收站：Supabase 用 genre 里的 RECYCLE_UNTIL 标记表达删除态，
     // 客户端靠 deleted_at 显示“恢复项目”，靠 purge_after 显示到期时间。
-    deleted_at: recycleUntil(row.genre) ? new Date(new Date(recycleUntil(row.genre)).getTime() - 3 * 86400000).toISOString() : null,
-    purge_after: recycleUntil(row.genre) || null,
+    deleted_at: Number.isFinite(parseDate(row.deleted_at)) ? row.deleted_at
+      : marked ? new Date(Number.isFinite(legacyDeleted) && Math.abs(legacyDeleted) <= 8.64e15 ? legacyDeleted : 0).toISOString() : null,
+    purge_after: Number.isFinite(purgeTime) ? row.purge_after || legacyPurge : null,
     myRole,
   };
 }
 
 // 取当前用户在项目中的角色：所有者恒为 producer。
-async function roleOf(pid, user, repo) {
-  const row = await repo.getProject(pid, user.id);
+async function roleOf(pid, user, repo, row) {
+  row ||= await (repo.getProjectAccess || repo.getProject).call(repo,pid,user.id);
   if (!row) return null;
   if (row.owner_id === user.id) return 'producer';
+  if (row.viewer_role) return row.viewer_role;
   const m = await repo.findMembership(pid, user.id);
-  return m && m.role ? m.role : 'collaborator';
+  return m?.role || null;
 }
 
 async function attachRole(row, user, repo) {
   if (!row) return row;
   if (row.owner_id === user.id) return present(row, 'producer');
-  let members = [];
-  try { members = (await repo.listMembers(row.id, user.id)) || []; } catch { members = []; }
-  const mine = members.find((m) => m.user_id === user.id);
-  return present(row, mine && mine.role ? mine.role : 'collaborator');
+  if (row.viewer_role) return present(row,row.viewer_role);
+  try {
+    const mine = repo.findMembership ? await repo.findMembership(row.id,user.id) : (await repo.listMembers?.(row.id,user.id))?.find(m=>m.user_id===user.id);
+    return present(row,mine?.role || 'collaborator');
+  } catch {
+    return present(row,'collaborator');
+  }
 }
 
 function storyboardReceipt(row,payload) {
@@ -74,9 +87,11 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     'episode-identity-resolve','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','assets-list','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
-  if(projectId&&COLLAB_ACTIONS.includes(action)) {
+  const fullProjectRead = action==='project-get' && !payload.bindingContext && !payload.shotReceipt && repo.getProjectAccess;
+  if(projectId&&COLLAB_ACTIONS.includes(action)&&!fullProjectRead) {
     collabRow=action==='asset-image-url'&&repo.getAssetImageProjectAccess
-      ? await repo.getAssetImageProjectAccess(projectId,user.id) : await repo.getProject(projectId,user.id);
+      ? await repo.getAssetImageProjectAccess(projectId,user.id)
+      : await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id);
     if(!collabRow||String(collabRow.genre||'').includes(DIRECTOR_SENTINEL))return action==='project-get'?NOT_FOUND:DENY;
   }
 
@@ -86,15 +101,17 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     'episode-identity-resolve','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
   if (WRITE_ACTIONS.includes(action)) {
     if (!projectId) return DENY;
-    const row = collabRow || await repo.getProject(projectId,user.id);
+    const row = collabRow || await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id);
     if (!row || String(row.genre||'').includes(DIRECTOR_SENTINEL)) return DENY;
     if (row.deleted_at || String(row.genre||'').includes('[RECYCLE_UNTIL:')) return DELETED;
     if (action !== 'project-lock') {
       if (String(row.genre||'').includes(LOCK_SENTINEL)) return LOCKED;
-      let locked;
-      try { locked = await repo.isProjectLocked(projectId); } catch { return STATE_UNAVAILABLE; }
-      if (locked === true) return LOCKED;
-      if (locked !== false) return STATE_UNAVAILABLE;
+      if (action !== 'project-update' || !repo.getProjectAccess) {
+        let locked;
+        try { locked = await repo.isProjectLocked(projectId); } catch { return STATE_UNAVAILABLE; }
+        if (locked === true) return LOCKED;
+        if (locked !== false) return STATE_UNAVAILABLE;
+      }
     }
   }
 
@@ -125,11 +142,11 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   }
   if (action === 'project-list') {
     // 只返回“协作项目”（非导演文档）；含回收站中的项目，客户端据 deleted_at 显示恢复入口。
-    const rows = (await repo.listProjects(user.id)) || [];
+    const rows = (await repo.listProjects(user.id, {summary:payload.summary===true})) || [];
     const collabOnly = rows.filter((row) => !String(row.genre || '').includes(DIRECTOR_SENTINEL) && !String(row.genre || '').includes('[LOCAL_SHARE_PENDING:'));
     const projects = await Promise.all(collabOnly.map((row) => attachRole(row, user, repo)));
-    return ok(payload.summary ? projects.map(({script, episodes, analysis_output, analysis_progress, ...row}) => ({
-      ...row, episodeCount: (episodes || []).length,
+    return ok(payload.summary ? projects.map(({script, episodes, analysis_output, analysis_progress, episode_count, ...row}) => ({
+      ...row, episodeCount: episode_count ?? (Array.isArray(episodes) ? episodes.length : 0),
     })) : projects);
   }
   if (action === 'project-get' && payload.bindingContext===true) {
@@ -200,10 +217,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   }
   if (action === 'project-update') {
     // Supabase 契约：updates + scope，按 scope 限定可写字段与所需角色。
-    if (await repo.isProjectLocked(projectId)) return LOCKED;
-    const row = await repo.getProject(projectId, user.id);
-    if (!row || String(row.genre || '').includes(DIRECTOR_SENTINEL)) return DENY;
-    const myRole = await roleOf(projectId, user, repo);
+    const myRole = await roleOf(projectId, user, repo, collabRow);
     if (!myRole) return DENY;
     const scope = String(payload.scope || '');
     if (!['', 'director-sync', 'storyboard','art-image-settings'].includes(scope)) return DENY;
@@ -240,8 +254,9 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   }
   if (action === 'stats-get') {
     // Supabase 契约：返回 {members, activity, media} 三个数组，客户端 summarizeActivity 会遍历。
-    if (!await repo.getProject(projectId, user.id)) return NOT_FOUND;
-    const bundle = await repo.getStatsBundle(projectId);
+    if (!projectId || await roleOf(projectId, user, repo, collabRow) !== 'producer') return DENY;
+    const bundle = await repo.getStatsBundle(projectId,user.id);
+    if (!bundle) return DENY;
     return ok({ members: bundle.members || [], activity: bundle.activity || [], media: bundle.media || [] });
   }
 
@@ -251,34 +266,46 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     'director-members-list','director-member-add','director-member-remove'];
   if (DIRECTOR_ACTIONS.includes(action)) {
     const pid = payload.directorProjectId || projectId;
-    const row = pid && await (repo.getProject ? repo.getProject(pid, user.id) : repo.getDirectorProject(pid, user.id));
+    const row = pid && await (repo.getProjectAccess || repo.getProject || repo.getDirectorProject).call(repo,pid,user.id);
     if (!row || !String(row.genre || '').includes(DIRECTOR_SENTINEL)
       || String(row.genre || '').includes(COLLAB_SENTINEL) || row.deleted_at || recycleUntil(row.genre))
       return action === 'director-project-get' ? NOT_FOUND : DENY;
   }
   if (action === 'director-project-create') {
     if (!producer) return { status: 403, body: { error: '需要制片人权限才能开启导演协作' } };
-    return ok(await repo.createDirectorProject({ ...payload, ownerUsername: user.username }, user.id, user.display_name || user.username));
+    try { return ok(await repo.createDirectorProject({ ...payload, ownerUsername: user.username }, user.id, user.display_name || user.username)); }
+    catch(error) { if(error.status) return {status:error.status,body:{error:error.message}}; throw error; }
   }
   if (action === 'director-project-list') {
     // 客户端 cloudForProject 依赖 analysis_output === 导演项目本地ID；
     // “管理协作/开启导演协作”按钮依赖 myRole / locked / collaborationLinked。
     const rows = (await repo.listDirectorProjectRows(user.id)) || [];
+    const aliasesOf = row => [row.id,'cloud-'+row.id,row.analysis_output].filter(Boolean);
+    const aliases = [...new Set(rows.flatMap(aliasesOf))];
     let links = [];
-    try { links = (await repo.listCollabLinks()) || []; } catch { return {status:503,body:{error:'暂时无法确认云端项目关联，请稍后刷新'}}; }
+    try { links = (await repo.listCollabLinks(aliases)) || []; } catch { return {status:503,body:{error:'暂时无法确认云端项目关联，请稍后刷新'}}; }
+    const linksById = new Map();
+    for (const link of links) {
+      const keys = new Set([link.director_project_id,...[...String(link.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(match=>match[1])]);
+      for (const key of keys) {
+        const entries = linksById.get(key) || [];
+        entries.push(link);
+        linksById.set(key,entries);
+      }
+    }
     const out = [];
     for (const row of rows) {
-      const member = await repo.findMembership(row.id, user.id);
-      const myRole = row.owner_id === user.id ? 'producer' : (member && member.role ? member.role : '');
+      const {viewer_role,...fields} = row;
+      const myRole = row.owner_id === user.id ? 'producer' : viewer_role || (await repo.findMembership(row.id,user.id))?.role;
       if (!myRole) continue;
       const source = row.analysis_output || '';
       // Three-day recovery copies must retain the same source protection as live ones.
-      const references=links.filter(link=>referencesDirector(link,row));
+      const references=[...new Set(aliasesOf(row).flatMap(alias=>linksById.get(alias)||[]))].filter(link=>referencesDirector(link,row));
       const protectedStates=references.map(link=>sourceProtection(link)).filter(status=>status!=='expired');
       const collaborationLinked=protectedStates.length>0;
       const collaborationProtection=protectedStates.includes('active')?'active':protectedStates.includes('unknown')?'unknown':collaborationLinked?'recycle':'none';
       out.push({
-        ...row,
+        ...fields,
         genre: stripInternalGenre(row.genre),
         analysis_output: source,
         myRole,
@@ -338,17 +365,22 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     let images = [];
     try { images = (await repo.listAssetImages(projectId, user.id)) || []; } catch { images = []; }
     // 资产附带图片列表：signer 在 media 层负责签名，这里只给出对象路径。
-    const { assetImageLink } = require('./asset-image-links.cjs');
-    images = [...new Map(images.map(image => [image.id, image])).values()];
-    return ok(rows.map((row) => ({
-      ...row,
-      image_url: assetImageLink(row.image_url, signer).url,
-      adoptedImageId: images.find(img=>img.asset_id===row.id&&row.image_url&&(img.object_path||img.url)===row.image_url)?.id||null,
-      images: images.filter((img) => img.asset_id === row.id).map((img) => ({ id: img.id, projectId, assetId: row.id, ...assetImageLink(img.object_path||img.url, signer), filename: img.filename, mime: img.mime })),
-    })));
+    const byAsset = new Map();
+    for (const image of new Map(images.map(image=>[image.id,image])).values()) {
+      const group = byAsset.get(image.asset_id) || [];
+      group.push(image);
+      byAsset.set(image.asset_id,group);
+    }
+    return ok(rows.map(row => {
+      const group = byAsset.get(row.id) || [];
+      return {
+        ...row, image_url:assetImageLink(row.image_url,signer,projectId).url,
+        adoptedImageId:group.find(img=>row.image_url&&(img.object_path||img.url)===row.image_url)?.id||null,
+        images:group.map(img=>({id:img.id,projectId,assetId:row.id,...assetImageLink(img.object_path||img.url,signer,projectId),filename:img.filename,mime:img.mime})),
+      };
+    }));
   }
   if (action === 'asset-image-url') {
-    const { assetImageLink } = require('./asset-image-links.cjs');
     const withPreview = async image => {
       if (payload.preview === true && imagePreview) {
         const previewDataUrl = await imagePreview(image,{quick:payload.quickPreview===true}).catch(() => null);
@@ -365,21 +397,21 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
       if (!asset) return NOT_FOUND;
       if (!asset.image_url) return {status:404,body:{code:'ASSET_SLOT_EMPTY',error:'资产卡片暂无已采用图片，请到资产中采用一张图片'}};
       return withPreview({id:asset.image_id||'legacy',projectId,assetId:payload.assetId,
-        ...assetImageLink(asset.image_url,signer),filename:asset.filename,mime:asset.mime});
+        ...assetImageLink(asset.image_url,signer,projectId),filename:asset.filename,mime:asset.mime});
     }
     if (payload.imageId && payload.imageId !== 'legacy') {
       const image = await repo.findMedia(payload.imageId, user.id);
       if (image) {
         if ((projectId && image.project_id !== projectId) || (payload.assetId && image.asset_id !== payload.assetId)
           || (payload.assetId && image.kind && image.kind !== 'asset-image')) return NOT_FOUND;
-        return withPreview({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer), filename: image.filename, mime: image.mime });
+        return withPreview({ id: image.id, projectId: image.project_id, assetId: image.asset_id, ...assetImageLink(image.object_path || image.url, signer,image.project_id), filename: image.filename, mime: image.mime });
       }
       // Only disclose a missing image for a project the caller can read.
       if (!collabRow || !payload.assetId) return NOT_FOUND;
       if (payload.followAdoptedImage === true) {
         const asset = (await repo.listAssets(projectId, user.id) || []).find(item => item.id === payload.assetId);
         if (asset?.image_url) {
-          const link = assetImageLink(asset.image_url, signer);
+          const link = assetImageLink(asset.image_url, signer,projectId);
           const adopted = (await repo.listAssetImages(projectId, user.id) || []).find(row =>
             row.asset_id === asset.id && (row.object_path === asset.image_url || row.object_path === link.objectKey));
           return withPreview({ id: adopted?.id || 'legacy', projectId, assetId: asset.id, ...link,
@@ -393,7 +425,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     if (!asset?.image_url) return collabRow && payload.assetId
       ? {status:404,body:{code:'ASSET_IMAGE_UNAVAILABLE',error:'这张参考图已移除或不再可用，请重新选择图片'}}
       : NOT_FOUND;
-    return withPreview({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer) });
+    return withPreview({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer,projectId) });
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
   if (action === 'asset-update') {
@@ -416,11 +448,12 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return r ? ok(r) : NOT_FOUND;
   }
   if (action === 'asset-image-record') {
-    const r = guard(await repo.recordAssetImage(projectId, { ...payload, username: user.display_name || user.username }, user.id));
+    if (!ART_ROLES.includes(await roleOf(projectId,user,repo,collabRow))) return DENY;
+    const key = payload.objectPath || payload.objectKey;
+    if (!payload.assetId || !assetImageObject(key,projectId)) return {status:400,body:{error:'资产图片存储路径不合法'}};
+    const r = guard(await repo.recordAssetImage(projectId, { ...payload, objectPath:key, username: user.display_name || user.username }, user.id));
     if (!r) return DENY;
-    const objectKey = r.object_path || payload.objectPath || payload.objectKey;
-    const url = objectKey && signer ? signer.signDownload({ objectKey }).url : '';
-    return ok({ ...r, objectKey, url });
+    return ok({ ...r, ...assetImageLink(r.object_path,signer,projectId) });
   }
   if (action === 'asset-image-delete') { const r = guard(await repo.deleteAssetImage(projectId, payload, user.id)); return r ? ok({ ok: true }) : DENY; }
   if (action === 'asset-images-clear') { const r = guard(await repo.clearAssetImages(projectId, payload, user.id)); return r ? ok({ ok: true }) : DENY; }
@@ -438,8 +471,14 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'task-delete') { const r = guard(await repo.deleteTask(projectId, payload.taskId || payload.id, user.id)); return r ? ok({ ok: true }) : DENY; }
 
   // ---- 消息 ----
-  if (action === 'messages-list') return ok(await repo.listMessages(projectId, user.id));
-  if (action === 'message-send') {const r=guard(await repo.sendMessage(projectId,{...payload,username:user.display_name||user.username},user.id));return r?ok(r):DENY;}
+  const presentMessage = message => ({...message,image_url:assetImageLink(message.image_url,signer,projectId).url});
+  if (action === 'messages-list') return ok((await repo.listMessages(projectId, user.id)).map(presentMessage));
+  if (action === 'message-send') {
+    const imageUrl = objectFromLink(payload.imageUrl,signer);
+    if (payload.imageUrl && !assetImageObject(imageUrl,projectId)) return {status:400,body:{error:'群聊图片存储路径不合法'}};
+    const r = guard(await repo.sendMessage(projectId,{...payload,imageUrl,username:user.display_name||user.username},user.id));
+    return r ? ok(presentMessage(r)) : DENY;
+  }
 
   return { status: 501, body: { error: '腾讯云版暂不支持该操作：' + action } };
 }

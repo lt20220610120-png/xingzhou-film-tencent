@@ -32,3 +32,28 @@ test('private service rejects local/browser providers, hidden-network destinatio
  for(const url of ['https://attacker.example/v1','https://api.openai.com/my-capture','https://api.deepseek.com/v1?dump=1','https://api.anthropic.com.evil.example/v1'])assert.throws(()=>trustedEndpoint(url));
  for(const url of ['https://api.openai.com/v1','https://api.deepseek.com/v1','https://api.anthropic.com/v1','https://winai.xingzhoufilm.cn/v1'])assert.equal(trustedEndpoint(url).protocol,'https:');
 });
+
+test('a clean checkout executes a protected task through the shared text runtime',async()=>{
+ let received;
+ const service=createProtectedSkills({
+  readSkill:async()=>({content:'canonical fixture',files:[{path:'refs/one.md',content:'required annex'}]}),
+  validateEndpoint:async()=>{},
+  fetchFn:async(url,init)=>{
+   assert.equal(url,'https://models.example/v1/chat/completions');
+   received=JSON.parse(init.body);
+   return Response.json({choices:[{message:{content:'isolated output'},finish_reason:'stop'}]});
+  },
+ });
+ await service('protected-skill-start',payload,user);
+ for(let attempt=0;attempt<20;attempt++){
+  const result=await service('protected-skill-status',{taskId:payload.taskId},user);
+  if(result.body.state==='completed'){
+   assert.equal(result.body.output,'isolated output');
+   assert.match(received.messages[0].content,/required annex/);
+   return;
+  }
+  assert.equal(result.body.state,'running');
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
+ assert.fail('The protected task never completed');
+});

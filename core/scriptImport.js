@@ -2,6 +2,9 @@
 // scriptImport.js — 剧本分集导入
 // ============================================================
 
+const episodeHeading = /^(?:第\s*[零〇一二两三四五六七八九十百千万\d]+\s*(?:[集章节幕部]|回(?!合))|(?:Episode\s+|EP\s*)\d+\b)/i;
+const explicitEpisodeHeading = (line) => /^【[^】]+】$/.test(line) && episodeHeading.test(line.slice(1,-1).trim());
+
 export const parseDirectorScenes = (text, episodeNumber = 1) => {
   const source = String(text || '').replace(/\r\n?/g, '\n').trim();
   if (!source) return [];
@@ -46,11 +49,10 @@ export const inferDirectorEpisodeNumber = (episode, fallback = 1) => {
 export const parseMasterScript = (text) => {
   const source = String(text || '').replace(/\r\n?/g, '\n').trim();
   if (!source) return { setting: '', episodes: [] };
-  const heading = /^\s*(?:第\s*[一二三四五六七八九十百千\d]+\s*[集章节幕部回]|Episode\s+\d+|EP\s*\d+)\s*[:：]?\s*.*$/i;
   const lines = source.split('\n');
   const starts = [];
-  const explicit=lines.some(line=>/^【[^】]+】$/.test(line.trim())&&heading.test(line.trim().slice(1,-1)));
-  lines.forEach((line, index) => { const wrapped=line.trim().match(/^【([^】]+)】$/),title=wrapped?wrapped[1]:line.trim(); if ((!explicit||wrapped)&&heading.test(title)) starts.push({ index, title }); });
+  const explicit=lines.some(line=>explicitEpisodeHeading(line.trim()));
+  lines.forEach((line, index) => { const wrapped=line.trim().match(/^【([^】]+)】$/),title=wrapped?wrapped[1].trim():line.trim(); if ((!explicit||wrapped)&&episodeHeading.test(title)) starts.push({ index, title }); });
   if (!starts.length) return { setting: source, episodes: [{ title: '设定和小传', content: source, kind: 'setting' }] };
   const setting = lines.slice(0, starts[0].index).join('\n').trim();
   return {
@@ -61,20 +63,20 @@ export const parseMasterScript = (text) => {
 
 export const replaceMasterSetting = (text, setting) => {
   const source = String(text || '').replaceAll(String.fromCharCode(13, 10), '\n').replaceAll(String.fromCharCode(13), '\n').trim();
-  const heading = /^\s*(?:【)?(?:第\s*[一二三四五六七八九十百千\d]+\s*[集章节幕部回]|Episode\s+\d+|EP\s*\d+)\s*[:：]?\s*.*$/im;
-  const explicitHeading=/^\s*【(?:第\s*[一二三四五六七八九十百千\d]+\s*[集章节幕部回]|Episode\s+\d+|EP\s*\d+)[^】]*】\s*$/im;
-  const firstEpisode = source.search(explicitHeading.test(source)?explicitHeading:heading);
-  const episodeText = firstEpisode >= 0 ? source.slice(firstEpisode).trim() : '';
+  const lines=source.split('\n');
+  const explicit=lines.some(line=>explicitEpisodeHeading(line.trim()));
+  const firstEpisode=lines.findIndex(line=>explicit ? explicitEpisodeHeading(line.trim()) : episodeHeading.test(line.trim()));
+  const episodeText=firstEpisode>=0 ? lines.slice(firstEpisode).join('\n').trim() : '';
   return [String(setting || '').trim(), episodeText].filter(Boolean).join('\n\n');
 };
 
 export const splitFullScript = (text) => {
   if (!text || typeof text !== 'string') return { masterScript: '', detected: false, episodes: [] };
-  const patterns = [/^第\s*[一二三四五六七八九十百千\d]+\s*[集章节幕部回]/, /^Episode\s+\d+[:：]?\s*/i, /^\d+[\.、．，,）\)]\s*/, /^[一二三四五六七八九十百千]+[、．\.]\s*/];
+  const patterns = [episodeHeading, /^\d+[\.、．，,）\)]\s*/, /^[零〇一二两三四五六七八九十百千万]+[、．\.]\s*/];
   const lines = text.split('\n'); const episodes = []; let currentTitle = ''; let currentContent = [];
-  const explicit=lines.some(line=>/^【(?:第\s*[一二三四五六七八九十百千\d]+\s*[集章节幕部回]|Episode\s+\d+|EP\s*\d+)[^】]*】$/i.test(line.trim()));
+  const explicit=lines.some(line=>explicitEpisodeHeading(line.trim()));
   for (const line of lines) {
-    const trimmed = line.trim().replace(/^【([^】]+)】$/, '$1');
+    const trimmed = line.trim().replace(/^【([^】]+)】$/, '$1').trim();
     if (!trimmed) { if (currentContent.length > 0) currentContent.push(''); continue; }
     let matched = false;
     for (const pattern of patterns) if ((!explicit||/^【[^】]+】$/.test(line.trim()))&&pattern.test(trimmed)) {
@@ -85,5 +87,5 @@ export const splitFullScript = (text) => {
   }
   if (currentContent.length > 0) episodes.push({ title: currentTitle || `分集 ${episodes.length + 1}`, content: currentContent.join('\n').trim() });
   if (episodes.length === 0 && text.trim()) episodes.push({ title: '完整剧本', content: text.trim() });
-  return { masterScript: text.trim(), detected: episodes.length > 1 || episodes.some(ep => /^第\s*[一二三四五六七八九十百千\d]+\s*[集章节幕部回]/.test(ep.title)), episodes };
+  return { masterScript: text.trim(), detected: episodes.length > 1 || episodes.some(ep => episodeHeading.test(ep.title)), episodes };
 };

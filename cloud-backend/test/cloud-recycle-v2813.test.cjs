@@ -44,7 +44,7 @@ test('cloud restore distinguishes owner permission, expiry, and missing director
 test('authoritative stale local associations release only when no source or recoverable cloud copy remains',async()=>{
  const item={projectId:'local',collaborationProjectId:'copy'},past={genre:'[COLLAB_PROJECT]',purge_after:'2000-01-01',deleted_at:'2000-01-01'};
  for(const [rows,status] of [[[],'released'],[[past],'released'],[[{...past,purge_after:'2099-01-01'}],'protected'],[[{genre:'[DIRECTOR_PROJECT]'}],'protected']]){
-  const repo=extendRepository({query:async()=>({rows})});const result=await repo.directorAssociationStates([item]);assert.equal(result[0].status,status);assert.equal(result[0].collaborationProjectId,'copy');
+  const repo=extendRepository({query:async()=>({rows:rows.map(row=>({...row,position:1}))})});const result=await repo.directorAssociationStates([item]);assert.equal(result[0].status,status);assert.equal(result[0].collaborationProjectId,'copy');
  }
 });
 

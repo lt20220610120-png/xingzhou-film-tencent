@@ -1,125 +1,210 @@
-"""Publish xingzhou-film release to GitHub: create release, upload installer, update latest.json."""
-import base64, json, subprocess, urllib.request, urllib.error, os, sys, time, hashlib, tempfile, datetime
+"""Publish one verified Windows artifact and reconcile the signed update channels."""
+import argparse
+import base64
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.request
 
 from release_assets import ensure_release_asset
+from release_policy import check_release_order, version_tuple
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-subprocess.run(['node', os.path.join(ROOT, 'scripts', 'sign-update.cjs'), '--check'], check=True)
-PACKAGE = json.load(open(os.path.join(ROOT, 'package.json'), encoding='utf-8'))
-VERSION = sys.argv[1] if len(sys.argv) > 1 else PACKAGE['version']
-if '-private' in VERSION:
-    raise SystemExit('本机试用版本不允许发布到公开更新通道')
-NOTES = sys.argv[2] if len(sys.argv) > 2 else ''
-if not NOTES:
-    notes_file = os.path.join(ROOT, 'release-notes', f'{VERSION}.md')
-    if os.path.exists(notes_file):
-        NOTES = open(notes_file, encoding='utf-8').read().strip()
-if not NOTES:
-    NOTES = f'行舟影视 {VERSION} 更新。请在软件设置页检查更新。'
-
-REPO = 'lt20220610120-png/xingzhou-film-updates'
-MANIFEST_REPOS = [REPO, 'lt20220610120-png/xingzhou-film-tencent']
-TAG = f'v{VERSION}'
-RELEASE_DIR = os.path.join(ROOT, 'release', VERSION)
-expected = [
-    os.path.join(directory, f'Xingzhou-Film-Tencent-Setup-{VERSION}.exe')
-    for directory in (RELEASE_DIR, os.path.join(ROOT, 'release'))
-]
-SRC = next((path for path in expected if os.path.isfile(path)), None)
-if not SRC:
-    raise SystemExit(f'找不到 {VERSION} 安装包，请先运行 npm run dist；已检查 {RELEASE_DIR}')
-ASSET = os.path.basename(SRC)
+ROOT=Path(__file__).resolve().parents[1]
+REPO='lt20220610120-png/xingzhou-film-updates'
+MANIFEST_REPOS=(REPO,'lt20220610120-png/xingzhou-film-tencent')
+API='https://api.github.com'
+OFFICIAL='https://xingzhoufilm.cn/api/updates/latest.json'
 
 
-def token():
-    if os.environ.get('GITHUB_TOKEN'):
-        return os.environ['GITHUB_TOKEN']
-    cred = subprocess.check_output(['git', 'credential', 'fill'], input=b'protocol=https\nhost=github.com\n\n').decode()
-    return next(x.split('=', 1)[1] for x in cred.split('\n') if x.startswith('password='))
+def require_status(status, expected, operation):
+    if status not in expected:
+        raise RuntimeError(f'{operation} 失败（HTTP {status}）')
 
 
-TOKEN = token()
+def github_request():
+    token=os.environ.get('GITHUB_TOKEN')
+    if not token:
+        credential=subprocess.check_output(['git','credential','fill'],input=b'protocol=https\nhost=github.com\n\n').decode()
+        token=next(item[9:] for item in credential.splitlines() if item.startswith('password='))
+    def request(url, method='GET', data=None, content_type=None):
+        headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json'}
+        if content_type:
+            headers['Content-Type']=content_type
+        req=urllib.request.Request(url,data=data,headers=headers,method=method)
+        try:
+            with urllib.request.urlopen(req,timeout=120 if url.startswith('https://uploads.github.com/') else 25) as response:
+                return response.status,response.read()
+        except urllib.error.HTTPError as error:
+            return error.code,error.read()
+    return request
 
 
-def req(url, method='GET', data=None, content_type=None):
-    headers = {'Authorization': f'Bearer {TOKEN}', 'Accept': 'application/vnd.github+json'}
-    if content_type:
-        headers['Content-Type'] = content_type
-    r = urllib.request.Request(url, data=data, headers=headers, method=method)
+def official_manifest():
+    req=urllib.request.Request(OFFICIAL,headers={'Cache-Control':'no-cache'})
+    with urllib.request.urlopen(req,timeout=20) as response:
+        return json.load(response)
+
+
+def read_repo_manifest(request, repo):
+    status, data=request(f'{API}/repos/{repo}/contents/latest.json')
+    require_status(status,{200},f'读取 {repo} 更新清单')
+    doc=json.loads(data)
+    return json.loads(base64.b64decode(doc['content'])),doc['sha']
+
+
+def verify_manifests(channels):
+    subprocess.run(['node','-e',"""
+const fs=require('node:fs');
+const {validateManifest}=require('./electron/update-trust.cjs');
+for(const value of Object.values(JSON.parse(fs.readFileSync(0,'utf8'))))validateManifest(value);
+"""],cwd=ROOT,input=json.dumps(channels).encode(),check=True)
+
+
+def find_release(request, version):
+    tag=f'v{version}'
+    status,data=request(f'{API}/repos/{REPO}/releases/tags/{tag}')
+    if status==200:
+        return json.loads(data)
+    require_status(status,{404},f'读取发布 {tag}')
+    # GitHub's tag endpoint may hide drafts until publication.
+    for page in range(1,4):
+        status,data=request(f'{API}/repos/{REPO}/releases?per_page=40&page={page}')
+        require_status(status,{200},'核对 GitHub 草稿')
+        items=json.loads(data)
+        for release in items:
+            if release['tag_name']==tag:
+                return release
+        if len(items)<40:
+            break
+    return None
+
+
+def check_latest_public_release(request, version, *, resume=False, rollback=False):
+    status,body=request(f'{API}/repos/{REPO}/releases/latest')
+    require_status(status,{200},'核对 GitHub 最新公开发布')
+    latest=json.loads(body)['tag_name'].removeprefix('v')
+    if version_tuple(version)<version_tuple(latest) and not rollback:
+        raise ValueError(f'GitHub 最新公开发布为 {latest}，回滚须使用 --allow-rollback')
+    if version_tuple(version)==version_tuple(latest) and not (resume or rollback):
+        raise ValueError(f'GitHub 已公开 {latest}，续发须使用 --resume')
+
+
+def stage_release(request, version, notes):
+    found=find_release(request,version)
+    if found:
+        return found
+    payload={'tag_name':f'v{version}','target_commitish':'main','name':f'行舟影视 {version}',
+             'body':notes,'draft':True,'prerelease':False}
+    status,data=request(f'{API}/repos/{REPO}/releases','POST',json.dumps(payload).encode(),'application/json')
+    require_status(status,{201},'创建 GitHub 发布草稿')
+    return json.loads(data)
+
+
+def signed_manifest(version, name, notes, digest, size, existing):
+    if existing:
+        if any(item!=existing[0] for item in existing):
+            raise RuntimeError('同版本已上线的签名清单不一致，请查明差异再续发')
+        return existing[0]
+    value={'version':version,'installerUrl':f'https://github.com/{REPO}/releases/download/v{version}/{name}',
+           'notes':notes,'sha256':digest,'size':size,'publishedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    with tempfile.TemporaryDirectory(prefix='xingzhou-release-sign-') as temporary:
+        file=Path(temporary)/'latest.json'
+        file.write_text(json.dumps(value,ensure_ascii=False),encoding='utf-8')
+        subprocess.run(['node',str(ROOT/'scripts/sign-update.cjs'),str(file)],check=True)
+        return json.loads(file.read_text(encoding='utf-8'))
+
+
+def update_repo(request, repo, manifest, body, *, resume, rollback):
+    current, sha=read_repo_manifest(request,repo)
+    if current==manifest:
+        return
+    check_release_order(manifest['version'],manifest['sha256'],manifest['size'],{repo:current},resume=resume,rollback=rollback)
+    payload={'message':f"release v{manifest['version']}",'sha':sha,'content':base64.b64encode(body).decode()}
     try:
-        resp = urllib.request.urlopen(r, timeout=600)
-        return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
-    except urllib.error.URLError:
+        status,_=request(f'{API}/repos/{repo}/contents/latest.json','PUT',json.dumps(payload).encode(),'application/json')
+        require_status(status,{200,201},f'更新 {repo} 清单')
+    except (OSError,RuntimeError):
+        # The server may have committed even when the client lost the response.
+        if read_repo_manifest(request,repo)[0]!=manifest:
+            raise
+
+
+def report_channels(request):
+    for name, read in [('官网',official_manifest),*((repo,lambda repo=repo:read_repo_manifest(request,repo)[0]) for repo in MANIFEST_REPOS)]:
+        try:
+            print(f"{name} 当前 {read()['version']}",file=sys.stderr)
+        except Exception:
+            print(f'{name} 当前状态无法核对',file=sys.stderr)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('version',nargs='?',default=json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version'])
+    parser.add_argument('notes',nargs='?')
+    mode=parser.add_mutually_exclusive_group()
+    mode.add_argument('--resume',action='store_true',help='续发同一份已核验安装包')
+    mode.add_argument('--allow-rollback',action='store_true',help='明确允许三个更新渠道回到该已验证版本')
+    parser.add_argument('--prepare-upload',action='store_true',help='只建 GitHub 草稿，供校验后的上传流程使用')
+    parser.add_argument('--use-staged-mirror',action='store_true',help='使用服务器上已校验的同版本安装包')
+    args=parser.parse_args()
+    version=args.version
+    version_tuple(version)
+    name=f'Xingzhou-Film-Tencent-Setup-{version}.exe'
+    directory=ROOT/'release'/version
+    directory.mkdir(parents=True,exist_ok=True)
+    source=next((candidate for candidate in (directory/name,ROOT/'release'/name) if candidate.is_file()),None)
+    if not source:
+        raise SystemExit(f'找不到 {version} 安装包，请先运行 npm run dist')
+    notes_file=ROOT/'release-notes'/f'{version}.md'
+    notes=args.notes or (notes_file.read_text(encoding='utf-8-sig').strip() if notes_file.is_file() else f'行舟影视 {version} 更新。')
+    with source.open('rb') as stream:
+        digest=hashlib.file_digest(stream,'sha256').hexdigest()
+    size=source.stat().st_size
+    request=github_request()
+    order={'resume':args.resume,'rollback':args.allow_rollback}
+    try:
+        channels={'官网':official_manifest(),**{repo:read_repo_manifest(request,repo)[0] for repo in MANIFEST_REPOS}}
+        verify_manifests(channels)
+        check_release_order(version,digest,size,channels,**order)
+        check_latest_public_release(request,version,**order)
+        release=stage_release(request,version,notes)
+        release_id=release['id']
+        if args.prepare_upload:
+            print(json.dumps({'releaseId':release_id,'version':version,'sha256':digest,'size':size}))
+            return
+        ensure_release_asset(request,REPO,release_id,source,name,size,digest)
+        if release.get('draft') or args.allow_rollback:
+            status,_=request(f'{API}/repos/{REPO}/releases/{release_id}','PATCH',
+                             b'{"draft":false,"prerelease":false,"make_latest":"true"}','application/json')
+            require_status(status,{200},'公开 GitHub 正式发布')
+        # Reuse the exact signed bytes on explicitly resumed partial publication.
+        manifest=signed_manifest(version,name,notes,digest,size,[item for item in channels.values() if item['version']==version])
+        content=(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
+        local_manifest=directory/'latest.json'
+        local_manifest.write_bytes(content)
+        mirror=[sys.executable,str(ROOT/'scripts/publish-update-mirror.py'),str(source),str(local_manifest)]
+        if args.resume:
+            mirror.append('--resume')
+        if args.allow_rollback:
+            mirror.append('--allow-rollback')
+        if args.use_staged_mirror:
+            mirror.append('--use-staged-mirror')
+        subprocess.run(mirror,check=True)
+        for repo in MANIFEST_REPOS:
+            update_repo(request,repo,manifest,content,**order)
+        (ROOT/'latest.json').write_bytes(content)
+        subprocess.run(['node',str(ROOT/'scripts/release-retention.cjs')],check=True)
+        print(json.dumps({'releaseId':release_id,'asset':manifest['installerUrl'],'size':size}))
+    except Exception:
+        report_channels(request)
         raise
 
 
-# 1) Create release (or reuse existing one with same tag — makes the script safely re-runnable)
-st, b = req(f'https://api.github.com/repos/{REPO}/releases/tags/{TAG}')
-if st == 200:
-    rid = json.loads(b)['id']
-    print(f'release exists id={rid}, reusing')
-elif st == 404:
-    st, b = req(f'https://api.github.com/repos/{REPO}/releases', 'POST',
-                json.dumps({'tag_name': TAG, 'target_commitish': 'main', 'name': f'行舟影视 {VERSION}',
-                            'body': NOTES, 'draft': False, 'prerelease': False}).encode(),
-                'application/json')
-    assert st in (200, 201), f'Release create failed: {st} {b[:300]}'
-    rid = json.loads(b)['id']
-    print(f'release created id={rid}')
-else:
-    raise RuntimeError(f'Cannot look up release {TAG}: HTTP {st}')
-
-# Reconcile ambiguous uploads by reading the asset again before retrying.
-size = os.path.getsize(SRC)
-with open(SRC, 'rb') as stream:
-    digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-
-ensure_release_asset(req, REPO, rid, SRC, ASSET, size, digest)
-dl = f'https://github.com/{REPO}/releases/download/{TAG}/{ASSET}'
-
-# 3) Update latest.json on both the dedicated update repo and the source repo.
-# Older clients read the source repo; the dedicated repo is the canonical release
-# location. Keeping both in sync makes every published release discoverable.
-manifest = {'version': VERSION,
-            'installerUrl': f'https://github.com/{REPO}/releases/download/{TAG}/{ASSET}',
-            'notes': NOTES,
-            'sha256': digest,
-            'size': size,
-            'publishedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}
-with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.json', delete=False) as signing_file:
-    json.dump(manifest, signing_file, ensure_ascii=False)
-    signing_path = signing_file.name
-try:
-    subprocess.run(['node', os.path.join(ROOT, 'scripts', 'sign-update.cjs'), signing_path], check=True)
-    with open(signing_path, encoding='utf-8') as signing_file:
-        manifest = json.load(signing_file)
-finally:
-    os.unlink(signing_path)
-manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
-local_manifest = os.path.join(RELEASE_DIR, 'latest.json')
-with open(local_manifest, 'w', encoding='utf-8') as local_file:
-    local_file.write(manifest_text)
-# The signed manifest becomes discoverable only after its identical installer
-# is available on the official HTTPS mirror. SSH credentials stay local.
-subprocess.run([sys.executable, os.path.join(ROOT, 'scripts', 'publish-update-mirror.py'), SRC, local_manifest], check=True)
-for manifest_repo in MANIFEST_REPOS:
-    st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json')
-    assert st == 200, f'get latest.json failed for {manifest_repo}: {st}'
-    current = json.loads(base64.b64decode(json.loads(b)['content']).decode('utf-8'))
-    if current == manifest:
-        print(f'latest.json already current in {manifest_repo}')
-        continue
-    sha = json.loads(b)['sha']
-    body = json.dumps({'message': f'release {TAG}',
-                       'content': base64.b64encode(manifest_text.encode()).decode(),
-                       'sha': sha}).encode()
-    st, b = req(f'https://api.github.com/repos/{manifest_repo}/contents/latest.json', 'PUT', body, 'application/json')
-    assert st in (200, 201), f'latest.json update failed for {manifest_repo}: {st} {b[:300]}'
-    print(f'latest.json updated in {manifest_repo}')
-# Keep the checkout's release snapshot in sync after both remote manifests succeed.
-with open(os.path.join(ROOT, 'latest.json'), 'w', encoding='utf-8') as snapshot:
-    snapshot.write(manifest_text)
-subprocess.run(['node', os.path.join(ROOT, 'scripts', 'release-retention.cjs')], check=True)
-print(json.dumps({'release': f'https://github.com/{REPO}/releases/tag/{TAG}', 'asset': dl, 'size': size}, ensure_ascii=False))
+if __name__=='__main__':
+    main()

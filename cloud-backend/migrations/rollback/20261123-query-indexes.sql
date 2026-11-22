@@ -1,0 +1,23 @@
+-- Run with ON_ERROR_STOP outside a transaction, after reverting code using the marker function.
+set lock_timeout = '3s';
+drop index concurrently if exists app_sessions_user_idx;
+drop index concurrently if exists collab_members_user_project_idx;
+drop index concurrently if exists collab_projects_owner_updated_idx;
+drop index concurrently if exists collab_projects_purge_after_idx;
+drop index concurrently if exists collab_projects_director_source_idx;
+drop index concurrently if exists collab_projects_director_alias_idx;
+drop index concurrently if exists collab_projects_id_text_idx;
+drop index concurrently if exists collab_projects_source_marker_idx;
+drop index concurrently if exists collab_assets_project_created_idx;
+drop index concurrently if exists collab_tasks_project_episode_idx;
+drop index concurrently if exists collab_messages_project_created_idx;
+drop index concurrently if exists collab_activity_project_created_idx;
+drop index concurrently if exists collab_media_project_created_idx;
+drop index concurrently if exists collab_media_project_asset_idx;
+drop index concurrently if exists collab_media_asset_idx;
+drop index concurrently if exists collab_media_object_path_idx;
+drop index concurrently if exists software_license_cards_redeemer_idx;
+drop index concurrently if exists software_license_orders_user_idx;
+drop index concurrently if exists win_ai_auth_grants_session_idx;
+drop index concurrently if exists win_ai_session_links_session_idx;
+drop function if exists collab_source_markers(text);

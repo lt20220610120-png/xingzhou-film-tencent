@@ -156,3 +156,15 @@ test('a failed discovery can retry while the first error remains visible',async 
  let attempts=0;const f=fixture(t,{listProjects:()=>{if(++attempts===1)throw Error('network unavailable');return [];}});
  const service=f.setup();await assert.rejects(service.listProjects(),/network unavailable/);assert.deepEqual(await service.listProjects(),[]);assert.equal(attempts,2);
 });
+test('two initial list callers await the same cloud index instead of flashing an empty project list',async t=>{
+ let started,release,calls=0;
+ const entered=new Promise(resolve=>started=resolve),received=new Promise(resolve=>release=resolve);
+ const f=fixture(t,{listProjects:()=>{calls++;started();return received;}});
+ const service=f.setup(),first=service.listProjects();
+ await entered;const second=service.listProjects();
+ await new Promise(resolve=>setTimeout(resolve,20));
+ release([{id:'remote-project',updated_at:'2026-10-01T00:00:00Z'}]);
+ assert.deepEqual((await first).map(row=>row.id),['remote-project']);
+ assert.deepEqual((await second).map(row=>row.id),['remote-project']);
+ assert.equal(calls,1);
+});

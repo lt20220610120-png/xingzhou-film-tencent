@@ -5,6 +5,18 @@ import {parsePromptBook,entryValue,saveEntryValue} from './promptBook.js';
 import {buildPromptHistoryExport,updateDirectorPromptEverywhere} from './projectStore.js';
 
 const timed={id:'a',label:'1-1-1',content:'光影基调：自然光\n正文30秒只是叙述。',segmentationMode:'auto',estimatedSeconds:9.2,recommendedDurationSeconds:10,maxDurationSeconds:30,durationStatus:'estimated',timingRulesVersion:1};
+test('automatic 31–35 second timings survive export, import, and text edits',()=>{
+ for(let seconds=31;seconds<=35;seconds++){
+  const prompt={...timed,recommendedDurationSeconds:seconds,maxDurationSeconds:35};
+  const book=parsePromptBook(buildPromptHistoryExport({name:'fixture',episodes:[{prompts:[prompt]}]}));
+  const [entry]=book.entries;
+  assert.equal(entry.recommendedDurationSeconds,seconds);
+  assert.equal(entry.maxDurationSeconds,35);
+  assert.ok(!entry.prompt.includes('行舟影视时长：'));
+  assert.equal(saveEntryValue(book,entry.id,{...entryValue(book,entry),prompt:'新正文'}).entries[0].durationStatus,'needs-review');
+  assert.equal(markPromptTimingStale(prompt).durationStatus,'needs-review');
+ }
+});
 test('automatic export imports duration outside the untouched Skill content without selecting video duration',()=>{
  const exported=buildPromptHistoryExport({name:'fixture',episodes:[{prompts:[timed]}]});
  assert.match(exported,/【1-1-1】\n行舟影视时长：建议=10秒；上限=30秒；状态=估算\n/);

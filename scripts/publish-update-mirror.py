@@ -1,30 +1,76 @@
-"""Publish a verified signed release to the existing authenticated SSH host."""
-import hashlib, json, os, pathlib, re, subprocess, sys, tempfile, uuid
+"""Upload a verified Windows artifact to the existing authenticated mirror."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import tempfile
+import uuid
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-installer, manifest_file = map(pathlib.Path, sys.argv[1:3])
-manifest = json.loads(manifest_file.read_text(encoding='utf-8'))
-version, digest, size = manifest['version'], manifest['sha256'], manifest['size']
-if not re.fullmatch(r'\d+\.\d+\.\d+', version):
-    raise SystemExit('Invalid mirror version')
-if installer.name != f'Xingzhou-Film-Tencent-Setup-{version}.exe':
-    raise SystemExit('Invalid mirror installer name')
-with installer.open('rb') as stream:
-    if installer.stat().st_size != size or hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
-        raise SystemExit('Mirror installer does not match signed manifest')
-subprocess.run(['node', '-e', "require('./electron/update-trust.cjs').validateManifest(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')))", str(manifest_file.resolve())], cwd=ROOT, check=True)
+from release_policy import version_tuple
 
-key = pathlib.Path(os.environ.get('XINGZHOU_RELEASE_SSH_KEY', pathlib.Path.home()/'.ssh/xingzhou_tencent_test'))
-known = pathlib.Path.home()/'.ssh/known_hosts_xingzhou'
-host = 'ubuntu@106.55.41.128'
-ssh_opts = ['-i', str(key), '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', f'UserKnownHostsFile={known}']
-stage = f'/home/ubuntu/xingzhou-update-stage-v{version}-{uuid.uuid4().hex}'
-subprocess.run(['ssh', *ssh_opts, host, f'mkdir -m 700 {stage}'], check=True)
-with tempfile.TemporaryDirectory(prefix='xingzhou-mirror-') as scratch:
-    # Git for Windows may check shell files out with CRLF. Upload LF explicitly.
-    helper = pathlib.Path(scratch)/'install.sh'
-    helper.write_bytes((ROOT/'scripts/install-update-mirror.sh').read_text(encoding='utf-8').replace('\r\n', '\n').encode('utf-8'))
-    for local, remote in [(installer, installer.name), (manifest_file, 'latest.json'), (helper, 'install.sh')]:
-        subprocess.run(['scp', *ssh_opts, str(local.resolve()), f'{host}:{stage}/{remote}'], check=True)
-subprocess.run(['ssh', *ssh_opts, host, f'sudo bash {stage}/install.sh {stage} {version} {digest} {size}'], check=True)
-print(f'OFFICIAL_MIRROR_PUBLISHED https://xingzhoufilm.cn/api/updates/{installer.name}')
+ROOT=Path(__file__).resolve().parents[1]
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('installer',type=Path)
+    parser.add_argument('manifest',type=Path)
+    mode=parser.add_mutually_exclusive_group()
+    mode.add_argument('--resume',action='store_true')
+    mode.add_argument('--allow-rollback',action='store_true')
+    parser.add_argument('--use-staged-mirror',action='store_true')
+    args=parser.parse_args()
+    manifest=json.loads(args.manifest.read_text(encoding='utf-8'))
+    version,digest,size=manifest['version'],manifest['sha256'],manifest['size']
+    version_tuple(version)
+    name=f'Xingzhou-Film-Tencent-Setup-{version}.exe'
+    with args.installer.open('rb') as stream:
+        if args.installer.name!=name or args.installer.stat().st_size!=size or hashlib.file_digest(stream,'sha256').hexdigest()!=digest:
+            raise ValueError('镜像安装包与签名清单不同')
+    subprocess.run(['node','-e',"require('./electron/update-trust.cjs').validateManifest(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')))",
+                    str(args.manifest.resolve())],cwd=ROOT,check=True)
+    key=Path(os.environ.get('XINGZHOU_RELEASE_SSH_KEY',Path.home()/'.ssh/xingzhou_tencent_test'))
+    known=Path.home()/'.ssh/known_hosts_xingzhou'
+    host='ubuntu@106.55.41.128'
+    opts=['-i',str(key),'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o',f'UserKnownHostsFile={known}','-o','ConnectTimeout=12']
+    stage=f'/home/ubuntu/xingzhou-update-stage-v{version}-{uuid.uuid4().hex}'
+    def ssh(tokens,**options):
+        return subprocess.run(['ssh',*opts,host,shlex.join(tokens)],**options)
+    names=[name,'latest.json','install.sh','mirror_install.py','release_policy.py','update-trust.cjs','update-signing-key.json']
+    files=[(args.manifest,'latest.json'),(ROOT/'scripts/mirror_install.py','mirror_install.py'),
+           (ROOT/'scripts/release_policy.py','release_policy.py'),(ROOT/'electron/update-trust.cjs','update-trust.cjs'),
+           (ROOT/'electron/update-signing-key.json','update-signing-key.json')]
+    created=False
+    try:
+        ssh(['mkdir','-m','700','--',stage],check=True)
+        created=True
+        if args.use_staged_mirror:
+            # The reconstructed verified artifact belongs to this run once claimed.
+            ssh(['bash','-c','test -f "$1" && test ! -L "$1" && mv -- "$1" "$2"','claim',
+                 f'/home/ubuntu/xingzhou-{version}-verified.exe',f'{stage}/{name}'],check=True)
+        else:
+            files.append((args.installer,name))
+        with tempfile.TemporaryDirectory(prefix='xingzhou-mirror-') as scratch:
+            helper=Path(scratch)/'install.sh'
+            helper.write_bytes((ROOT/'scripts/install-update-mirror.sh').read_text(encoding='utf-8-sig').replace('\r\n','\n').encode())
+            files.append((helper,'install.sh'))
+            for local, remote in files:
+                subprocess.run(['scp',*opts,str(local.resolve()),f'{host}:{stage}/{remote}'],check=True)
+        mode=['--resume'] if args.resume else ['--allow-rollback'] if args.allow_rollback else []
+        ssh(['sudo','bash',f'{stage}/install.sh',stage,version,digest,str(size),*mode],check=True)
+    finally:
+        # Also runs on upload/transport errors before the server installer starts.
+        if created:
+            paths=[f'{stage}/{remote}' for remote in names]
+            status=ssh(['rm','-f','--',*paths],check=False).returncode
+            cleanup=ssh(['bash','-c','if test -d "$1"; then rmdir -- "$1"; fi','cleanup',stage],check=False).returncode
+            if status or cleanup:
+                print(f'镜像暂存清理未确认：{stage}',file=sys.stderr)
+
+
+if __name__=='__main__':
+    main()

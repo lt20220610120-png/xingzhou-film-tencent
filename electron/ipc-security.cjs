@@ -37,28 +37,32 @@ function validatePayload(channel,value) {
 function safeExternalUrl(value) {
   if(typeof value!=='string'||value.length>8192)throw new Error('外部链接无效');
   const url=new URL(value);
-  if(!['https:','http:','mailto:'].includes(url.protocol)||url.username||url.password||/[\r\n\x00]/.test(value))throw new Error('不允许打开此链接协议');
+  if(!['https:','http:','mailto:'].includes(url.protocol)||url.username||url.password||/[\\\x00-\x1f\x7f]|%0[ad]|%00/i.test(value))throw new Error('不允许打开此链接协议');
   return url.href;
 }
-function canvasPage(value){try{const url=new URL(value);return url.protocol==='xzapp:'&&url.hostname==='canvas'&&url.pathname==='/index.html';}catch{return false;}}
+function canvasPage(value){try{const url=new URL(value);return url.protocol==='xzapp:'&&url.host==='canvas'&&!url.username&&!url.password&&url.pathname==='/index.html';}catch{return false;}}
 function protectWindow(win, { entryFile,isDev,allowUrl,allowFrameUrl,openExternal,projectPopup }) {
   const allowed=allowUrl || (url=>trustedPage(url,{entryFile,isDev}));
-  win.webContents.on('will-navigate',(event,url)=>{if(!allowed(url))event.preventDefault();});
-  win.webContents.on('will-redirect',(event,url)=>{if(!allowed(url))event.preventDefault();});
+  const guard=(event,legacyUrl)=>{if(!allowed(event.url||legacyUrl))event.preventDefault();};
+  win.webContents.on('will-navigate',guard);
+  win.webContents.on('will-redirect',guard);
   win.webContents.on('will-frame-navigate',(event,legacyUrl,_isInPlace,legacyIsMainFrame)=>{const url=event.url||legacyUrl;const isMainFrame=event.isMainFrame??legacyIsMainFrame;const permitted=allowed(url)||(isMainFrame===false&&allowFrameUrl?.(url));if(!permitted)event.preventDefault();});
   win.webContents.setWindowOpenHandler(details=>{if(projectPopup?.consume(details))return {action:'allow',overrideBrowserWindowOptions:{width:1360,height:900,minWidth:940,minHeight:660,autoHideMenuBar:true,backgroundColor:'#f7f6fc',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}}};const {url}=details;try{const safe=safeExternalUrl(url);Promise.resolve(openExternal?.(safe)).catch(()=>{});}catch{}return {action:'deny'};});
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
 }
 function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,getLicenseClient=()=>null,getLocalAccount=async()=>null,onIdentityChange=()=>{},isStorageLocked=()=>false }) {
-  let epoch=0,transitions=0,onlineWork=0;const active=new Set();
-  const invalidate=()=>{epoch++;for(const controller of active)controller.abort();onIdentityChange();};
+  let epoch=0,transitions=0,onlineWork=0,closing=false;const active=new Set();
+  const cancelActive=()=>{epoch++;for(const controller of active)controller.abort();};
+  const invalidate=()=>{cancelActive();onIdentityChange();};
   return {
     invalidate,
+    close(){closing=true;cancelActive();},
     hasActiveOnlineWork:()=>onlineWork>0,
     handle(channel,handler){
       // Every bridge handler gets provenance validation, including local saves and login.
       ipcMain.handle(channel,async(event,...args)=>{
         assertSender(event,getWindow(),{entryFile,isDev});validatePayload(channel,args[0]);
+        if(closing)throw Error('软件正在退出');
         if(identityChanges.has(channel)){transitions++;invalidate();}
         const expected=epoch;let controller;
         const online=onlineChannels.has(channel);

@@ -19,6 +19,19 @@ test('临时断网保留加密会话；明确封禁/失效清理会话并撤销�
  global.fetch=async()=>Response.json({error:'账号停用'},{status:403});assert.equal(await service.session(),null);assert.equal(service.token(),'');assert.equal(revoked,1);
  store.write({token:'synthetic-banned-account-test'});global.fetch=async()=>Response.json({account:{id:'u',banned:true}});assert.equal(await service.session(),null);assert.equal(service.token(),'');
 });
+test('a gateway 403 preserves the login screen account while protected requests still fail closed',async t=>{
+ const dir=directory(t),storage=encryption(),store=createSessionStore(dir,storage),originalFetch=global.fetch;
+ t.after(()=>global.fetch=originalFetch);
+ const saved={token:'synthetic-edge-403',account:{id:'existing-session'}};
+ store.write(saved);
+ let revoked=0;
+ global.fetch=async()=>new Response('<html>Forbidden</html>',{status:403});
+ const service=createCloudAccessService(dir,{safeStorage:storage,onInvalidSession:()=>revoked++});
+ assert.equal(await service.session(),null);
+ assert.deepEqual(await service.session({allowForbiddenCached:true}),saved.account);
+ assert.equal(service.token(),saved.token);
+ assert.equal(revoked,0);
+});
 
 
 test('local projects may restore the cached account during a temporary project-cloud outage only when explicitly allowed',async t=>{

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {applySceneDistribution,sceneDistributionMessages,assignSceneCard,resolveSceneMissing,sceneDistributionStamp,shouldDistributeSceneEntry,sceneFoundationEvidence} from './scenePromptDistribution.js';
 import {currentEntryBinding,saveDistribution,compileEntryBinding,entryBindingSignature} from './promptArtBinding.js';
+import {applyVoiceBinding} from './voiceBinding.js';
 
 function fixture(){
  const entry={id:'p',sceneId:'1-1',label:'1-1-1',sceneReady:true,prompt:'【基础设定】\n人物：李大川，肤色偏深，短黑发凌乱，牛仔裤和旧胶鞋\n场景：夜，外景为积水道路，内景为破旧面包车驾驶室\n道具：手机\n【镜头】\n他接起电话。'};
@@ -10,6 +11,41 @@ function fixture(){
  const raw={assignments:cards.map(c=>({cardUid:c.uid,visibility:c.uid==='cup'?'excluded':'visible',evidence:({person:'李大川',room:'破旧面包车驾驶室',phone:'手机',cup:''})[c.uid],reason:c.uid==='cup'?'本条未使用杯子':'提示词中明确使用'})),missing:[]};
  return {entry,snapshot,raw,decision:currentEntryBinding(snapshot,entry)};
 }
+test('appearance-prefix character names keep their adopted images through automatic association',()=>{
+ const f=fixture();
+ const names=['白发老者','黑发少年','短发女孩'];
+ f.entry.prompt=`【基础设定】\n人物：${names.join('；')}\n【镜头】\n三人看着门口。`;
+ f.snapshot.cards=names.map(name=>({...f.snapshot.cards[0],uid:name,name:`【${name}】`,assetId:name,adoptedImageId:`${name}-published`,images:[{id:`${name}-published`,url:`https://example.invalid/${name}`},{id:`${name}-candidate`,url:'https://example.invalid/candidate'}]}));
+ const proposed=currentEntryBinding(f.snapshot,f.entry);
+ assert.equal(proposed.needs.length,names.length);
+ const distributed=applySceneDistribution(f.snapshot,f.entry,{...proposed,needs:[]},{assignments:[],missing:[]});
+ assert.deepEqual(distributed.needs.map(need=>need.imageId),names.map(name=>`${name}-published`));
+});
+
+test('reference evidence stays in its own field, including when whole-block text also matches',()=>{
+ const f=fixture();
+ f.snapshot.cards=f.snapshot.cards.filter(card=>card.uid==='phone');
+ f.entry.prompt='【基础设定】\n人物：李大川，拿着手机\n场景：客厅\n道具：手机\n【镜头】\n一切照旧。';
+ const pick=evidence=>({assignments:[{cardUid:'phone',visibility:'visible',evidence,reason:'本条使用手机'}],missing:[]});
+ const result=applySceneDistribution(f.snapshot,f.entry,f.decision,pick('手机'));
+ assert.equal(result.needs.find(need=>need.cardUid==='phone').start,f.entry.prompt.lastIndexOf('手机'));
+ assert.throws(()=>applySceneDistribution(f.snapshot,f.entry,f.decision,pick('手机\n场景：客厅')),/基础设定范围/);
+ assert.throws(()=>applySceneDistribution(f.snapshot,f.entry,f.decision,pick('手机\n【镜头】')),/基础设定范围/);
+ const stored=saveDistribution(f.snapshot,f.entry,result),need=stored.needs.find(need=>need.cardUid==='phone');
+ need.start=f.entry.prompt.indexOf('手机');need.end=need.start+need.text.length;
+ const compiled=compileEntryBinding(f.snapshot,f.entry,stored);
+ assert.ok(compiled.prompt.startsWith(f.entry.prompt));
+ assert.match(compiled.prompt,/【人工指定参考】\n【李大川手机】（参考@image1）/);
+});
+
+test('dotted OS and VO declarations cannot pass as normal spoken dialogue',()=>{
+ const f=fixture(),uid='voice:甲';
+ f.snapshot.voiceCards=[{uid,sceneIds:[f.entry.sceneId],name:'甲'}];
+ for(const label of ['甲（O.S.）','甲 V.O.','甲O. S.','甲V. O.']){
+  const evidence=`${label}：这句话不现场说。`;
+  assert.throws(()=>applyVoiceBinding(f.snapshot,{...f.entry,prompt:evidence},{},[{voiceUid:uid,evidence,kind:'dialogue'}]),/正常对白/);
+ }
+});
 test('场景别名以已有关联卡身份分发，肤色与衣着不生成卡片',()=>{
  const f=fixture(),d=applySceneDistribution(f.snapshot,f.entry,f.decision,f.raw);
  assert.equal(d.needs.filter(n=>n.category==='character').length,1);

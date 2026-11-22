@@ -55,13 +55,15 @@ function copyDependency(name, from) {
   const localProjectModules = ['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
   fs.mkdirSync(path.join(staging,'cloud-backend/src'),{recursive:true});
   for (const name of localProjectModules) fs.copyFileSync(path.join(root,'cloud-backend/src',name+'.cjs'),path.join(staging,'cloud-backend/src',name+'.cjs'));
-  copyDependency('mammoth',root);
-  copyDependency('yjs',root);
-  copyDependency('p-queue',root);
+  const desktopDependencies=['mammoth','yjs','p-queue','jszip'];
+  for(const name of desktopDependencies) {
+    copyDependency(name,root);
+    if(pkg.dependencies[name]!==installed.get(name)) throw Error(`Runtime dependency does not match the pinned version: ${name}`);
+  }
   const runtime = process.env.XINGZHOU_ELECTRON_DIST || path.join(root,'qa/electron-runtime');
   const config = {...pkg.build, electronVersion:require('electron/package.json').version, directories:{output,buildResources:'build'}, npmRebuild:false};
   if (fs.existsSync(path.join(runtime,'electron.exe'))) config.electronDist = runtime;
-  const stagePkg = {...pkg, xingzhouPrivateTrial:process.env.XINGZHOU_PRIVATE_TRIAL==='1', scripts:{}, dependencies:{mammoth:installed.get('mammoth'),yjs:installed.get('yjs'),'p-queue':installed.get('p-queue')}, devDependencies:{}, build:config};
+  const stagePkg = {...pkg, xingzhouPrivateTrial:process.env.XINGZHOU_PRIVATE_TRIAL==='1', scripts:{}, dependencies:Object.fromEntries(desktopDependencies.map(name=>[name,installed.get(name)])), devDependencies:{}, build:config};
   fs.writeFileSync(path.join(staging,'package.json'),JSON.stringify(stagePkg,null,2));
   fs.writeFileSync(path.join(staging,'runtime-dependencies.json'),JSON.stringify(Object.fromEntries(installed),null,2));
   console.log(`Staging ${installed.size} physical runtime packages in ${staging}`);

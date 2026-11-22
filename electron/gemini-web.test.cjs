@@ -130,6 +130,15 @@ test('Gemini rejects a missing browser and cancellation without opening a user b
   await service.close();
 });
 
+test('Gemini kills a headless browser when its startup times out',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-gemini-start-timeout-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const child=new EventEmitter();child.exitCode=null;let kills=0;
+  child.kill=()=>{kills++;child.exitCode=0;child.emit('exit',0);};
+  const service=api().createGeminiWebService({profileDir:dir,findBrowser:()=>'/fake/edge',spawn:()=>child,startupTimeoutMs:5});
+  const status=await service.status();
+  assert.match(status.message,/启动超时/);assert.equal(status.running,false);assert.equal(kills,1);
+});
+
 function fakeBrowser(dir, settings = {}) {
   const launches = [], sockets = [];
   let active = 0, peak = 0, cancellations = 0;

@@ -1,6 +1,17 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {createGeminiQuitHandler}=require('./gemini-shutdown.cjs');
+test('cleanup faults cannot bypass later resources or the credential sealing phase',async()=>{
+ const {closeDesktopResources}=require('./gemini-shutdown.cjs');
+ let release,quits=0,closed=false;
+ const handler=createGeminiQuitHandler({
+  getService:()=>({close:()=>closeDesktopResources({broken:()=>{throw Error('failed');},other:()=>{closed=true;}})}),
+  finishCriticalCleanup:()=>new Promise(resolve=>release=resolve),isUpdating:()=>false,quit:()=>quits++,timeoutMs:5,
+ });
+ handler({preventDefault(){}});await new Promise(resolve=>setTimeout(resolve,15));
+ assert.equal(closed,true);assert.equal(quits,0);
+ release();await new Promise(setImmediate);assert.equal(quits,1);
+});
 test('app waits for browser cleanup before exiting, and repeated quit events do not run cleanup twice',async()=>{
  let resolve,closed=0,quits=0,prevented=0;
  const service={close:()=>{closed++;return new Promise(r=>resolve=r);}};

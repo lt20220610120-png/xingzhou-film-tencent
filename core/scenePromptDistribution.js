@@ -1,7 +1,7 @@
 import {bindingImageId} from './adoptedAssetImage.js';
 import {voiceAssociationIdentity} from './explicitDialogue.js';
 import {entryVoiceCards,VOICE_BINDING_RULE,voiceBindingData,reconcilePromptSpeakers} from './voiceBinding.js';
-import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation,readPromptFoundationBlock} from './promptFoundation.js';
+import {PROMPT_DISTRIBUTION_SKILL,readPromptFoundation,readPromptFoundationBlock,readPromptFoundationFields} from './promptFoundation.js';
 import {bindingHash,cardInEntry,entryBindingSignature,isCharacterAttributeFragment,sceneInventoryCards} from './promptArtBinding.js';
 import {sceneIdentities,reconcileSceneIdentities,isNoReferenceText} from './sceneIdentityContext.js';
 
@@ -9,11 +9,7 @@ const usages=['visible','voice','mentioned','excluded'];
 export const sceneCards=(snapshot,entry)=>snapshot.cards.filter(card=>cardInEntry(card,entry));
 export const sceneDistributionStamp=(snapshot,entry,sceneSource='')=>bindingHash([...(entryVoiceCards(snapshot,entry).length?[entryVoiceCards(snapshot,entry).map(voiceAssociationIdentity)]:[]),'scene-inventory-v3',entry.id,entry.prompt,entry.sceneId,sceneSource,sceneInventoryCards(snapshot,entry).map(c=>[c.uid,c.category,c.name,c.description,c.detailStatus])]);
 export function sceneFoundationEvidence(entry){
- const block=readPromptFoundationBlock(entry.prompt);if(!block)return [];
- return Object.entries(readPromptFoundation(entry.prompt)).flatMap(([category,rows])=>rows.flatMap((row,index)=>{
-  const start=entry.prompt.indexOf(row.text,block.start);
-  return start>=block.start&&start+row.text.length<=block.end?[{id:`${category}:${index+1}`,category,text:row.text,start,end:start+row.text.length}]:[];
- }));
+ return Object.entries(readPromptFoundation(entry.prompt,{withSpans:true})).flatMap(([category,rows])=>rows.map(({text,start,end},index)=>({id:`${category}:${index+1}`,category,text,start,end})));
 }
 export function shouldDistributeSceneEntry(snapshot,entry,ready,decision,attempt){
  if(!entry.sceneReady||entry.duplicateLabel||!ready[entry.sceneId]||!sceneInventoryCards(snapshot,entry).length)return false;
@@ -36,6 +32,12 @@ export function applySceneDistribution(snapshot,entry,decision,raw,sceneSource='
  const data=typeof raw==='string'?JSON.parse(raw.replace(/^\s*```(?:json)?\s*/,'').replace(/\s*```\s*$/,'')):raw;
  if(!Array.isArray(data?.assignments)||!Array.isArray(data?.missing)||data.missing.length>100)throw Error('AI 未返回完整的场景清单分发');
  const cards=sceneInventoryCards(snapshot,entry),seen=new Set(),needs=[];
+ const fields=readPromptFoundationFields(entry.prompt),evidence=sceneFoundationEvidence(entry);
+ const locate=(category,text)=>{
+  if(!text)return null;
+  for(const field of fields)if(field.category===category){const index=field.text.indexOf(text);if(index>=0)return {text,start:field.start+index,end:field.start+index+text.length};}
+  return null;
+ };
  for(const row of data.assignments){
   const card=cards.find(c=>c.uid===row.cardUid);
   if(!card)throw Error('AI 选择了本场清单以外的卡片');
@@ -44,12 +46,11 @@ export function applySceneDistribution(snapshot,entry,decision,raw,sceneSource='
   const locked=decision.needs.filter(n=>n.locked&&n.cardUid===card.uid);
   if(locked.length){needs.push(...locked);continue;}
   if(row.visibility==='visible'&&card.detailStatus==='nonvisual')throw Error('仅声音卡片不能用作画面素材');
-  const span=row.evidenceId?sceneFoundationEvidence(entry).find(s=>s.id===row.evidenceId&&s.category===card.category):null;
+  const span=row.evidenceId?evidence.find(s=>s.id===row.evidenceId&&s.category===card.category):locate(card.category,typeof row.evidence==='string'?row.evidence.trim():'');
   if(row.evidenceId&&!span)throw Error('AI 选择的基础设定原文片段不存在或类别不符');
-  const text=span?.text||(typeof row.evidence==='string'?row.evidence.trim():''),block=readPromptFoundationBlock(entry.prompt),start=text&&block?entry.prompt.indexOf(text,block.start):-1;
-  if(row.visibility!=='excluded'&&(!text||start<block.start||start>=block.end))throw Error('AI 分发缺少基础设定范围内的原文依据');
+  if(row.visibility!=='excluded'&&!span)throw Error('AI 分发缺少同类别基础设定范围内的原文依据');
   const old=decision.needs.find(n=>n.cardUid===card.uid);
-  needs.push({id:'card:'+card.uid,category:card.category,cardUid:card.uid,text:text||card.name,start:text?Math.max(0,start):0,end:text&&start>=0?start+text.length:0,visibility:row.visibility,reason:row.reason.trim(),imageId:bindingImageId(card,old),imageSelection:old?.imageSelection||'asset'});
+  needs.push({id:'card:'+card.uid,category:card.category,cardUid:card.uid,text:span?.text||card.name,start:span?.start??0,end:span?.end??0,visibility:row.visibility,reason:row.reason.trim(),imageId:bindingImageId(card,old),imageSelection:old?.imageSelection||'asset'});
  }
  for(const card of cards)if(!seen.has(card.uid)){
   const locked=decision.needs.find(n=>n.locked&&n.cardUid===card.uid);
@@ -57,14 +58,14 @@ export function applySceneDistribution(snapshot,entry,decision,raw,sceneSource='
  }
  for(const row of data.missing){
   if(!['character','scene','prop'].includes(row.category)||typeof row.text!=='string'||!row.text.trim()||typeof row.reason!=='string'||!row.reason.trim())throw Error('AI 缺项格式不完整');
-  const text=row.text.trim(),block=readPromptFoundationBlock(entry.prompt),start=block?entry.prompt.indexOf(text,block.start):-1;
-  if(!block||start<block.start||start>=block.end)throw Error('AI 缺项没有基础设定范围内的原文依据');
+  const text=row.text.trim(),span=locate(row.category,text);
+  if(!span)throw Error('AI 缺项没有同类别基础设定范围内的原文依据');
   if(isNoReferenceText(text))continue;
   if(!readPromptFoundation(entry.prompt)[row.category]?.some(r=>r.names.some(token=>text.includes(token))&&r.text.includes(text)))throw Error('AI 把属性或补充描述当成新素材缺项');
   if((row.category==='character'&&isCharacterAttributeFragment(text))||/^(日|夜|日间|夜间|内|外|白天|晚上)$/.test(text)||/^(本段|同一时段|无其他|没有其他)/.test(text))throw Error('AI 把属性或描述当成缺项');
   if(needs.some(n=>n.category===row.category&&n.text===text&&(!n.cardUid||n.visibility!=='excluded')))continue;
   const locked=decision.needs.find(n=>n.locked&&!n.cardUid&&n.category===row.category&&n.text===text);
-  needs.push(locked||{id:'missing:'+row.category+':'+start+':'+(start+text.length),category:row.category,text,start,end:start+text.length,visibility:'visible',cardUid:null,imageId:null,reason:row.reason.trim()});
+  needs.push(locked||{id:'missing:'+row.category+':'+span.start+':'+span.end,category:row.category,...span,visibility:'visible',cardUid:null,imageId:null,reason:row.reason.trim()});
  }
  // A model may stop reporting a missing entity after the user skipped its
  // reference. Keep that explicit choice even when it no longer echoes missing.

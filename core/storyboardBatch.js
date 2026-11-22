@@ -12,7 +12,7 @@ import {referencePolicy} from './promptBook.js';
 import {normalizeCapabilities} from './modelCapabilities.js';
 import {validateCompiledBinding} from './promptArtBinding.js';
 import {bindReferencePrompt} from './generationReferences.js';
-import {selectAudioReferences} from './audioReferenceSelection.js';
+import {assertMinimumReferenceImages,selectAudioReferences} from './audioReferenceSelection.js';
 import {libtvGenerationParams} from './libtv.js';
 export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={},assets=[],media=[],binding,accountId,readDraft=()=>null}){
  if(!['scene','episode','project'].includes(scope))throw Error('请选择生成范围');
@@ -48,10 +48,14 @@ export async function storyboardGenerationInput({state,value,getLibTVModel}){
  const limits=referencePolicy(isFeituoEndpoint(profile.endpoint),caps),key=k=>k==='image'?'maxImages':k==='audio'?'maxAudios':'maxVideos';
  const allowed=libtv?['image','audio','video']:['image','audio','video'].filter(k=>limits?.[key(k)]!==0);
  const input=matchBasicReferences(value,value.references||[],{allowedKinds:[...new Set([...allowed,'audio'])]});validateCompiledBinding(input,[...new Set([...allowed,'audio'])]);
- const selected=selectAudioReferences(input,caps),refs=(selected.references||[]).filter(r=>allowed.includes(r.kind));
+ const modelCapabilities=normalizeCapabilities({...caps,...model.capabilities});
+ const candidateRefs=(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind));
+ const selected=selectAudioReferences({...input,prompt:bindReferencePrompt(input.prompt,candidateRefs),references:candidateRefs},modelCapabilities);
+ const refs=selected.references.filter(r=>allowed.includes(r.kind));
  const hasAssetSlots=input.references?.some(r=>r.assetImageSlot);
+ if(!hasAssetSlots)assertMinimumReferenceImages(refs,modelCapabilities);
  if(!hasAssetSlots&&limits)for(const k of allowed)if(limits[key(k)]!=null&&refs.filter(r=>r.kind===k).length>limits[key(k)])throw Error(`当前模型的${{image:'图片',audio:'音频',video:'视频'}[k]}参考超出上限`);
  if(model.protocol==='metadata-content'&&refs.some(r=>r.filePath&&!r.url))throw Error('当前官转模型要求公网素材链接');
  if(libtv&&!hasAssetSlots)libtvGenerationParams(model,{...selected,kind:'video',ratio,duration,resolution,references:refs});
- return {...input,provider:profile.provider,libtvOwnerKey:profile.libtvOwnerKey,likeBindingId:profile.likeBindingId,likeOwnerKey:profile.likeOwnerKey,prompt:bindReferencePrompt(input.prompt,(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind))),originalPrompt:input.prompt,profileId:profile.id,kind:'video',model:model.id,endpoint:profile.endpoint,apiKey:profile.apiKey,videoProtocol:profile.videoProtocol||'auto',videoAdapter:profile.videoAdapter,modelCapabilities:normalizeCapabilities(model.capabilities||model),ratio,duration,resolution:resolution==='固定'?undefined:resolution,references:(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind))};
+ return {...selected,provider:profile.provider,libtvOwnerKey:profile.libtvOwnerKey,likeBindingId:profile.likeBindingId,likeOwnerKey:profile.likeOwnerKey,originalPrompt:input.prompt,profileId:profile.id,kind:'video',model:model.id,endpoint:profile.endpoint,apiKey:profile.apiKey,videoProtocol:profile.videoProtocol||'auto',videoAdapter:profile.videoAdapter,modelCapabilities,ratio,duration,resolution:resolution==='固定'?undefined:resolution,references:refs};
 }

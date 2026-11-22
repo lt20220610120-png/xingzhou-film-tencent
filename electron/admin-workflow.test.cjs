@@ -1,5 +1,24 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createWorkflowEngine}=require('./admin-workflow.cjs');
+test('admin start and stop update sleep prevention and cancel the active request',async t=>{
+ const f=fixture(t),events=[];
+ let started,activeSignal;
+ const entered=new Promise(resolve=>started=resolve);
+ const engine=createWorkflowEngine({...f.options,onActivity:(id,running)=>events.push([id,running]),prepare:async(_run,_item,_guard,_save,signal)=>{
+  activeSignal=signal;started();
+  if(!signal)throw Error('missing signal');
+  return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+ }});
+ const run=await engine.create({book:f.book,settings:f.settings,outputRoot:f.root});
+ await engine.action({id:run.id,action:'start'});const work=engine.tick(run.id);
+ await entered;
+ assert.deepEqual(events,[[run.id,true]]);
+ assert.ok(activeSignal);
+ await engine.action({id:run.id,action:'pause'});await work;
+ assert.equal(activeSignal.aborted,true);
+ assert.deepEqual(events,[[run.id,true],[run.id,false]]);
+ assert.equal(f.calls(),0);
+});
 test('恢复旧工作流也校验启动配置，未完成的后期不能进入付费执行',async t=>{
  const f=fixture(t);
  for(const patch of [{model:''},{preflightVersion:1,endStage:'edit',duration:32,visualStyle:'真人电影级'}]){

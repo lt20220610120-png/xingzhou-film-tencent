@@ -21,19 +21,25 @@ async function verifyInstaller(file,manifest){
  if(header[0]!==0x4d||header[1]!==0x5a)throw new Error('更新文件不是有效的 Windows 安装包');
  return true;
 }
+const sharingViolation=error=>['EBUSY','EPERM','EACCES'].includes(error?.code);
 async function downloadInstaller({url,version,sha256,size,destinationDir,onProgress,fetchImpl=fetch,mirrors=[],attempts=3,idleMs=90000,sleep=ms=>new Promise(r=>setTimeout(r,ms))}){
  if(!/^https:\/\//i.test(url))throw new Error('安装包地址必须使用 HTTPS');
  assertDownloadUrl(url);
  if(!/^[a-f0-9]{64}$/.test(sha256)||!Number.isSafeInteger(size)||size<64||size>512*1024*1024)throw new Error('安装包缺少可信校验信息');
  fs.mkdirSync(destinationDir,{recursive:true});const target=path.join(destinationDir,safeName(version)),temp=target+'.'+sha256+'.part';
- const manifest={sha256,size};try{await verifyInstaller(target,manifest);return target;}catch{}
+ const manifest={sha256,size};try{await verifyInstaller(target,manifest);return target;}catch(error){if(sharingViolation(error))throw error;}
  const sources=[...mirrors,url];sources.forEach(assertDownloadUrl);
  const report=createProgressReporter(onProgress);let lastError;
  for(const source of sources)for(let attempt=0;attempt<attempts;attempt++){
   const controller=new AbortController();let idle;
   const resetIdle=()=>{clearTimeout(idle);idle=setTimeout(()=>controller.abort(new Error('下载连接空闲超时')),idleMs);};
   try{
-   let transferred=fs.existsSync(temp)?fs.statSync(temp).size:0;if(transferred>=size){try{await verifyInstaller(temp,manifest);fs.renameSync(temp,target);report({transferred:size,total:size},true);return target;}catch{fs.unlinkSync(temp);transferred=0;}}
+   let transferred=fs.existsSync(temp)?fs.statSync(temp).size:0;
+   if(transferred>=size){
+    try{await verifyInstaller(temp,manifest);}
+    catch(error){if(sharingViolation(error))throw error;fs.unlinkSync(temp);transferred=0;}
+    if(transferred===size){fs.renameSync(temp,target);report({transferred:size,total:size},true);return target;}
+   }
    resetIdle();const response=await trustedDownload(source,fetchImpl,{headers:transferred?{Range:'bytes='+transferred+'-'}:{},signal:controller.signal});
    if(response.status===206){const range=String(response.headers.get('content-range')||'').match(/^bytes (\d+)-(\d+)\/(\d+)$/);if(!range||Number(range[1])!==transferred||Number(range[3])!==size||Number(range[2])>=size){await response.body?.cancel();throw new Error('安装包断点范围无效');}}
    else if(response.status===200){transferred=0;}else throw new Error('安装包响应状态无效');
@@ -43,7 +49,7 @@ async function downloadInstaller({url,version,sha256,size,destinationDir,onProgr
   }catch(e){lastError=e;
    // Only interrupted transfers are resumable. Bad size/hash/ranges are purged.
    const network=controller.signal.aborted||e.code==='ERR_STREAM_PREMATURE_CLOSE'||require('./media-network.cjs').isMediaNetworkError(e);
-   if(!network){try{fs.unlinkSync(temp);}catch{}if(/非可信地址|HTTPS/.test(e.message))throw e;}
+   if(!network&&!sharingViolation(e)){try{fs.unlinkSync(temp);}catch{}if(/非可信地址|HTTPS/.test(e.message))throw e;}
    if(attempt+1<attempts)await sleep(400*(attempt+1));
   }finally{clearTimeout(idle);controller.abort();}
  }

@@ -2,14 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, X } from 'lucide-react';
 import { mediaSource } from '../../core/generationReferences.js';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 
 // Shared by 图视生成 and collaboration storyboard results; never submit a generation here.
 export function MediaPreview({ item, onClose, onDownload }) {
+  const workspaceActive=useWorkspaceActive();
   const [source, setSource] = useState(() => mediaSource(item));
   const [state, setState] = useState('loading'), [attempt, setAttempt] = useState(0);
   const [message, setMessage] = useState(''), [downloading, setDownloading] = useState(false);
   const dialog = useRef(null), closeButton = useRef(null), media = useRef(null);
   useEffect(() => {
+    if(!workspaceActive)return;
     const previous = document.activeElement, overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden'; closeButton.current?.focus();
     const keydown = event => {
@@ -28,7 +31,7 @@ export function MediaPreview({ item, onClose, onDownload }) {
       if (player?.tagName === 'VIDEO') { player.pause(); player.removeAttribute('src'); player.load(); }
       if (previous?.isConnected) previous.focus();
     };
-  }, [onClose]);
+  }, [onClose,workspaceActive]);
   useEffect(() => {
     if (state !== 'loading') return;
     const timer = setTimeout(() => setState('slow'), 15000);
@@ -45,6 +48,7 @@ export function MediaPreview({ item, onClose, onDownload }) {
     catch (error) { setMessage(error.message || '下载失败，请重试'); }
     finally { setDownloading(false); }
   };
+  if(!workspaceActive)return null;
   return createPortal(<div className="generation-preview-overlay" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialog} className="generation-preview-dialog" role="dialog" aria-modal="true" aria-label="作品预览">
       <header className="generation-preview-toolbar"><strong>{item.kind === 'image' ? '图片预览' : '视频预览'}</strong><div>

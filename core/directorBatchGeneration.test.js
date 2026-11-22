@@ -95,6 +95,14 @@ test('enumeration keeps episode numbering, excludes settings and empty scenes, a
  assert.ok(!JSON.stringify(plan).includes('must-not-persist'));assert.ok(!JSON.stringify(plan).includes('我换句话说'));
 });
 
+test('incomplete-only skips completed scenes with non-contiguous source episode numbers',async()=>{
+ const f=fixture(),project=f.state.directorProjects[0];
+ project.episodes=[{id:'e3',title:'第3集',content:'3-1 房间 日 内\n甲：你好。',prompts:[{id:'ready',label:'3-1-1',content:'完成的镜头。'}]},
+  {id:'e7',title:'第7集',content:'7-1 走廊 日 内\n乙：快走。',prompts:[]}];
+ const plan=await f.plan({existingPolicy:'incomplete-only'});
+ assert.deepEqual(plan.targets.map(target=>[target.episodeId,target.status]),[['e3','skipped'],['e7','pending']]);
+});
+
 test('default skips existing manual results without pretending they are complete; append preserves them',async()=>{
  const f=fixture();f.state.directorProjects[0].episodes[1].prompts=[{id:'old',label:'1-1-1',content:'人工结果'}];
  const plan=await f.plan();assert.equal(plan.targets[0].status,'skipped');assert.match(plan.targets[0].reason,/已有/);

@@ -68,10 +68,12 @@ test('客户端账号服务只使用 Edge Function Token，不再包含服务端
 });
 
 test('公开云端配置不包含服务端密钥', () => {
-  const src = read('electron/cloud-config.public.cjs');
-  assert.match(src, /EDGE_FUNCTION_URL/);
-  assert.match(src, /106\.55\.41\.128|腾讯云/);
-  assert.doesNotMatch(src, /SECRET_KEY|sb_secret_/);
+  const shared = require('../cloud-backend/shared/cloud-config.public.cjs');
+  const desktop = require('./cloud-config.public.cjs');
+  assert.equal(desktop.EDGE_FUNCTION_URL, shared.EDGE_FUNCTION_URL);
+  assert.deepEqual(desktop.gatewayUrls(), shared.gatewayUrls());
+  assert.match(desktop.ENDPOINTS.join(' '), /106\.55\.41\.128/);
+  assert.doesNotMatch(read('cloud-backend/shared/cloud-config.public.cjs')+read('electron/cloud-config.public.cjs'), /SECRET_KEY|sb_secret_/);
 });
 
 test('打包配置必须包含 core 目录（主进程运行时依赖）', () => {

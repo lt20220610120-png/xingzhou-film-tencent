@@ -128,6 +128,7 @@ test('video import rejects files outside its advertised video formats', async ()
 
 async function desktopApi(dialog, { getPath = () => os.tmpdir() } = {}) {
   const handlers = new Map();
+  const profileRoot=await fs.mkdtemp(path.join(os.tmpdir(),'xz-desktop-api-profile-'));
   let window;
   class TestWindow {
     constructor(){window=this;this.webContents={mainFrame:{url:''},on(){},setWindowOpenHandler(){}};}
@@ -137,15 +138,16 @@ async function desktopApi(dialog, { getPath = () => os.tmpdir() } = {}) {
   }
   const electron = {
     BrowserWindow:TestWindow,
-    app: { isPackaged: false, setName() {}, setAppUserModelId() {}, getPath, commandLine: { appendSwitch() {} }, whenReady: () => new Promise(() => {}), on() {} },
+    app: { isPackaged: false, setName() {}, setAppUserModelId() {}, setPath() {}, getPath:key=>key==='appData'?profileRoot:getPath(key), commandLine: { appendSwitch() {} }, whenReady: () => new Promise(() => {}), on() {} },
     dialog,
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     protocol: { registerSchemesAsPrivileged() {} },
   };
-  vm.runInNewContext((await fs.readFile(path.join(__dirname, 'main.cjs'), 'utf8'))+'\ncreateWindow();', {
+  try{vm.runInNewContext((await fs.readFile(path.join(__dirname, 'main.cjs'), 'utf8'))+'\ncreateWindow();', {
     require: name => name === 'electron' ? electron : name === './packaged-smoke.cjs' ? () => false : require(name),
     __dirname, process: { on() {}, platform: process.platform }, Buffer, setTimeout, URL, Response, AbortController,
-  }, { filename: 'main.cjs' });
+  }, { filename: 'main.cjs' });}
+  finally{await fs.rm(profileRoot,{recursive:true,force:true});}
   let api;
   vm.runInNewContext(await fs.readFile(path.join(__dirname, 'preload.cjs'), 'utf8'), {
     require: () => ({

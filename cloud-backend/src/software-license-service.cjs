@@ -13,12 +13,17 @@ function createLicenseService(repo){
   if(!await repo.licenseConsumeChallenge(proof.nonce,key))fail('设备挑战已过期或已使用，请重试');
   return key;
  }
- async function decision(user,key){const state=await repo.licenseState(user?.id,key),result=licenseDecision({...user,exempt:state.exempt,banned:user?.banned||state.grant?.banned},state.grant,Date.now(),key);return {...result,authenticated:Boolean(user),canSettle:Boolean(user&&!user.banned&&state.grant&&(state.knownDevice||state.grant.device_key===key)),leaseSeconds:60};}
+ async function decision(user,key,state){
+  state ||= await repo.licenseState(user?.id,key);
+  const result=licenseDecision({...user,exempt:state.exempt,banned:user?.banned||state.grant?.banned},state.grant,Date.now(),key);
+  return {...result,authenticated:Boolean(user),canSettle:Boolean(user&&!user.banned&&state.grant&&!state.grant.banned&&(state.knownDevice||state.grant.device_key===key)),leaseSeconds:60};
+ }
+ const isExempt=async userId=>repo.licenseIsExempt ? repo.licenseIsExempt(userId) : (await repo.licenseState(userId,'')).exempt;
  async function authorize(action,payload,token,user){
   if(user?.banned)fail('账号已停用');
-  const state=await repo.licenseState(user?.id,'');
-  if(state.exempt)return {status:'exempt',allowed:true};
-  const key=await device(action,payload,token),result=await decision(user,key);
+  if(await isExempt(user?.id))return {status:'exempt',allowed:true};
+  const key=await device(action,payload,token);
+  const result=await decision(user,key);
   if(!result.allowed&&!(READ_ONLY.has(action)&&result.canSettle))fail('软件授权无效或已到期，请续卡或联系管理员');
   return result;
  }
@@ -34,10 +39,10 @@ function createLicenseService(repo){
   if(state.knownDevice)return;
   fail('请先激活卡密；换机或重装请联系管理员解绑');
  }
- async function afterLogin(user,key,activation){const state=await repo.licenseState(user.id,key);if(!state.exempt&&activation)await repo.licenseRedeem(activation,key,user.id);return decision(user,key);}
+ async function afterLogin(user,key,activation){const state=await repo.licenseState(user.id,key);if(!state.exempt&&activation){await repo.licenseRedeem(activation,key,user.id);return decision(user,key);}return decision(user,key,state);}
  async function publicAction(action,payload,token,user){
   if(action==='license-route'){
-   if(user){if((await repo.licenseState(user.id,'')).exempt)return decision(user,'');return {status:'monthly',allowed:false,authenticated:true};}
+   if(user){const state=await repo.licenseState(user.id,'');if(state.exempt)return decision(user,'',state);return {status:'monthly',allowed:false,authenticated:true};}
    const username=String(payload.username||'').trim().toLowerCase();
    if(!username)return {status:'unknown',allowed:false,authenticated:false};
    if(!/^[a-z0-9_]{3,32}$/.test(username))fail('请输入正确的账号',400);
@@ -51,7 +56,7 @@ function createLicenseService(repo){
    return {nonce:await repo.licenseChallenge(key),protocol:1};
   }
   // Legacy exemption is an authenticated server record, never a client flag.
-  if(action==='license-check'&&user&&(await repo.licenseState(user.id,'')).exempt)return decision(user,'');
+  if(action==='license-check'&&user&&await isExempt(user.id))return decision(user,'',{exempt:true});
   const key=await device(action,payload,token);
   if(action==='license-check')return decision(user,key);
   if(action==='license-prepare')return repo.licensePrepare(cardDigest(payload.code),key);

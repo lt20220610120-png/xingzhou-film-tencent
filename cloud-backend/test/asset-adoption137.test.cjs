@@ -11,7 +11,23 @@ test('adoption accepts only an editable project and an image in the same asset',
  const locked=repo();locked.isProjectLocked=async()=>true;assert.equal((await handleAction('asset-update',input,{id:'u'},locked)).status,423);
 });
 test('adoption SQL binds project, asset, image, editable membership and lock; deletion promotes only a surviving same-card image',async()=>{
- const queries=[],pool={query:async(sql,args)=>{queries.push({sql,args});if(sql.startsWith('select 1'))return {rows:[{ok:1}]};if(sql.startsWith('delete'))return {rows:[{asset_id:'a',object_path:'old',url:''}]};return {rows:[{id:'a'}]};}};
- const store=extendRepository(pool);await store.selectAssetImage('p','a',image,'u');assert.deepEqual(queries[0].args,['p','a',image,'u']);for(const text of ['m.asset_id=a.id','m.project_id=a.project_id',"m.kind='asset-image'",'p.deleted_at is null','PROJECT_LOCKED','artist_collaborator'])assert(queries[0].sql.includes(text));
- await store.deleteAssetImage('p',{imageId:image},'u');const update=queries.at(-1);assert.match(update.sql,/m\.asset_id=a\.id/);assert.match(update.sql,/a\.image_url=coalesce/);assert.deepEqual(update.args,['p','a','old','']);
+ const queries=[];
+ const client={release(){},query:async(sql,args)=>{
+  queries.push({sql,args});
+  if(sql.startsWith('select p.id,p.owner_id'))return {rows:[{id:'p',owner_id:'owner'}]};
+  if(sql.startsWith('select 1'))return {rows:[{ok:1}]};
+  if(sql.startsWith('select object_path'))return {rows:[{object_path:'projects/p/image/new.png'}]};
+  if(sql.startsWith('delete'))return {rows:[{asset_id:'a',object_path:'old',url:''}]};
+  return {rows:[{id:'a'}]};
+ }};
+ const store=extendRepository({connect:async()=>client});
+ assert.ok(await store.selectAssetImage('p','a',image,'u'));
+ const imageLookup=queries.find(q=>q.sql.startsWith('select object_path'));
+ assert.deepEqual(imageLookup.args,['p','a',image]);assert.match(imageLookup.sql,/project_id=.*asset_id::text=.*kind='asset-image'/);
+ assert.ok(queries.some(q=>q.sql.includes('for update')));
+ assert.ok(queries.some(q=>q.sql.includes('for share')&&q.args[2].includes('artist_collaborator')));
+ await store.deleteAssetImage('p',{imageId:image},'u');
+ assert.match(queries.find(q=>q.sql.startsWith('delete')).sql,/kind='asset-image'/);
+ const update=queries.find(q=>q.sql.startsWith('update collab_assets a'));
+ assert.match(update.sql,/m\.asset_id=a\.id/);assert.match(update.sql,/a\.image_url=coalesce/);assert.deepEqual(update.args,['p','a','old','']);
 });

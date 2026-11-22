@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path');
 // POST path is still single-attempt; only the durable job refresh path may
 // retry, so a network reset can never silently duplicate a paid generation.
 const {winAIFetch:fetch}=require('./win-ai-api-fetch.cjs');
+const requestSignal=(signal,ms)=>signal?AbortSignal.any([signal,AbortSignal.timeout(ms)]):AbortSignal.timeout(ms);
 const shared=import('../core/videoProviderConfig.js'),capabilities=import('../core/modelCapabilities.js');
 function getValue(obj,paths=''){for(const key of String(paths).split('|')){let v=obj;for(const part of key.split('.').filter(Boolean))v=v?.[part];if(v!==undefined&&v!==null&&v!=='')return v;}}
 function template(value,vars){
@@ -94,17 +95,17 @@ async function submitPrepared(input){await preflight(input);const {adapter,base,
  ({url,body}=injectAuthentication(url,body,adapter,input.apiKey));input.onSubmissionStart();const data=await readJson(await fetch(url,{method,headers,body,redirect:'error',signal}),input.apiKey);const result=decode(data,adapter,input.apiKey);if(!result.jobId&&!result.videoUrl)throw Error('提交响应没有任务编号或视频地址，请先核对上游任务，避免重复付费');return result;
 }
 async function status(input){const {adapter,base,protocol}=await config(input);if(!input.jobId)throw Error('缺少任务编号');if(!adapter.queryPath)throw Error('请配置任务查询路径');let url=endpointUrl(base,adapter.queryPath,{taskId:input.jobId});const vars={taskId:input.jobId};const headers=auth(adapter,input.apiKey);if(protocol==='feituo')headers['X-Public-Model-Ids']='1';const method=adapter.queryMethod||'GET';let body;if(method!=='GET'){headers['Content-Type']='application/json';body=JSON.stringify(template(adapter.queryTemplate||{id:'{{taskId}}'},vars));}else if(adapter.queryTemplate){const target=new URL(url);for(const [k,v] of Object.entries(template(adapter.queryTemplate,vars)))target.searchParams.set(k,String(v));url=target.href;}
- ({url,body}=injectAuthentication(url,body,adapter,input.apiKey));const result=decode(await readJson(await fetch(url,{method,headers,body,redirect:'error',cache:'no-store',signal:AbortSignal.timeout(60000)}),input.apiKey),adapter,input.apiKey);
+ ({url,body}=injectAuthentication(url,body,adapter,input.apiKey));const result=decode(await readJson(await fetch(url,{method,headers,body,redirect:'error',cache:'no-store',signal:requestSignal(input.signal,60000)}),input.apiKey),adapter,input.apiKey);
  if(result.status==='success'&&adapter.contentPath&&(adapter.preferContentPath||!result.videoUrl))result.videoUrl=endpointUrl(base,adapter.contentPath,{taskId:input.jobId});
  return result;
 }
 async function download(job,apiKey,dir){const {adapter,base}=await config(job);let url=job.url;if(!url)throw Error('任务完成但上游尚未返回视频地址');
- const publicDownload=async address=>{const {bytes,mime}=await require('./media-network.cjs').readMediaBytes(address,{timeoutMs:120000});if(mime&& !/^(video\/|application\/octet-stream)/.test(mime))throw Error('上游结果返回了非视频文件，请重新查询下载');await fs.promises.mkdir(dir,{recursive:true});const file=path.join(dir,'video-'+Date.now()+'-'+require('node:crypto').randomUUID()+'.mp4');await fs.promises.writeFile(file,bytes);return file;};
+ const publicDownload=async address=>{const {bytes,mime}=await require('./media-network.cjs').readMediaBytes(address,{timeoutMs:120000,signal:job.signal});if(mime&& !/^(video\/|application\/octet-stream)/.test(mime))throw Error('上游结果返回了非视频文件，请重新查询下载');job.signal?.throwIfAborted();await fs.promises.mkdir(dir,{recursive:true});const file=path.join(dir,'video-'+Date.now()+'-'+require('node:crypto').randomUUID()+'.mp4');await fs.promises.writeFile(file,bytes);return file;};
  const own=adapter.contentPath&&url===endpointUrl(base,adapter.contentPath,{taskId:job.jobId});
  if(!own)return publicDownload(url);
  // Protected content endpoints may redirect to a CDN. Credentials stay at origin.
- const protectedUrl=injectAuthentication(url,undefined,adapter,apiKey).url;const response=await fetch(protectedUrl,{headers:auth(adapter,apiKey),redirect:'manual',signal:AbortSignal.timeout(120000)});
- if([301,302,303,307,308].includes(response.status)){const next=new URL(response.headers.get('location'),url).href;await response.body?.cancel();return publicDownload(next);}
+ const protectedUrl=injectAuthentication(url,undefined,adapter,apiKey).url;const response=await fetch(protectedUrl,{headers:auth(adapter,apiKey),redirect:'manual',signal:requestSignal(job.signal,120000)});
+ if([301,302,303,307,308].includes(response.status)){const location=response.headers.get('location');await response.body?.cancel();if(!location)throw Error('视频内容下载跳转缺少地址');const next=new URL(location,url);if(!['https:','http:'].includes(next.protocol)||next.username||next.password)throw Error('视频内容下载跳转地址无效');return publicDownload(next.href);}
  const mime=response.headers.get('content-type')||'';if(!response.ok||!/video\/|application\/octet-stream/.test(mime))throw Error('视频内容尚不可下载，请重试查询下载');const bytes=Buffer.from(await response.arrayBuffer());if(!bytes.length)throw Error('视频文件为空');await fs.promises.mkdir(dir,{recursive:true});const file=path.join(dir,'video-'+Date.now()+'-'+require('node:crypto').randomUUID()+'.mp4');await fs.promises.writeFile(file,bytes);return file;
 }
 module.exports={submit,status,download,validate,preflight,config,template,endpointUrl,getValue};

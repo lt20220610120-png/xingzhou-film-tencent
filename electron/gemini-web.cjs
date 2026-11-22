@@ -222,7 +222,7 @@ async function browserRequest(kind, request, timeout) {
   finally { clearTimeout(timer); if (runtime.controller === controller) runtime.controller = null; }
 }
 
-function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findBrowser, spawn = nativeSpawn, WebSocket: WebSocketClass = global.WebSocket, onDiagnostic } = {}) {
+function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findBrowser, spawn = nativeSpawn, WebSocket: WebSocketClass = global.WebSocket, onDiagnostic, startupTimeoutMs=30000 } = {}) {
   if (!profileDir) throw new Error('Gemini 独立浏览器资料目录未配置');
   const resolvedProfile = path.resolve(profileDir);
   if (/[/\\](?:Microsoft[/\\]Edge|Google[/\\]Chrome)[/\\]User Data(?:[/\\]|$)/i.test(resolvedProfile)) throw new Error('Gemini 必须使用行舟影视独立浏览器资料目录');
@@ -280,7 +280,8 @@ function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findB
     args.push(GEMINI_URL); visible = !!show;
     child = spawn(executable, args, { windowsHide: !show, shell: false, stdio: 'ignore' });
     let launchError = false; child.once('error', () => { launchError = true; });
-    const deadline = Date.now() + 30000;
+    const deadline = Date.now() + startupTimeoutMs;
+    try{
     while (Date.now() < deadline) {
       checkSignal(signal);
       if (closed) throw new Error('Gemini 服务已停止');
@@ -303,6 +304,7 @@ function createGeminiWebService({ profileDir, findBrowser: locateBrowser = findB
       lastState = { ...lastState, installed: true, running: true }; return;
     }
     throw new Error('Gemini 独立浏览器启动超时，请检查 Edge 或 Chrome 是否可用');
+    }catch(error){try{await stopOwnedBrowser();}catch{}throw error;}
   }
   async function evaluate(expression, options = {}) {
     let cancelledFetch = Promise.resolve();

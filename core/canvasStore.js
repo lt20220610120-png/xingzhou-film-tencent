@@ -116,8 +116,9 @@ export const generationMediaProfiles = (state, kind) => {
     isFeituoEndpoint(profile.endpoint) && credential
       ? { ...profile, apiKey: profile.apiKey||credential.apiKey }
       : profile);
-  if (credential && !profiles.some((profile) => isFeituoEndpoint(profile.endpoint))) {
-    profiles.push({ ...credential, kind, endpoint: FEITUO_ENDPOINT, name: `飞拓${MEDIA_KINDS[kind]}`, model: feituoModels.find((model) => model.kind === kind).id });
+  const fallback = feituoModels.find((model) => model.kind === kind);
+  if (credential && fallback && !profiles.some((profile) => isFeituoEndpoint(profile.endpoint))) {
+    profiles.push({ ...credential, kind, endpoint: FEITUO_ENDPOINT, name: `飞拓${MEDIA_KINDS[kind]}`, model: fallback.id });
   }
   return profiles;
 };
@@ -185,7 +186,7 @@ export const setActiveMediaApi = (state, kind, profileId) => ({
 });
 
 export const activeMediaProfile = (state, kind) => {
-  const activeId = kind === 'video' ? state.activeVideoApiId : state.activeImageApiId;
+  const activeId = kind === 'audio' ? state.activeAudioApiId : kind === 'video' ? state.activeVideoApiId : state.activeImageApiId;
   const profiles = generationMediaProfiles(state, kind);
   return profiles.find((p) => p.id === activeId)
     || profiles[0]

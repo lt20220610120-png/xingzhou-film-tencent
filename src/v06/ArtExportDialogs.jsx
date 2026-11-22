@@ -1,10 +1,13 @@
 import React,{useEffect,useRef} from 'react';
 import {X,Download,Folder,Layers,Clapperboard,Image,AudioLines} from 'lucide-react';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import './art-export-dialogs.css';
 
 function ExportDialog({title,label,onClose,children,wide=false}){
+ const workspaceActive=useWorkspaceActive();
  const ref=useRef(null);
- useEffect(()=>{const node=ref.current;node.showModal();const cancel=e=>{e.preventDefault();onClose();};node.addEventListener('cancel',cancel);return()=>{node.removeEventListener('cancel',cancel);node.close();};},[]);
+ useEffect(()=>{if(!workspaceActive)return;const node=ref.current;node.showModal();const cancel=e=>{e.preventDefault();onClose();};node.addEventListener('cancel',cancel);return()=>{node.removeEventListener('cancel',cancel);node.close();};},[workspaceActive]);
+ if(!workspaceActive)return null;
  return <dialog ref={ref} aria-label={label} className={`art-export-dialog${wide?' wide':''}`} onClick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)onClose();}}}><header><div className="art-export-title"><Download size={18}/><h2>{title}</h2></div><button className="art-export-close" type="button" aria-label="关闭导出弹窗" onClick={onClose}><X size={17}/></button></header>{children}</dialog>;
 }
 export function ArtExportChoiceDialog({versions=[],version,onVersionChange,loading,error,exporting,onClose,onChoose}){

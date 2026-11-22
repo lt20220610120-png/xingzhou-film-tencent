@@ -1,13 +1,19 @@
-// Refresh only our own COS links. External legacy URLs stay external.
-function assetImageLink(value, signer) {
-  if (!value) return { url: '' };
-  let objectKey = String(value);
-  if (/^https?:/i.test(objectKey)) {
-    const url = new URL(objectKey);
-    if (!signer?.host || url.hostname !== signer.host) return { url: objectKey };
-    objectKey = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+const {assetImageObject,objectFromLink}=require('./project-media-policy.cjs');
+
+function assetImageLink(value, signer, projectId) {
+  if (typeof value !== 'string' || !value) return {url:''};
+  if (/^https?:/i.test(value)) {
+    try {
+      const url = new URL(value);
+      if (url.username || url.password || !/^https?:$/.test(url.protocol)) return {url:''};
+      if (!signer?.host || url.hostname !== signer.host) return {url:value};
+    } catch {
+      return {url:''};
+    }
   }
-  if (!signer) return { url: '' };
+  const objectKey = objectFromLink(value,signer);
+  const scope = projectId || objectKey.split('/')[1];
+  if (!signer || !assetImageObject(objectKey,scope)) return {url:''};
   const signed = signer.signDownload({ objectKey });
   return { objectKey, url: signed.url, expiresAt: signed.expiresAt };
 }

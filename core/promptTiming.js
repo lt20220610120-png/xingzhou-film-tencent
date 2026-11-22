@@ -1,7 +1,9 @@
-const validSeconds = (value) => Number.isInteger(value) && value >= 1 && value <= 30;
+import {effectiveDirectorDurationLimit,normalizeDirectorDurationSelection} from './directorDurationPolicy.js';
+
+const validSeconds = (value) => Number.isInteger(value) && value >= 1;
 const validTiming = (prompt) => validSeconds(prompt?.recommendedDurationSeconds)
-  && validSeconds(prompt?.maxDurationSeconds)
-  && prompt.recommendedDurationSeconds <= prompt.maxDurationSeconds
+  && normalizeDirectorDurationSelection(prompt.maxDurationSeconds, null) !== null
+  && prompt.recommendedDurationSeconds <= effectiveDirectorDurationLimit(prompt.maxDurationSeconds)
   && ['estimated', 'needs-review'].includes(prompt.durationStatus);
 
 export const markPromptTimingStale = (prompt) => prompt?.segmentationMode === 'auto' && validTiming(prompt)

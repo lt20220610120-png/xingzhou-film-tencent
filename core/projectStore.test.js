@@ -358,6 +358,14 @@ describe('聊天会话 CRUD', () => {
     assert.strictEqual(s.chatSessions[0].messages.length, 1);
     assert.strictEqual(s.chatSessions[0].messages[0].role, 'user');
   });
+  it('names a new chat from its first user message and preserves established names', () => {
+    const started=createChatSession(createInitialState(),'新对话');
+    const id=started.activeChatId;
+    const answered=addChatMessage(started,id,'assistant','请先连接模型。');
+    const titled=addChatMessage(answered,id,'user','首条创作指令');
+    assert.equal(titled.chatSessions[0].title,'首条创作指令');
+    assert.equal(addChatMessage(titled,id,'user','第二条').chatSessions[0].title,'首条创作指令');
+  });
 
   it('toggleChatPin() 切换置顶', () => {
     let s = createChatSession(state, 'C1');

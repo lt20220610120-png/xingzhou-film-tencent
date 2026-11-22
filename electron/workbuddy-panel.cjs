@@ -98,8 +98,10 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     // Views default to visible; hide before attachment and keep the loading
     // surface hidden until the requested page is ready.
     ownView.setVisible(false); pageReady = false; view = ownView; pageToken = accessService.token();
-    ownView.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//i.test(url)) shell.openExternal(url).catch(() => {}); return { action: 'deny' }; });
-    ownView.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== origin) event.preventDefault(); });
+    const external=require('./ipc-security.cjs').safeExternalUrl;
+    ownView.webContents.setWindowOpenHandler(({ url }) => { try{const safe=external(url);if(new URL(safe).protocol==='https:')void shell.openExternal(safe).catch(()=>{});}catch{}return {action:'deny'}; });
+    const guard=(event,legacyUrl)=>{try{if(new URL(external(event.url||legacyUrl)).origin===origin)return;}catch{}event.preventDefault();};
+    for(const event of ['will-navigate','will-redirect','will-frame-navigate'])ownView.webContents.on(event,guard);
     ownView.webContents.on('will-redirect', (event, url) => { if (new URL(url).origin !== origin) event.preventDefault(); });
     win.contentView.addChildView(ownView); setBounds(presentation === boundsEpoch ? bounds : { x: 0, y: 0, width: 0, height: 0 });
     try { await ownView.webContents.loadURL(origin); } catch (error) { if (ticket === epoch) await close(); throw new Error('WorkBuddy 页面加载失败，请重新连接'); }

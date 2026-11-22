@@ -8,8 +8,15 @@ import {linkedDistributionBook} from '../../core/linkedDistributionBook.js';
 import {beginImportedBinding,importedEntryValue,validateImportedSubmission} from '../../core/importedArtBinding.js';
 import ImportedArtBindingPanel from './ImportedArtBindingPanel.jsx';
 import {returnToManual,importedAutoSummary} from '../../core/importedArtAuto.js';
+import {flushEditing,readQueuedDraft} from '../editing.js';
 
-export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
+const referencesInBook=book=>[
+ ...Object.values(book.episodeMedia||{}).flat(),...Object.values(book.sceneMedia||{}).flat(),
+ ...Object.values(book.promptMedia||{}).flat(),...Object.values(book.drafts||{}).flatMap(d=>d?.extraReferences||[])
+];
+const filePaths=refs=>refs.flatMap(ref=>typeof ref?.filePath==='string'&&ref.filePath?[ref.filePath]:[]);
+
+export function PromptBookWorkspace({state,setState,getState=()=>state,saveLocal,api,onSubmit,accountId}){
  const workflow=state.generationWorkflow||{},books=(workflow.books||[]).filter(book=>(!(book.linkedProjectId||book.sourceLinkedProjectId)||book.accountId===accountId)&&(!book.importedBinding||book.importedBinding.accountId===accountId));
  const book=books.find(b=>b.id===workflow.selectedBookId)||books[0];
  const entry=book?.entries.find(e=>e.id===book.selectedEntryId)||book?.entries[0];
@@ -21,6 +28,7 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
  const [linkedProjects,setLinkedProjects]=useState(null),[linkedProjectId,setLinkedProjectId]=useState(''),[linkedAvailable,setLinkedAvailable]=useState(false);
  const [linkedVersion,setLinkedVersion]=useState(''),[linkedVersions,setLinkedVersions]=useState([]),[loadingVersions,setLoadingVersions]=useState(false);
  const scope=useRef(accountId);scope.current=accountId;
+ useEffect(()=>{scope.current=accountId;return()=>{scope.current=null;};},[accountId]);
  useEffect(()=>{let alive=true;api.promptArtStatus?.().then(status=>{if(alive)setLinkedAvailable(Boolean(status?.enabled));});return()=>{alive=false;};},[api]);
  const changeWorkflow=transform=>setState(current=>({...current,generationWorkflow:{...transform(current.generationWorkflow||{}),updatedAt:new Date().toISOString()}}));
  const updateBook=(id,transform)=>changeWorkflow(workflow=>({...workflow,books:(workflow.books||[]).map(b=>b.id===id?transform(b):b)}));
@@ -96,20 +104,36 @@ export function PromptBookWorkspace({state,setState,api,onSubmit,accountId}){
   if(!book||importing.current||!window.confirm(`确定清除“${book.name}”的全部提示词、编辑进度和已导入素材吗？生成结果不受影响。`))return;
   importing.current=true;setBusy(true);setError('');setNotice('');
   try{
-   const allRefs=b=>[...Object.values(b.episodeMedia||{}).flat(),...Object.values(b.sceneMedia||{}).flat(),...Object.values(b.promptMedia||{}).flat(),...Object.values(b.drafts||{}).flatMap(d=>d.extraReferences||[])];
-   const localRefs=[];
-   for(let index=0;index<localStorage.length;index++){
-    const key=localStorage.key(index);if(key!=='xz-generation-drafts'&&!key?.startsWith('xz-shot-draft:'))continue;
-    const data=JSON.parse(localStorage.getItem(key)||'{}');localRefs.push(...(key==='xz-generation-drafts'?Object.values(data||{}).flatMap(d=>d?.references||[]):data?.value?.references||[]));
+   flushEditing();
+   const before=getState().generationWorkflow||{},index=(before.books||[]).findIndex(row=>row.id===book.id);
+   if(index<0)return;
+   const removed=before.books[index];
+   changeWorkflow(current=>clearPromptBook(current,removed.id));
+   try{await saveLocal();}catch(problem){
+    changeWorkflow(current=>{
+     if(current.books?.some(row=>row.id===removed.id))return current;
+     const restored=[...(current.books||[])];restored.splice(index,0,removed);
+     return {...current,books:restored,selectedBookId:before.selectedBookId===removed.id?removed.id:current.selectedBookId};
+    });
+    throw problem;
    }
-   const jobs=await api.generationList?.({includeArchived:true})||[];
-   const generationWorkflow={...clearPromptBook(workflow,book.id),updatedAt:new Date().toISOString()};
-   await api.saveState?.({...state,generationWorkflow});
-   setState(current=>({...current,generationWorkflow:{...clearPromptBook(current.generationWorkflow||{},book.id),updatedAt:generationWorkflow.updatedAt}}));
-   const retainedPaths=[...books.filter(b=>b.id!==book.id).flatMap(allRefs),...jobs.flatMap(job=>job.references||[]),...localRefs].map(r=>r.filePath).filter(Boolean);
-   try{await api.generationDeleteBookMedia?.({paths:allRefs(book).map(r=>r.filePath).filter(Boolean),retainedPaths});
+   try{
+    const paths=filePaths(referencesInBook(removed));
+    if(paths.length&&api.generationDeleteBookMedia){
+     const jobs=await api.generationList({includeArchived:true})||[];
+     const localRefs=[];
+     for(let index=0;index<localStorage.length;index++){
+      const key=localStorage.key(index);if(key!=='xz-generation-drafts'&&!key?.startsWith('xz-shot-draft:'))continue;
+      const queued=readQueuedDraft(key),data=queued.found?queued.value:JSON.parse(localStorage.getItem(key)||'{}');
+      if(key==='xz-generation-drafts')localRefs.push(...Object.values(data||{}).flatMap(d=>d?.references||[]));
+      else if(Array.isArray(data?.value?.references))localRefs.push(...data.value.references);
+     }
+     const retainedPaths=filePaths([...(getState().generationWorkflow?.books||[]).flatMap(referencesInBook),...jobs.flatMap(job=>job.references||[]),...localRefs]);
+     if(scope.current!==accountId)return;
+     await api.generationDeleteBookMedia({paths,retainedPaths});
+    }
     setNotice('当前提示词项目与素材已清除，可导入新项目。');
-   }catch(e){setNotice('当前提示词项目已清除，但部分本地素材文件未能删除。');}
+   }catch{setNotice('当前提示词项目已清除，部分本地素材文件仍保留。');}
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
  };
  const references=entry?bookSharedReferences(book,entry):[];

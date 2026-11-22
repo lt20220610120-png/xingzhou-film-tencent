@@ -44,8 +44,9 @@ import {ProjectVideoPool} from './ProjectVideoPool.jsx';
 // 身份：制片(producer) / 美术(artist) / 协作者(collaborator)
 // 功能区：信息读取 / 美术 / 资产 / 分镜 / 邀请协作 / 数据 / 项目群
 // ============================================================
-import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import {
   ArrowLeft, Plus, X, Users, AudioLines, FileText, Palette, Box, Clapperboard,
   UserPlus, BarChart3, MessagesSquare, Sparkles, RefreshCw, Send,
@@ -153,16 +154,26 @@ function AnalysisSyncDetails({job}) {
 
 function ImageLightbox({ image, alt, onClose }) {
   const [scale, setScale] = useState(1);
+  const workspaceActive=useWorkspaceActive();
+  const lightbox=useRef(null),closeRef=useRef(onClose);closeRef.current=onClose;
   useEffect(() => {
     setScale(1);
-    const closeOnEscape = (event) => { if (event.key === 'Escape') onClose(); };
+  }, [image]);
+  useEffect(() => {
+    if(!workspaceActive||!image)return;
+    const node=lightbox.current;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') closeRef.current(); };
+    const zoom=event=>{
+      event.preventDefault();
+      if(event.deltaY)setScale(current=>Math.min(6,Math.max(0.25,current*(event.deltaY<0?1.12:0.89))));
+    };
     window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [image, onClose]);
-  if (!image) return null;
+    node.addEventListener('wheel',zoom,{passive:false});
+    return () => {window.removeEventListener('keydown',closeOnEscape);node.removeEventListener('wheel',zoom);};
+  }, [image,workspaceActive]);
+  if (!image||!workspaceActive) return null;
   return createPortal(
-    <div className="collab-image-lightbox" role="dialog" aria-modal="true" aria-label={`${alt || '资产图片'}大图预览`} onClick={onClose}
-      onWheel={(event) => { event.preventDefault(); setScale((current) => Math.min(6, Math.max(0.25, current * (event.deltaY < 0 ? 1.12 : 0.89)))); }}>
+    <div ref={lightbox} className="collab-image-lightbox" role="dialog" aria-modal="true" aria-label={`${alt || '资产图片'}大图预览`} onClick={onClose}>
       <button type="button" className="collab-image-lightbox-close" onClick={onClose} aria-label="关闭预览"><X size={22} /></button>
       <div className="collab-image-lightbox-stage" onClick={(event) => event.stopPropagation()}>
         <img src={image} alt={alt || '资产图片'} draggable={false} style={{ transform: `scale(${scale})` }} />
@@ -267,6 +278,7 @@ function InfoSection({ project, assets, refresh, api, state, canEdit, accountId,
 }
 
 function AppendCollabEpisodeDialog({ project, api, onClose, onAppended }) {
+  const workspaceActive=useWorkspaceActive();
   const episodeInspection = inspectCollabEpisodes(project.episodes);
   const suggestedNumber = Math.max(0,...episodeInspection.episodes.map(episode=>episode.episodeNumber)) + 1;
   const [episodeNumber, setEpisodeNumber] = useState(suggestedNumber);
@@ -276,7 +288,7 @@ function AppendCollabEpisodeDialog({ project, api, onClose, onAppended }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(episodeInspection.error);
   const dialogRef = useRef(null);
-  useEffect(() => { dialogRef.current?.querySelector('textarea')?.focus(); }, []);
+  useEffect(() => { if(workspaceActive)dialogRef.current?.querySelector('textarea')?.focus(); }, [workspaceActive]);
   const importScript = async () => {
     setError('');
     try {
@@ -309,6 +321,7 @@ function AppendCollabEpisodeDialog({ project, api, onClose, onAppended }) {
     } catch (e) { setError(readableCloudError(e)); }
     finally { setBusy(false); }
   };
+  if(!workspaceActive)return null;
   return createPortal(
     <div className="veil collab-append-episode-veil" onMouseDown={(event) => !busy && event.target === event.currentTarget && onClose()}>
       <div ref={dialogRef} className="modal collab-append-episode-modal" role="dialog" aria-modal="true" aria-labelledby="append-collab-episode-title">
@@ -325,6 +338,7 @@ function AppendCollabEpisodeDialog({ project, api, onClose, onAppended }) {
 }
 
 function ForceEpisodeAnalysisDialog({ episodeNumber, onCancel, onConfirm }) {
+  if(!useWorkspaceActive())return null;
   return createPortal(
     <div className="veil collab-force-analysis-veil" role="presentation">
       <div className="modal collab-force-analysis-modal" role="alertdialog" aria-modal="true" aria-labelledby="force-analysis-title">
@@ -360,6 +374,7 @@ const resolveAssetImageReference = (asset, assets, choice, projectId, accountId)
 };
 const assetImageReferences = refAsset => refAsset?.localReference?[refAsset.localReference]:refAsset?autoReferences(`@${refAsset.name}`,[refAsset]):[];
 function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, beforeGenerate, accountId, refId, setRefId, refAsset }) {
+  const workspaceActive=useWorkspaceActive();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -479,7 +494,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {error && !pendingImage && <div className="collab-error">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
-      {showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
+      {workspaceActive && showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
       <ImageLightbox image={previewImage} alt={asset.name} onClose={() => setPreviewImage('')} />
     </div>
   );
@@ -489,6 +504,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
  * 每行资产工作区：身份信息 → 描述编辑 → 生图框
  * ================================================================ */
 function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, generating = false, onGenerateImage, draftStore, accountId }) {
+  const workspaceActive=useWorkspaceActive();
   const [revisionModelId,setRevisionModelId,revisionProfile]=useWindowModel(`asset-revision:${project.id}:${asset.id}`,state.apiProfiles||[],state.activeApiId);
   const prefixed = asset.description ?? '';
   const [draft, setDraft] = useState(() => draftStore.read(project.id, asset.id)?.content ?? prefixed);
@@ -607,7 +623,7 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
         {saveError && <div className="collab-error" role="alert">{saveError}</div>}
       </section>
       <AssetImageBox project={project} asset={{ ...asset, description: draft }} assets={assets} api={api} state={state} refresh={refresh} canEdit={canEdit && !modifying} generating={generating} onGenerateImage={onGenerateImage} beforeGenerate={save} accountId={accountId} refId={refId} setRefId={setRefId} refAsset={refAsset} />
-      {modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
+      {workspaceActive && modifyOpen && createPortal(<div className="veil" onMouseDown={(event) => !modifying && event.target === event.currentTarget && setModifyOpen(false)}>
         <div className="modal collab-modify-prompt-modal" role="dialog" aria-modal="true" aria-label="AI 修改提示词">
           <h2>AI 修改提示词</h2><ModelSelect profiles={state.apiProfiles||[]} value={revisionModelId} onChange={setRevisionModelId} disabled={modifying} label="修改提示词模型"/>
           <label>当前提示词</label>
@@ -623,12 +639,13 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
 }
 
 function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', initialCategory = 'character', initialEpisode = null, baseline = null }) {
+  const workspaceActive=useWorkspaceActive();
   const [name, setName] = useState(initialName); const [description, setDescription] = useState(''); const [category, setCategory] = useState(initialCategory); const [episodes, setEpisodes] = useState(initialEpisode ? [initialEpisode] : []); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const dialogRef = useRef(null);
   const projectEpisodes = inspectCollabEpisodes(project.episodes).episodes.map((item) => item.episodeNumber);
   useEffect(() => {
     const previousFocus = document.activeElement;
-    dialogRef.current?.querySelector('input')?.focus();
+    if(workspaceActive)dialogRef.current?.querySelector('input')?.focus();
     return () => previousFocus?.focus?.();
   }, []);
   const handleDialogKeyDown = (event) => {
@@ -641,6 +658,7 @@ function ManualAssetDialog({ project, api, refresh, onClose, initialName = '', i
   };
   const toggleEpisode = (ep) => setEpisodes((xs) => xs.includes(ep) ? xs.filter((x) => x !== ep) : [...xs, ep].sort((a, b) => a - b));
   const submit = async () => { if(baseline&&(!parseAssetName(name).variant||parseAssetName(name).base!==parseAssetName(baseline.name).base)){setError('请沿用人物名称并填写新妆造名称，例如：'+parseAssetName(baseline.name).base+'-面试装');return;} if (!name.trim() || !episodes.length) { setError('请填写资产名称并选择至少一集'); return; } setBusy(true); try { await api.collabCreateAsset({ projectId: project.id, name: `【${name.trim().replace(/^【|】$/g, '')}】`, category, episodes, firstEpisode:Math.min(...episodes), description:baseline?wardrobeDescription(baseline,description):description }); await refresh(); onClose(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  if(!workspaceActive)return null;
   return createPortal(
     <div className="veil collab-manual-asset-veil" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} className="modal collab-manual-asset-modal" role="dialog" aria-modal="true" aria-labelledby="manual-asset-title" onKeyDown={handleDialogKeyDown}>
@@ -731,6 +749,7 @@ function AssetQuickNav({ entries, locator, rail = false }) {
  * 美术：按集分框 → 人物/场景/道具 → 资产列表+描述+生图
  * ================================================================ */
 export function ArtSection({ project, assets, api, state, refresh, canEdit, draftStore, onProjectChange, accountId, onOpenReview }) {
+  const workspaceActive=useWorkspaceActive();
   const {data:promptBinding}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
   const batchProfiles=mediaModelChoices(state,'image');
   const [batchProfileId,setBatchProfileId,batchProfile]=useWindowModel(`batch-image:${project.id}`,batchProfiles);
@@ -869,7 +888,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
     }
   };
   const wholeControls=<><button className="primary" disabled={!canEdit||batchBusy||!imagePlan().length||generatingAssetIds.size>0} onClick={()=>setWholeDialog(true)}><Sparkles size={14}/> 一键生成全剧图片</button>{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>停止后续生成</button>}</>;
-  const wholeModal=wholeDialog&&createPortal(
+  const wholeModal=workspaceActive&&wholeDialog&&createPortal(
     <div className="veil"><div className="modal art-image-batch-modal" role="dialog" aria-modal="true" aria-label="确认生成全剧图片">
       <header><h2>生成全剧图片</h2><button className="ghost" aria-label="关闭" onClick={()=>setWholeDialog(false)}><X size={18}/></button></header>
       <div className="art-image-batch-summary"><strong>待完成 {imagePlan().length} 项 · 人物 / 场景 / 道具</strong><p>已有图片跳过，跨集复用资产只生成一次；先完成基准，再生成差异造型。</p><p>待下载结果优先恢复。新图片会调用所选接口并产生费用。</p></div>
@@ -1367,47 +1386,52 @@ function StatsSection({ project, api }) {
  * 项目群：实时消息 + 图片
  * ================================================================ */
 function GroupSection({ project, api, account }) {
+  const workspaceActive=useWorkspaceActive();
   const [messages, setMessages] = useState([]);
   const [members, setMembers] = useState([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef(null);
-  const lastIdRef = useRef(0);
+  const followLatest=useRef(true),inFlight=useRef(null),sending=useRef(false);
 
-  const load = useCallback(async (initial = false) => {
-    try {
-      const rows = await api.collabListMessages({ projectId: project.id, afterId: initial ? 0 : lastIdRef.current });
-      if (rows?.length) {
-        lastIdRef.current = rows[rows.length - 1].id;
-        setMessages((prev) => initial ? rows : [...prev, ...rows]);
-        setTimeout(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, 60);
-      }
-      if (initial) setMembers(await api.collabListMembers({ projectId: project.id }) || []);
-    } catch { /* noop */ }
-  }, [project.id]);
+  const load = useCallback(() => {
+    if(inFlight.current)return inFlight.current;
+    const request=Promise.resolve().then(()=>api.collabListMessages({projectId:project.id})).then(rows=>{
+      if(Array.isArray(rows))setMessages([...new Map(rows.map(row=>[String(row.id),row])).values()]);
+    }).catch(()=>{}).finally(()=>{inFlight.current=null;});
+    inFlight.current=request;return request;
+  }, [api,project.id]);
 
   useEffect(() => {
-    lastIdRef.current = 0; setMessages([]);
-    load(true);
-    const timer = setInterval(() => load(false), 4000);
-    return () => clearInterval(timer);
-  }, [load]);
+    if(!workspaceActive)return;
+    let listening=true;
+    Promise.resolve().then(()=>api.collabListMembers({projectId:project.id})).then(rows=>{if(listening)setMembers(rows||[]);}).catch(()=>{});
+    void load();
+    const timer=setInterval(load,4000);
+    return ()=>{listening=false;clearInterval(timer);};
+  }, [workspaceActive,api,project.id,load]);
+  useLayoutEffect(()=>{
+    const list=listRef.current;
+    if(workspaceActive&&followLatest.current&&list)list.scrollTop=list.scrollHeight;
+  },[messages,workspaceActive]);
 
   const send = async () => {
-    if (busy || !draft.trim()) return;
+    if (sending.current || !draft.trim()) return;
+    sending.current=true;
     setBusy(true); setError('');
-    try { await api.collabSendMessage({ projectId: project.id, content: draft }); setDraft(''); await load(false); }
+    try { await api.collabSendMessage({ projectId: project.id, content: draft }); setDraft(current=>current===draft?'':current); await inFlight.current; await load(); }
     catch (e) { setError(e.message); }
-    finally { setBusy(false); }
+    finally { sending.current=false;setBusy(false); }
   };
 
   const sendImage = async () => {
-    if (busy) return;
+    if (sending.current) return;
+    sending.current=true;
     setBusy(true); setError('');
-    try { const r = await api.collabSendImage({ projectId: project.id }); if (r) await load(false); }
+    try { const r = await api.collabSendImage({ projectId: project.id }); if (r) {await inFlight.current;await load();} }
     catch (e) { setError(e.message); }
-    finally { setBusy(false); }
+    finally { sending.current=false;setBusy(false); }
   };
 
   return (
@@ -1423,12 +1447,12 @@ function GroupSection({ project, api, account }) {
       </aside>
       <section className="collab-group-chat">
         <div className="collab-panel-title"><MessagesSquare size={15} /> 项目群聊 · 实时同步</div>
-        <div className="collab-chat-list" ref={listRef}>
+        <div className="collab-chat-list" ref={listRef} onScroll={event=>{const list=event.currentTarget;followLatest.current=list.scrollHeight-list.scrollTop-list.clientHeight<48;}}>
           {messages.map((msg) => (
             <div key={msg.id} className={`collab-chat-item ${msg.user_id === account?.id ? 'mine' : ''}`}>
               <div className="collab-chat-meta"><b>{msg.username}</b><small>{fmtTime(msg.created_at)}</small></div>
               {msg.content && <div className="collab-chat-bubble">{msg.content}</div>}
-              {msg.image_url && <img loading="lazy" decoding="async" className="collab-chat-image" src={msg.image_url} alt="图片消息" />}
+              {msg.image_url && <img loading="lazy" decoding="async" className="collab-chat-image" src={msg.image_url} alt="图片消息" onLoad={()=>{const list=listRef.current;if(followLatest.current&&list)list.scrollTop=list.scrollHeight;}} />}
             </div>
           ))}
           {!messages.length && <div className="collab-empty small"><p>群里还没有消息，说点什么吧。</p></div>}
@@ -1436,7 +1460,7 @@ function GroupSection({ project, api, account }) {
         {error && <div className="collab-error">{error}</div>}
         <div className="collab-chat-compose">
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode!==229) { e.preventDefault(); send(); } }}
             placeholder="请输入消息，回车发送（Shift+回车换行）" />
           <button className="secondary" onClick={sendImage} disabled={busy}><ImageIcon size={15} /> 发送图片</button>
           <button className="primary" onClick={send} disabled={busy || !draft.trim()}><Send size={15} /> 发送</button>
@@ -1803,7 +1827,7 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject}
           directorCloudProjectId={state.directorProjects?.find(source => source.id === project.director_project_id)?.cloudProjectId} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
-        {section === 'group' && <GroupSection project={project} api={api} account={account} />}
+        {section === 'group' && <GroupSection key={project.id} project={project} api={api} account={account} />}
       </main>
     </div>
   );

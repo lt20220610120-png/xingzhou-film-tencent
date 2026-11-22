@@ -59,6 +59,12 @@ async function register(payload, repository) {
   const invalid = validateRegistration(payload);
   if (invalid) return { status: 400, body: { error: invalid.message } };
   try {
+    if (repository.registerWithInvite) {
+      const token=newToken();
+      const account=await repository.registerWithInvite({username,email,displayName:String(payload.displayName||username).trim(),passwordHash:hashPassword(password),
+        emailCode:payload.emailCode,digest:digestInvite(inviteCode),requestedRole,token});
+      return {status:200,body:{token,account:publicAccount(account)}};
+    }
     if (!await verifyEmailCode(repository, email, payload?.emailCode)) return { status: 400, body: { error: '邮箱验证码无效或已过期' } };
     const invite = await repository.findInviteByDigest(digestInvite(inviteCode));
     if (!inviteUsable(invite)) return { status: 400, body: { error: '邀请码无效、已停用或已用完' } };
@@ -76,7 +82,7 @@ async function register(payload, repository) {
     await repository.deleteEmailCode(email);
     const token = await repository.createSession(user.id, newToken());
     return { status: 200, body: { token, account: publicAccount(user) } };
-  } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
+  } catch (error) { return {status:error.status||503,body:{error:error.status?error.message:'账号服务暂时不可用'}}; }
 }
 
 async function unlock(payload, user, repository) {
@@ -84,6 +90,10 @@ async function unlock(payload, user, repository) {
   const inviteCode = normalizeInviteCode(payload?.inviteCode);
   if (!inviteCode) return { status: 400, body: { error: '请输入身份解锁邀请码' } };
   try {
+    if (repository.unlockWithInvite) {
+      const updated=await repository.unlockWithInvite(user.id,digestInvite(inviteCode));
+      return {status:200,body:{account:publicAccount(updated)}};
+    }
     const invite = await repository.findInviteByDigest(digestInvite(inviteCode));
     if (!inviteUsable(invite)) return { status: 400, body: { error: '邀请码无效、已停用或已用完' } };
     if (invite.kind !== 'unlock') return { status: 400, body: { error: '该邀请码不是身份解锁码' } };
@@ -92,7 +102,7 @@ async function unlock(payload, user, repository) {
     const updated = await repository.addRole(user.id, missing);
     await repository.consumeInvite(invite.id);
     return { status: 200, body: { account: publicAccount(updated) } };
-  } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
+  } catch (error) { return {status:error.status||503,body:{error:error.status?error.message:'账号服务暂时不可用'}}; }
 }
 
 async function recover(payload, repository) {

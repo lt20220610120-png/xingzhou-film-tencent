@@ -2,6 +2,18 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {downloadInstaller}=require('./update-service.cjs');
 const {serveUpdate}=require('../cloud-backend/src/update-download.cjs');
 const http=require('node:http');
+test('a verified installer is retained when a transient scanner blocks its rename',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-installer-scanner-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const bytes=Buffer.alloc(1024,8);bytes.write('MZ');const url='https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v9.8.7/Xingzhou-Film-Tencent-Setup-9.8.7.exe';
+ const rename=fs.renameSync;let attempts=0,downloads=0;
+ t.mock.method(fs,'renameSync',(source,target)=>{
+  if(source.endsWith('.part')&&++attempts===1)throw Object.assign(Error('scanner locked the installer'),{code:'EPERM'});
+  return rename(source,target);
+ });
+ const saved=await downloadInstaller({url,version:'9.8.7',sha256:crypto.createHash('sha256').update(bytes).digest('hex'),size:bytes.length,destinationDir:dir,sleep:async()=>{},fetchImpl:async()=>{downloads++;return new Response(bytes);}});
+ assert.deepEqual(fs.readFileSync(saved),bytes);
+ assert.equal(downloads,1);
+});
 test('interrupted installer resumes exact bytes and validates complete SHA; mirror fallback is bounded',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-resume-'));t.after(()=>fs.rmSync(dir,{force:true,recursive:true}));
  const bytes=Buffer.alloc(4096,7);bytes.write('MZ');const url='https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v9.8.7/Xingzhou-Film-Tencent-Setup-9.8.7.exe';let calls=0,ranges=[];

@@ -1,5 +1,6 @@
 import React, {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import {List,Layers,Check,CheckCheck,ChevronDown,ChevronLeft,ChevronRight,ClipboardCheck,CloudUpload,Loader2,MapPin,Package,PencilLine,Plus,RefreshCw,Undo2,Users,X} from 'lucide-react';
 import {inspectCollabEpisodes} from '../../core/collabEpisodes.js';
 import {parseAssetName,displayAssetName} from '../../core/collabStore.js';
@@ -30,15 +31,19 @@ function sceneReviewStatus(scene,record){
 }
 
 function ReviewDialog({title,children,onClose}){
+ const workspaceActive=useWorkspaceActive();
  const ref=useRef(null);
- useEffect(()=>{const dialog=ref.current;dialog.showModal();const cancel=e=>{e.preventDefault();onClose();};dialog.addEventListener('cancel',cancel);return()=>{dialog.removeEventListener('cancel',cancel);dialog.close();};},[]);
+ useEffect(()=>{if(!workspaceActive)return;const dialog=ref.current;dialog.showModal();const cancel=e=>{e.preventDefault();onClose();};dialog.addEventListener('cancel',cancel);return()=>{dialog.removeEventListener('cancel',cancel);dialog.close();};},[workspaceActive]);
+ if(!workspaceActive)return null;
  return <dialog ref={ref} className="art-review-dialog" aria-label={title}><header><h2>{title}</h2><button aria-label="关闭弹窗" onClick={onClose}><X size={18}/></button></header>{children}</dialog>;
 }
 
 function SceneAssignment({assignment,scenes,busy,error,onClose,onSave}){
+ const workspaceActive=useWorkspaceActive();
  const ref=useRef(null),[ids,setIds]=useState(assignment.sceneIds);
  useEffect(()=>setIds(previous=>{const valid=previous.filter(id=>scenes.some(scene=>scene.id===id));return valid.length===previous.length?previous:valid;}),[scenes]);
  useLayoutEffect(()=>{
+  if(!workspaceActive)return;
   const popup=ref.current,anchor=assignment.anchor;
   const place=()=>{
    if(!anchor?.isConnected){onClose();return;}
@@ -54,8 +59,9 @@ function SceneAssignment({assignment,scenes,busy,error,onClose,onSave}){
   popup.querySelector('input')?.focus({preventScroll:true});
   window.addEventListener('resize',place);window.addEventListener('scroll',place,true);
   return()=>{popup.removeEventListener('toggle',toggle);window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);if(popup.matches(':popover-open'))popup.hidePopover();};
- },[assignment]);
+ },[assignment,workspaceActive]);
  const close=()=>{assignment.anchor?.focus({preventScroll:true});onClose();};
+ if(!workspaceActive)return null;
  return createPortal(<div ref={ref} popover="auto" role="dialog" aria-label={`关联场景：${reviewName(assignment.item.name)}`} className="art-review-assignment" onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();close();}}}>
   <header><h2>{reviewName(assignment.item.name)}</h2><button aria-label="关闭场景关联" onClick={close}><X size={16}/></button></header>
 

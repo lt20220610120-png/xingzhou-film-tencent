@@ -278,16 +278,20 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const records = (await allRecords(current)).filter(Boolean);
       const index = path.join(current.root, 'cloud-index.json');
       let cloudRows = await readJson(index);
-      if (refreshCloud || (!cloudRows && !records.length && !indexReads.has(current.root))) {
-        const work = Promise.resolve().then(() => cloud.listProjects()).then(async rows => {
-          assertScope(current);
-          await writeJsonAtomic(index, rows);
-          return rows;
-        });
-        indexReads.set(current.root, work);
+      if (refreshCloud || (!cloudRows && !records.length)) {
+        let work = indexReads.get(current.root);
+        if (!work) {
+          work = Promise.resolve().then(() => cloud.listProjects()).then(async rows => {
+            assertScope(current);
+            await writeJsonAtomic(index, rows);
+            return rows;
+          });
+          indexReads.set(current.root, work);
+          const clear = () => { if (indexReads.get(current.root) === work) indexReads.delete(current.root); };
+          void work.then(clear, clear);
+        }
         try { cloudRows = await work; }
         catch (cause) { if (refreshCloud || (!cloudRows && !records.length)) throw cause; }
-        finally { indexReads.delete(current.root); }
       }
       assertScope(current);
       const local = records.filter(r => !r.shared).map(r => summarize(r.project));

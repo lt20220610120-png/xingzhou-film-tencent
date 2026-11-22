@@ -15,12 +15,14 @@ test('项目协作资产图片可点击进入居中预览并用滚轮缩放', ()
   const cloud = read('cloud-backend/src/collab.cjs');
   assert.match(ui, /function ImageLightbox/);
   assert.match(ui, /createPortal/);
-  assert.match(ui, /onWheel/);
+  assert.match(ui, /addEventListener\('wheel',zoom,\{passive:false\}\)/);
+  assert.match(ui, /removeEventListener\('wheel',zoom\)/);
   assert.match(ui, /setPreviewImage/);
   assert.match(ui, /collab-image-lightbox/);
   assert.match(ui, /setLocalImages/);
   assert.match(ui, /return attached/);
-  assert.match(cloud, /asset-image-record[\s\S]*?signDownload/);
+  assert.match(cloud, /if \(action === 'asset-image-record'\)[\s\S]*?assetImageLink\(r\.object_path,signer,projectId\)/);
+  assert.match(read('cloud-backend/src/asset-image-links.cjs'), /assetImageObject\(objectKey,scope\)[\s\S]*?signer\.signDownload\(\{ objectKey \}\)/);
 });
 
 test('切换人物、场景或道具时图片状态按资产 ID 隔离，不能串台', () => {

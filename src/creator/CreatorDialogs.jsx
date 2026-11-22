@@ -3,6 +3,7 @@ import './movable-panel.css';
 import {FormattedText} from '../components/FormattedText.jsx';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import { X, Download, Save } from 'lucide-react';
 import { ipBodyCount } from '../../core/ipWorkspace.js';
 import { creatorExportStatus } from '../../core/creatorExportStatus.js';
@@ -10,7 +11,9 @@ import {frameworkDraftText} from '../../core/frameworkWorkflow.js';
 import { buildCreatorText, archiveCreatorProject } from '../../core/creatorWorkspace.js';
 
 export function CreatorDialog({title,onClose,children,className='',headerActions}) {
- const floating=useMovablePanel(`xz-panel:creator-dialog:${title}`,title);
+ const workspaceActive=useWorkspaceActive();
+ const floating=useMovablePanel(`xz-panel:creator-dialog:${title}`,title,workspaceActive);
+ if(!workspaceActive)return null;
  const flatten=value=>React.Children.toArray(value).flatMap(child=>React.isValidElement(child)&&child.type===React.Fragment?flatten(child.props.children):[child]);
  const split=value=>{const parts=flatten(value),footer=parts.filter(child=>React.isValidElement(child)&&child.type==='footer');return {footer,body:parts.filter(child=>!footer.includes(child))};};
  const {footer,body}=split(children),form=body.length===1&&React.isValidElement(body[0])&&body[0].type==='form'?body[0]:null;

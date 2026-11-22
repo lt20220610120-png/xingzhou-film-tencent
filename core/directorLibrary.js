@@ -1,5 +1,6 @@
 import {parseMasterScript,splitFullScript} from './scriptImport.js';
 import {normalizeDirectorImportText} from './directorImportText.js';
+import {newDirectorSkillBinding} from './directorSkillSelection.js';
 const uid=()=>`library-director-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 export function prepareLibraryDirector(state,item) {
   const existing=state.directorProjects.find(p=>p.sourceType==='library'&&p.sourceId===item.id);
@@ -9,6 +10,6 @@ export function prepareLibraryDirector(state,item) {
   const parsed=parseMasterScript(content),blocks=parsed.episodes.length?parsed.episodes:splitFullScript(content).episodes;
   const timestamp=new Date().toISOString();
   const project={id:uid(),name:item.name,sourceId:item.id,sourceType:'library',sourceLibraryVersionId:item.versions?.at(-1)?.id||null,groupId:'director-workbench',masterScript:content,
-    episodes:blocks.map(ep=>({...ep,id:uid(),prompts:[],status:'待导演处理'})),createdAt:timestamp,updatedAt:timestamp};
+    episodes:blocks.map(ep=>({...ep,id:uid(),prompts:[],status:'待导演处理'})),...newDirectorSkillBinding(state.skills),createdAt:timestamp,updatedAt:timestamp};
   return {state:{...state,directorProjects:[project,...state.directorProjects]},project};
 }

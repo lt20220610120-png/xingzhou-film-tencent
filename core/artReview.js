@@ -14,8 +14,8 @@ export const canonicalReviewName=name=>`【${reviewName(name).trim()}】`;
 const clone=value=>structuredClone(value);
 const identity=()=>crypto.randomUUID();
 export function reviewRoster(record){
- const excluded=new Set((record.excludedUnassigned||[]).map(reviewAssetKey)),rows=[...(record.roster||[]),...(record.unassigned||[]),...(record.scenes||[]).flatMap(s=>s.items)];
- const unique=new Map();for(const i of rows)if(!excluded.has(reviewAssetKey(i))&&!unique.has(reviewAssetKey(i)))unique.set(reviewAssetKey(i),i);
+ const excluded=new Set((record?.excludedUnassigned||[]).filter(Boolean).map(reviewAssetKey)),rows=[...(record?.roster||[]),...(record?.unassigned||[]),...(record?.scenes||[]).flatMap(s=>s?.items||[])];
+ const unique=new Map();for(const i of rows)if(i&&!excluded.has(reviewAssetKey(i))&&!unique.has(reviewAssetKey(i)))unique.set(reviewAssetKey(i),i);
  return [...unique.values()];
 }
 function refreshRoster(record){
@@ -43,7 +43,7 @@ export function confirmPublishedUnassigned(record){
 }
 export const needsArtReviewDetails=item=>item.detailStatus!=='nonvisual'&&(!item.ready||!item.description?.trim()||!item.manual&&Boolean(characterAppearanceIssue(item)));
 export const reviewLedgerSignature=record=>JSON.stringify((record?.scenes||[]).filter(isSceneVerified).map(s=>[s.id,s.items.map(i=>[i.category,i.name,i.description])]));
-export const isReviewCurrent=(record,episode)=>record?.sourceContent===String(episode?.content||'');
+export const isReviewCurrent=(record,episode)=>Boolean(episode&&record?.sourceContent===String(episode.content||''));
 export function sourceReviewScenes(episode){
  const scenes=parseDirectorScenesReadonly(episode.content,episode.episodeNumber);
  if(new Set(scenes.map(s=>s.label)).size!==scenes.length)throw Error('场次编号重复，请先核对剧本编号');

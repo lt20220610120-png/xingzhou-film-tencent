@@ -119,7 +119,7 @@ test('identity action authorizes project role rather than global producer and re
 test('automatic refresh returns unchanged readable project and transient warning for numbered conflicts',async()=>{
  const row={...project(),genre:'[COLLAB_PROJECT][COLLAB_SOURCE:source]'},source={id:'source',genre:'[DIRECTOR_PROJECT]',episodes:[episode('s'),episode('t')],script:'重复源'};
  const pool=poolFor(row,{source}),next=await extendRepository(pool).refreshDirectorPrompts('project','owner');
- assert.deepEqual(next.episodes,row.episodes);assert.ok(next.director_sync_warning);assert.equal(pool.queries.filter(q=>/^update /.test(q.sql)).length,0);assert.equal(pool.queries.at(-1).sql,'COMMIT');
+ assert.deepEqual(next.episodes,row.episodes);assert.ok(next.director_sync_warning);assert.equal(pool.queries.filter(q=>/^update /.test(q.sql)).length,0);assert.equal(pool.queries.some(q=>/for update|BEGIN/i.test(q.sql)),false);
  const broken=poolFor(row,{error:Object.assign(new Error('network'),{code:'ECONNRESET'})});await assert.rejects(extendRepository(broken).refreshDirectorPrompts('project','owner'),/network/);
 });
 test('explicit director sync rejects invalid incoming and colliding merge before any update',async()=>{
@@ -139,7 +139,7 @@ test('automatic refresh treats source script segmentation conflicts as transient
  const row={...project(),genre:'[COLLAB_PROJECT][COLLAB_SOURCE:source]',episodes:[episode('keep',24,{collabOnly:true})]};
  const source={id:'source',genre:'[DIRECTOR_PROJECT]',episodes:[episode('source')],script:'第24集\n24-1 第一段\n第24集\n24-2 第二段'};
  const pool=poolFor(row,{source}),next=await extendRepository(pool).refreshDirectorPrompts('project','owner');
- assert.ok(next.director_sync_warning);assert.deepEqual(next.episodes,row.episodes);assert.equal(pool.queries.at(-1).sql,'COMMIT');
+ assert.ok(next.director_sync_warning);assert.deepEqual(next.episodes,row.episodes);assert.equal(pool.queries.some(q=>/for update|BEGIN/i.test(q.sql)),false);
 });
 test('explicit sync refuses malformed snapshots before source promotion or project writes',async()=>{
  for(const fields of [{episodes:[null]},{episodes:'invalid'},{episodes:[episode('a')],script:{bad:true}}]){

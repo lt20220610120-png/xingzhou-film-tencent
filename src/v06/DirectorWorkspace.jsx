@@ -8,6 +8,7 @@ import {recycleDeleteDetail,isLocalRecyclableDirector} from '../../core/projectR
 import {reconcileDirectorLinks} from '../../core/cloudRecycle.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { prepareLibraryDirector } from '../../core/directorLibrary.js';
+import {newDirectorSkillBinding} from '../../core/directorSkillSelection.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {DirectorLiveRepair} from './DirectorLiveRepair.jsx';
@@ -190,7 +191,10 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
 function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(prompt.content || '');
+  const [edit, setEdit] = useState(null);
+  const currentContent = prompt.content || '';
+  const draft = edit?.draft ?? currentContent;
+  const draftConflict = edit !== null && edit.base !== currentContent && draft !== currentContent;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(prompt.content).then(() => {
@@ -201,13 +205,14 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
   };
 
   const cancelEdit = () => {
-    setDraft(prompt.content || '');
+    setEdit(null);
     setEditing(false);
   };
 
   const saveEdit = () => {
-    if (!draft.trim()) return;
+    if (!draft.trim() || draftConflict) return;
     onEdit?.(prompt.id, draft);
+    setEdit(null);
     setEditing(false);
   };
 
@@ -225,7 +230,7 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
           {editing ? (
             <div className="prompt-edit-actions">
               <button className="ghost" onClick={cancelEdit}><X size={14} /> 取消</button>
-              <button className="primary" onClick={saveEdit} disabled={!draft.trim()}><Save size={14} /> 保存修改</button>
+              <button className="primary" onClick={saveEdit} disabled={!draft.trim() || draftConflict}><Save size={14} /> 保存修改</button>
             </div>
           ) : (
             <>
@@ -245,7 +250,10 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
       </div>
       {prompt.sceneAuditStatus==='warning'&&<details className="quick-run-warning"><summary>查看核对提醒 · 提示词已保留</summary>{(prompt.sceneAuditWarnings||[]).map((item,i)=><div key={i}><p>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>{Array.isArray(item.evidence?.expected)&&Array.isArray(item.evidence?.actual)&&<div className="prompt-review-comparison"><small>原文台词</small><pre>{item.evidence.expected.join('\n')}</pre><small>生成台词</small><pre>{item.evidence.actual.join('\n')}</pre></div>}</div>)}</details>}
       {editing ? (
-        <FormattedEditor className="prompt-edit-textarea" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={`编辑提示词 ${prompt.label}`} />
+        <><FormattedEditor className="prompt-edit-textarea" value={draft} onChange={(event) => {
+          const value=event.target.value;
+          setEdit(previous=>value===currentContent ? null : {draft:value,base:previous?.base??currentContent});
+        }} aria-label={`编辑提示词 ${prompt.label}`} />{draftConflict&&<p role="alert" className="collab-error">云端提示词已更新。可复制当前草稿，取消后查看最新内容。</p>}</>
       ) : (
         <FormattedText className="prompt-content" text={prompt.content}/>
       )}
@@ -300,7 +308,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
   const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
   const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
-  const [selectedSkillId, setSelectedSkillId] = useState(() => {
+  const [legacySkillId] = useState(() => {
     try {
       const lastId = localStorage.getItem('xz-last-used-skill');
       return state.skills?.some((skill) => skill.id === lastId) ? lastId : state.skills?.[0]?.id || '';
@@ -329,7 +337,15 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
   const skills = state.skills || [];
   const savedPrompts = episode.prompts || [];
+  const storedSkillId=project.lastUsedSkillId ?? skills.find(skill=>skill.name===project.lastUsedSkill)?.id ?? legacySkillId;
+  const selectedSkillId=skills.some(skill=>skill.id===storedSkillId)?storedSkillId:'';
   const currentSkill = skills.find((s) => s.id === selectedSkillId);
+  const selectSkill=id=>{
+    const skill=skills.find(item=>item.id===id);
+    if(!skill)return;
+    setState(s=>updateDirectorProject(s,project.id,{lastUsedSkillId:skill.id,lastUsedSkill:skill.name}));
+    rememberPreference('xz-last-used-skill',skill.id);
+  };
 
   const segments = parseDirectorScenes(episode.content, episodeNumber);
   // 快速模式自动选中第一个场景
@@ -648,10 +664,8 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
             <div className="creative-generation-controls">
               <label className="mode-skill-picker">
                 <Sparkles size={16}/><span>选择 Skill</span>
-                <select value={selectedSkillId} onChange={(event) => {
-                  setSelectedSkillId(event.target.value);
-                  try{rememberPreference('xz-last-used-skill', event.target.value);}catch{}
-                }}>
+                <select value={selectedSkillId} onChange={(event) => selectSkill(event.target.value)}>
+                  {!currentSkill&&<option value="" disabled>请选择 Skill</option>}
                   {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                 </select>
                 {currentSkill && <small className="skill-file-count">{isProtectedSkill(currentSkill)?'自带规则已启用':`完整 Skill · ${buildSkillManifest(currentSkill).totalFiles} 个文件已附上`}</small>}
@@ -703,10 +717,8 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
                   <div className="quick-generation-controls">
                     <label className="mode-skill-picker compact">
                       <span>Skill</span>
-                      <select value={selectedSkillId} onChange={(event) => {
-                        setSelectedSkillId(event.target.value);
-                        try{rememberPreference('xz-last-used-skill', event.target.value);}catch{}
-                      }}>
+                      <select value={selectedSkillId} onChange={(event) => selectSkill(event.target.value)}>
+                        {!currentSkill&&<option value="" disabled>请选择 Skill</option>}
                         {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
                       </select>
                       {currentSkill && <small className="skill-file-count">{isProtectedSkill(currentSkill)?'自带规则已启用':`完整 Skill · ${buildSkillManifest(currentSkill).totalFiles} 个文件已附上`}</small>}
@@ -954,7 +966,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   React.useEffect(()=>{setCloudRefreshNotice('');setMasterNotice('');},[selectedProjectId]);
   const masterSourceRef=useRef(null);
   const masterDraftKey=id=>`xz-director-master-draft:${accountId}:${id}`;
-  React.useEffect(()=>{
+  React.useLayoutEffect(()=>{
     const incoming={id:selectedProject?.id,script:selectedProject?.masterScript||'',accountId},previous=masterSourceRef.current?.accountId===accountId?masterSourceRef.current:null;
     let recovery;
     if(incoming.id&&previous?.id!==incoming.id){try{const queued=readQueuedDraft(masterDraftKey(incoming.id));recovery=queued.found?queued.value:JSON.parse(localStorage.getItem(masterDraftKey(incoming.id))||'null');}catch{}}
@@ -1060,8 +1072,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     if (!selectedProject || masterSaving) return;
     setMasterSaving(true); setMasterNotice('');
     try {
-      const sourceDraft = masterDraft.trim() ? masterDraft : selectedProject.masterScript || '';
-      if (!sourceDraft.trim()) throw new Error('总剧本内容为空，未执行保存，原内容已保留。');
+      const sourceDraft = masterDraftRef.current;
       if(selectedProject.cloudProjectId&&!selectedProject.cloudBase&&!selectedProject.cloudLive){
         const cloud=await api.directorCollabGetProject({projectId:selectedProject.cloudProjectId});
         setState(current=>({...current,directorProjects:reconcileDirectorCloudProjects(current.directorProjects||[],[cloud])}));
@@ -1070,10 +1081,10 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       if(currentProject.cloudLocked)throw new Error('制片已锁定项目，输入草稿已保留');
       if(currentProject.canWrite===false||currentProject.permissions?.canWrite===false)throw new Error('当前成员没有写入权限，输入草稿已保留');
       const parsed = parseMasterScript(sourceDraft);
-      const {episodes} = reconcileDirectorEpisodes(currentProject.episodes||[],parsed.episodes.length?parsed.episodes:splitFullScript(sourceDraft).episodes);
-      setState((s) => updateDirectorProject(s, selectedProject.id, { masterScript: sourceDraft, episodes }));
+      const {episodes} = reconcileDirectorEpisodes(currentProject.episodes||[],parsed.episodes);
+      setState((s) => updateDirectorProject(s, selectedProject.id, {masterScript:sourceDraft,...(sourceDraft.trim()?{episodes}:{})}));
       if(masterDraftRef.current===sourceDraft)queueDraft(masterDraftKey(selectedProject.id),null);
-      setMasterNotice(`已保存到本地并重新识别 ${episodes.length} 集${selectedProject.cloudProjectId?'；实时协作模式会自动共享；旧版草稿需先确认迁移。':''}`);
+      setMasterNotice(`${sourceDraft.trim()?`已保存到本地并重新识别 ${episodes.length} 集`:'已保存空白总剧本'}${selectedProject.cloudProjectId?'；实时协作模式会自动共享；旧版草稿需先确认迁移。':''}`);
       return true;
     } catch (e) { setMasterNotice(`保存失败：${e.message}`);return false; } finally { setMasterSaving(false); }
   };
@@ -1121,14 +1132,13 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         sourceType: 'upload',
         masterScript: parsed.masterScript,
         episodes,
-        lastUsedSkill: '大师级提示词1.0',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       setState((s) => ({
         ...s,
-        directorProjects: [{ ...newProject, groupId: 'director-workbench' }, ...s.directorProjects],
+        directorProjects: [{ ...newProject, ...newDirectorSkillBinding(s.skills), groupId: 'director-workbench' }, ...s.directorProjects],
       }));
       setSelectedProjectId(newProject.id);
       setActivePane(newProject.episodes[0]?.id || 'master');
@@ -1239,7 +1249,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           canDeleteProject={isLocalRecyclableDirector}
           onOpenCloudManager={isProducer ? () => {setCloudManagerOpen(true);void loadCloudProjects(true);} : null}
         />
-        {collabTarget && <DirectorCollabDialog project={collabTarget.project} cloudProject={collabTarget.cloud} canManage={isProducer && (!collabTarget.cloud || collabTarget.cloud.myRole === 'producer')} api={api} onClose={() => setCollabTarget(null)} onChanged={changeCollab} />}
+        {active && collabTarget && <DirectorCollabDialog project={collabTarget.project} cloudProject={collabTarget.cloud} canManage={isProducer && (!collabTarget.cloud || collabTarget.cloud.myRole === 'producer')} api={api} onClose={() => setCollabTarget(null)} onChanged={changeCollab} />}
       </div>
     );
   }
@@ -1289,7 +1299,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
           </header>
           <textarea
             className="master-editor"
-            value={masterDraft !== '' ? masterDraft : selectedProject.masterScript || ''}
+            value={masterDraft}
             onChange={(e) => {masterDraftRef.current=e.target.value;setMasterDraft(e.target.value);queueDraft(masterDraftKey(selectedProject.id),{text:e.target.value,base:masterSourceRef.current?.script||''});}}
             readOnly={Boolean(selectedProject.cloudLocked)}
           />
@@ -1318,7 +1328,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       ) : null}
 
       {/* 添加集数弹窗：任何页面（总剧本/分集）点击“添加集数”都能立即弹出 */}
-      {addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {directorEpisodeCount(selectedProject) + 1} 集</h2><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions">{addEpisodeError&&<p role="alert">{addEpisodeError}</p>}<button className="ghost" disabled={addingEpisode} onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={addingEpisode||!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>{addingEpisode?'正在添加…':'确定并识别'}</button></div></div></div>, document.body)}
+      {active && addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {directorEpisodeCount(selectedProject) + 1} 集</h2><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions">{addEpisodeError&&<p role="alert">{addEpisodeError}</p>}<button className="ghost" disabled={addingEpisode} onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={addingEpisode||!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>{addingEpisode?'正在添加…':'确定并识别'}</button></div></div></div>, document.body)}
 
       {/* 删除确认 */}
       <DeleteConfirm

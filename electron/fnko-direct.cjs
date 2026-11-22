@@ -1,5 +1,5 @@
 // Both canvas and art use the persisted generation-job identity, including uncertain POSTs.
-async function runFnkoDirect(payload,signal,{jobs,renewImageReferences=async p=>p,wait=ms=>new Promise(r=>setTimeout(r,ms))}){
+async function runFnkoDirect(payload,signal,{jobs,renewImageReferences=async p=>p,wait=(ms,signal)=>require('node:timers/promises').setTimeout(ms,undefined,{signal})}){
  const input=await renewImageReferences(payload);
  if(input.firstFramePath&&!input.references?.length)input.references=[{kind:'image',filePath:input.firstFramePath}];
  if(!input.ratio)input.ratio=({'1280x720':'16:9','720x1280':'9:16','1024x1024':'1:1','1024x768':'4:3','768x1024':'3:4'})[input.size]||'auto';
@@ -9,8 +9,8 @@ async function runFnkoDirect(payload,signal,{jobs,renewImageReferences=async p=>
   for(let n=0;n<120;n++){
    if(job.status==='success')return job;
    if(job.status==='failed')throw Error(job.error||'原任务失败');
-   signal?.throwIfAborted();await wait(30000);
-   job=await jobs.refresh({id:job.id,apiKey:input.apiKey,endpoint:input.endpoint});
+   signal?.throwIfAborted();await wait(30000,signal);
+   job=await jobs.refresh({id:job.id,apiKey:input.apiKey,endpoint:input.endpoint,signal});
   }
   throw Error('原任务仍在处理中，请稍后刷新，仅查询原结果');
  }catch(error){

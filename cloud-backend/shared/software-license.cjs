@@ -17,7 +17,9 @@ function licenseDecision(user,grant,now=Date.now(),deviceKey){
  if(user?.banned)return {status:'banned',allowed:false};
  if(user?.exempt===true)return {status:'exempt',allowed:true};
  if(!grant)return {status:'required',allowed:false};
- const expiresAt=new Date(grant.expires_at).toISOString();
+   const expiry=new Date(grant.expires_at);
+   if(!Number.isFinite(expiry.getTime()))return {status:'expired',allowed:false};
+   const expiresAt=expiry.toISOString();
  if(grant.device_key!==deviceKey)return {status:grant.device_key?'other-device':'unbound',allowed:false,expiresAt};
  if(grant.revoked)return {status:'revoked',allowed:false,expiresAt};
  return {status:Date.parse(expiresAt)>now?'active':'expired',allowed:Date.parse(expiresAt)>now,expiresAt};

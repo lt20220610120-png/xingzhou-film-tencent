@@ -8,7 +8,7 @@ function fixture(genre='[COLLAB_PROJECT]') {
   const writes = [];
   const client = {
     async query(sql, params) {
-      if (sql.startsWith('select p.*')) return {rows:[project]};
+      if (sql.startsWith('select p.*') || sql.startsWith('select p.id,p.owner_id')) return {rows:[project]};
       if (/^(insert|update|delete) /i.test(sql)) {
         writes.push({sql, params});
         return {rows:[{id:'updated-row'}]};

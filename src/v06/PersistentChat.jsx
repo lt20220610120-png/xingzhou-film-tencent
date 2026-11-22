@@ -1,17 +1,15 @@
-import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
+import {FormattedText} from '../components/FormattedText.jsx';
 import {ModelSelect} from './ModelSelect.jsx';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Bot, Plus, X, MessageSquare, Sparkles, Pin, PinOff,
   Trash2, Paperclip
 } from 'lucide-react';
-import { cleanupChatSessions, createChatSession, addChatMessage, toggleChatPin, deleteChatSession, setActiveChat } from '../../core/projectStore.js';
+import { createChatSession, addChatMessage, toggleChatPin, setActiveChat } from '../../core/projectStore.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { buildSkillManifest } from '../../core/skillContext.js';
 import { createSkillExecution } from '../../core/skillExecution.js';
 
-// localStorage key for shared API config
-const API_STORAGE_KEY = 'xz-api-profiles';
 const LAST_USED_SKILL_KEY = 'xz-last-used-skill';
 
 /**
@@ -43,7 +41,7 @@ function SessionRow({ item, active, setState, setTarget }) {
  * 中间：聊天消息区域 + 紧凑输入框 + Skill 选择器
  * 右侧：用户指令快速导航
  */
-export function PersistentChat({ open, onClose, state, setState, api, attachment }) {
+export function PersistentChat({ open, onClose, state, setState, api, attachment, onRemoveAttachment }) {
   const [inputs,setInputs]=useState({});
   const [skillId, setSkillId] = useState(() => {
     // 默认使用上次使用的 Skill
@@ -59,6 +57,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
     (a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.updatedAt) - new Date(a.updatedAt)
   );
   const activeSession = sessions.find((s) => s.id === state.activeChatId) || sessions[0];
+  const selectedSkill = state.skills?.find(skill=>skill.id===skillId);
 
   const profileId=activeSession?.profileId;
   const activeApiProfile=state.apiProfiles?.find(p=>p.id===profileId);
@@ -86,7 +85,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
       return;
     }
 
-    const skill = state.skills?.find((s) => s.id === skillId);
+    const skill = selectedSkill;
     // 如果有附件
     let attachmentContent = '';
     if (attachment?.content) {
@@ -97,9 +96,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
     }
 
     // 保存上次使用的 Skill
-    if (skillId) {
-      localStorage.setItem(LAST_USED_SKILL_KEY, skillId);
-    }
+    if (skill) localStorage.setItem(LAST_USED_SKILL_KEY, skill.id);
 
     // 添加用户消息
     setState((s) => addChatMessage(s, activeSession.id, 'user', text));
@@ -120,9 +117,9 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
             messages: [...history, { role: 'user', content: text }, ...(attachmentContent ? [{ role: 'user', content: attachmentContent }] : [])],
           });
 
-      setState((s) => addMessageToSession(s, activeSession.id, 'assistant', result));
+      setState((s) => addChatMessage(s, activeSession.id, 'assistant', result));
     } catch (e) {
-      setState((s) => addMessageToSession(s, activeSession.id, 'assistant', `连接失败：${e.message}`));
+      setState((s) => addChatMessage(s, activeSession.id, 'assistant', `连接失败：${e.message}`));
     } finally {
       sendingRef.current.delete(activeSession.id);setBusySessions(v=>({...v,[activeSession.id]:false}));
     }
@@ -139,13 +136,6 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
         };
       });
       setDeleteTarget(null);
-    }
-  };
-
-  const handleRemoveAttachment = () => {
-    // 由父组件处理
-    if (onClose) {
-      // Store state of removal for rendering
     }
   };
 
@@ -201,7 +191,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
           <div className="chat-attachment-tag">
             <Paperclip size={13} />
             <span>{attachment.name}</span>
-            <button className="remove-attachment" onClick={() => onClose?.()} title="移除附件">
+            <button type="button" className="remove-attachment" onClick={onRemoveAttachment} title="移除附件">
               <X size={13} />
             </button>
           </div>
@@ -232,10 +222,11 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
         <div className="chat-compose compact">
           <div className="compose-row">
             <select
-              value={skillId}
+              value={selectedSkill?.id||''}
               onChange={(e) => {
                 setSkillId(e.target.value);
                 if (e.target.value) localStorage.setItem(LAST_USED_SKILL_KEY, e.target.value);
+                else localStorage.removeItem(LAST_USED_SKILL_KEY);
               }}
               className="skill-select-inline"
             >
@@ -244,14 +235,14 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
-            {skillId && <small className="skill-file-count">完整 Skill · {buildSkillManifest(state.skills?.find((s) => s.id === skillId)).totalFiles} 个文件已附上</small>}
+            {selectedSkill && <small className="skill-file-count">完整 Skill · {buildSkillManifest(selectedSkill).totalFiles} 个文件已附上</small>}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="输入你的问题或创作要求……"
               rows={2}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode!==229) {
                   e.preventDefault();
                   sendMessage();
                 }
@@ -266,10 +257,10 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
 
       {/* 右侧：指令导航 */}
       <nav className="message-markers" aria-label="指令导航">
-        {userMessages.map((msg, idx) => (
+        {userMessages.map((msg) => (
           <button
             key={msg.id}
-            title={msg.role==='assistant'?<FormattedText text={msg.content}/>:msg.content}
+            title={msg.content}
             onClick={() => msgRefs.current[msg.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           >
             <span>{msg.content.slice(0, 16)}</span>
@@ -289,28 +280,6 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
       />
     </aside>
   );
-}
-
-// ========== 辅助函数 ==========
-
-function addMessageToSession(state, sessionId, role, content) {
-  const now = new Date().toISOString();
-  const msgId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-  const sessions = state.chatSessions.map((s) => {
-    if (s.id !== sessionId) return s;
-    const msgs = s.messages || [];
-    const userMsgs = [...msgs, { id: msgId, role, content, createdAt: now }].filter((m) => m.role === 'user');
-    const title = userMsgs.length === 1 && role === 'user'
-      ? content.slice(0, 20) + (content.length > 20 ? '…' : '')
-      : s.title;
-    return {
-      ...s,
-      title: title === '新对话' ? title : s.title,
-      messages: [...msgs, { id: msgId, role, content, createdAt: now }],
-      updatedAt: now,
-    };
-  });
-  return { ...state, chatSessions: sessions };
 }
 
 export default PersistentChat;

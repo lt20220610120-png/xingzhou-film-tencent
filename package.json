@@ -1,7 +1,7 @@
 {
   "name": "xingzhou-film-tencent",
   "productName": "行舟影视（腾讯云版）",
-  "version": "2.8.194",
+  "version": "2.8.195",
   "description": "行舟影视：剧本、导演、项目协作与 AI 影像生产工作台",
   "author": "行舟影视",
   "private": true,
@@ -16,22 +16,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "jszip": "^3.10.1",
-    "lucide-react": "latest",
-    "mammoth": "latest",
+    "jszip": "3.10.1",
+    "lucide-react": "1.28.0",
+    "mammoth": "1.12.0",
     "p-queue": "10.0.0",
-    "react": "latest",
-    "react-dom": "latest",
-    "vite": "latest",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "yjs": "13.6.31"
   },
   "devDependencies": {
-    "concurrently": "latest",
-    "electron": "latest",
-    "electron-builder": "latest",
-    "pngjs": "^7.0.0",
-    "wait-on": "latest"
+    "@vitejs/plugin-react": "6.0.5",
+    "concurrently": "10.0.4",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "pngjs": "7.0.0",
+    "vite": "8.2.0",
+    "wait-on": "9.1.0"
   },
   "build": {
     "electronLanguages": [
