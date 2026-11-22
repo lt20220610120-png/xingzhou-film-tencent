@@ -177,6 +177,15 @@ def report_channels(request):
             print(f'{name} 当前状态无法核对',file=sys.stderr)
 
 
+def read_release_notes(root, version, *, recovery=False):
+    version_tuple(version)
+    filename=f'{version}.md'
+    notes_file=root/'release-notes'/filename
+    if recovery and not notes_file.is_file():
+        notes_file=root/'docs'/'archive'/'release-notes'/filename
+    return notes_file.read_text(encoding='utf-8-sig').strip() if notes_file.is_file() else f'行舟影视 {version} 更新。'
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('version',nargs='?',default=json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version'])
@@ -195,8 +204,7 @@ def main():
     source=next((candidate for candidate in (directory/name,ROOT/'release'/name) if candidate.is_file()),None)
     if not source:
         raise SystemExit(f'找不到 {version} 安装包，请先运行 npm run dist')
-    notes_file=ROOT/'release-notes'/f'{version}.md'
-    notes=args.notes or (notes_file.read_text(encoding='utf-8-sig').strip() if notes_file.is_file() else f'行舟影视 {version} 更新。')
+    notes=args.notes or read_release_notes(ROOT,version,recovery=args.resume or args.allow_rollback)
     with source.open('rb') as stream:
         digest=hashlib.file_digest(stream,'sha256').hexdigest()
     size=source.stat().st_size

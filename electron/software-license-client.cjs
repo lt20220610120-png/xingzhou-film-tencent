@@ -76,7 +76,7 @@ function createLicenseClient({directory,safeStorage,call,token,version,onChange=
    if(!value.allowed)throw Error('软件授权未生效或已到期，请在启动授权页续卡后进入软件');
    return value;
   },
-  needsLicense(channel){return PAID.has(channel)||/^(chatgpt-web|doubao-work|gemini-web|libtv-login|like-pairing|like-bind|import-full-script|import-skill|discover-models|admin-workflow-(?:create|start|resume))/.test(channel);},
+  needsLicense(channel){return PAID.has(channel)||/^(chatgpt-web|gemini-web|libtv-login|like-pairing|like-bind|import-full-script|import-skill|discover-models|admin-workflow-(?:create|start|resume))/.test(channel);},
  };
 }
 module.exports={createLicenseClient};

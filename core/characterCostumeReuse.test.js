@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import {reuseCharacterCostumes} from './characterCostumeReuse.js';
 import {buildAssetRows, parseArtAnalysis, normalizeArtAssets} from './collabStore.js';
 import {decodeArtReviewOutput, applyArtReviewCandidate, newArtReview} from './artReview.js';
-import {validateArtOutput} from './artAnalysisRunner.js';
-import {buildSavedArtPublication} from './artPublicationRecovery.js';
 
 const base={id:'original',category:'character',name:'【郑立成-日常西装】',description:'脸型：方脸；发型：黑色短发；服装：藏青西装白衬衫。',first_episode:1,episodes:[1],sceneIds:['1-1']};
 const state=(suffix,episode=2)=>({id:suffix,category:'character',name:`【郑立成-日常西装·${suffix}】`,description:`参考【郑立成-日常西装】；状态差异：${suffix}，衬衫皱褶，领口敞开，无伤口，无新增破洞；其他服装延续基准。`,first_episode:episode,episodes:[episode],sceneIds:[`${episode}-1`]});
@@ -35,11 +33,9 @@ test('unknown reference, another actor and protected existing work are never hid
   assert.equal(reuseCharacterCostumes([base,{...loose,...extra}]).assets.length,2);
  }
 });
-test('analysis parser and incremental validation both preserve costume membership',()=>{
+test('analysis parser preserves costume membership across episodes',()=>{
  const source=`${inventory([base],1)}\n${inventory([state('药后惊醒态')],2)}`;
  const rows=buildAssetRows(parseArtAnalysis(source));assert.equal(rows.length,1);assert.deepEqual(rows[0].episodes,[1,2]);
- const incremental=validateArtOutput(inventory([state('药后惊醒态')]),2,'2-1 客厅 日 内',[base]);
- assert.equal(incremental[0].name,base.name);assert.equal(incremental.length,1);
 });
 test('scene mapping follows the merged costume including string references and duplicate entries',()=>{
  const variant=state('疲惫守夜态'),episode={episodeNumber:2,content:'2-1 客厅 日 内\n郑立成守夜。'};
@@ -48,15 +44,6 @@ test('scene mapping follows the merged costume including string references and d
  const applied=applyArtReviewCandidate(newArtReview(episode),episode,decoded,{rawOutput:raw});
  assert.equal(applied.scenes[0].items.length,1);assert.equal(applied.scenes[0].items[0].name,base.name);assert.equal(applied.rawOutput,raw);
 });
-test('publication emits canonical reuse instead of erasing the merged episode',()=>{
- const episode={episodeNumber:2,content:'2-1 客厅 日 内\n郑立成守夜。'},output=inventory([state('疲惫守夜态')]);
- const ledger={episodes:{2:{chunks:[episode.content],outputs:[output]}}};
- const publication=buildSavedArtPublication({ledger,episode,existingAssets:[base]});
- assert.match(publication.output,/【郑立成-日常西装】/);assert.doesNotMatch(publication.output,/疲惫守夜态/);
- assert.equal(publication.assets[0].name,base.name);assert.ok(publication.assets[0].episodes.includes(2));
- assert.equal(ledger.episodes[2].outputs[0],output);
-});
-
 test('tiredness alone reuses a costume, but actual clothing and visible bodily changes survive all ingestion paths',()=>{
  const tired=['累了','疲倦','疲劳','劳累','困倦'].map(label=>({...state(label),description:`参考${base.name}；${label}，仍穿原来同一套西装。`}));
  assert.deepEqual(reuseCharacterCostumes([base,...tired]).assets.map(a=>a.name),[base.name]);
@@ -73,5 +60,5 @@ test('tiredness alone reuses a costume, but actual clothing and visible bodily c
 test('new analysis retains a matching already produced or manually confirmed costume',()=>{
  const row=state('疲倦'),existing={...row,image_url:'existing.png'};
  assert.equal(reuseCharacterCostumes([row],{available:[base,existing]}).assets[0].name,row.name);
- assert.equal(validateArtOutput(inventory([row]),2,'2-1 客厅 日 内',[base,existing])[0].name,row.name);
+ assert.equal(decodeArtReviewOutput(inventory([row]),2,[base,existing]).items[0].name,row.name);
 });

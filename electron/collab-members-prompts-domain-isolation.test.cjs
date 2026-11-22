@@ -17,21 +17,19 @@ test('导演提示词顶部支持选择、多选、全选和确认删除', () =>
 test('项目协作支持美术和协作者复合身份并合并权限', () => {
   const store = read('core/collabStore.js');
   const ui = read('src/v06/CollabWorkspace.jsx');
-  const edge = read('supabase/functions/xingzhou-api/index.ts');
+  const repository = read('cloud-backend/src/repository-extras.cjs');
   assert.match(store, /artist_collaborator/);
   assert.match(store, /artist_collaborator:[^\n]*info[^\n]*art[^\n]*assets[^\n]*storyboard[^\n]*group/);
   assert.match(ui, /美术 \+ 协作者/);
-  assert.match(edge, /artist_collaborator/);
-  assert.match(edge, /existing/);
+  assert.match(repository, /async addDirectorMember[\s\S]*'artist_collaborator'[\s\S]*on conflict\(project_id,user_id\) do update set role/);
 });
 
 test('制片邀请页面展示成员并可踢出，移出后成员记录消失', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
-  const edge = read('supabase/functions/xingzhou-api/index.ts');
+  const repository = read('cloud-backend/src/repository-extras.cjs');
   assert.match(ui, /成员<\/span><span>账号<\/span><span>身份<\/span><span>加入时间<\/span><span>操作/);
   assert.match(ui, /移出后对方将立即看不到这个项目/);
-  assert.match(edge, /member-remove/);
-  assert.match(edge, /delete\(\)\.eq\('id',body\.memberId\)\.eq\('project_id',projectId\)/);
+  assert.match(repository, /async removeDirectorMember[\s\S]*target\.memberId\?'id':'user_id'[\s\S]*delete from collab_members where project_id=\$1/);
 });
 
 test('项目协作分镜提示词可编辑并只写入协作项目副本', () => {
@@ -58,10 +56,11 @@ test('同步导演提示词只有制片可见且只替换剧本和分集提示�
 });
 
 test('导演协作与项目协作列表使用严格类型过滤，项目协作不会逆向生成导演卡片', () => {
-  const edge = read('supabase/functions/xingzhou-api/index.ts');
-  assert.match(edge, /isDirectorProject/);
-  assert.match(edge, /director-project-list[\s\S]*filter\(isDirectorProject\)/);
-  assert.match(edge, /project-list[\s\S]*filter\(isCollabProject\)/);
+  const server = read('cloud-backend/src/collab.cjs');
+  const repository = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(server, /director-project-list[\s\S]*listDirectorProjectRows/);
+  assert.match(repository, /async listDirectorProjectRows[\s\S]*filter\(directorRow\)/);
+  assert.match(server, /const collabOnly = rows\.filter.*!String\(row\.genre.*includes\(DIRECTOR_SENTINEL\)/);
 });
 
 test('项目协作踢出后打开的项目遇到访问拒绝会退出并刷新列表', () => {
@@ -72,8 +71,9 @@ test('项目协作踢出后打开的项目遇到访问拒绝会退出并刷新�
 });
 
 test('导演域管理动作拒绝项目协作项目，项目关联只能由制片执行', () => {
-  const edge = read('supabase/functions/xingzhou-api/index.ts');
-  assert.match(edge, /project-link-director'[\s\S]*m\.role!=='producer'/);
-  assert.match(edge, /director-project-get'[\s\S]*isDirectorProject\(data\)/);
-  assert.match(edge, /director-members-list'[\s\S]*isDirectorProject/);
+  const server = read('cloud-backend/src/collab.cjs');
+  const repository = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(server, /action === 'project-link-director'[\s\S]*repo\.linkDirectorProject/);
+  assert.match(repository, /async linkDirectorProject[\s\S]*owner_id=\$2 for update[\s\S]*!editableCollab\(row\)/);
+  assert.match(server, /DIRECTOR_ACTIONS[\s\S]*'director-project-get'[\s\S]*'director-members-list'[\s\S]*includes\(COLLAB_SENTINEL\)/);
 });

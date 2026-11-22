@@ -28,7 +28,8 @@ exports.verify = async (exe,version,dependencies={}) => {
     const needles=fs.readdirSync(vault).filter(n=>n.endsWith('.json')).flatMap(n=>{const source=JSON.parse(fs.readFileSync(path.join(vault,n),'utf8'));return [source.content,...(source.files||[]).map(f=>f.content)].filter(s=>typeof s==='string'&&s.length>300).map(s=>s.slice(0,300));});
     for(const entry of entries.filter(n=>/\.(?:js|cjs|mjs|json|html|md|txt)$/.test(n))){const relative=entry.replace(/^[/\\]/,'');if(asar.statFile(archive,relative).files)continue;const data=asar.extractFile(archive,relative).toString();assert.ok(!needles.some(s=>data.includes(s)),`Private Skill body found in ${entry}`);}
   }
-  assert.ok(!entries.some(name=>/electron[\\/]access-service\.cjs$|core[\\/]accessControl\.cjs$/.test(name)),'Legacy local permission modules must not ship');
+  const retiredModules=new Set(['electron/access-service.cjs','core/accessControl.cjs','electron/cloud-media-service.cjs','electron/doubao-work.cjs','electron/local-trial-features.cjs']);
+  assert.ok(!entries.some(name=>retiredModules.has(name.replaceAll('\\','/').replace(/^\//,''))),'Retired desktop modules must not ship');
   const {getCurrentFuseWire,FuseV1Options}=require('@electron/fuses');
   const fuses=await getCurrentFuseWire(exe);
   for(const option of [FuseV1Options.EnableEmbeddedAsarIntegrityValidation,FuseV1Options.OnlyLoadAppFromAsar])assert.equal(fuses[option],49,'ASAR integrity fuse must be enabled');

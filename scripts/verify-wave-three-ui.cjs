@@ -17,7 +17,9 @@ app.whenReady().then(async () => {
   let exit = 0;
   try {
     const { createServer } = await import('vite');
-    server = await createServer({root, configFile:false, server:{host:'127.0.0.1', port:0, watch:null}, logLevel:'error'});
+    server = await createServer({root, configFile:false, cacheDir:path.join(profile,'vite-cache'),
+      optimizeDeps:{entries:['scripts/fixtures/wave-three-ui.html']},
+      server:{host:'127.0.0.1', port:0, watch:null}, logLevel:'error'});
     await server.listen();
     win = new BrowserWindow({ width:1280, height:920, show:false, webPreferences:{ backgroundThrottling:false } });
     const errors = [];

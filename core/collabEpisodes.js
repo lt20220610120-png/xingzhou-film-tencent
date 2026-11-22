@@ -1,6 +1,11 @@
+import episodeTitle from '../cloud-backend/shared/episode-title.json' with { type: 'json' };
+
 const SETTING_TITLE = /^\s*设定和小传\s*$/;
-const CHINESE_DIGITS = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-const CHINESE_UNITS = { 十: 10, 百: 100, 千: 1000, 万: 10000 };
+const { chineseDigits, chineseUnits, metadataKeys, legacyChineseLabel, legacyEnglishLabel, markdownHeading, sceneNumber } = episodeTitle;
+const LABEL = new RegExp(legacyChineseLabel + '|\\b' + legacyEnglishLabel + '\\b', 'gi');
+const HEADING = new RegExp('^[ \\t]*' + markdownHeading + '(?:' + legacyChineseLabel + '|' + legacyEnglishLabel + '\\b)', 'gim');
+const HEADING_PREFIX = new RegExp('^[ \\t]*' + markdownHeading + '(?:' + legacyChineseLabel + '|' + legacyEnglishLabel + ')', 'i');
+const SCENE = new RegExp('^[ \\t]*' + sceneNumber + '\\b', 'gim');
 
 const positiveInteger = (value) => {
   const number = Number(value);
@@ -15,11 +20,11 @@ export function chineseEpisodeNumber(value) {
   let section = 0;
   let digit = 0;
   for (const character of source) {
-    if (Object.hasOwn(CHINESE_DIGITS, character)) {
-      digit = CHINESE_DIGITS[character];
+    if (Object.hasOwn(chineseDigits, character)) {
+      digit = chineseDigits[character];
       continue;
     }
-    const unit = CHINESE_UNITS[character];
+    const unit = chineseUnits[character];
     if (unit === 10000) {
       total += (section + digit || 1) * unit;
       section = 0;
@@ -37,8 +42,7 @@ export const isCollabSettingEpisode = (episode) =>
 const identityError = (message) => Object.assign(new Error(message), { code: 'collab_episode_identity_invalid' });
 const episodeLabelsAnywhere = (text) => {
   const numbers = [];
-  const pattern = /第\s*([零〇一二两三四五六七八九十百千万\d]+)\s*(?:[集章节幕部]|回(?!合))|\b(?:Episode|EP)\s*([0-9]+)\b/gi;
-  for (const match of String(text || '').matchAll(pattern)) {
+  for (const match of String(text || '').matchAll(LABEL)) {
     const number = chineseEpisodeNumber(match[1] || match[2]);
     if (number) numbers.push(number);
   }
@@ -48,16 +52,14 @@ const episodeLabelsAnywhere = (text) => {
 export function episodeNumbersInText(text) {
   const source = String(text || '').replaceAll(String.fromCharCode(13, 10), '\n').replaceAll(String.fromCharCode(13), '\n');
   const numbers = [];
-  const title = /^[ \t]*(?:#{1,6}[ \t]*)?(?:第\s*([零〇一二两三四五六七八九十百千万\d]+)\s*(?:[集章节幕部]|回(?!合))|(?:Episode|EP)\s*([0-9]+)\b)/gim;
-  const scene = /^[ \t]*(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*\d+(?!\d)(?![ \t]*(?:秒|分钟|毫秒|小时|人|米|厘米|毫米|公里|元|帧|%|s\b|ms\b|sec\b|min\b))\b/gim;
-  for (const match of source.matchAll(title)) {
+  for (const match of source.matchAll(HEADING)) {
     const number = chineseEpisodeNumber(match[1] || match[2]);
     if (number) numbers.push(number);
   }
   for (const line of source.split('\n')) {
-    if (/^[ \t]*(?:#{1,6}[ \t]*)?(?:第\s*[零〇一二两三四五六七八九十百千万\d]+\s*(?:[集章节幕部]|回(?!合))|(?:Episode|EP)\s*[0-9]+)/i.test(line)) numbers.push(...episodeLabelsAnywhere(line));
+    if (HEADING_PREFIX.test(line)) numbers.push(...episodeLabelsAnywhere(line));
   }
-  for (const match of source.matchAll(scene)) {
+  for (const match of source.matchAll(SCENE)) {
     const number = positiveInteger(match[1]);
     if (number) numbers.push(number);
   }
@@ -67,7 +69,7 @@ export function episodeNumbersInText(text) {
 export function collabEpisodeNumber(episode) {
   if (!episode || isCollabSettingEpisode(episode)) return null;
   const evidence = [];
-  for (const field of ['episodeNumber', 'number', 'episode', 'episode_number']) {
+  for (const field of metadataKeys) {
     if (!(field in episode) || episode[field] === null || episode[field] === '') continue;
     const explicit = positiveInteger(episode[field]);
     if (!explicit) throw identityError(`分集字段 ${field} 不是有效正整数，未自动修正`);

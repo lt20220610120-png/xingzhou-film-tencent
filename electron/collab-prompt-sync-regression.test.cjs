@@ -10,10 +10,10 @@ test('项目协作创建时持久保存导演项目来源ID', () => {
 });
 
 test('项目协作列表继续包含有导演来源ID的普通协作项目', () => {
-  const fn = read('supabase/functions/xingzhou-api/index.ts');
-  assert.match(fn, /COLLAB_PROJECT_SENTINEL/);
-  assert.match(fn, /isCollabProject/);
-  assert.doesNotMatch(fn, /\.eq\('analysis_output',''\)/);
+  const server = read('cloud-backend/src/collab.cjs');
+  const projectList = server.match(/if \(action === 'project-list'\)[\s\S]*?(?=\n  if \()/)?.[0] || '';
+  assert.match(projectList, /!String\(row\.genre.*includes\(DIRECTOR_SENTINEL\)/);
+  assert.doesNotMatch(projectList, /analysis_output\s*===/);
 });
 
 test('同步导演提示词沿用创建时关联，不再重复要求选择项目', () => {

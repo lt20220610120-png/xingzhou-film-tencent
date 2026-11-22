@@ -1,8 +1,9 @@
+import { matchAdoptedAssetImage } from '../cloud-backend/shared/adopted-asset-image.mjs';
+
 export function adoptedAssetImage(asset,{exact=false}={}){
  const images=asset?.images||[];
  const named=images.find(i=>i.id===asset?.adoptedImageId);if(named&&!exact)return named;
- const pointer=String(asset?.image_url||'').split('?')[0];
- const matched=pointer&&images.find(i=>[i.objectKey,i.objectPath,i.url].some(v=>v&&String(v).split('?')[0]===pointer));
+ const matched=matchAdoptedAssetImage(images,asset?.image_url);
  return matched||(!exact&&images.at(-1))||null;
 }
 export const bindingFollowsAdoptedImage = (need={}) =>

@@ -26,10 +26,9 @@ const updateOptions={fetchFn:updateFetch,officialMirrors:UPDATE_MIRRORS.map(base
 const { fetchUpdateManifest } = require('./update-manifest.cjs');
 const { TRUSTED_MANIFEST_URL } = require('./update-trust.cjs');
 const { registerUpdateHandlers } = require('./update-ipc.cjs');
-const { requestText, testTextConnection } = require('./text-provider.cjs');
+const { requestText, testTextConnection,assertTextProviderAvailable,isRetiredTextProfile } = require('./text-provider.cjs');
 const { createGeminiWebService } = require('./gemini-web.cjs');
 const { createChatGPTWebService } = require('./chatgpt-web.cjs');
-const { createDoubaoWorkService } = require('./doubao-work.cjs');
 const { createGeminiQuitHandler, closeDesktopResources } = require('./gemini-shutdown.cjs');
 const { generateImage, generateVideo, retryImageDownload } = require('./media-service.cjs');
 const { readMediaBytes, configureMediaCache, configureMediaFetch } = require('./media-network.cjs');
@@ -59,7 +58,7 @@ app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
 const defaultDataDir = () => path.join(app.getPath('documents'), '行舟影视资料');
 let licenseClient;
-let accessService, geminiWebService, doubaoWorkService,chatgptWebService,libtvService;
+let accessService, geminiWebService,chatgptWebService,libtvService;
 const getLibTV=()=>libtvService||(libtvService=require('./libtv-service.cjs').createLibTVService({root:path.join(app.getPath('userData'),'libtv'),safeStorage,openExternal:url=>shell.openExternal(url),fetchFn:(url,options)=>net.fetch(url,options)}));
 let likeConnector;
 const getLike=()=>likeConnector||(likeConnector=require('./like-connector.cjs').createLikeConnector({root:path.join(app.getPath('userData'),'like-connector'),safeStorage,getOwner:()=>readCloudSession()?.account?.id,allowedRoots:()=>[getDataDir()]}));
@@ -72,10 +71,7 @@ const libtvAccountId=async(projectId)=>{const account=await projectAccount(proje
 for(const [channel,action] of Object.entries({'libtv-projects':(s,id)=>s.projects(id),'libtv-create-project':(s,id,p)=>s.createProject(id,p.name),'libtv-use-project':(s,id,p)=>s.useProject(id,p.projectId,p.name),'libtv-status':(s,id)=>s.status(id),'libtv-login':(s,id)=>s.startLogin(id),'libtv-cancel-login':(s,id)=>s.cancelLogin(id),'libtv-logout':(s,id)=>s.logout(id),'libtv-models':(s,id)=>s.models(id),'libtv-model-schema':(s,id,p)=>s.schema(id,p.model,p.kind),'libtv-accounts':(s,id)=>s.accounts(id),'libtv-use-account':(s,id,p)=>s.useAccount(id,p.accountId)}))ipcMain.handle(channel,async(_,p)=>action(getLibTV(),await libtvAccountId(),p||{}));
 const getChatGPTWeb=()=>chatgptWebService||(chatgptWebService=createChatGPTWebService({profileDir:path.join(app.getPath('userData'),'chatgpt-browser')}));
 const chatgptRun=(config,options)=>getChatGPTWeb().request(config,options);
-for(const [channel,method] of Object.entries({'chatgpt-web-status':'status','chatgpt-web-login':'openLogin','chatgpt-web-models':'listModels'}))ipcMain.handle(channel,event=>{assertTrustedFrame(event,mainWindow);return getChatGPTWeb()[method]();});
-const getDoubaoWork = () => doubaoWorkService || (doubaoWorkService=createDoubaoWorkService({userDataDir:app.getPath('userData')}));
-const doubaoRun = (config,options) => getDoubaoWork().request(config,options);
-for(const [channel,method] of Object.entries({'doubao-work-status':'status','doubao-work-login':'openLogin','doubao-work-models':'listModels'}))ipcMain.handle(channel,(event)=>{assertTrustedFrame(event,mainWindow);return getDoubaoWork()[method]();});
+for(const [channel,method] of Object.entries({'chatgpt-web-status':'status','chatgpt-web-login':'openLogin'}))ipcMain.handle(channel,event=>{assertTrustedFrame(event,mainWindow);return getChatGPTWeb()[method]();});
 const getGeminiWeb = () => geminiWebService || (geminiWebService=createGeminiWebService({profileDir:path.join(app.getPath('userData'),'gemini-browser')}));
 const geminiRun = (config,options) => getGeminiWeb().request(config,options);
 for(const [channel,method] of Object.entries({'gemini-web-status':'status','gemini-web-login':'openLogin','gemini-web-models':'listModels'}))ipcMain.handle(channel,(event)=>{assertTrustedFrame(event,mainWindow);return getGeminiWeb()[method]();});
@@ -146,6 +142,11 @@ let providerCache;
 const stateReads=new Map(),providerKeys=['apiProfiles','mediaProfiles','activeApiId','activeImageApiId','activeVideoApiId','activeAudioApiId'];
 function rememberProviderSettings(file,state){
  providerCache={file,...Object.fromEntries(providerKeys.filter(key=>Object.hasOwn(state||{},key)).map(key=>[key,state[key]]))};
+ const profiles=providerCache.apiProfiles;
+ if(Array.isArray(profiles)&&profiles.some(isRetiredTextProfile)){
+  if(profiles.some(p=>isRetiredTextProfile(p)&&p.id===providerCache.activeApiId))providerCache.activeApiId=null;
+  providerCache.apiProfiles=profiles.filter(p=>!isRetiredTextProfile(p));
+ }
 }
 async function providerSettings(){
  const file=dataFile();
@@ -195,7 +196,7 @@ function assertDirectorQuickSender(event) {
  if(!readCloudSession()?.account?.id)throw new Error('请先登录行舟影视');
 }
 const directorQuickStore=()=>require('./director-quick-checkpoints.cjs').createDirectorQuickCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id);
-for(const [channel,method] of Object.entries({'director-quick-list-runs':'list','director-quick-load-run':'load','director-quick-save-run':'saveAsync','director-quick-remove-run':'remove'})){
+for(const [channel,method] of Object.entries({'director-quick-list-runs':'list','director-quick-load-run':'load','director-quick-save-run':'saveAsync'})){
  ipcMain.handle(channel,(event,payload)=>{assertDirectorQuickSender(event);return directorQuickStore()[method](payload);});
 }
 let selectedDataDirectory=null;
@@ -261,13 +262,12 @@ ipcMain.handle('ai-chat',async(event,payload)=>{
  const revoke=()=>controller.abort();event?.securitySignal?.addEventListener('abort',revoke,{once:true});
  if(event?.securitySignal?.aborted)controller.abort();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
- try{const onProgress=status=>{if(taskId)aiTaskProgress.set(taskId,status);};const output=await (payload.builtinSkillId?require('./protected-skill-client.cjs').requestProtectedSkill(payload,{token:()=>readCloudSession()?.token||'',gateway:require('./cloud-access-service.cjs').gateway,signal:controller.signal,onProgress}):requestText({...payload,signal:controller.signal},{geminiRun,doubaoRun,chatgptRun,onProgress}));return payload.resultEnvelope?{ok:true,output}:output}
+ try{assertTextProviderAvailable(payload);const onProgress=status=>{if(taskId)aiTaskProgress.set(taskId,status);};const output=await (payload.builtinSkillId?require('./protected-skill-client.cjs').requestProtectedSkill(payload,{token:()=>readCloudSession()?.token||'',gateway:require('./cloud-access-service.cjs').gateway,signal:controller.signal,onProgress}):requestText({...payload,signal:controller.signal},{geminiRun,chatgptRun,onProgress}));return payload.resultEnvelope?{ok:true,output}:output}
  catch(error){if(payload.resultEnvelope){const diagnostic=safeProviderDiagnostic(error.providerDiagnostic);return {ok:false,code:error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:error?.name==='AbortError'?'任务已停止':error.message,partialText:error.partialText||'',...(diagnostic?{providerDiagnostic:diagnostic}:{})};}if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
  finally{event?.securitySignal?.removeEventListener('abort',revoke);if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');
 ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
-ipcMain.handle('analysis-save',(_,p)=>analysisStore().save(p));
 const artReviewStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','art-review-checkpoints');
 ipcMain.handle('art-review-load-local',async(_,p)=>{
  let local=artReviewStore().load(p);
@@ -315,7 +315,7 @@ ipcMain.handle('collab-art-review-save',(_,p)=>collabService.saveArtReview(p));
 ipcMain.handle('collab-art-review-publish',(_,p)=>collabService.publishArtReview(p));
 ipcMain.handle('collab-publish-analysis',(_,p)=>collabService.publishAnalysis(p));
 ipcMain.handle('cancel-ai-task',(_,payload)=>{const controller=activeAiRequests.get(String(payload?.taskId||''));if(!controller)return false;controller.abort();return true});
-ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun,doubaoRun,chatgptRun}));
+ipcMain.handle('test-ai-connection',async(_,_config)=>testTextConnection(_config,{geminiRun,chatgptRun}));
 const ensureAudioReady=require('./audio-service-ready.cjs').createAudioServiceReady({fetchFn:(url,options)=>net.fetch(url,options)});
 const voiceTargetContext=()=>({accountId:String(readCloudSession()?.account?.id||''),dataScope:require('./voice-target.cjs').voiceDataScope(getDataDir())});
 ipcMain.handle('audio-generation-context',()=>{if(directoryMigration)throw Error('资料目录正在迁移，请稍后生成');return voiceTargetContext();});
@@ -350,7 +350,6 @@ ipcMain.handle('select-profile-avatar',async()=>{
 });
 ipcMain.handle('auth-session',()=>accessService.session({allowCached:()=>collabService.hasLocalProjects(),allowForbiddenCached:true}));
 ipcMain.handle('license-check',()=>licenseClient.check());
-ipcMain.handle('license-route',(_,p)=>licenseClient.route(p?.username));
 ipcMain.handle('license-prepare',(_,p)=>licenseClient.prepare(p?.code));
 ipcMain.handle('license-remembered-card',()=>licenseClient.rememberedCard());
 ipcMain.handle('license-forget-card',()=>licenseClient.forgetCard());
@@ -492,7 +491,7 @@ ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAsse
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
 ipcMain.handle('codex-local-catalog', event => require('./codex-catalog.cjs').readLocalCodexCatalog({signal:event?.securitySignal}));
 ipcMain.handle('muse-local-connect',async()=>require('./muse-local.cjs').connection());
-ipcMain.handle('discover-models', (_, config) => config?.provider==='codexLocal'?require('./codex-catalog.cjs').readLocalCodexCatalog({signal:_?.securitySignal}).then(r=>r.models):config?.provider==='chatgptWeb'?getChatGPTWeb().listModels():config?.provider==='doubaoWork'?getDoubaoWork().listModels():config?.provider==='geminiWeb'?getGeminiWeb().listModels():discoverModels(config));
+ipcMain.handle('discover-models', (_, config) => {assertTextProviderAvailable(config);return config?.provider==='codexLocal'?require('./codex-catalog.cjs').readLocalCodexCatalog({signal:_?.securitySignal}).then(r=>r.models):config?.provider==='chatgptWeb'?getChatGPTWeb().listModels():config?.provider==='geminiWeb'?getGeminiWeb().listModels():discoverModels(config);});
 ipcMain.handle('collab-resolve-asset-image', (_, payload) => collabService.resolveAssetImage(payload));
 const imageCacheAccount = () => readCloudSession()?.account?.id || '';
 let activeImageCache, activeImageCacheDir;
@@ -639,7 +638,6 @@ async function manageGenerationReferences(action,payload={}){
 }
 ipcMain.handle('generation-reference-list',()=>manageGenerationReferences('generation-reference-list'));
 ipcMain.handle('generation-reference-cleanup',(_,p)=>manageGenerationReferences('generation-reference-cleanup',p));
-ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
 ipcMain.handle('generation-clear',async(_,p={})=>{const [state,director]=await Promise.all([readJsonAsync(dataFile(),{}),readJsonAsync(directorProjectsFile(),[])]);return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths)]});});
 ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
 async function submitGeneration(event,p){
@@ -707,7 +705,7 @@ function currentWorkflow(){
   prepare:async(run,item,guard,save,signal)=>{
    await guard();const state=await providerSettings(),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(state,'video').find(p=>p.id===run.settings.profileId),ai=state.apiProfiles?.find(p=>p.id===run.settings.aiProfileId);
    if(!ai)throw Error('AI 接口已不存在，请恢复原配置');
-   const call=async messages=>{await guard();const result=await requestText({...ai,messages,maxOutputTokens:8192},{signal,geminiRun,doubaoRun,chatgptRun});await guard();return result;};
+   const call=async messages=>{await guard();const result=await requestText({...ai,messages,maxOutputTokens:8192},{signal,geminiRun,chatgptRun});await guard();return result;};
    const {beginImportedBinding,importedSnapshot,runBindingRepair}=await import('../core/importedArtBinding.js');
    if(run.settings.mode==='auto'){
     if(run.book.linkedProjectId)throw Error('联动美术项目请先在清单核实确认，再使用半自动流程');
@@ -809,7 +807,7 @@ const quitHandler=createGeminiQuitHandler({
  },
  onSaveError:()=>dialog.showErrorBox('保存未完成','本地保存失败，已取消退出。请检查磁盘空间和权限，保存成功后再退出。'),
  getService:()=>({close:()=>closeDesktopResources({
-  like:()=>likeConnector?.stop(),gemini:()=>geminiWebService?.close(),doubao:()=>doubaoWorkService?.close(),
+  like:()=>likeConnector?.stop(),gemini:()=>geminiWebService?.close(),
   chatgpt:()=>chatgptWebService?.close(),winAI:()=>winAiPanel?.close(),workBuddy:()=>workBuddyPanel?.close(),
   admin:()=>workflowEngine?.pauseAll(),production:()=>productionHost?.stop(),storyboard:()=>storyboardBatchHost?.stopAll(),
   productionWakeLock:()=>productionAwake.clear(),adminWakeLock:()=>adminAwake.clear(),

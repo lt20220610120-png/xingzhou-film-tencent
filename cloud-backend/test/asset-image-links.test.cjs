@@ -26,6 +26,33 @@ test('asset list collapses duplicate media identities and provides renewable met
   const result=await handleAction('assets-list',{projectId:'p'},{id:'u'},repo,signer);
   assert.equal(result.body[0].images.length,1);assert.equal(result.body[0].images[0].assetId,'a');assert.equal(result.body[0].images[0].expiresAt,9999999999999);
 });
+test('legacy signed adoption resolves the same authorized image as its object key', async () => {
+  const objectKey = 'projects/p/image/old.png';
+  const repository = {
+    getProject: async (projectId, userId) => userId === 'member' ? { id: projectId } : null,
+    listAssets: async () => [
+      { id: 'adopted', image_url: `https://bucket.cos.test/${objectKey}?expired` },
+      { id: 'empty', image_url: '' },
+      { id: 'external', image_url: `https://other.test/${objectKey}?original` },
+      { id: 'external-variant', image_url: 'https://external.test/image?name=adopted' },
+    ],
+    listAssetImages: async () => [
+      { id: 'old', asset_id: 'adopted', object_path: objectKey },
+      { id: 'new', asset_id: 'adopted', object_path: 'projects/p/image/new.png' },
+      { id: 'empty-other', asset_id: 'empty', object_path: objectKey },
+      { id: 'external-other', asset_id: 'external', object_path: objectKey },
+      { id: 'external-variant-other', asset_id: 'external-variant', url: 'https://external.test/image?name=other' },
+    ],
+  };
+  const payload = { projectId: 'p' };
+  const response = await handleAction('assets-list', payload, { id: 'member' }, repository, signer);
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.map(asset => asset.adoptedImageId), ['old', null, null, null]);
+  const { adoptedAssetImage } = await import('../../core/adoptedAssetImage.js');
+  assert.equal(adoptedAssetImage(response.body[0], { exact: true }).id, 'old');
+  assert.equal(adoptedAssetImage(response.body[1], { exact: true }), null);
+  assert.equal((await handleAction('assets-list', payload, { id: 'outsider' }, repository, signer)).status, 403);
+});
 test('renewal authorizes the actual image and rejects other project/asset identifiers',async()=>{
   const repo={getProject:async()=>({id:'p'}),findMedia:async(id,uid)=>uid==='u'?{id,project_id:'p',asset_id:'a',object_path:'projects/p/image/a.png'}:null};
   assert.equal((await handleAction('asset-image-url',{projectId:'p',assetId:'a',imageId:'i'},{id:'u'},repo,signer)).body.url,'https://bucket.cos.test/projects/p/image/a.png?fresh');

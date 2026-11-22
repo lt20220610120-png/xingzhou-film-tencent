@@ -12,7 +12,7 @@ test('导演工作台删除确认弹框通过 document.body portal 居中', () =
 });
 
 test('导演云端管理按文档来源调用各自的删除动作', () => {
-  const fn = read('supabase/functions/xingzhou-api/index.ts');
+  const fn = read('cloud-backend/src/collab.cjs');
   const service = read('electron/collab-service.cjs');
   const main = read('electron/main.cjs');
   const preload = read('electron/preload.cjs');
@@ -35,10 +35,9 @@ test('导演工作台明确区分本地项目与受邀协作项目', () => {
 });
 
 test('导演云端删除不会删除项目协作项目', () => {
-  const fn = read('supabase/functions/xingzhou-api/index.ts');
-  const directorDelete = fn.match(/if\(action==='director-project-delete'[\s\S]{0,1800}/)?.[0] || '';
+  const repository = read('cloud-backend/src/repository-extras.cjs');
+  const directorDelete = repository.match(/async deleteDirectorProject\([\s\S]*?(?=\n    async )/)?.[0] || '';
   assert.match(directorDelete, /collab_projects/);
   assert.match(directorDelete, /analysis_output/);
-  assert.match(directorDelete, /director_project_not_found/);
-  assert.doesNotMatch(directorDelete, /action==='project-delete'/);
+  assert.match(directorDelete, /if\(!directorRow\(row\)\)[\s\S]*delete from collab_projects where id=\$1 and owner_id=\$2/);
 });

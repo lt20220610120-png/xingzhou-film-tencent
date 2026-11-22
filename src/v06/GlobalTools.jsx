@@ -8,7 +8,6 @@ import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import { ChatGPTAccountSetup } from './ChatGPTAccountSetup.jsx';
 import { GeminiAccountSetup } from './GeminiAccountSetup.jsx';
-import { DoubaoWorkAccountSetup } from './DoubaoWorkAccountSetup.jsx';
 import {LocalCodexModels} from './LocalCodexModels.jsx';
 import {ModelImport} from './ModelImport.jsx';
 import {AudioWorkbench,AUDIO_LANGUAGES,LOCAL_QWEN_PROFILE} from './AudioWorkbench.jsx';
@@ -16,16 +15,12 @@ import {normalizeCapabilities} from '../../core/modelCapabilities.js';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import companyLogo from '../assets/company-logo.png';
-import {
-  Settings, KeyRound, Sparkles, Bot, Plus, Save, Trash2, X, Image as ImageIcon, Video,
-  Check, FolderOpen, RefreshCw, BookOpen, PenLine, FolderInput, FileUp, PencilLine, Mic
-} from 'lucide-react';
+import { KeyRound, Bot, Plus, Save, Trash2, X, Image as ImageIcon, Video, Check, RefreshCw, PenLine, FolderInput, FileUp, PencilLine, Mic } from 'lucide-react';
 import { addSkill, updateSkill, removeSkill, addApiProfile, updateApiProfile, setActiveApi, removeApiProfile } from '../../core/projectStore.js';
 import { API_PROVIDERS } from '../../core/apiProviders.js';
 import { buildSkillFromDirectory, buildSkillFromDocument } from '../../core/skillImport.js';
-import { buildSkillContext, buildSkillManifest } from '../../core/skillContext.js';
+import { buildSkillManifest } from '../../core/skillContext.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
-import { MediaApiSettings } from './CanvasWorkspace.jsx';
 import { isFeituoEndpoint, addMediaProfile, updateMediaProfile, removeMediaProfile, setActiveMediaApi } from '../../core/canvasStore.js';
 
 /* ================================================================
@@ -318,13 +313,14 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
     model: initial.model || '', apiKey: initial.apiKey || '', protocol: initial.protocol || 'auto',
     requiresApiKey: initial.requiresApiKey ?? true,
     ...(kind==='audio'?{serviceHealthUrl:initial.serviceHealthUrl||'',serviceStartUrl:initial.serviceStartUrl||'',voice:initial.voice||'default',instructions:initial.instructions||'',language:initial.language||'Chinese'}:{}),
-    reasoningEffort: initial.reasoningEffort || (initial.provider==='doubaoWork'?'high':'medium'),
+    reasoningEffort: initial.reasoningEffort || 'medium',
     capabilities: initial.capabilities || {},videoProtocol:initial.videoProtocol||'auto',videoAdapter:initial.videoAdapter,modelCatalog:initial.modelCatalog||[],modelListPath:initial.modelListPath||'',
   }));
   const isFt=kind==='video'&&isFeituoEndpoint(form.endpoint);
   const isLocalCodex = kind === 'chat' && form.provider === 'codexLocal';
   const isChatGPTWeb=kind==='chat'&&form.provider==='chatgptWeb';
-  const isGeminiWeb = kind === 'chat' && form.provider === 'geminiWeb',isDoubaoWork=kind==='chat'&&form.provider==='doubaoWork',isLocalAccount=isLocalCodex||isGeminiWeb||isDoubaoWork||isChatGPTWeb;
+  const isGeminiWeb = kind === 'chat' && form.provider === 'geminiWeb';
+  const isLocalAccount=isLocalCodex||isGeminiWeb||isChatGPTWeb;
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [showKey, setShowKey] = useState(false);
@@ -333,12 +329,11 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
   const handleProviderChange = (value) => {
     const p = API_PROVIDERS[value];
     formRevision.current++;
-    setForm(f => ({ ...f, provider: value, endpoint: p.defaultEndpoint || '', model: p.defaultModel || '', apiKey: ['codexLocal','geminiWeb','doubaoWork','chatgptWeb'].includes(value) ? '' : f.apiKey, requiresApiKey: p.requiresApiKey, protocol: value === 'claudeCodePool' ? 'anthropic' : 'auto', reasoningEffort: value==='doubaoWork'?'high':'medium' }));
+    setForm(f => ({ ...f, provider: value, endpoint: p.defaultEndpoint || '', model: p.defaultModel || '', apiKey: ['codexLocal','geminiWeb','chatgptWeb'].includes(value) ? '' : f.apiKey, requiresApiKey: p.requiresApiKey, protocol: value === 'claudeCodePool' ? 'anthropic' : 'auto', reasoningEffort: 'medium' }));
     setTestResult(null);
   };
   const validate = () => {
     if(kind==='video'&&form.videoProtocol==='custom'){try{validateVideoAdapter(form.videoAdapter);}catch(e){return e.message;}}
-    if (isDoubaoWork) return '豆包工作后台连接暂不可用，请选择已接通的其他服务商';
     if (isLocalAccount) return form.model.trim() ? '' : '请选择账号模型';
     if (!form.endpoint.trim() || !form.model.trim()) return '请填写接口地址和模型名称';
     try { const url = new URL(form.endpoint.trim()); if (!['http:', 'https:'].includes(url.protocol)) return '接口地址必须以 https:// 或 http:// 开头'; } catch { return '请输入完整的接口地址'; }
@@ -352,7 +347,7 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
     setTesting(true); setTestResult(null);
     try {
       if (!window.xingzhou?.testAiConnection) throw new Error('请在桌面应用中测试正文');
-      const result = await window.xingzhou.testAiConnection({ ...form, endpoint: form.endpoint.trim(), reasoningEffort:isDoubaoWork?'high':form.reasoningEffort });
+      const result = await window.xingzhou.testAiConnection({ ...form, endpoint: form.endpoint.trim() });
       if (revision === formRevision.current) setTestResult({ ok: true, message: `收到正文 · ${(result.elapsedMs / 1000).toFixed(1)} 秒`, reply: result.message });
     } catch (e) { if (revision === formRevision.current) setTestResult({ ok: false, message: e.message }); }
     finally { setTesting(false); }
@@ -361,16 +356,15 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
     event.preventDefault();
     const error = validate();
     if (error) { setTestResult({ ok: false, message: error }); return; }
-    onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: isLocalAccount ? '' : form.endpoint.trim(), model: form.model.trim(), apiKey: isLocalAccount ? '' : form.apiKey.trim(), reasoningEffort:isDoubaoWork?'high':form.reasoningEffort, capabilities: normalizeCapabilities(form.capabilities) });
+    onSave({ ...initial, ...form, kind, name: form.name.trim() || `${API_PROVIDERS[form.provider]?.name || '自定义'} · ${form.model.trim()}`, endpoint: isLocalAccount ? '' : form.endpoint.trim(), model: form.model.trim(), apiKey: isLocalAccount ? '' : form.apiKey.trim(), capabilities: normalizeCapabilities(form.capabilities) });
   };
   return <form className="api-config-form" onSubmit={handleSubmit}>
-    <p className="api-form-intro">{isDoubaoWork ? '豆包工作后台连接暂不可用。已停用前台自动提交，避免抢占窗口和影响你的客户端对话；可切换其他已接通服务商。' : isChatGPTWeb ? '使用 ChatGPT 网页账号额度，无需 API Key；使用网页默认模型。完成独立登录后测试正文，连接失败时不会改用其他接口。' : isGeminiWeb ? '使用 Gemini 网页账号额度，无需 API Key。先完成下方登录，再测试正文；这与 Gemini 按量 API 配置独立。' : isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : isFt ? 'FT视频接口使用公开模型编号，支持本地素材与公网素材参考；型号参数按最新内置目录显示。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '支持本地模型及 OpenAI Speech 兼容接口；保存后可输入文本、设计音色、生成试听并导出 WAV。' : '填写上游地址与密钥，读取型号后选择视频协议；特殊格式可在自定义协议中按文档配置。'}</p>
+    <p className="api-form-intro">{isChatGPTWeb ? '使用 ChatGPT 网页账号额度，无需 API Key；使用网页默认模型。完成独立登录后测试正文，连接失败时不会改用其他接口。' : isGeminiWeb ? '使用 Gemini 网页账号额度，无需 API Key。先完成下方登录，再测试正文；这与 Gemini 按量 API 配置独立。' : isLocalCodex ? '只在这台电脑上调用 Codex 的 ChatGPT 登录额度。请先在本机运行 codex login；测试正文会消耗少量 Codex 使用额度。' : isFt ? 'FT视频接口使用公开模型编号，支持本地素材与公网素材参考；型号参数按最新内置目录显示。' : kind === 'chat' ? '填写服务商提供的地址、模型和密钥。测试会发送一次简短文本请求，确认能收到正文。' : kind === 'image' ? '用于画布、项目协作美术和资产。接口需支持 /images/generations。' : kind === 'audio' ? '支持本地模型及 OpenAI Speech 兼容接口；保存后可输入文本、设计音色、生成试听并导出 WAV。' : '填写上游地址与密钥，读取型号后选择视频协议；特殊格式可在自定义协议中按文档配置。'}</p>
     <div className="api-form-fields">
       <label>配置名称<input value={form.name} onChange={e => update('name', e.target.value)} placeholder="例如：剧本分析主力、备用接口" autoFocus /></label>
       {kind === 'chat' && <label>服务商<select aria-label="服务商" value={form.provider} onChange={e => handleProviderChange(e.target.value)}>{providerOptions.map(p => <option value={p.type} key={p.type}>{p.name}</option>)}</select></label>}
       {!isLocalAccount && <label className="full">接口地址<input value={form.endpoint} onChange={e => update('endpoint', e.target.value)} placeholder="https://服务商域名/v1" spellCheck={false} /><small>可填写基础地址或完整接口路径，请以服务商文档为准。</small></label>}
-      {kind!=='video'&&(isChatGPTWeb ? <ChatGPTAccountSetup/> : isDoubaoWork ? <DoubaoWorkAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isGeminiWeb ? <GeminiAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isLocalCodex ? <LocalCodexModels model={form.model} reasoningEffort={form.reasoningEffort} onChange={patch=>{formRevision.current++;setForm(f=>({...f,...patch}));setTestResult(null);}}/> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>)}
-      {isDoubaoWork&&<label>推理强度<select aria-label="豆包工作推理强度" value="high" disabled><option value="high">高</option></select><small>豆包工作连接默认使用高推理强度。</small></label>}
+      {kind!=='video'&&(isChatGPTWeb ? <ChatGPTAccountSetup/> : isGeminiWeb ? <GeminiAccountSetup model={form.model} onModelChange={value=>update('model',value)}/> : isLocalCodex ? <LocalCodexModels model={form.model} reasoningEffort={form.reasoningEffort} onChange={patch=>{formRevision.current++;setForm(f=>({...f,...patch}));setTestResult(null);}}/> : <label>模型名称<input value={form.model} onChange={e => update('model', e.target.value)} placeholder="粘贴服务商提供的模型 ID" spellCheck={false} /></label>)}
 
       {kind === 'chat' && !isLocalAccount && <label>接口协议<select value={form.protocol} onChange={e => update('protocol', e.target.value)}><option value="auto">自动（默认 OpenAI 兼容）</option><option value="chat">Chat Completions</option><option value="responses">Responses</option><option value="anthropic">Anthropic Messages</option></select></label>}
       {!isLocalAccount && <label className="full">API Key<div className="api-key-input"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={form.apiKey} onChange={e => update('apiKey', e.target.value)} placeholder="粘贴密钥" autoComplete="off" spellCheck={false} /><button type="button" className="ghost" onClick={() => setShowKey(v => !v)}>{showKey ? '隐藏' : '显示'}</button></div></label>}
@@ -380,7 +374,7 @@ export function ApiForm({ initial = {}, kind = 'chat', clean = false, onSave, on
     {kind==='video'&&<VideoApiConfiguration clean={clean} form={form} update={update}/>}{kind==='image'&&/^https:\/\/fanke2026\.xyz(?:\/|$)/.test(form.endpoint||'')&&<FnkoImageConfiguration form={form} update={update}/>}
     {kind==='image' && <fieldset className="api-form-fields"><legend>该模型支持的参数</legend><small className="full">优先使用接口返回的参数；未提供时可按服务商文档填写，用逗号分隔。保存后生成界面随此模型变化。</small>{(kind==='video' ? [['durations','时长（秒）','5,10,15,30'],['resolutions','分辨率','720p,1080p'],['ratios','画面比例','16:9,9:16']] : [['imageSizes','图片尺寸','1024x1024,1536x1024,1024x1536']]).map(([key,label,hint])=><label key={key}>{label}<input placeholder={hint} value={Array.isArray(form.capabilities[key])?form.capabilities[key].join(','):form.capabilities[key]||''} onChange={e=>update('capabilities',{...form.capabilities,[key]:e.target.value})}/></label>)}</fieldset>}
     {testResult && <div className={`api-test-result ${testResult.ok ? 'success' : 'error'}`} role="status"><strong>{testResult.message}</strong>{testResult.reply && <FormattedText text={testResult.reply}/>}</div>}
-    <div className="modal-actions"><button type="button" className="ghost" onClick={onCancel}>取消</button>{kind === 'chat' && <button type="button" className="secondary" onClick={handleTest} disabled={testing||isDoubaoWork}><RefreshCw size={14} className={testing ? 'spin' : ''}/>{testing ? '等待正文…' : '测试正文'}</button>}<button type="submit" className="primary" disabled={isDoubaoWork}><Save size={14}/>保存配置</button></div>
+    <div className="modal-actions"><button type="button" className="ghost" onClick={onCancel}>取消</button>{kind === 'chat' && <button type="button" className="secondary" onClick={handleTest} disabled={testing}><RefreshCw size={14} className={testing ? 'spin' : ''}/>{testing ? '等待正文…' : '测试正文'}</button>}<button type="submit" className="primary"><Save size={14}/>保存配置</button></div>
   </form>;
 }
 
@@ -436,8 +430,8 @@ export function ApiLibrary({ state, setState }) {
     <div className="api-list-toolbar"><span>{all.length} 个配置</span><input aria-label="搜索接口" placeholder="搜索名称、模型或地址" value={query} onChange={e => setQuery(e.target.value)}/></div>
     <div className="api-connection-list">{filtered.map(profile => <article key={profile.id} className={`api-connection ${profile.id === activeId ? 'is-default' : ''}`}>
       <div className="api-connection-icon">{activeApiKind === 'chat' ? <Bot size={22}/> : activeApiKind === 'image' ? <ImageIcon size={22}/> : activeApiKind === 'audio' ? <Mic size={22}/> : <Video size={22}/>}</div>
-      <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.provider === 'doubaoWork'?'豆包工作后台暂不可用':profile.provider === 'chatgptWeb' ? '本机 ChatGPT 网页账号' : profile.provider === 'geminiWeb' ? '本机 Gemini 网页账号' : profile.provider === 'codexLocal' ? `本机 Codex · ${profile.reasoningEffort || 'medium'}` : profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : activeApiKind === 'audio' ? '语音模型' : '视频任务'}</small></p><p className="api-endpoint">{profile.provider === 'doubaoWork'?'前台自动操作已停用；已有配置保留':profile.provider === 'chatgptWeb' ? '本机 ChatGPT 网页账号' : profile.provider === 'geminiWeb' ? '本机 Gemini 网页账号' : ['codexLocal','codexLocalImage'].includes(profile.provider) ? '本机 ChatGPT 登录额度，无需 API Key' : profile.endpoint}</p></div>
-      <div className="api-connection-actions">{profile.id !== activeId && <button className="secondary" disabled={profile.provider==='doubaoWork'} onClick={() => handleActivate(profile.id)}>设为默认</button>}<button className="secondary" onClick={() => openForm(profile)}><PenLine size={14}/>编辑{activeApiKind === 'chat' ? ' / 测试' : ''}</button><button className="ghost danger" aria-label={`删除 ${profile.name}`} onClick={() => setDeleteTarget(profile)}><Trash2 size={14}/></button></div>
+      <div className="api-connection-info"><h3>{profile.name}{profile.id === activeId && <span className="active-badge"><Check size={12}/>默认</span>}</h3><p className="api-model-name">{profile.model || '未填写模型'} <small>· {profile.provider === 'chatgptWeb' ? '本机 ChatGPT 网页账号' : profile.provider === 'geminiWeb' ? '本机 Gemini 网页账号' : profile.provider === 'codexLocal' ? `本机 Codex · ${profile.reasoningEffort || 'medium'}` : profile.protocol === 'responses' ? 'Responses' : profile.protocol === 'anthropic' ? 'Anthropic' : activeApiKind === 'chat' ? 'OpenAI 兼容' : activeApiKind === 'image' ? '图片生成' : activeApiKind === 'audio' ? '语音模型' : '视频任务'}</small></p><p className="api-endpoint">{profile.provider === 'chatgptWeb' ? '本机 ChatGPT 网页账号' : profile.provider === 'geminiWeb' ? '本机 Gemini 网页账号' : ['codexLocal','codexLocalImage'].includes(profile.provider) ? '本机 ChatGPT 登录额度，无需 API Key' : profile.endpoint}</p></div>
+      <div className="api-connection-actions">{profile.id !== activeId && <button className="secondary" onClick={() => handleActivate(profile.id)}>设为默认</button>}<button className="secondary" onClick={() => openForm(profile)}><PenLine size={14}/>编辑{activeApiKind === 'chat' ? ' / 测试' : ''}</button><button className="ghost danger" aria-label={`删除 ${profile.name}`} onClick={() => setDeleteTarget(profile)}><Trash2 size={14}/></button></div>
     </article>)}{!filtered.length && <div className="api-empty"><KeyRound size={28}/><h3>{query ? '没有匹配的接口' : '添加你的第一个接口'}</h3>{!query && <button className="primary" onClick={() => openForm()}><Plus size={14}/>添加接口</button>}</div>}</div>
     {activeApiKind==='audio'&&all.length>0&&(()=>{const profile=all.find(p=>p.id===activeId)||all[0];return <AudioWorkbench key={JSON.stringify([profile.id,profile.endpoint,profile.model,profile.instructions,profile.language,profile.voice,profile.apiKey,profile.requiresApiKey])} profile={profile}/>;})()}
     <Dialog open={likeOpen} title="连接 Like画布" onClose={()=>setLikeOpen(false)}>{likeOpen&&<LikeConnection state={state} setState={setState} onClose={()=>setLikeOpen(false)}/>}</Dialog>
@@ -448,48 +442,4 @@ export function ApiLibrary({ state, setState }) {
   </div>;
 }
 
-export function GlobalAI({ state, setState }) {
-  const [prompt, setPrompt] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [skillId, setSkillId] = useState('');
-
-  const activeApi = state.apiProfiles?.find((p) => p.id === state.activeApiId);
-  const api = window.xingzhou || {
-    aiChat: () => Promise.reject(new Error('桌面应用中才可连接 API')),
-  };
-
-  const handleSend = async () => {
-    if (!prompt.trim() || loading || !activeApi) return;
-    setLoading(true);
-    const skill = state.skills?.find((s) => s.id === skillId);
-    try {
-      const res = await api.aiChat({
-        ...activeApi,
-        messages: [
-          { role: 'system', content: `你是行舟影视 AI 助手。${skill ? `请完整遵循 Skill「${skill.name}」：\n\n${buildSkillContext(skill)}` : ''}` },
-          { role: 'user', content: prompt },
-        ],
-      });
-      setPrompt('');
-      // Old GlobalAI doesn't persist, just show result inline
-    } catch (e) {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // This component is deprecated, superseded by PersistentChat
-  return (
-    <div className="global-ai">
-      <div style={{ padding: 16 }}>
-        <Bot /> <span>行舟 AI（旧版）</span>
-        <p style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
-          此组件已停用，请使用左侧「行舟 AI」按钮打开新版持久会话。
-        </p>
-      </div>
-    </div>
-  );
-}
-
-export default { BrandLogo, Dialog, SkillForm, SkillLibrary, ApiForm, ApiLibrary, GlobalAI };
+export default { BrandLogo, Dialog, SkillForm, SkillLibrary, ApiForm, ApiLibrary };

@@ -2,16 +2,15 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('fs');
 const path=require('path');
-const app=()=>fs.readFileSync(path.join(__dirname,'../src/App.jsx'),'utf8');
+const creator=()=>fs.readFileSync(path.join(__dirname,'../src/creator/CreatorWorkspace.jsx'),'utf8');
 const hub=()=>fs.readFileSync(path.join(__dirname,'../src/v06/ProjectCardHub.jsx'),'utf8');
 const css=()=>fs.readFileSync(path.join(__dirname,'../src/v100-compat.css'),'utf8');
 
 test('果子库与剧本创作项目卡均启用分组筛选、改名和移动分组',()=>{
- const ui=app();
+ const ui=creator();
  assert.match(ui,/fruitGroups/);
  assert.match(ui,/scriptGroups/);
- assert.match(ui,/groups=\{state\.fruitGroups/);
- assert.match(ui,/groups=\{state\.scriptGroups/);
+ assert.match(ui,/groups=\{state\[kind==='fruit'\?'fruitGroups':'scriptGroups'\]\}/);
  const cards=hub();
  assert.match(cards,/const canOrganize =/);
  assert.match(cards,/\{canOrganize && \(/);

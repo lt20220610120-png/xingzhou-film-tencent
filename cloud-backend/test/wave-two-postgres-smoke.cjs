@@ -26,8 +26,8 @@ async function main() {
   const media=(action,payload,user=owner)=>handleMediaAction(action,{projectId:project.id,...payload},user,repo,signer);
   const collab=(action,payload,user=owner)=>handleAction(action,{projectId:project.id,...payload},user,repo,signer);
   try {
-    await repo.addMember(project.id,{username:collaborator.username,role:'collaborator'},owner.id);
-    await repo.addMember(project.id,{username:artist.username,role:'artist'},owner.id);
+    await repo.addDirectorMember(project.id,{username:collaborator.username,role:'collaborator'},owner.id,'collab');
+    await repo.addDirectorMember(project.id,{username:artist.username,role:'artist'},owner.id,'collab');
     const summaries=(await handleAction('project-list',{summary:true},collaborator,repo)).body;
     assert.deepEqual(summaries.map(row=>[row.id,row.episodeCount,row.myRole]),[[project.id,1,'collaborator']]);
     assert.equal(Object.hasOwn(summaries[0],'episodes'),false);

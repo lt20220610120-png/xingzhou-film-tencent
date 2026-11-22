@@ -33,7 +33,7 @@ From this extracted folder run: python win-ai/scripts/deploy-identity.py
 
 The script uses the owner's existing SSH identity and known_hosts, runs an isolated PostgreSQL migration test, backs up service/proxy/public files, applies only additive identity tables, installs the bridge and static pages, and configures native OAuth/wallet UI. Existing provider credentials and balances are not copied from the reference website. Pricing presets are seeded once and operator changes are preserved on reruns.
 
-Do not run the archived 0.1 deploy.py/install.sh/publish-site.sh against an upgraded installation. This upgrade is not a generic fresh-server installer. Native binary/source and licenses are retained under win-ai/. No merchant keys, user credentials, SSH keys or DPAPI cache are included.
+Use the identity upgrade above for the existing deployment. Native binaries, corresponding source and licenses are retained under win-ai/.
 
 Read win-ai/README.md, docs/unified-login.md and docs/payment-setup.md. Real payments still require the operator's own merchant credentials, truthful business information, owner confirmation and small-payment verification. Public external connectivity remains separately qualified.
 '''.replace('0.2.0', version))

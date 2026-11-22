@@ -68,7 +68,7 @@ test('collabStore：权限矩阵符合产品设定', async () => {
 });
 
 test('项目删除采用三天恢复窗口字段', () => {
-  const sql = read('scripts/supabase-collab-setup.sql');
+  const sql = read('cloud-backend/schema.sql');
   assert.match(sql, /deleted_at timestamptz/);
   assert.match(sql, /purge_after timestamptz/);
   const service = read('electron/collab-service.cjs');
@@ -91,19 +91,20 @@ test('管理后台可设定制片身份', () => {
   assert.match(admin, /制片/);
 });
 
-test('Edge Function 支持开启协作项目及项目读取动作', () => {
-  const fn = read('supabase/functions/xingzhou-api/index.ts');
+test('腾讯云支持开启协作项目及项目读取动作', () => {
+  const fn = read('cloud-backend/src/collab.cjs');
+  const repository = read('cloud-backend/src/postgres-repository.cjs');
   for (const action of ['project-create', 'project-list', 'project-get', 'assets-list', 'asset-create']) {
-    assert.ok(fn.includes(`'${action}'`) || fn.includes(`action==='${action}'`), `Edge Function 缺少 ${action}`);
+    assert.ok(fn.includes("'" + action + "'"), '腾讯云缺少 ' + action);
   }
-  assert.match(fn, /collab_projects/);
-  assert.match(fn, /collab_members/);
+  assert.match(repository, /collab_projects/);
+  assert.match(repository, /collab_members/);
 });
 
-test('Edge Function 支持管理后台、信息读取保存和数据统计动作', () => {
-  const fn = read('supabase/functions/xingzhou-api/index.ts');
-  for (const action of ['admin-list-users', 'admin-list-invites', 'admin-create-invite', 'admin-set-banned', 'admin-delete-user', 'admin-disable-invite', 'admin-set-producer', 'project-update', 'asset-create', 'stats-get', 'members-list', 'member-add', 'member-role', 'member-remove', 'tasks-list', 'task-assign', 'task-update', 'media-list', 'media-record', 'media-delete', 'messages-list', 'message-send', 'upload-media']) {
-    assert.ok(fn.includes(`'${action}'`) || fn.includes(`action==='${action}'`), `Edge Function 缺少 ${action}`);
+test('腾讯云支持管理后台、信息读取保存和数据统计动作', () => {
+  const fn = ['admin', 'collab', 'media'].map(module => read('cloud-backend/src/' + module + '.cjs')).join('\n');
+  for (const action of ['admin-list-users', 'admin-list-invites', 'admin-create-invite', 'admin-set-banned', 'admin-delete-user', 'admin-disable-invite', 'admin-set-producer', 'project-update', 'asset-create', 'stats-get', 'members-list', 'member-add', 'member-role', 'member-remove', 'tasks-list', 'task-assign', 'task-update', 'media-list', 'media-record', 'media-delete', 'messages-list', 'message-send', 'media-upload-url']) {
+    assert.ok(fn.includes("'" + action + "'"), '腾讯云缺少 ' + action);
   }
 });
 

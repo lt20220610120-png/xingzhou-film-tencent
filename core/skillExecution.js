@@ -1,5 +1,6 @@
 import { buildSkillMessages } from './skillContext.js';
 import {isProtectedSkill,protectedProfileIssue} from './clientDistribution.js';
+import { isRetiredTextProfile } from './retiredApiProfiles.js';
 
 const activeApiProfile = (state) => state?.apiProfiles?.find((profile) => profile.id === state.activeApiId)
   || state?.apiProfiles?.[0];
@@ -38,10 +39,11 @@ export const createSkillExecution = async ({
   }
   const profile = profileOverride || activeApiProfile(state);
   if (!profile) throw new Error('请先在“API 接口”中添加并启用一个模型');
+  if (isRetiredTextProfile(profile)) throw Object.assign(new Error('原文本模型接口已下线，请选择可用接口后继续'), { code: 'TEXT_PROVIDER_RETIRED' });
   if (typeof api?.aiChat !== 'function') throw new Error('当前环境无法连接 API 接口');
   const protectedSkill=isProtectedSkill(skill);
   if(protectedSkill&&protectedProfileIssue(profile))throw new Error(protectedProfileIssue(profile));
-  if(protectedSkill&&(['codexLocal','geminiWeb','doubaoWork','chatgptWeb'].includes(profile.provider)||!/^https:\/\//i.test(profile.endpoint||'')))throw new Error('自带Skill在行舟服务端执行，请选择带Key的公网HTTPS文本API；本机和网页登录模型不适用。已有自定义Skill仍可使用原模型。');
+  if(protectedSkill&&(['codexLocal','geminiWeb','chatgptWeb'].includes(profile.provider)||!/^https:\/\//i.test(profile.endpoint||'')))throw new Error('自带Skill在行舟服务端执行，请选择带Key的公网HTTPS文本API；本机和网页登录模型不适用。已有自定义Skill仍可使用原模型。');
   const baseMessages = protectedSkill?[{role:'user',content:String(input??'')}]:buildSkillMessages(skill, input, assistantRole);
   const userMessage = baseMessages.at(-1);
   const messages = [

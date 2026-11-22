@@ -2,6 +2,7 @@ const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
 const {ART_ROLES,assetImageObject,objectFromLink}=require('./project-media-policy.cjs');
 const {assetImageLink}=require('./asset-image-links.cjs');
+const adoptedImageSelector=import('../shared/adopted-asset-image.mjs');
 const DENY = { status: 403, body: { error: '你没有这个项目的操作权限' } };
 const NOT_FOUND = { status: 404, body: { error: '项目不存在或无权访问' } };
 const LOCKED = { status: 423, body: { error: '项目已锁定，暂不可编辑' } };
@@ -361,6 +362,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
 
   // ---- 资产 ----
   if (action === 'assets-list') {
+    const {matchAdoptedAssetImage}=await adoptedImageSelector;
     const rows = (await repo.listAssets(projectId, user.id)) || [];
     let images = [];
     try { images = (await repo.listAssetImages(projectId, user.id)) || []; } catch { images = []; }
@@ -373,10 +375,14 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     }
     return ok(rows.map(row => {
       const group = byAsset.get(row.id) || [];
+      const pointer = assetImageLink(row.image_url,signer,projectId);
+      const pictures = group.map(img=>({id:img.id,projectId,assetId:row.id,...assetImageLink(img.object_path||img.url,signer,projectId),filename:img.filename,mime:img.mime}));
+      const adopted = group.find(img=>row.image_url&&(img.object_path||img.url)===row.image_url)
+        || matchAdoptedAssetImage(pictures,pointer.objectKey);
       return {
-        ...row, image_url:assetImageLink(row.image_url,signer,projectId).url,
-        adoptedImageId:group.find(img=>row.image_url&&(img.object_path||img.url)===row.image_url)?.id||null,
-        images:group.map(img=>({id:img.id,projectId,assetId:row.id,...assetImageLink(img.object_path||img.url,signer,projectId),filename:img.filename,mime:img.mime})),
+        ...row, image_url:pointer.url,
+        adoptedImageId:adopted?.id||null,
+        images:pictures,
       };
     }));
   }

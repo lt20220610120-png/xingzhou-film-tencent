@@ -1,4 +1,0 @@
-project_id = "kqjimuwjnebcucyrmbee"
-
-[functions.xingzhou-api]
-verify_jwt = false

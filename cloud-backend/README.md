@@ -1,22 +1,18 @@
-# 行舟影视云端迁移骨架
+# 行舟影视腾讯云后端
 
-本目录是腾讯云测试后端的最小安全骨架，当前只提供健康检查；尚未连接生产数据库、PocketBase 或 COS。
+腾讯云上的 `xingzhou-cloud-backend.service` 从 `/opt/xingzhou-cloud-backend` 启动。Nginx 将桌面端 `/api/gateway`、Win AI `/api/win-ai/` 和公开健康检查 `/healthz` 转发给 Node 服务。PostgreSQL 保存账号和协作数据，腾讯云 COS 保存项目媒体。
 
 ## 本地验证
 
 ```bash
-API_SECRET=local-test npm test
+npm ci
+npm test
 ```
 
-## 服务器环境变量
+在空的隔离 PostgreSQL 数据库中用 `schema.sql` 初始化。已有部署按发布说明应用所需的 `migrations/` 脚本。运行 `npm start` 前按 `.env.example` 设置环境变量，真实值由服务环境管理。
 
-复制 `.env.example` 到服务器的环境配置中，真实值只放在服务器或云平台 Secret 管理中，不能提交到 Git。
+## 更新和回滚
 
-## 下一步
+更新前备份当前运行的 `src/` 与 `shared/`。在隔离环境通过启动和接口验证后，把同一发布版本的两个目录一起切换，随后检查服务状态和 `/healthz`。应用更新失败时一起恢复备份的两个目录并重启服务。
 
-1. 导出 Supabase 数据库和 Storage 清单。
-2. 确定 PostgreSQL（推荐）或 PocketBase 的目标模型。
-3. 写登录/会话适配层的失败测试。
-4. 写项目协作和媒体元数据迁移脚本。
-5. 接入 COS 的短期上传签名。
-6. 在腾讯云试用服务器建立隔离测试环境。
+历史 Supabase 初始化、边缘函数和容器部署文件可从 2.8.196 源码提交 `e900e68` 取回。线上 PostgreSQL 和 COS 中的历史记录仍由腾讯云服务读取。部署入口和完整发布步骤见[开发交接手册](../docs/开发交接手册.md)。

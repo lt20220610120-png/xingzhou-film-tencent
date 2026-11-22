@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { collabEpisodeNumber, episodeNumbersInText, inspectCollabEpisodes, listCollabEpisodes, nextCollabEpisodeNumber } from './collabEpisodes.js';
+import cloudEpisodes from '../cloud-backend/src/collab-episodes.cjs';
+
+test('client and cloud preserve bilingual titles, dialogue boundaries and scene ranges', () => {
+  const episode = { title: '第二十一集 / Episode 21', content: '### 第二十一集\n21－1 日 外\n180-240s 十秒\n甲：我们在第五十回合见。' };
+  assert.equal(collabEpisodeNumber(episode), 21);
+  assert.equal(cloudEpisodes.episodeNumber(episode), 21);
+  const conflict = { ...episode, title: '第二十一集 / EP 22' };
+  assert.throws(() => collabEpisodeNumber(conflict), /集数冲突/);
+  assert.equal(cloudEpisodes.episodeNumber(conflict), 0);
+  const chapter = { title: '第二十一章' };
+  assert.equal(collabEpisodeNumber(chapter), 21);
+  assert.equal(cloudEpisodes.episodeNumber(chapter), 21);
+  assert.equal(cloudEpisodes.episodeNumber({ title: '第III集' }), 0);
+  assert.equal(cloudEpisodes.episodeNumber({ title: '第一二集' }), 12);
+  assert.equal(collabEpisodeNumber({ title: '第一二集' }), 2);
+});
 test('第二十一集战斗回合不会被识别成第五十至三百集',()=>{
  const content='第二十一集\n21-1 废土荒界·枯寂裂谷上空 日 外\n战斗蒙太奇：\n第五十回合，寂手大能一袖卷起千丈龙卷。\n第一百回合，两人在云层之上连续对撞。\n第一百八十回合，寂手大能引动地脉。\n第二百四十回合，两人的身影同时消失。\n第三百回合，姜蓝与寂手大能在高空擦身而过。\n21-10 废土荒界·黑岩乱石滩 日 外';
  assert.deepEqual(episodeNumbersInText(content),[21]);

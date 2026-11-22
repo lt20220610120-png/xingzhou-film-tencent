@@ -5,14 +5,14 @@ const path = require('node:path');
 const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
 
 test('资产图片采用追加式多图记录而不是覆盖 image_url', () => {
-  const sql = read('scripts/supabase-collab-setup.sql');
-  const edge = read('supabase/functions/xingzhou-api/index.ts');
+  const sql = read('cloud-backend/schema.sql');
+  const server = read('cloud-backend/src/collab.cjs');
   const service = read('electron/collab-service.cjs');
   assert.match(sql, /asset_id uuid references collab_assets/);
   assert.match(sql, /object_path text/);
-  assert.match(edge, /asset-image-record/);
-  assert.match(edge, /asset-image-delete/);
-  assert.match(edge, /asset-images-clear/);
+  assert.match(server, /action === 'asset-image-record'/);
+  assert.match(server, /action === 'asset-image-delete'/);
+  assert.match(server, /action === 'asset-images-clear'/);
   assert.match(service, /asset-image-record/);
   assert.doesNotMatch(service, /updates:\s*\{\s*image_url:/);
 });

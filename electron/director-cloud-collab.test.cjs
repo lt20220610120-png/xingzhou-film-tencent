@@ -16,11 +16,11 @@ test('导演项目卡提供制片专属协作管理，协作者也能看到云�
 });
 
 test('云端项目锁定由服务端阻止全部内容编辑且只有制片可切换', () => {
-  const fn = read('supabase/functions/xingzhou-api/index.ts');
-  assert.match(fn, /project-lock/);
-  assert.match(fn, /PROJECT_LOCK_SENTINEL/);
-  assert.match(fn, /project_locked/);
-  assert.match(fn, /m\.role!=='producer'/);
+  const server = read('cloud-backend/src/collab.cjs');
+  const repository = read('cloud-backend/src/repository-extras.cjs');
+  assert.match(server, /action === 'project-lock'[\s\S]*repo\.setProjectLocked/);
+  assert.match(server, /if \(locked === true\) return LOCKED/);
+  assert.match(repository, /async setProjectLocked[\s\S]*owner_id=\$2 for update[\s\S]*LOCK_SENTINEL/);
 });
 
 test('Electron 和 preload 暴露项目锁定与导演云端协作接口', () => {

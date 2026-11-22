@@ -19,7 +19,6 @@ const READ_SCOPE = 'left join collab_members m on m.project_id=p.id and m.user_i
 function extendRepository(pool) {
   const one = async (s, p) => (await pool.query(s, p)).rows[0] || null;
   const many = async (s, p) => (await pool.query(s, p)).rows;
-  const count = async (s, p) => (await pool.query(s, p)).rows[0].c;
 
   const directorLive = require('./director-live.cjs').directorLiveRepository(pool);
   async function transaction(work) {
@@ -28,7 +27,6 @@ function extendRepository(pool) {
     catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   }
-  const canReadStats = async (pid, uid) => Boolean(await one("select 1 from collab_projects p where p.id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2 and m.role='producer'))",[pid,uid]));
   const isOwner = async (pid, uid) => Boolean(await one('select 1 as ok from collab_projects where id=$1 and owner_id=$2 limit 1', [pid, uid]));
   const readableDomain = async (pid,uid,domain) => {
     if(!uid)return false;
@@ -72,7 +70,6 @@ function extendRepository(pool) {
         return row;
       });
     },
-    async listDirectorProjects(uid) { return this.listDirectorProjectRows(uid); },
     async getDirectorProject(pid, uid) {
       const row=uid&&await one('select p.* from collab_projects p ' + READ_SCOPE + ' limit 1', [pid, uid]);
       return directorRow(row)?row:null;
@@ -326,21 +323,6 @@ function extendRepository(pool) {
     async isProjectLocked(pid) {
       const row = await one('select genre from collab_projects where id=$1', [pid]);
       return String(row ? row.genre : '').includes(LOCK_SENTINEL);
-    },
-    async logActivity(pid, user, action, detail) {
-      const sql = 'insert into collab_activity(project_id,user_id,username,role,action,detail) values($1,$2,$3,$4,$5,$6)';
-      await pool.query(sql, [pid, user.id, user.username || '', user.role || '', action || '', detail || '']);
-      return true;
-    },
-    async getStats(pid, uid) {
-      if (!await canReadStats(pid, uid)) return null;
-      const assets = await count('select count(*)::int as c from collab_assets where project_id=$1', [pid]);
-      const members = await count('select count(*)::int as c from collab_members where project_id=$1', [pid]);
-      const tasks = await count('select count(*)::int as c from collab_tasks where project_id=$1', [pid]);
-      const doneTasks = await count("select count(*)::int as c from collab_tasks where project_id=$1 and status='已完成'", [pid]);
-      const media = await count('select count(*)::int as c from collab_media where project_id=$1', [pid]);
-      const messages = await count('select count(*)::int as c from collab_messages where project_id=$1', [pid]);
-      return { assets, members, tasks, doneTasks, media, messages };
     },
     async createAsset(pid,p,uid) {
       const client=await pool.connect();

@@ -5,16 +5,16 @@ const path=require('path');
 const read=(file)=>fs.readFileSync(path.join(__dirname,'..',file),'utf8');
 
 test('所有会使用Skill的大模型入口都统一执行完整目录上下文',()=>{
-  const app=read('src/App.jsx');
+  const creator=read('core/creatorAi.js');
   const chat=read('src/v06/PersistentChat.jsx');
   const tools=read('src/v06/GlobalTools.jsx');
   const director=read('src/v06/DirectorWorkspace.jsx');
-  assert.match(app,/createSkillExecution/);
-  assert.match(app,/executeSkillWithAi/);
-  assert.match(chat,/createSkillExecution/);
-  assert.match(tools,/buildSkillContext\(skill\)/);
-  assert.match(director,/executeSkillWithAi/);
-  assert.doesNotMatch(app,/buildSkillContext\(skill\)/);
+  assert.match(creator,/buildSkillMessages\(skill,prompt,/);
+  assert.match(chat,/createSkillExecution\(\{[^}]*skillId: skill\.id/);
+  assert.match(tools,/buildSkillFromDirectory\(result\)/);
+  assert.match(tools,/buildSkillManifest\(skill\)\.totalFiles/);
+  assert.match(director,/executeSkillWithAi\(\{/);
+  assert.doesNotMatch(creator,/buildSkillContext\(skill\)/);
   assert.doesNotMatch(chat,/buildSkillContext\(skill\)/);
 });
 

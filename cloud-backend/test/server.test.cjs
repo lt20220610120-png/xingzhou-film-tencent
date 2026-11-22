@@ -1,6 +1,36 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require(process.env.XINGZHOU_TEST_SERVER_MODULE || '../src/server.cjs');
+const { hashPassword } = require('../src/password.cjs');
+
+test('desktop login uses the licensed gateway and the retired alias returns 404', async t => {
+  const account = { id: 'fixture', username: 'operator', roles: ['director'], password_hash: hashPassword('fixture-password') };
+  let lookups = 0;
+  const repository = {
+    licenseState: async () => ({ exempt: true }),
+    findUser: async name => { lookups++; return name === account.username ? account : null; },
+    createSession: async () => 'fixture-session',
+  };
+  const server = createServer({ API_SECRET: 'fixture', DATABASE_URL: 'postgres://fixture' }, { repository, mailer: null, cosSigner: null });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const post = (path, action = 'login', password = 'fixture-password') => fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action, username: account.username, password }),
+  });
+  const retired = await post('/api/auth/login');
+  assert.equal(retired.status, 404);
+  assert.equal(lookups, 0);
+  const gateway = await post('/api/gateway');
+  assert.equal(gateway.status, 200);
+  const body = await gateway.json();
+  assert.equal(body.token, 'fixture-session');
+  assert.deepEqual(body.account.roles, ['director']);
+  assert.equal(body.license.status, 'exempt');
+  assert.equal(lookups, 1);
+  assert.equal((await post('/api/gateway', 'login', 'incorrect')).status, 401);
+  assert.equal((await post('/api/gateway', 'register')).status, 403);
+});
 
 test('云端健康检查只返回公开状态，不返回密钥或数据库地址', async () => {
   const server = createServer({ API_SECRET: 'test-secret', DATABASE_URL: 'postgres://test', PORT: '0' }, {repository:{},mailer:null,cosSigner:null});

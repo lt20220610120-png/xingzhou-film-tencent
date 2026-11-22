@@ -100,7 +100,7 @@ export async function runIPTask({api,project,task,episodeId,profile,instruction=
   };
   readRecords.push(...readingPlan.reused);
   // Web account bridges serialize internally; HTTP APIs can use the full pool.
-  const concurrency=['geminiWeb','chatgptWeb','doubaoWork'].includes(profile.provider)?1:ip.readConcurrency;
+  const concurrency=['geminiWeb','chatgptWeb'].includes(profile.provider)?1:ip.readConcurrency;
   if(!wholeSource)await runReadingPool(readingPlan.jobs,({chapter,start,end})=>readRange(chapter,start,end),{concurrency,isCancelled});
   readRecords.sort((a,b)=>a.start-b.start||a.end-b.end);
   const readingNote=r=>{const chapters=source.chapters.filter(c=>c.start<r.end&&c.end>r.start);return `【${chapters[0]?.id} ${chapters[0]?.title}${chapters.length>1?' — '+chapters.at(-1)?.id+' '+chapters.at(-1)?.title:''} 原文范围[${r.start},${r.end})】\n${r.note}`;};

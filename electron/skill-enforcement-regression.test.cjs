@@ -6,13 +6,14 @@ const read=(file)=>fs.readFileSync(path.join(__dirname,'..',file),'utf8');
 
 test('全软件所有Skill生成入口统一经过强制执行协议',()=>{
  const execution=read('core/skillExecution.js');
- const app=read('src/App.jsx');
+ const creator=read('core/creatorAi.js');
+ const chat=read('src/v06/PersistentChat.jsx');
  const director=read('src/v06/DirectorWorkspace.jsx');
  assert.match(execution,/buildSkillMessages\(skill, input, assistantRole\)/);
- assert.match(app,/executeSkillWithAi/);
- assert.match(app,/createSkillExecution/);
- assert.match(director,/executeSkillWithAi/);
- assert.equal((director.match(/executeSkillWithAi\(/g)||[]).length,2);
+ assert.match(creator,/buildSkillMessages\(skill,prompt,/);
+ assert.match(chat,/createSkillExecution\(\{[^}]*skillId: skill\.id/);
+ assert.match(director,/executeSkillWithAi\(\{[^\n]*input: finalInput/);
+ assert.match(director,/executeSkillWithAi\(\{[^\n]*input: sourceText/);
  assert.match(read('src/v06/useDirectorQuickGeneration.js'),/manualControllerRef.current=createDirectorManualController[\s\S]*executeSkillWithAi/);
 });
 

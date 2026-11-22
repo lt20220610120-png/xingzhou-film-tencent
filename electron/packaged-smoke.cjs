@@ -9,6 +9,15 @@ module.exports = function configurePackagedSmoke(app) {
   for (const key of ['appData', 'userData', 'documents', 'temp']) {
     const dir = path.join(root, key); fs.mkdirSync(dir, { recursive: true }); app.setPath(key, dir);
   }
+  const legacyProfile = {id:'fixture-retired-profile',provider:'doubaoWork',name:'旧模型配置',model:'legacy'};
+  const currentProfile = {id:'fixture-current-profile',provider:'custom',name:'现有模型配置',model:'current',endpoint:'https://example.invalid/v1'};
+  const legacyProject = {id:'fixture-legacy-project',name:'历史剧本',episodes:[{id:'fixture-episode',result:'保留历史正文'}]};
+  const dataDirectory = path.join(app.getPath('documents'),'行舟影视资料');
+  fs.mkdirSync(dataDirectory,{recursive:true});
+  fs.writeFileSync(path.join(dataDirectory,'xingzhou-data.json'),JSON.stringify({
+    apiProfiles:[legacyProfile,currentProfile],activeApiId:legacyProfile.id,scriptProjects:[legacyProject],
+    chatSessions:[{id:'fixture-legacy-chat',profileId:legacyProfile.id,messages:[{role:'assistant',content:'保留历史对话'}]}]
+  }));
   // Previously activated monthly installation: offline startup must stay locked.
   fs.writeFileSync(path.join(app.getPath('userData'),'software-license-route.json'),JSON.stringify({monthly:true}));
   const report = { version: app.getVersion(), errors: [] };
@@ -75,6 +84,17 @@ module.exports = function configurePackagedSmoke(app) {
         const worldEngine=await import(pathToFileURL(path.join(__dirname,'../world-simulation/engine.js')).href);
         const {putWorld}=await import(pathToFileURL(path.join(__dirname,'../core/worldSimulationAdapter.js')).href);
         const {normalizeState}=await import(pathToFileURL(path.join(__dirname,'../core/projectStore.js')).href);
+        const legacyState=normalizeState(await win.webContents.executeJavaScript('window.xingzhou.loadState()'));
+        const retiredBridges=['doubaoWorkStatus','doubaoWorkOpenLogin','doubaoWorkModels','licenseRoute','chatgptWebModels','analysisSave','directorQuickRemoveRun','generationArchive'];
+        report.retiredDesktop={
+          bridgeRemoved:await win.webContents.executeJavaScript(`${JSON.stringify(retiredBridges)}.every(name=>typeof window.xingzhou?.[name]==='undefined')`),
+          legacyConfigArchived:legacyState.retiredApiProfiles?.some(profile=>profile.id===legacyProfile.id&&profile.model===legacyProfile.model),
+          activeModelCleared:legacyState.activeApiId===null&&legacyState.apiProfiles.map(profile=>profile.id).join()===currentProfile.id,
+          legacyProjectReadable:legacyState.scriptProjects.some(project=>project.id===legacyProject.id&&project.episodes[0].result==='保留历史正文'),
+          historicalChatReadable:legacyState.chatSessions.some(chat=>chat.profileId===legacyProfile.id&&chat.messages[0].content==='保留历史对话'),
+          canvasBridgePreserved:await win.webContents.executeJavaScript("typeof window.xingzhou.openCanvasWindow==='function'")
+        };
+        if(!Object.values(report.retiredDesktop).every(Boolean))throw Error('Retired provider compatibility validation failed');
         const world=worldEngine.createWorld({characters:[{id:'hero',name:'安装包测试人物'}]},{source:{projectId:'world-smoke'}});
         const worldProject=putWorld({id:'world-smoke',name:'世界保存验收',creator:{mode:'framework'},episodes:[{id:'old',result:'原正文'}]},world);
         await win.webContents.executeJavaScript(`window.xingzhou.saveState(${JSON.stringify(normalizeState({scriptProjects:[worldProject]}))})`);
@@ -127,8 +147,7 @@ module.exports = function configurePackagedSmoke(app) {
           textDecoding:require('./text-import.cjs').decodeImportText(Buffer.from([0xd6,0xd0,0xce,0xc4])).content === '中文'
         };
         report.geminiWeb = {modulesLoad:typeof require('./gemini-web.cjs').createGeminiWebService==='function' && typeof require('./gemini-shutdown.cjs').createGeminiQuitHandler==='function',bridge:await win.webContents.executeJavaScript("['geminiWebStatus','geminiWebOpenLogin','geminiWebModels'].every(name=>typeof window.xingzhou?.[name]==='function')")};
-        report.doubaoWork = {modulesLoad:typeof require('./doubao-work.cjs').createDoubaoWorkService==='function',bridge:await win.webContents.executeJavaScript("['doubaoWorkStatus','doubaoWorkOpenLogin','doubaoWorkModels'].every(name=>typeof window.xingzhou?.[name]==='function')")};
-        report.chatgptWeb={modulesLoad:typeof require('./chatgpt-web.cjs').createChatGPTWebService==='function',bridge:await win.webContents.executeJavaScript("['chatgptWebStatus','chatgptWebOpenLogin','chatgptWebModels'].every(name=>typeof window.xingzhou?.[name]==='function')")};
+        report.chatgptWeb={modulesLoad:typeof require('./chatgpt-web.cjs').createChatGPTWebService==='function',bridge:await win.webContents.executeJavaScript("['chatgptWebStatus','chatgptWebOpenLogin'].every(name=>typeof window.xingzhou?.[name]==='function')")};
         const helper = fs.readFileSync(path.join(__dirname, 'workbuddy-archive.py'), 'utf8');
         report.workBuddy = { helperBundled: helper.includes('def extract(') && helper.includes('sqlite3') && helper.includes('--inspect-data'), modulesLoad: typeof require('./workbuddy-panel.cjs').createWorkBuddyPanel === 'function' && typeof require('./workbuddy-service.cjs').createWorkBuddyService === 'function' && typeof require('./workbuddy-update.cjs').createWorkBuddyUpdater === 'function' };
         const startupLog=path.join(app.getPath('userData'),'startup.log');
@@ -147,7 +166,7 @@ module.exports = function configurePackagedSmoke(app) {
         await win.webContents.executeJavaScript("window.xingzhou.appAccessStage('lock')");report.startupWindow.relockedSize=win.getSize();if(Math.abs(win.getSize()[0]-520)>8||win.isResizable())throw Error('Native relock failed '+JSON.stringify(report.startupWindow));
         report.codexLocal={module:typeof require('./codex-catalog.cjs').readLocalCodexCatalog==='function',bridge:await win.webContents.executeJavaScript("typeof window.xingzhou?.codexLocalCatalog==='function'")};
         if(!Object.values(report.codexLocal).every(Boolean))throw Error('Local Codex catalog bridge missing');
-        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseRoute','licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.startup-license-lock')&&document.querySelectorAll('.startup-license-lock input').length===1&&document.querySelectorAll('.startup-license-lock button').length===1,rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:typeof window.xingzhou.checkUpdate==='function'&&!document.querySelector('.license-update')})");
+        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.startup-license-lock')&&document.querySelectorAll('.startup-license-lock input').length===1&&document.querySelectorAll('.startup-license-lock button').length===1,rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:typeof window.xingzhou.checkUpdate==='function'&&!document.querySelector('.license-update')})");
         const mediaDir=path.join(root,'documents','行舟影视资料','画布素材','整本提示词素材');
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{
@@ -205,7 +224,7 @@ module.exports = function configurePackagedSmoke(app) {
         report.security.canvasEmbedded=report.security.canvasEmbedded===true;
         if(!embedded)report.canvasDiagnostics={frames:win.webContents.mainFrame.frames.map(frame=>frame.url)};
         await win.webContents.executeJavaScript("document.querySelector('#security-canvas-check')?.remove()");
-        finish(report.startupHealth.clean && report.projectService.initialized && report.workBuddy.statusCall.initialized && Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && Object.values(report.projectRecycle).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && report.doubaoWork.modulesLoad && report.doubaoWork.bridge && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && Object.values(report.softwareLicense).every(Boolean) && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
+        finish(report.startupHealth.clean && report.projectService.initialized && report.workBuddy.statusCall.initialized && Object.values(report.security).every(Boolean) && Object.values(report.worldSimulation).every(Boolean) && Object.values(report.projectRecycle).every(Boolean) && report.docxImport && report.creatorWorkspace.docxRoundTrip && report.creatorWorkspace.bridge && report.ipLibrary.durationFloor && report.ipLibrary.builtinFiles.join(',') === '9,3' && report.ipLibrary.chapterMapping && report.ipLibrary.snapshot && report.ipLibrary.textDecoding && report.geminiWeb.modulesLoad && report.geminiWeb.bridge && report.chatgptWeb.modulesLoad && report.chatgptWeb.bridge && Object.values(report.retiredDesktop).every(Boolean) && report.workBuddy.helperBundled && report.workBuddy.modulesLoad && report.workBuddy.bridge && report.artReview.bridge && report.artReview.localRoundTrip && report.page.bridge && Object.values(report.softwareLicense).every(Boolean) && results.every(item=>item.status===200&&item.length>0) && image.loaded && report.errors.length === 0);
       } catch (error) { report.errors.push(error.stack || error.message); finish(false); }
     });
   });

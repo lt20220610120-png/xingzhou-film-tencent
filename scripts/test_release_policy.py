@@ -31,6 +31,27 @@ class ReleaseOrderTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             check_release_order("2.8.100","b"*64,123456,{"官网":manifest("2.8.100")},rollback=True)
 
+class ReleaseNotesTest(unittest.TestCase):
+    def test_current_notes_take_precedence_and_archive_is_available_for_recovery(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from publish_release import read_release_notes
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            active = root / "release-notes/2.8.196.md"
+            archived = root / "docs/archive/release-notes/2.8.196.md"
+            active.parent.mkdir(parents=True)
+            archived.parent.mkdir(parents=True)
+            active.write_text("current notes", encoding="utf-8-sig")
+            archived.write_text("historical notes", encoding="utf-8-sig")
+
+            self.assertEqual(read_release_notes(root, "2.8.196", recovery=True), "current notes")
+            active.unlink()
+            self.assertEqual(read_release_notes(root, "2.8.196", recovery=True), "historical notes")
+            self.assertEqual(read_release_notes(root, "2.8.196"), "行舟影视 2.8.196 更新。")
+
+
 class ChannelReconciliationTest(unittest.TestCase):
     def test_read_after_lost_put_accepts_only_the_exact_manifest(self):
         import base64,json

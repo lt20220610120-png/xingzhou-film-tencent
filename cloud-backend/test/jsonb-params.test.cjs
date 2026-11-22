@@ -17,7 +17,7 @@ test('写入 collab_projects.episodes（jsonb）必须序列化为 JSON 文本',
 });
 
 test('更新 collab_projects.episodes（jsonb）同样必须序列化', () => {
-  const updateLine = src.split('\n').find((l) => l.includes('async updateProject('));
-  assert.ok(updateLine, 'updateProject 不存在');
-  assert.match(updateLine, /JSON\.stringify\(/, 'updateProject 未对 jsonb 参数做 JSON.stringify');
+  const extras = fs.readFileSync(path.join(__dirname, '..', 'src', 'repository-extras.cjs'), 'utf8');
+  const update = extras.match(/async updateProjectFields\([\s\S]*?(?=\n    async )/)?.[0] || '';
+  assert.match(update, /k === 'episodes' \? JSON\.stringify\(v \|\| \[\]\)/);
 });

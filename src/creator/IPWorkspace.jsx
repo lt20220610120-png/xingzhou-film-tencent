@@ -18,7 +18,7 @@ import { CreatorDialog,ExportDialog } from './CreatorDialogs.jsx';
 import { IPTaskHistory } from './IPTaskHistory.jsx';
 import { countIPReadingCharacters } from './ipReadingProgress.js';
 
-const usesSequentialWebReading=profile=>['geminiWeb','chatgptWeb','doubaoWork'].includes(profile?.provider);
+const usesSequentialWebReading=profile=>['geminiWeb','chatgptWeb'].includes(profile?.provider);
 
 export function IPWorkspace({state,setState,api,agent,selectedId,onSelect,onBack,onSwitchFruit,onSave,saveStatus}){
  const project=getIPProject(state,selectedId);
@@ -40,12 +40,14 @@ export function IPWorkspace({state,setState,api,agent,selectedId,onSelect,onBack
  useEffect(()=>{setVersionId('');setInstruction('');},[active]);
  const safely=async fn=>{try{await fn();setError('');}catch(e){setError(e.message);}};
  const ip=project?.creator.ip,source=ip?.source,episode=project?.episodes.find(e=>e.id===active),version=episode?.ipVersions?.find(v=>v.id===versionId);
- const options=creatorModelOptions(state.apiProfiles,state.activeApiId),profile=options.find(o=>o.selectionId===ip?.selection)||options[0],activity=agent.activity[project?.id]||{},busy=!!activity.running,workStatus=ipWorkStatus(project,activity);
+ const options=creatorModelOptions(state.apiProfiles,state.activeApiId);
+ const profile=ip?.selection?options.find(o=>o.selectionId===ip.selection):options[0];
+ const activity=agent.activity[project?.id]||{},busy=!!activity.running,workStatus=ipWorkStatus(project,activity);
  const webReading=usesSequentialWebReading(profile),hubWebReading=usesSequentialWebReading(options.find(o=>o.selectionId===hubDoc?.selection)||options[0]);
  const confirmation=ipConfirmationSummary(project);
  const configure=patch=>safely(()=>setState(s=>updateIPMeta(s,project.id,patch)));
  const run=async(task,episodeId=episode?.id)=>{setError('');try{await agent.run({projectId:project.id,task,episodeId,profile,instruction});setInstruction('');}catch(e){setError(e.message);}};
- const startFlow=async({plan,continueDraft=false}={})=>{setError('');setNotice('');try{if(plan){if(planMeta?.sourceId&&planMeta.sourceId!==source?.id){const original=ip.sources.find(s=>s.id===planMeta.sourceId);if(!original)throw new Error('该规划的原文未找到');configure({source:original,reading:[]});}if(planMeta?.duration)configure({duration:planMeta.duration});if(planMeta?.requirements!==undefined)configure({requirements:planMeta.requirements});setPlanDraft(null);setPlanMeta(null);setActive('master');}const result=await agent.runAdaptation({projectId:project.id,profile,plan,continueDraft});if(result.type==='planCandidate')setNotice('新版规划已生成，采用后自动生成设定与全部正文。');else {setActive('master');setNotice(result.output);} }catch(e){setError(e.message);}};
+ const startFlow=async({plan,continueDraft=false}={})=>{setError('');setNotice('');try{if(!profile)throw new Error('请先选择可用的创作模型');if(plan){if(planMeta?.sourceId&&planMeta.sourceId!==source?.id){const original=ip.sources.find(s=>s.id===planMeta.sourceId);if(!original)throw new Error('该规划的原文未找到');configure({source:original,reading:[]});}if(planMeta?.duration)configure({duration:planMeta.duration});if(planMeta?.requirements!==undefined)configure({requirements:planMeta.requirements});setPlanDraft(null);setPlanMeta(null);setActive('master');}const result=await agent.runAdaptation({projectId:project.id,profile,plan,continueDraft});if(result.type==='planCandidate')setNotice('新版规划已生成，采用后自动生成设定与全部正文。');else {setActive('master');setNotice(result.output);} }catch(e){setError(e.message);}};
  const runRemaining=()=>startFlow({continueDraft:true});
  const confirmAll=()=>safely(()=>{
   assertIPConfirmationReady(project);setState(s=>confirmAllIPEpisodes(s,project.id));
@@ -54,7 +56,7 @@ export function IPWorkspace({state,setState,api,agent,selectedId,onSelect,onBack
  const uploadHub=async type=>{setError('');setHubImporting(true);try{const file=await api.importFullScript();if(file){if(!file.content?.trim())throw new Error('文档没有可读取的正文');setHubDoc({...file,type,duration:60,readConcurrency:3,selection:options[0]?.selectionId||''});}}catch(e){setError(e.message);}finally{setHubImporting(false);}};
  const confirmHubUpload=()=>safely(()=>{const selected=options.find(o=>o.selectionId===hubDoc.selection)||options[0];if(hubDoc.type==='novel'&&!selected)throw new Error('先在 API 接口中添加可用模型');const prepared=hubDoc.type==='novel'?prepareNovelProject(hubDoc,{duration:hubDoc.duration,selection:selected.selectionId,readConcurrency:hubDoc.readConcurrency}):prepareCompletedProject(hubDoc,{kind:'ip'});setState(s=>appendPreparedProject(s,prepared));setHubDoc(null);onSelect(prepared.id);});
  const upload=async()=>{try{const file=await api.importFullScript();if(file)setImportDoc({name:file.fileName,content:file.content,filePath:file.filePath,encoding:file.encoding});}catch(e){setError(e.message);}};
- const modelSelect=<label className="ip-model-select">接口与模型<select aria-label="IP 创作模型" value={profile?.selectionId||''} disabled={busy} onChange={e=>configure({selection:e.target.value})}>{!options.length&&<option value="">请在 API 接口中添加模型</option>}{options.map(o=><option key={o.selectionId} value={o.selectionId}>{o.isDefault?'默认 · ':''}{o.name} · {o.model}</option>)}</select></label>;
+ const modelSelect=<label className="ip-model-select">接口与模型<select aria-label="IP 创作模型" value={profile?.selectionId||''} disabled={busy} onChange={e=>configure({selection:e.target.value})}>{!profile&&<option value="">{options.length?'原接口已不可用，请重新选择':'请在 API 接口中添加模型'}</option>}{options.map(o=><option key={o.selectionId} value={o.selectionId}>{o.isDefault?'默认 · ':''}{o.name} · {o.model}</option>)}</select></label>;
  const pending=ip?.planCandidates||[],editions=ipEditionRecords(project);
  const planningProgress=ip?.planningProgress&&ip.planningProgress.sourceId===source?.id&&ip.planningProgress.duration===ip.duration&&ip.planningProgress.instruction===(ip.requirements||'')?ip.planningProgress:null;
  const openPlan=(plan,meta={})=>{setPlanDraft(structuredClone(plan));setPlanMeta(meta);};

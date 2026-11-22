@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const {assertTextProviderAvailable}=require('./text-provider.cjs');
 
 // Evaluate the actual IPC handler, not a separately mocked serializer. The
 // request remains local and never loads Electron or forwards to a provider.
@@ -10,9 +11,17 @@ function ipcBridge(requestText){
  const handlers=new Map();
  const main=fs.readFileSync(path.join(__dirname,'main.cjs'),'utf8');
  const source=main.slice(main.indexOf('const activeAiRequests='),main.indexOf('const analysisStore='));
- vm.runInNewContext(source,{requestText,chatgptRun:async()=>{throw new Error('browser must not start in serializer tests');},geminiRun:async()=>{throw new Error('browser must not start in serializer tests');},doubaoRun:async()=>{throw new Error('desktop client must not start in serializer tests');},AbortController,ipcMain:{handle:(channel,handler)=>handlers.set(channel,handler)}});
+ vm.runInNewContext(source,{requestText,assertTextProviderAvailable,chatgptRun:async()=>{throw new Error('browser must not start in serializer tests');},geminiRun:async()=>{throw new Error('browser must not start in serializer tests');},AbortController,ipcMain:{handle:(channel,handler)=>handlers.set(channel,handler)}});
  return payload=>handlers.get('ai-chat')(null,payload);
 }
+
+test('desktop rejects a retired provider before making any text request',async()=>{
+ let invoked=false;
+ const bridge=ipcBridge(async()=>{invoked=true;});
+ const result=await bridge({provider:'doubaoWork',resultEnvelope:true,builtinSkillId:'old-task'});
+ assert.equal(result.code,'TEXT_PROVIDER_RETIRED');
+ assert.equal(invoked,false);
+});
 
 test('desktop result envelopes retain classified errors and paid partial text without copying internal details',async()=>{
  const bridge=ipcBridge(async()=>{throw Object.assign(new Error('号池限流，已保留进度'),{code:'RATE_LIMITED',partialText:'部分正文',apiKey:'private-must-not-cross-ipc'});});

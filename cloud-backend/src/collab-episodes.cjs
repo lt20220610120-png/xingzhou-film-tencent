@@ -1,5 +1,8 @@
 const {randomUUID} = require('node:crypto');
 const {lockDirectorReferences} = require('./director-source.cjs');
+const {chineseDigits,chineseUnits,metadataKeys,chineseLabel,englishLabel,markdownHeading,sceneNumber} = require('../shared/episode-title.json');
+const EPISODE_LABEL = new RegExp(chineseLabel + '|' + englishLabel, 'gi');
+const SCENE = new RegExp('^[ \\t]*' + markdownHeading + sceneNumber, 'gim');
 const isSetting = episode => episode.kind === 'setting' || episode.title === '设定和小传';
 const conflict = message => Object.assign(new Error(message), {status: 409,code:'EPISODE_IDENTITY_CONFLICT'});
 const invalid = message => Object.assign(new Error(message), {status: 400});
@@ -25,18 +28,16 @@ async function ensureCollabDomain(client, row, uid) {
   return {...row, genre};
 }
 
-const NUMBER_TOKEN = '[\\d零〇一二两三四五六七八九十百千]+';
 function parseNumber(value) {
   const token = String(value ?? '').trim();
   if (/^\d+$/.test(token)) return Number(token);
-  const digits = {'零':0,'〇':0,'一':1,'二':2,'两':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
   if (!token || !/^[零〇一二两三四五六七八九十百千]+$/.test(token)) return 0;
-  if (!/[十百千]/.test(token)) return Number([...token].map(c=>digits[c]).join(''));
+  if (!/[十百千]/.test(token)) return Number([...token].map(c=>chineseDigits[c]).join(''));
   let total=0, digit=0, previousUnit=Infinity;
   for (const char of token) {
-    if (char in digits) digit=digits[char];
+    if (char in chineseDigits) digit=chineseDigits[char];
     else {
-      const unit=({'十':10,'百':100,'千':1000})[char];
+      const unit=chineseUnits[char];
       if(unit>=previousUnit)return 0;
       total+=(digit||1)*unit; digit=0; previousUnit=unit;
     }
@@ -44,8 +45,7 @@ function parseNumber(value) {
   return total+digit;
 }
 function explicitNumbers(text) {
-  const pattern = new RegExp('第\\s*('+NUMBER_TOKEN+')\\s*集|\\b(?:Episode|EP)\\s*('+NUMBER_TOKEN+')(?![A-Za-z0-9])','gi');
-  return [...String(text||'').matchAll(pattern)].map(m=>parseNumber(m[1]||m[2]));
+  return [...String(text||'').matchAll(EPISODE_LABEL)].map(m=>parseNumber(m[1]||m[2]));
 }
 function unitHeaders(text) {
   const units=[];
@@ -71,7 +71,7 @@ function episodeNumber(episode) {
     if(units.length>1&&units.some(unit=>unit.kind!=='episode'))return 0;
   }
   const numbers=[];
-  for(const key of ['episodeNumber','number','episode','episode_number']) {
+  for(const key of metadataKeys) {
     if(episode[key] !== undefined && episode[key] !== null && episode[key] !== '') {
       const token=String(episode[key]).trim();
       numbers.push(/^\d+$/.test(token)?Number(token):0);
@@ -79,7 +79,7 @@ function episodeNumber(episode) {
   }
   numbers.push(...explicitNumbers(episode.title),...unitHeaders(episode.title).map(unit=>unit.number));
   for(const unit of unitHeaders(episode.content))numbers.push(unit.number,...explicitNumbers(unit.raw));
-  numbers.push(...[...String(episode.content||'').matchAll(/^[ \t]*(?:#{1,6}[ \t]*)?(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*\d+(?!\d)(?![ \t]*(?:秒|分钟|毫秒|小时|人|米|厘米|毫米|公里|元|帧|%|s\b|ms\b|sec\b|min\b))/gim)].map(m=>Number(m[1])));
+  numbers.push(...Array.from(String(episode.content||'').matchAll(SCENE), match=>Number(match[1])));
   return numbers.length && numbers.every(n=>Number.isInteger(n)&&n>0&&n<=10000&&n===numbers[0]) ? numbers[0] : 0;
 }
 function numberedEpisodes(episodes = []) {

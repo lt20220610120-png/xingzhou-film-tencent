@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('fs');
 const path=require('path');
 const ui=()=>fs.readFileSync(path.join(__dirname,'../src/v06/GlobalTools.jsx'),'utf8');
-const app=()=>fs.readFileSync(path.join(__dirname,'../src/App.jsx'),'utf8');
+const chat=()=>fs.readFileSync(path.join(__dirname,'../src/v06/PersistentChat.jsx'),'utf8');
 
 test('API测试连接正确读取主进程对象结果，不能把对象直接渲染导致页面崩溃',()=>{
  const source=ui();
@@ -18,9 +18,10 @@ test('无需密钥的本地兼容服务允许测试和保存',()=>{
 });
 
 test('项目AI助手独立选择已保存接口，默认仅用于初始化',()=>{
- const source=app();
- assert.match(source,/function AiDrawer\(\{[^{]*state/);
- assert.match(source,/useWindowModel/);assert.match(source,/const config=drawerProfile/);
+ const source=chat();
+ assert.match(source,/const profileId=activeSession\?\.profileId/);
+ assert.match(source,/const activeApiProfile=state\.apiProfiles\?\.find\(p=>p\.id===profileId\)/);
+ assert.match(source,/if\(activeSession&&!activeSession\.profileId\)/);
  assert.doesNotMatch(source,/localStorage\.getItem\('xz-ai-config'\)/);
 });
 

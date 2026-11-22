@@ -1,6 +1,6 @@
 # 行舟大世界模拟内核 V1
 
-与 React / Electron 无关的原创 JavaScript 模块。行舟 2.8.11 的两个创作入口使用同一个内核，没有另外启动 Python 服务或复制一份引擎。
+独立 JavaScript 内核。行舟的原创框架式创作和洗稿通过同一个世界模拟工作区使用该内核。
 
 ## 独立运行
 
@@ -34,4 +34,4 @@ seed.characters 的人物ID、姓名、资源、关系、地点、knowledge需�
 
 最多12M字符原文可分块，精确offset和有限检索窗口；这是文本保存/检索能力，不是已经证明的百万字世界建模质量。checkpoint保存可用于审计，当前回放仍遍历历史。尚不支持大规模后台社会仿真、外部数据库搜索、多机同步或无限回放性能；语义抽取、剧情质量和模型成本需真实小说评测后继续优化。
 
-研究与协议见 [RESEARCH.md](RESEARCH.md)。未复制第三方代码。
+研究与协议见 [RESEARCH.md](RESEARCH.md)，初版验证见 [2.8.11 验收](../docs/archive/early-releases/world-simulation-2.8.11-validation.md)。

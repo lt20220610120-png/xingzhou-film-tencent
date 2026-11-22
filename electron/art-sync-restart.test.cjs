@@ -13,9 +13,13 @@ test('analysis completion retains local candidates without a cloud refresh or im
  assert.equal(analyzed,1);assert.deepEqual(progress,['a:p','a:p','a:p']);assert.equal(refreshed,0);assert.equal(result.published,0);assert.equal(result.pending,1);assert.equal(result.status,'completed');
 });
 test('restored persisted ledger distinguishes local complete from synced episodes and shows exact failures',async()=>{
- const {summarizeArtSync}=await import('../core/artAnalysisSync.js');
- const r={chunks:['x'],outputs:['saved'],published:false,syncError:'原文不一致'};
- const status=summarizeArtSync({episodes:{38:r,39:{...r,published:true,syncError:undefined}}});
+ const {summarizeArtReview}=await import('../core/artReviewPersistence.js');
+ const {reviewSceneSignature}=await import('../core/artReview.js');
+ const scene={id:'39-1',items:[]};
+ const status=summarizeArtReview({episodes:{
+  38:{status:'complete',pending:true,syncError:'原文不一致'},
+  39:{status:'complete',scenes:[scene],published:{[scene.id]:{signature:reviewSceneSignature(scene)}}},
+ }});
  assert.deepEqual(status.pendingEpisodes,[38]);assert.equal(status.published,1);assert.match(status.syncErrors[0].error,/原文/);
  assert.match(ui,/store.load[\s\S]*summarizeArtReview/);
  assert.match(ui,/analysisJobKey/);assert.match(ui,/本地未发布内容/);assert.match(ui,/待核对|分析说明/);

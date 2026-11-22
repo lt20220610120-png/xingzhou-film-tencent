@@ -9,6 +9,7 @@ import {markPromptTimingStale,formatPromptTimingMetadata} from './promptTiming.j
 import { normalizeCreatorProject } from './creatorWorkspace.js';
 import {isProtectedSkill} from './clientDistribution.js';
 import {newDirectorSkillBinding} from './directorSkillSelection.js';
+import {mergeRetiredApiProfiles,retireTextApiProfiles} from './retiredApiProfiles.js';
 
 // ---------- 工具函数 ----------
 let _uidCounter = 0;
@@ -49,11 +50,12 @@ export const createInitialState = () => ({
 
 export const normalizeState = (partial) => {
   const d = createInitialState();
-  const merged = { ...d, ...(partial || {}) };
+  let merged = { ...d, ...(partial || {}) };
   const arrayKeys = ['fruitProjects', 'fruitGroups', 'scriptProjects', 'scriptGroups', 'scriptLibrary', 'directorProjects', 'directorGroups', 'skills', 'apiProfiles', 'canvases', 'mediaProfiles', 'chatSessions'];
   for (const key of arrayKeys) {
     if (!Array.isArray(merged[key])) merged[key] = [];
   }
+  merged = retireTextApiProfiles(merged);
   // 兼容旧版本字段：部分历史配置把模型写成 modelName/model_id，
   // 否则升级后下拉框仍显示配置名，但请求会收到空 model。
   merged.apiProfiles = merged.apiProfiles.filter(Boolean).map((profile) => ({
@@ -125,7 +127,11 @@ export const mergePersistedState = (current, saved, { recoverRecycle = true } = 
   }
   const localWorkflow=local.generationWorkflow,diskWorkflow=disk.generationWorkflow;
   const generationWorkflow=(Date.parse(localWorkflow?.updatedAt||0)||0)>(Date.parse(diskWorkflow?.updatedAt||0)||0)?localWorkflow:diskWorkflow;
-  return normalizeState({ ...disk, ...recoveredCollections, projectRecycle, generationWorkflow, directorProjects: [...byId.values()] });
+  const retiredApiProfiles = mergeRetiredApiProfiles(
+    Array.isArray(disk.retiredApiProfiles) ? disk.retiredApiProfiles : [],
+    recoverRecycle && Array.isArray(local.retiredApiProfiles) ? local.retiredApiProfiles : [],
+  );
+  return normalizeState({ ...disk, ...recoveredCollections, ...(retiredApiProfiles.length ? {retiredApiProfiles} : {}), projectRecycle, generationWorkflow, directorProjects: [...byId.values()] });
 };
 
 // ---------- 通用不可变更新辅助 ----------

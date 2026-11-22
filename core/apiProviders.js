@@ -8,15 +8,6 @@ export const API_PROVIDERS = {
     description:'通过独立浏览器使用 ChatGPT 网页默认模型，首次登录后测试后台正文',
     requiresApiKey:false,keyName:'apiKey',
   },
-  doubaoWork: {
-    name: '本机豆包工作（后台暂不可用）',
-    type: 'doubaoWork',
-    defaultEndpoint: '',
-    defaultModel: 'auto',
-    description: '前台自动操作已停用，后台账号连接暂不可用',
-    requiresApiKey: false,
-    keyName: 'apiKey',
-  },
   geminiWeb: {
     name: '本机 Gemini（网页账号额度）',
     type: 'geminiWeb',

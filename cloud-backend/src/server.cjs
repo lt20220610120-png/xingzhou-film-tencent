@@ -49,7 +49,7 @@ function createServer(env = process.env, deps = {}) {
       response.end(JSON.stringify({ ok: true, service: 'xingzhou-cloud-backend' }));
       return;
     }
-    if (request.method === 'POST' && (request.url === '/api/auth/login' || request.url === '/api/gateway')) {
+    if (request.method === 'POST' && request.url === '/api/gateway') {
       let chunks = [], received = 0, tooLarge = false;
       request.on('data', (chunk) => {
         if (tooLarge) return;
@@ -123,7 +123,7 @@ function createServer(env = process.env, deps = {}) {
         };
         let payload;
         try { payload = JSON.parse(raw || '{}'); } catch { return send({ status: 400, body: { error: 'invalid_json' } }); }
-        const action = request.url === '/api/gateway' ? String(payload.action || 'session') : 'login';
+        const action = String(payload.action || 'session');
         const bearer = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
         try {
           // Nginx appends the socket peer; earlier entries may be attacker supplied.
@@ -131,7 +131,7 @@ function createServer(env = process.env, deps = {}) {
           const remote = request.socket.remoteAddress||'unknown';
           const clientAddress = env.TRUST_PROXY==='1' && /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(remote) && forwarded ? forwarded : remote;
           const preAuthLicenseUser=licensing&&action.startsWith('license-')&&bearer?await repository.findBySession(tokenHash(bearer)):null;
-          if(licensing&&(['login','register','send-email-code','recover'].includes(action)||action.startsWith('license-'))){
+          if(licensing&&(PUBLIC_ACTIONS.has(action)||action.startsWith('license-'))){
             const now=Date.now(),isChallenge=action==='license-challenge',isAuthenticated=Boolean(preAuthLicenseUser),group=isChallenge?'challenge':isAuthenticated?'user':'auth',key=(group==='user'?'user:'+preAuthLicenseUser.id:clientAddress)+':'+group;
             if(licenseTraffic.size>5000)for(const [k,v]of licenseTraffic)if(v.until<now)licenseTraffic.delete(k);
             let count=licenseTraffic.get(key);if(!count||count.until<now){count={n:0,until:now+60000};licenseTraffic.set(key,count);}
@@ -205,4 +205,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, PUBLIC_ACTIONS };
+module.exports = { createServer };

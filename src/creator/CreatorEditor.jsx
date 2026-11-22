@@ -4,9 +4,8 @@ import {ReferencePicker} from './ReferencePicker.jsx';
 import React, { memo,useCallback,useState } from 'react';
 import { Upload, Video, PenLine, Plus, Download, Check, ArrowUp, ArrowDown, Trash2, FileText } from 'lucide-react';
 import { uid } from '../../core/projectStore.js';
-import { updateCreatorEpisode, updateCreatorSection, editCreatorMaster, buildCreatorText, addCreatorEpisode, removeCreatorNode, updateCreatorProject } from '../../core/creatorWorkspace.js';
+import { updateCreatorEpisode, editCreatorMaster, buildCreatorText, addCreatorEpisode, removeCreatorNode, updateCreatorProject } from '../../core/creatorWorkspace.js';
 import { CreatorDialog, ExportDialog } from './CreatorDialogs.jsx';
-import { StoryLedger } from './StoryLedger.jsx';
 import { AgentPanel } from './AgentPanel.jsx';
 
 export function TextPair({leftTitle,rightTitle,left,right,onLeft,onRight,leftReadOnly=false,leftTools,rightTools}) {
@@ -47,9 +46,4 @@ export function EpisodeEditor({project,episode,kind,state,setState,api,agent,onE
  <AgentPanel key={episode.id} project={project} kind={kind} state={state} setState={setState} agent={agent} target={{episodeId:episode.id,side:framework&&frameworkTask==='episode'?'input':'output',inputSide:'input',task:framework?frameworkTask:'episode'}} onError={onError} actionLabel={framework?(frameworkTask==='scene'?'按场整理候选':'协作正文候选'):'运行转换'}/>
  {episodeExport&&<ExportDialog project={{...project,name:`${project.name}-${episode.title}`,episodes:[episode]}} kind={kind} api={api} setState={setState} onClose={()=>setEpisodeExport(false)} single/>}
  </div>;
-}
-export function RewriteSection({project,sectionKey,state,setState,agent,onError,label,onAnalyze}) {
- const section=project.creator.sections[sectionKey]||{};
- const update=patch=>setState(s=>updateCreatorSection(s,'script',project.id,sectionKey,patch));
- return <div className="creator-rewrite-section"><div className="creator-section-head"><h2>{label}</h2><button className="secondary" onClick={()=>onAnalyze([sectionKey])}>分析对标{label}</button></div>{section.inputStale&&<p className="creator-warning">对标来源已有更新，左侧保留旧拆解供核对。请重新分析后用于后续创作。</p>}<TextPair leftTitle={`对标${label}`} rightTitle={`我的${label}`} left={section.input} right={section.output} onLeft={v=>update({input:v})} onRight={v=>update({output:v,accepted:true})} rightTools={<button className="secondary" onClick={async ()=>{if(section.output&&!(await confirmAction('沿用将替换右侧当前内容。继续吗？')))return;update({output:section.input||'',accepted:true});}}>沿用左侧</button>}/><AgentPanel project={project} kind="script" state={state} setState={setState} agent={agent} target={{section:sectionKey,side:'output'}} onError={onError} defaultInstruction={`参考左侧对标${label}和我的新作设定，提出适用于我的作品的${label}，避免把对标人物设定当成我的已定设定。`}/>{['events','characters','outline','detail','timeline'].includes(sectionKey)&&<StoryLedger project={project} setState={setState} onError={onError} stage={sectionKey} sectionText={section.output||''}/>}</div>;
 }
