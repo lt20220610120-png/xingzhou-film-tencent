@@ -15,7 +15,10 @@ import {EDITING_MARKETS,TAIL_FRAME_MODES,effectiveEditingInstruction} from '../.
 import {AgentCard,ChoiceField,PathField} from './ProductionControls.jsx';
 import './ProductionConsole.css';
 import {VoiceWorkflowSettings,RuntimeVoiceSettings} from './VoiceWorkflowSettings.jsx';
+import {useProductionRevision} from './useProductionFurnace.js';
+import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 export function ProductionConsole({account,state,setState,api,production,onNavigate,onOpenProject}){
+ useProductionRevision(production,useWorkspaceActive());
  const [config,setConfig]=useState(()=>({...productionDefaults(),...state.productionPresets?.[account.id],workflowRules:state.productionRules?.[account.id]||state.productionPresets?.[account.id]?.workflowRules||''})),[projectId,setProject]=useState(''),[selected,setSelected]=useState(''),[tab,setTab]=useState('setup'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[connections,setConnections]=useState({}),[agents,setAgents]=useState([]),[check,setCheck]=useState(null),[step,setStep]=useState('project'),[notice,setNotice]=useState(''),[editingRunId,setEditingRun]=useState('');
  const projects=state.directorProjects||[],project=projects.find(p=>p.id===projectId),imageModels=mediaModelChoices(state,'image'),audioModels=mediaModelChoices(state,'audio'),videoModels=mediaModelChoices(state,'video'),runs=production?.snapshot()||[],run=runs.find(r=>r.id===selected)||runs[0];
  const editingRun=runs.find(r=>r.id===editingRunId),existingLocked=Boolean(editingRunId)&&(!editingRun||['running','done'].includes(editingRun.status));

@@ -3,8 +3,6 @@
    祖母绿侧栏 · 暖纸石底 · 鎏金点缀
    ═══════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap');
-
 /* ── Tokens ─────────────────────────────────────────────── */
 :root {
   /* Paper — warm cream/stone */
@@ -63,7 +61,7 @@ html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 body{
   color:var(--ink);
   background:var(--paper);
-  font-family:'Noto Sans SC','Microsoft YaHei',sans-serif;
+  font-family:var(--studio-font, sans-serif),'Microsoft YaHei',sans-serif;
   font-size:14px;
   line-height:1.6;
   overflow:hidden;
@@ -167,7 +165,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   flex-shrink:0;
 }
 .logo strong{
-  font:700 20px/1.3 'Noto Serif SC';
+  font:700 20px/1.3 var(--studio-font, sans-serif);
   letter-spacing:1px;
   color:#e8eee9;
 }
@@ -318,7 +316,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   transition:color var(--fast) var(--ease);
 }
 .back-projects:hover{color:var(--ink)}
-.episode-rail h2{margin:0 0 10px;font:700 18px 'Noto Serif SC'}
+.episode-rail h2{margin:0 0 10px;font:700 18px var(--studio-font, sans-serif)}
 .rail-label{
   color:var(--muted);letter-spacing:1.5px;
   padding:16px 8px 10px;font-size:10px;font-weight:600;
@@ -368,7 +366,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
 }
 .project-toolbar h1{
   margin:0;
-  font:700 26px/1.2 'Noto Serif SC';
+  font:700 26px/1.2 var(--studio-font, sans-serif);
   letter-spacing:-.3px;
 }
 .project-toolbar .tool-group{display:flex;gap:8px}
@@ -376,7 +374,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
 /* ── Empty State ────────────────────────────────────────── */
 .empty{text-align:center;padding:80px 20px}
 .empty>.icon{margin-bottom:24px;opacity:.15;font-size:56px}
-.empty h3{margin:0 0 10px;font:600 20px 'Noto Serif SC';color:var(--muted)}
+.empty h3{margin:0 0 10px;font:600 20px var(--studio-font, sans-serif);color:var(--muted)}
 .empty p{color:var(--faint);margin:0;font-size:14px}
 
 /* ── Role Screen ────────────────────────────────────────── */
@@ -388,7 +386,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   justify-content:center;
 }
 .role-screen h1{
-  font:700 42px/1.2 'Noto Serif SC';
+  font:700 42px/1.2 var(--studio-font, sans-serif);
   margin:0 0 16px;
   letter-spacing:-.5px;
 }
@@ -417,7 +415,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   transform:translateY(-2px);
 }
 .role-card .emoji{font-size:42px;margin-bottom:4px}
-.role-card h3{margin:14px 0 8px;font:600 20px 'Noto Serif SC'}
+.role-card h3{margin:14px 0 8px;font:600 20px var(--studio-font, sans-serif)}
 .role-card p{color:var(--muted);margin:0;font-size:14px;line-height:1.6}
 
 /* ── Editors ────────────────────────────────────────────── */
@@ -464,7 +462,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   padding:24px 32px;
   border-bottom:1px solid var(--line);
 }
-.library-actions h1{margin:0;font:700 24px 'Noto Serif SC'}
+.library-actions h1{margin:0;font:700 24px var(--studio-font, sans-serif)}
 .library-actions .tool-group{display:flex;gap:8px}
 .library-grid{
   display:grid;
@@ -485,7 +483,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   box-shadow:var(--shadow-sm);
   transform:translateY(-2px);
 }
-.lib-card h3{margin:0 0 6px;font:600 17px 'Noto Serif SC'}
+.lib-card h3{margin:0 0 6px;font:600 17px var(--studio-font, sans-serif)}
 .lib-card p{color:var(--muted);font-size:13px;line-height:1.5}
 .resource-card .card-head{
   display:flex;justify-content:space-between;align-items:center;
@@ -526,7 +524,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   border-bottom:1px solid var(--line);
   background:var(--surface);
 }
-.ai-drawer .drawer-head h3{margin:0;font:600 16px 'Noto Serif SC'}
+.ai-drawer .drawer-head h3{margin:0;font:600 16px var(--studio-font, sans-serif)}
 .ai-drawer .drawer-body{display:flex;flex-direction:column;flex:1;overflow:hidden}
 .ai-drawer .chat-messages{
   display:flex;flex-direction:column;flex:1;gap:14px;
@@ -614,12 +612,12 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   display:flex;justify-content:space-between;align-items:center;
   margin-bottom:22px;
 }
-.editor-head h2{margin:0;font:700 22px 'Noto Serif SC'}
+.editor-head h2{margin:0;font:700 22px var(--studio-font, sans-serif)}
 
 /* ── Settings ───────────────────────────────────────────── */
 .settings-page{max-width:720px;margin:0 auto;padding:40px 32px}
 .settings-page header{margin-bottom:32px}
-.settings-page header h1{font:700 28px 'Noto Serif SC';margin:8px 0}
+.settings-page header h1{font:700 28px var(--studio-font, sans-serif);margin:8px 0}
 .eyebrow{
   font-size:10px;font-weight:600;letter-spacing:2px;
   text-transform:uppercase;color:var(--muted);
@@ -638,7 +636,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   margin-bottom:22px;
 }
 .settings-title>div{display:flex;gap:14px}
-.settings-title h2{font:600 17px 'Noto Serif SC';margin:0 0 4px}
+.settings-title h2{font:600 17px var(--studio-font, sans-serif);margin:0 0 4px}
 .settings-title p{color:var(--muted);font-size:13px;margin:0}
 .settings-title b{color:var(--emerald);font-size:13px}
 .settings-card label{
@@ -712,7 +710,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   box-shadow:var(--shadow-xl);
   animation:scaleIn var(--normal) var(--ease);
 }
-.modal h3{margin:0 0 20px;font:600 18px 'Noto Serif SC'}
+.modal h3{margin:0 0 20px;font:600 18px var(--studio-font, sans-serif)}
 
 /* ── Delete Confirm ─────────────────────────────────────── */
 .delete-confirm-veil{
@@ -730,7 +728,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   box-shadow:var(--shadow-xl);
   text-align:center;
 }
-.danger-confirm h3{margin:0 0 10px;color:var(--danger);font:600 18px 'Noto Serif SC'}
+.danger-confirm h3{margin:0 0 10px;color:var(--danger);font:600 18px var(--studio-font, sans-serif)}
 .danger-confirm p{color:var(--muted);font-size:13px;margin:0 0 22px}
 .danger-confirm .confirm-actions{display:flex;justify-content:flex-end;gap:10px}
 
@@ -748,7 +746,7 @@ button.danger:hover{background:#f5d0d0;border-color:#e0a0a0}
   padding:20px 14px;
   overflow-y:auto;
 }
-.chat-history h3{font:600 15px 'Noto Serif SC';margin:0 0 16px}
+.chat-history h3{font:600 15px var(--studio-font, sans-serif);margin:0 0 16px}
 .session-row{
   display:flex;align-items:center;gap:8px;
   padding:10px 12px;

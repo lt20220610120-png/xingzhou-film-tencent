@@ -1,6 +1,41 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAACXBIWXMAAAAAAAAAAQCEeRdzAAAA1klEQVR4nC3PMUoDQRSA4f/NzKo4Yd1FTKURLMwNrOwsPIoHSCXWYpWLeAHxGPaCpYWaUZKJxp19Txbs/6/45S11V4ul3jmh9RjaC2LgVFJTu+uQcpkjxNwJq40wqZW+gwHklc4DJtEJxG3h4clzfihMj/4jJQYQHDYIchKel47jxqCDUW0EgCoIL+8O7eE1weO95+KyJ7RG8GIs1o71r3B2qpRP4WSsHEwM20AohbzrNU7HCvtCJUbljZ9v2BLLoRnJ7ONLb0uR1nodLjGH23GWwp6/+QMHFFqTxoOD/QAAAABJRU5ErkJggg==','base64');
 const {generateImage,retryImageDownload}=require('./media-service.cjs');
+test('after a successful inline image, the durable receipt does not duplicate full image bytes',async t=>{
+ const dir=setup(t);let posts=0;
+ globalThis.fetch=async()=>{posts++;return Response.json({data:[{b64_json:png.toString('base64')}]});};
+ const file=await generateImage({endpoint:'https://provider.invalid',model:'gpt-image-2.5',prompt:'fixture',destDir:dir});
+ const id=path.basename(file).match(/^image-result-(.*)\.png$/)[1];
+ const receipt=JSON.parse(fs.readFileSync(path.join(dir,'.pending-image-downloads',id+'.json'),'utf8'));
+ assert.equal(receipt.source,undefined);
+ assert.equal(receipt.verified,true);
+ assert.equal(await retryImageDownload(id,dir),file);
+ assert.equal(posts,1);
+});
+test('maintenance compacts old completed image receipts and leaves pending recoverable bytes',async t=>{
+ const dir=setup(t),receipts=path.join(dir,'.pending-image-downloads');fs.mkdirSync(receipts);
+ const done='a'.repeat(36),pending='b'.repeat(36),image='image-result-'+done+'.png';
+ const source='data:image/png;base64,'+png.toString('base64');
+ fs.writeFileSync(path.join(receipts,done+'.json'),JSON.stringify({source,verified:true,downloadedFile:image}));
+ fs.writeFileSync(path.join(receipts,pending+'.json'),JSON.stringify({source}));
+ fs.writeFileSync(path.join(dir,image),png);
+ const {pruneImageDownloadReceipts}=require('./media-service.cjs');
+ await pruneImageDownloadReceipts(dir);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(receipts,done+'.json'),'utf8')).source,undefined);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(receipts,pending+'.json'),'utf8')).source,source);
+ assert.deepEqual(fs.readFileSync(path.join(dir,image)),png);
+});
+test('maintenance keeps inline recovery when a completed image has different bytes',async t=>{
+ const dir=setup(t),receipts=path.join(dir,'.pending-image-downloads');fs.mkdirSync(receipts);
+ const id='c'.repeat(36),image='image-result-'+id+'.png',file=path.join(dir,image),receipt=path.join(receipts,id+'.json');
+ const source='data:image/png;base64,'+png.toString('base64');
+ fs.writeFileSync(receipt,JSON.stringify({source,verified:true,downloadedFile:image}));
+ fs.writeFileSync(file,Buffer.alloc(png.length,42));
+ await require('./media-service.cjs').pruneImageDownloadReceipts(dir);
+ assert.equal(JSON.parse(fs.readFileSync(receipt,'utf8')).source,source);
+ assert.equal(await retryImageDownload(id,dir),file);
+ assert.deepEqual(fs.readFileSync(file),png);
+});
 function setup(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'image2852-')),old=globalThis.fetch;t.after(()=>{globalThis.fetch=old;fs.rmSync(dir,{recursive:true,force:true});});return dir;}
 test('477 reports the actual upstream missing-image response instead of blaming local disk; one paid POST',async t=>{
  const dir=setup(t);let posts=0,reads=0;
@@ -31,8 +66,8 @@ test('an empty upstream response is invalid content, not a local save failure',a
 
 test('verified inline bytes survive a local write failure and retry never resubmits generation',async t=>{
  const dir=setup(t);let posts=0;globalThis.fetch=async()=>{posts++;return Response.json({data:[{b64_json:png.toString('base64')}]});};
- const rename=fs.renameSync;let id;
- fs.renameSync=(from,to)=>{if(String(to).endsWith('.png'))throw Object.assign(Error('disk full'),{code:'ENOSPC'});return rename(from,to);};
- try{await assert.rejects(generateImage({endpoint:'https://provider.invalid/v1',model:'gpt-image-2.5',prompt:'box',destDir:dir}),e=>{id=e.downloadReceiptId;return e.downloadReason==='save'&&e.imageVerified===true&&/磁盘空间/.test(e.message);});}finally{fs.renameSync=rename;}
+ const rename=fs.promises.rename;let id;
+ const failure=t.mock.method(fs.promises,'rename',async(from,to)=>{if(String(to).endsWith('.png'))throw Object.assign(Error('disk full'),{code:'ENOSPC'});return rename(from,to);});
+ try{await assert.rejects(generateImage({endpoint:'https://provider.invalid/v1',model:'gpt-image-2.5',prompt:'box',destDir:dir}),e=>{id=e.downloadReceiptId;return e.downloadReason==='save'&&e.imageVerified===true&&/磁盘空间/.test(e.message);});}finally{failure.mock.restore();}
  assert.deepEqual(fs.readFileSync(await retryImageDownload(id,dir)),png);assert.equal(posts,1);
 });

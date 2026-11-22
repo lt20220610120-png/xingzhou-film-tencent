@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('node:https');
-const { gunzipSync, inflateSync, brotliDecompressSync, gzipSync } = require('node:zlib');
+const tls = require('node:tls');
+const {promisify}=require('node:util');
+const zlib=require('node:zlib');
+const gzip=promisify(zlib.gzip);
+const decompress={gzip:promisify(zlib.gunzip),deflate:promisify(zlib.inflate),br:promisify(zlib.brotliDecompress)};
 const { EDGE_FUNCTION_URL, gatewayUrls, IP_TLS_CA_FILE, IP_TLS_CERT_FINGERPRINT } = require('./cloud-config.public.cjs');
 
 let cloudFetch;
@@ -31,10 +35,10 @@ const READ_TIMEOUTS = Object.freeze({
   'project-list': 25000,
   'director-project-list': 25000,
 });
-function gatewayBody(value) {
+async function gatewayBody(value) {
   const text = JSON.stringify(value);
   if (Buffer.byteLength(text) <= COMPRESS_THRESHOLD) return { body: text, headers: {} };
-  const body = gzipSync(Buffer.from(text));
+  const body = await gzip(Buffer.from(text));
   return { body, headers: { 'Content-Encoding': 'gzip', 'Content-Length': String(body.length) } };
 }
 const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '').toUpperCase();
@@ -44,6 +48,7 @@ const normalizedFingerprint = (value) => String(value || '').replaceAll(':', '')
 // pinned, and bundled with the app; no TLS verification is disabled globally.
 let pinnedCa = null;
 try { pinnedCa = fs.readFileSync(path.join(__dirname, IP_TLS_CA_FILE), 'utf8'); } catch { /* source-only tests or a damaged package */ }
+const pinnedAgent=new https.Agent({keepAlive:true,maxSockets:8,maxFreeSockets:4,timeout:25000});
 function requestPinnedHttps(url, init = {}) {
   return new Promise((resolve, reject) => {
     let parsed;
@@ -52,28 +57,33 @@ function requestPinnedHttps(url, init = {}) {
     const headers = { 'Accept-Encoding': 'gzip, deflate, br', ...(init.headers || {}) };
     const body = init.body == null ? Buffer.alloc(0) : Buffer.isBuffer(init.body) ? init.body : Buffer.from(String(init.body));
     if (body.length) headers['Content-Length'] = String(body.length);
+    init.signal?.throwIfAborted();
     const request = https.request({
       hostname: parsed.hostname,
       port: parsed.port || 443,
       path: `${parsed.pathname}${parsed.search}`,
       method: init.method || 'GET',
       headers,
+      agent:pinnedAgent,
       ca: pinnedCa,
       // An empty SNI is intentional: the fallback certificate is for the IP.
       servername: '',
       rejectUnauthorized: true,
+      checkServerIdentity(host,certificate){
+        const invalid=tls.checkServerIdentity(host,certificate);
+        if(invalid)return invalid;
+        if(normalizedFingerprint(certificate.fingerprint256)!==normalizedFingerprint(IP_TLS_CERT_FINGERPRINT))return Object.assign(Error('云端备用证书校验失败'),{code:'CERT_PIN_MISMATCH'});
+      },
     }, (response) => {
       const chunks = [];
       response.on('aborted', () => reject(Object.assign(new Error('云端传输中断'), {code:'ECONNRESET'})));
       response.on('error', reject);
-      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      response.on('end', () => {
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', async () => {
         let data = Buffer.concat(chunks);
         try {
-          const encoding = response.headers['content-encoding'];
-          if (encoding === 'gzip') data = gunzipSync(data);
-          if (encoding === 'deflate') data = inflateSync(data);
-          if (encoding === 'br') data = brotliDecompressSync(data);
+          const decode=decompress[response.headers['content-encoding']];
+          if(decode)data=await decode(data);
         } catch (error) { reject(error); return; }
         const text = data.toString('utf8');
         resolve({
@@ -84,41 +94,41 @@ function requestPinnedHttps(url, init = {}) {
       });
     });
     const abort = () => request.destroy(Object.assign(new Error('aborted'), { code: 'ABORT_ERR' }));
+    request.on('error', reject);
     if (init.signal) {
       if (init.signal.aborted) { abort(); return; }
       init.signal.addEventListener('abort', abort, { once: true });
       request.once('close', () => init.signal.removeEventListener('abort', abort));
     }
-    request.once('socket', (socket) => socket.once('secureConnect', () => {
-      const certificate = socket.getPeerCertificate();
-      if (normalizedFingerprint(certificate.fingerprint256) !== normalizedFingerprint(IP_TLS_CERT_FINGERPRINT)) {
-        request.destroy(Object.assign(new Error('云端备用证书校验失败'), { code: 'CERT_PIN_MISMATCH' }));
-      }
-    }));
-    request.on('error', reject);
     if (body) request.write(body);
     request.end();
   });
 }
-async function requestGateway(url, init, {read}) {
-  try {
-    return await (cloudFetch||globalThis.fetch)(url, init);
-  } catch (error) {
-    if (isPinnedIpUrl(url) && (certificateFailure(error) || read && isNetworkFailure(error))) {
-      return requestPinnedHttps(url, init);
+function createGatewayTransport({platformFetch,pinnedFetch=requestPinnedHttps,clock=Date.now}){
+  let pinnedUntil=0;
+  return async (url,init,{read})=>{
+    const ip=isPinnedIpUrl(url);
+    if(ip&&pinnedUntil>clock())return pinnedFetch(url,init);
+    try{return await platformFetch(url,init);}
+    catch(error){
+      if(!ip||init.signal?.aborted||!(certificateFailure(error)||read&&isNetworkFailure(error)))throw error;
+      const response=await pinnedFetch(url,init);
+      pinnedUntil=clock()+600000;
+      return response;
     }
-    throw error;
-  }
+  };
 }
+const requestGateway=createGatewayTransport({platformFetch:(url,init)=>(cloudFetch||globalThis.fetch)(url,init)});
 const pendingReads = new Map();
 let licenseDecorator=null;
 function setLicenseDecorator(decorator){licenseDecorator=decorator;}
 const snapshots = require('./cloud-snapshots.cjs').createSnapshotCache();
+function clearCloudReadCaches(){pendingReads.clear();snapshots.clear();}
 function gateway(action, payload = {}, token = '', options = {}) {
   if (!readAction(action)) return performGateway(action,payload,token,options);
   const key = JSON.stringify([action,payload,token,options.timeoutMs]);
   if (pendingReads.has(key)) return pendingReads.get(key);
-  const pending = performGateway(action,payload,token,options).finally(() => pendingReads.delete(key));
+  const pending = performGateway(action,payload,token,options).finally(() => {if(pendingReads.get(key)===pending)pendingReads.delete(key);});
   pendingReads.set(key,pending);
   return pending;
 }
@@ -135,7 +145,8 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       const pending=(async()=>{
         const decorated=licenseDecorator&&action!=='license-challenge'?await licenseDecorator(action,payload,token):payload;
         controller.signal.throwIfAborted();
-        const encoded=gatewayBody({...decorated,action});
+        const encoded=await gatewayBody({...decorated,action});
+        controller.signal.throwIfAborted();
         response=await requestGateway(url,{
           method:'POST',
           headers:{'Content-Type':'application/json',...snapshot?.headers,...encoded.headers,...(token?{Authorization: `Bearer ${token}`}:{})},
@@ -226,4 +237,4 @@ function createCloudAccessService(userDataDir, options = {}) {
     token, readSession, readAccount: () => readSession()?.account || null,
   };
 }
-module.exports = { createCloudAccessService, gateway, setLicenseDecorator, configureCloudFetch };
+module.exports = { createCloudAccessService, gateway, setLicenseDecorator, configureCloudFetch,createGatewayTransport,clearCloudReadCaches };

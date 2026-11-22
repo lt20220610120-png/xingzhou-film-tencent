@@ -22,3 +22,5 @@
 .generation-results.generation-results-square .generation-card-actions{flex-wrap:nowrap;gap:6px}.generation-results.generation-results-square .generation-card-actions button{flex:none;min-width:28px;justify-content:center}
 .generation-results.generation-results-square .generation-result-grid article>header>small{margin-left:auto;white-space:nowrap}.generation-results.generation-results-square .generation-result-grid article>header .hover-info-trigger{min-height:24px;padding:3px}
 .generation-results.generation-results-square .generation-result-grid article>footer{flex-wrap:nowrap;gap:4px}.generation-results.generation-results-square .generation-result-grid article>footer>small{white-space:nowrap;font-size:10px}
+.generation-result-more { margin: 14px auto 0; display: flex; }
+.generation-result-grid > article { content-visibility: auto; contain-intrinsic-size: auto 240px; }

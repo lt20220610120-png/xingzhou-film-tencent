@@ -57,7 +57,8 @@ test('CollabWorkspace：身份权限过滤与七个功能区', () => {
   assert.match(ws, /const defaultReference = resolveAssetReference\(asset, assets\)/);
   assert.match(ws, /buildImagePrompt/);
   // 实时刷新轮询
-  assert.match(ws, /setInterval\(refreshProject/);
+  assert.match(ws, /useWorkspacePolling\(visible=>refreshProject\(\{visible\}\),[\s\S]*?scope:project\?\.id,delay:12000/);
+  assert.doesNotMatch(ws, /setInterval\(refreshProject/);
 });
 
 test('collabStore：权限矩阵符合产品设定', async () => {

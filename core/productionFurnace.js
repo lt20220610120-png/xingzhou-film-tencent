@@ -69,13 +69,28 @@ export const completeEpisode=(expected,clips)=>expected.length>0&&new Set(expect
 /** A view-independent coordinator. Every side effect gets a durable checkpoint first. */
 export function createProductionController({load,save,adapters,onChange=()=>{}}){
  let runs=[],ready=false,loadError='';const active=new Map(),chatting=new Map(),streaming=new Map(),updating=new Set(),scheduled=new Map();
- const emit=()=>onChange(runs);
+ const subscribers=new Set();let revision=0;
+ const emit=()=>{revision++;onChange(runs);for(const notify of subscribers)notify();};
  let writes=Promise.resolve();
- const persist=async run=>{run.updatedAt=Date.now();const snapshot=structuredClone(run);const writing=writes.then(()=>save(snapshot));writes=writing.catch(()=>{});await writing;emit();};
+ const streamCheckpointMs=125;
+ const persist=async run=>{
+  const stream=streaming.get(run.id);
+  if(stream?.received){clearTimeout(stream.writeTimer);stream.writeTimer=null;stream.lastSavedAt=Date.now();}
+  run.updatedAt=Date.now();const snapshot=structuredClone(run);const writing=writes.then(()=>save(snapshot));writes=writing.catch(()=>{});await writing;emit();
+ };
+ const persistStream=async(run,stream)=>{
+  const remaining=streamCheckpointMs-(Date.now()-(stream.lastSavedAt??0));
+  stream.received=true;
+  if(remaining<=0)return persist(run);
+  if(!stream.writeTimer)stream.writeTimer=setTimeout(()=>{
+   if(streaming.get(run.id)===stream)void persist(run).catch(()=>{});
+  },remaining);
+ };
+ const closeStream=id=>{clearTimeout(streaming.get(id)?.writeTimer);streaming.delete(id);};
  const guard=run=>{if(run.status!=='running')throw Error('工作流已暂停');};
  function cancelTurn(run,announce=false){
   const token=chatting.get(run.id);if(!token)return;
-  chatting.delete(run.id);streaming.delete(run.id);token.abort.abort();run.chatActive=false;
+  chatting.delete(run.id);closeStream(run.id);token.abort.abort();run.chatActive=false;
   run.operatorInstructions=(run.operatorInstructions||[]).filter(i=>!token.instructions.has(i.id));
   for(const m of run.conversation||[])if(m.turnId===token.id)m.cancelled=true;
   const turn=run.chatTurns?.find(t=>t.id===token.id);if(turn){turn.status='cancelled';turn.endedAt=Date.now();}
@@ -139,6 +154,8 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
  const controller={
   get loadError(){return loadError;},
   snapshot:()=>runs,
+  getRevision:()=>revision,
+  subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);},
   async restore(){if(ready)return;try{runs=await load();for(const run of runs){run.agentIdentity=productionIdentity(run);if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Math.min(Date.now(),run.updatedAt||Date.now())-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.executorActive=false;if(run.executionScope&&!run.executionScope.after){run.executionScope.after='resume_default';run.executionScope.pauseAfter=false;}run.chatActive=false;run.dispatchHold=false;if(run.executionScope&&!run.executionScope.sourceMessageId){delete run.executionScope;run.status='paused';run.message='旧版自动提取的范围已移除；按本次对话的新指令接续';await persist(run);}if(run.status==='running'){run.status='paused';run.message='软件已重启，检查后继续；原任务记录保留';await persist(run);}}ready=true;loadError='';emit();}catch(e){loadError=e.message;emit();throw e;}},
   async create(projectId,config){const run={id:crypto.randomUUID(),projectId,config:structuredClone(config),status:'paused',message:'准备完成，可以开始',stages:{},episodes:[],items:[],logs:[],createdAt:Date.now()};run.agentIdentity=productionIdentity(run);runs.unshift(run);await persist(run);return run;},
   async createOrResume(projectId,config){
@@ -261,7 +278,7 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
     if(result)await add('system',result);if(wasRunning&&!run.chatPaused&&response.action==='none'&&run.status==='attention'){void (async()=>{while(active.has(id))await new Promise(resolve=>setTimeout(resolve,100));if(run.status==='attention'&&!run.chatPaused)await controller.start(id);})().catch(()=>{});}return response;
    }catch(error){if(!current())return cancelled;if(!steer){run.dispatchHold=false;await add('system',`指令未完成：${error.message}`);}throw error;}
    finally{if(!steer&&current()){
-    chatting.delete(id);streaming.delete(id);run.chatActive=false;
+    chatting.delete(id);closeStream(id);run.chatActive=false;
     const turn=run.chatTurns.find(t=>t.id===token.id);turn.endedAt=Date.now();turn.status=run.chatPaused?'cancelled':'finished';
     const next=!run.chatPaused?run.pendingChats?.[0]:null;await persist(run);
     if(next&&run.pendingChats?.[0]===next&&!chatting.has(id)){run.pendingChats.shift();void controller.chat(id,next).catch(()=>{});}
@@ -271,7 +288,30 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    const run=runs.find(r=>r.id===id),token=chatting.get(id);if(!run||!token)return;
    cancelTurn(run,true);await Promise.all([adapters.stopChat?.(run,token.id),persist(run)]);
   },
-  async chatDelta(id,delta,progress,meta,turnId){const stream=streaming.get(id),run=runs.find(r=>r.id===id);if(!stream||!run||(turnId&&turnId!==stream.turnId))return;if(progress){const incoming=typeof progress==='string'?{text:progress}:progress,previous=incoming.id&&run.conversation?.find(e=>e.providerToolId===incoming.id),event={...(previous||{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool'}),...Object.fromEntries(Object.entries({providerToolId:incoming.id,text:incoming.text,tool:incoming.tool,operation:incoming.operation,status:incoming.status,args:incoming.args,result:incoming.result}).filter(([,v])=>v!==undefined))};run.conversation=[...(run.conversation||[]).filter(e=>e.id!==event.id),event].slice(-200);await persist(run);return;}let target=stream.draft;if(meta?.itemId){stream.hasItems=true;target=run.conversation.find(message=>message.providerItemId===meta.itemId);if(!target){if(!stream.draft.text&&!stream.draft.providerItemId){target=stream.draft;target.providerItemId=meta.itemId;}else{target={id:crypto.randomUUID(),providerItemId:meta.itemId,at:Date.now(),role:'assistant',text:''};run.conversation=[...(run.conversation||[]),target];}}}if(meta?.phase)target.phase=meta.phase;target.text+=String(delta||'');run.conversation=[...(run.conversation||[])].map(message=>message.id===target.id?target:message);await persist(run);},
+  async chatDelta(id,delta,progress,meta,turnId){
+   const stream=streaming.get(id),run=runs.find(row=>row.id===id);
+   if(!stream||!run||(turnId&&turnId!==stream.turnId))return;
+   if(progress){
+    const incoming=typeof progress==='string'?{text:progress}:progress;
+    const previous=incoming.id&&run.conversation?.find(event=>event.providerToolId===incoming.id);
+    const fields={providerToolId:incoming.id,text:incoming.text,tool:incoming.tool,operation:incoming.operation,status:incoming.status,args:incoming.args,result:incoming.result};
+    const event={...(previous||{id:crypto.randomUUID(),at:Date.now(),role:'system',kind:'tool'}),...Object.fromEntries(Object.entries(fields).filter(([,value])=>value!==undefined))};
+    run.conversation=[...(run.conversation||[]).filter(row=>row.id!==event.id),event].slice(-200);
+   }else{
+    let target=stream.draft;
+    if(meta?.itemId){
+     stream.hasItems=true;target=run.conversation.find(message=>message.providerItemId===meta.itemId);
+     if(!target){
+      if(!stream.draft.text&&!stream.draft.providerItemId){target=stream.draft;target.providerItemId=meta.itemId;}
+      else{target={id:crypto.randomUUID(),providerItemId:meta.itemId,at:Date.now(),role:'assistant',text:''};run.conversation=[...run.conversation,target];}
+     }
+    }
+    if(meta?.phase)target.phase=meta.phase;
+    target.text+=String(delta||'');
+    run.conversation=[...run.conversation];
+   }
+   await persistStream(run,stream);
+  },
   async pause(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)return;cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);},
   async pauseAll(){for(const run of runs)if(run.status==='running'||chatting.has(run.id)){cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);}},
  };return controller;

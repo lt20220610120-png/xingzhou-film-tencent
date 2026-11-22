@@ -1,8 +1,11 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ProductionRunWorkspace} from './ProductionRunWorkspace.jsx';
+import {useProductionRevision} from './useProductionFurnace.js';
+import {WorkspaceActiveContext} from '../components/WorkspacePresence.jsx';
 
 function ProjectView({run,account,state,setState,production,api}){
+ useProductionRevision(production);
  const [error,setError]=useState('');
  const action=async fn=>{setError('');try{await fn();}catch(reason){setError(reason.message);}};
  return <section className="production-console is-running"><ProductionRunWorkspace run={run} runs={[run]} projects={state.directorProjects||[]} state={state} production={production} api={api} error={error} onError={reason=>setError(reason?.message||String(reason))} onAction={action} onSaveDefault={rule=>setState(s=>({...s,productionRules:{...s.productionRules,[account.id]:rule}}))}/></section>;
@@ -52,7 +55,7 @@ export function useProductionProjectWindows({account,state,setState,production,a
  const views=[...windows.current.entries()].map(([projectId,{runId,child}])=>{
    const run=runs.find(r=>r.projectId===projectId&&r.id===runId);
    if(!run||!child||child.closed)return null;
-   return createPortal(<ProjectView key={run.id} {...{run,account,state,setState,production,api}}/>,child.document.body,projectId);
+   return createPortal(<WorkspaceActiveContext.Provider value={true}><ProjectView key={run.id} {...{run,account,state,setState,production,api}}/></WorkspaceActiveContext.Provider>,child.document.body,projectId);
  });
  return {openProject:api.productionWindowTicket?openProject:null,views};
 }

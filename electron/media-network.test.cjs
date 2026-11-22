@@ -15,7 +15,7 @@ test('expired result is identified rather than asking for endless retries; embed
   const file=await generateImage({endpoint:'https://provider.test/v1',model:'image',prompt:'test',destDir:dir});assert.deepEqual(fs.readFileSync(file),png);
   globalThis.fetch=async(url,options)=>options?.method==='POST'?Response.json({data:[{url:'https://dead.test/image'}]}):new Response('',{status:403});
   let id;await assert.rejects(generateImage({endpoint:'https://provider.test/v1',model:'image',prompt:'test',destDir:dir}),e=>{id=e.downloadReceiptId;return e.downloadReason==='upstream'&&e.httpStatus===403&&/上游表示/.test(e.message);});
-  assert.equal(pendingImageSource(id,dir),'https://dead.test/image');assert.throws(()=>retryImageDownload('../secret',dir),/恢复记录无效/);
+ assert.equal(await pendingImageSource(id,dir),'https://dead.test/image');assert.throws(()=>retryImageDownload('../secret',dir),/恢复记录无效/);
  }finally{globalThis.fetch=original;fs.rmSync(dir,{recursive:true,force:true});}
 });
 test('GET retries interrupted bodies, but does not retry missing objects',async()=>{

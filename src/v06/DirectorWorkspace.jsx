@@ -1,3 +1,4 @@
+import {showNotice} from '../components/workspace-dialog.js';
 import {isProtectedSkill} from '../../core/clientDistribution.js';
 import {currentManualSceneReplies} from '../../core/directorGenerationSession.js';
 import {prepareDirectorEpisodeAddition,directorEpisodeCount} from '../../core/directorAppendEpisode.js';
@@ -9,6 +10,7 @@ import {reconcileDirectorLinks} from '../../core/cloudRecycle.js';
 import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import { prepareLibraryDirector } from '../../core/directorLibrary.js';
 import {newDirectorSkillBinding} from '../../core/directorSkillSelection.js';
+import {sameJson} from '../../core/threeWayMerge.js';
 import {ModelSelect,useWindowModel} from './ModelSelect.jsx';
 import {Dialog} from './GlobalTools.jsx';
 import {DirectorLiveRepair} from './DirectorLiveRepair.jsx';
@@ -141,9 +143,10 @@ function DirectorCloudManager({ projects, onBack, onDelete, onRefresh, verified,
 /* ================================================================
  * DirectorRail - 左侧分集导航
  * ================================================================ */
-function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBack, kind }) {
-  const episodeNumberAt = (index) => project.episodes.slice(0, index + 1).filter((episode) => episode.kind !== 'setting' && episode.title !== '设定和小传').length;
+const DirectorRail=React.memo(function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBack }) {
+  let episodeNumber=0;
   const coverage=React.useMemo(()=>directorPromptCoverage(project),[project]);
+  const progressByEpisode=React.useMemo(()=>new Map(coverage.map(row=>[row.id,row])),[coverage]);
   const complete=coverage.length>0&&coverage.every(ep=>ep.complete);
   return (
     <aside className="director-rail">
@@ -163,13 +166,13 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
       </div>
       <div className="project-directory-scroll">
       <div className="rail-label">分集</div>
-      {project.episodes?.map((ep, idx) => {const progress=coverage.find(row=>row.id===ep.id);return (
+      {project.episodes?.map(ep => {const progress=progressByEpisode.get(ep.id),isSetting=ep.kind==='setting'||ep.title==='设定和小传';return (
         <button
           key={ep.id}
           className={`director-episode-row${active === ep.id ? ' active' : ''}`}
           onClick={() => setActive(ep.id)}
         >
-          <span className={`rail-index${progress?.complete?' is-complete':''}`} aria-label={progress?`${ep.title}：${progress.complete?'提示词已齐全':'提示词未齐全'}`:undefined} title={progress?.complete?'全部场景提示词已保存':undefined}>{ep.kind === 'setting' || ep.title === '设定和小传' ? '序' : String(episodeNumberAt(idx)).padStart(2, '0')}</span>
+          <span className={`rail-index${progress?.complete?' is-complete':''}`} aria-label={progress?`${ep.title}：${progress.complete?'提示词已齐全':'提示词未齐全'}`:undefined} title={progress?.complete?'全部场景提示词已保存':undefined}>{isSetting?'序':String(++episodeNumber).padStart(2,'0')}</span>
           <span className="director-episode-title" title={ep.title}>{ep.title}</span>
           <span className="director-episode-count" aria-label={progress?`提示词 ${progress.count}/${progress.expected}`:undefined}>{progress?`${progress.count}/${progress.expected}`:''}</span>
 
@@ -183,12 +186,12 @@ function DirectorRail({ project, active, setActive, onAdd, onDeleteEpisode, onBa
       </div>
     </aside>
   );
-}
+});
 
 /* ================================================================
  * PromptCard - 单条提示词卡片
  * ================================================================ */
-function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
+const PromptCard=React.memo(function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -259,7 +262,7 @@ function PromptCard({ prompt, index, onDelete, onCopy, onEdit }) {
       )}
     </div>
   );
-}
+});
 
 /* ================================================================
  * parseSegments - 通过 (1)(2) 分割段落/场景
@@ -347,7 +350,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     rememberPreference('xz-last-used-skill',skill.id);
   };
 
-  const segments = parseDirectorScenes(episode.content, episodeNumber);
+  const segments = React.useMemo(()=>parseDirectorScenes(episode.content,episodeNumber),[episode.content,episodeNumber]);
   // 快速模式自动选中第一个场景
   const currentScene = segments.some((scene) => scene.label === activeScene) ? activeScene : segments[0]?.label || null;
   const currentSceneContent = currentScene
@@ -509,16 +512,16 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     }
   };
 
-  const handleSavePrompt = (promptId) => {
+  const handleSavePrompt = useCallback((promptId) => {
     setState((s) => deleteDirectorPromptsEverywhere(s, project.id, [promptId]));
-  };
+  },[setState,project.id]);
 
-  const handleEditPrompt = (promptId, content) => {
+  const handleEditPrompt = useCallback((promptId, content) => {
     setState((s) => updateDirectorPromptEverywhere(s, project.id, promptId, {
       content: content.trim(),
       editedAt: new Date().toISOString(),
     }));
-  };
+  },[setState,project.id]);
 
   // 获取当前选中场景的已生成提示词
   const scenePrompts = currentScene ? promptsForScene(savedPrompts, currentScene).filter(p=>!activeRunId||p.generationRunId===activeRunId) : [];
@@ -795,8 +798,8 @@ function PromptHistoryPanel({ project, api, onDeletePrompt, onDeletePrompts, onE
   const [exportMode, setExportMode] = useState(false); // 选集导出模式
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const allPrompts = directorEditionHistory(project,collectDirectorPromptHistory(project));
-  const groups = groupDirectorPromptHistory(allPrompts);
+  const allPrompts=React.useMemo(()=>directorEditionHistory(project,collectDirectorPromptHistory(project)),[project]);
+  const groups=React.useMemo(()=>groupDirectorPromptHistory(allPrompts),[allPrompts]);
   const activeGroup = groups.find((group) => group.key === openGroup);
 
   const notice = (message) => { setExportNotice(message); setTimeout(() => setExportNotice(''), 5000); };
@@ -929,7 +932,10 @@ function SettingEditor({ project, episode, setState }) {
 /* ================================================================
  * DirectorWorkspace - 主组件
  * ================================================================ */
+const subscribeNothing=()=>()=>{};
+const initialProgressRevision=()=>0;
 export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration, active = true }) {
+  useSyncExternalStore(active?quickGeneration?.subscribe||subscribeNothing:subscribeNothing,active?quickGeneration?.getRevision||initialProgressRevision:initialProgressRevision,initialProgressRevision);
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
   const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
@@ -957,7 +963,14 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   cloudManagerRef.current=cloudManagerOpen;
   cloudActiveRef.current = active;
 
-  const directorProjects = (state.directorProjects || []).filter((project, index, projects) => projects.findIndex((candidate) => candidate.id === project.id || (project.cloudProjectId && candidate.cloudProjectId === project.cloudProjectId)) === index);
+  const directorProjects=React.useMemo(()=>{
+    const ids=new Set(),cloudIds=new Set();
+    return (state.directorProjects||[]).filter(project=>{
+      const duplicate=ids.has(project.id)||project.cloudProjectId&&cloudIds.has(project.cloudProjectId);
+      ids.add(project.id);if(project.cloudProjectId)cloudIds.add(project.cloudProjectId);
+      return !duplicate;
+    });
+  },[state.directorProjects]);
   const directorProjectsRef=useRef(directorProjects);directorProjectsRef.current=directorProjects;
   const directorGroups = state.directorGroups || [];
   const scriptLibrary = state.scriptLibrary || [];
@@ -1006,9 +1019,12 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       if (!cloudActiveRef.current || requestId !== cloudRequestRef.current) return;
       const rows=Array.isArray(response)?response:response?.projects;
       if(!Array.isArray(rows)||!Array.isArray(collaborationRows))throw new Error('云端关联返回格式异常');
-      setCloudProjects(previous=>JSON.stringify(previous)===JSON.stringify(rows)?previous:rows);
-      setCollaborationProjects(collaborationRows);
-      setState(current=>({...current,directorProjects:reconcileDirectorLinks(current.directorProjects||[],collaborationRows,Array.isArray(response?.associations)?response.associations:[])}));
+      setCloudProjects(previous=>sameJson(previous,rows)?previous:rows);
+      setCollaborationProjects(previous=>sameJson(previous,collaborationRows)?previous:collaborationRows);
+      setState(current=>{
+        const directorProjects=reconcileDirectorLinks(current.directorProjects||[],collaborationRows,Array.isArray(response?.associations)?response.associations:[]);
+        return directorProjects===current.directorProjects?current:{...current,directorProjects};
+      });
       setIsProducer(producer);
       if(refreshCloud)setCloudManagement({verified:true,error:''});
       return {rows,collaborationRows,producer};
@@ -1022,7 +1038,13 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     const timer = setInterval(()=>{if(!selectedProjectId&&!cloudManagerRef.current)return loadCloudProjects();}, 60000);
     return () => { clearInterval(timer); cloudRequestRef.current += 1; };
   }, [active, loadCloudProjects, selectedProjectId]);
-  React.useEffect(() => { if(quickGeneration?.isCloudSaving())return; setState((s) => ({ ...s, directorProjects: reconcileDirectorCloudProjects(s.directorProjects || [], cloudProjects) })); }, [cloudProjects]);
+  React.useEffect(()=>{
+    if(quickGeneration?.isCloudSaving())return;
+    setState(current=>{
+      const directorProjects=reconcileDirectorCloudProjects(current.directorProjects||[],cloudProjects);
+      return directorProjects===current.directorProjects?current:{...current,directorProjects};
+    });
+  },[cloudProjects]);
   const cloudForProject = (project) => cloudProjects.find((p) => p.id === project.cloudProjectId || p.analysis_output === project.id);
   const changeCollab = async (mode) => { if (!collabTarget) return; if (mode === 'create') { const dp = collabTarget.project; const episodes = dp.episodes || []; const cloud = await api.directorCollabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes }); setState((s) => updateDirectorProject(s, dp.id, { cloudProjectId: cloud.id, cloudRole: 'producer', cloudBase:{name:cloud.name,script:cloud.script||'',episodes:cloud.episodes||[]},cloudUpdatedAt:cloud.updated_at })); setCollabTarget({ project: { ...dp, cloudProjectId: cloud.id }, cloud: { ...cloud, locked: false } }); } await loadCloudProjects(); };
   const refreshDirectorCloud = async () => {
@@ -1143,9 +1165,9 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       setSelectedProjectId(newProject.id);
       setActivePane(newProject.episodes[0]?.id || 'master');
       setMasterDraft(newProject.masterScript || '');
-      alert(parsed.detected ? `已识别并导入 ${episodes.length} 集。` : '未识别到明确分集标题，已作为第 1 集完整导入。');
+      await showNotice(parsed.detected ? `已识别并导入 ${episodes.length} 集。` : '未识别到明确分集标题，已作为第 1 集完整导入。');
     } catch (e) {
-      alert(`导入失败：${e.message}`);
+      await showNotice(`导入失败：${e.message}`);
     }
   };
 
@@ -1155,20 +1177,22 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     if(prepared.state!==state)setState(current=>current.directorProjects.some(p=>p.sourceType==='library'&&p.sourceId===item.id)?current:{...current,directorProjects:[prepared.project,...current.directorProjects]});
     return prepared.project;
   };
-  const handleImportLibrary = item => {
+  const handleImportLibrary = async item => {
     try { const newProject=resolveLibraryProject(item);setSelectedProjectId(newProject.id);const remembered=readRemembered(`xz-director-pane:${accountId}:${newProject.id}`,null);setActivePane(remembered==='master'||newProject.episodes.some(ep=>ep.id===remembered)?remembered:newProject.episodes.find(ep=>ep.kind!=='setting')?.id||newProject.episodes[0]?.id||'master');setMasterDraft(newProject.masterScript || ''); }
-    catch(error){alert(error.message);}
+    catch(error){await showNotice(error.message);}
   };
-  const handleLibraryCollab = item => {
+  const handleLibraryCollab = async item => {
     try {const p=resolveLibraryProject(item);setCollabTarget({project:p,cloud:cloudForProject(p)});}
-    catch(error){alert(error.message);}
+    catch(error){await showNotice(error.message);}
   };
 
   // 处理添加分集
-  const handleAddEpisode = () => {
-    if (!selectedProject) return;
+  const handleAddEpisode = useCallback(() => {
+    if (!selectedProjectId||selectedProject?.cloudLocked) return;
     addAttemptRef.current=null;setNewEpisodeContent('');setAddEpisodeError('');setAddEpisodeOpen(true);
-  };
+  },[selectedProjectId,selectedProject?.cloudLocked]);
+  const handleDeleteEpisode=useCallback(episodeId=>setState(s=>deleteDirectorEpisode(s,selectedProjectId,episodeId)),[setState,selectedProjectId]);
+  const returnToProjects=useCallback(()=>{setSelectedProjectId(null);setActivePane('master');},[]);
 
   // 处理删除项目
   const handleDeleteProject = async (id) => {
@@ -1181,7 +1205,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         await api.directorCollabDeleteProject({ projectId: target.cloudProjectId });
         setCloudProjects((rows) => rows.filter((row) => row.id !== target.cloudProjectId));
       } catch (error) {
-        alert(`删除云端导演项目失败：${error.message || '网络连接异常'}`);
+        await showNotice(`删除云端导演项目失败：${error.message || '网络连接异常'}`);
         return;
       }
     }
@@ -1282,10 +1306,9 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
         project={selectedProject}
         active={activePane}
         setActive={setActivePane}
-        onAdd={selectedProject.cloudLocked ? () => {} : handleAddEpisode}
-        onDeleteEpisode={(episodeId) => setState((s) => deleteDirectorEpisode(s, selectedProject.id, episodeId))}
-        onBack={() => { setSelectedProjectId(null); setActivePane('master'); }}
-        kind="导演项目"
+        onAdd={handleAddEpisode}
+        onDeleteEpisode={handleDeleteEpisode}
+        onBack={returnToProjects}
       />
       {activePane === 'master' ? (
         <main className={`director-master${selectedProject.cloudLocked ? ' cloud-project-locked' : ''}`}>

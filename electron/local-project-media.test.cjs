@@ -175,7 +175,7 @@ test('local audio and video retain their media type through the collaboration up
     return Response.json({url:'https://bucket.invalid/fixture',contentType:request.mime,objectKey:'fixture',authorization:'fixture'});
   });
   configureAPIFetch(async (_url,init)=>{
-    received.push([init.headers['Content-Type'],Buffer.from(init.body).toString()]);
+    received.push([init.headers['Content-Type'],Buffer.from(init.body instanceof Blob?await init.body.arrayBuffer():init.body).toString()]);
     return new Response(null,{status:200});
   });
   t.after(()=>{configureCloudFetch(undefined);configureAPIFetch(undefined);});

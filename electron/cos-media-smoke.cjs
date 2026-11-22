@@ -121,7 +121,7 @@ module.exports=async root=>{
       sign(audioPath),'smoke',{readScope:()=>'smoke',cache,relay:async()=>null,fetchFn:local,local:createLocalMediaHandler(()=>root)});
     assert.equal((await play('HEAD')).headers.get('content-length'),'1000');
     assert.deepEqual(Buffer.from(await (await play('GET','bytes=500-')).arrayBuffer()),wave.subarray(500));
-    assert.equal(cache.peek(sign(audioPath),'smoke'),null);
+    assert.equal(await cache.peek(sign(audioPath),'smoke'),null);
     assert.deepEqual(Buffer.from(await (await play('GET','bytes=0-')).arrayBuffer()),wave);
     assert.deepEqual(Buffer.from(await (await play('GET','bytes=500-')).arrayBuffer()),wave.subarray(500));
     assert.deepEqual(receivedAudio,[['HEAD',''],['GET','bytes=500-'],['GET','bytes=0-']]);

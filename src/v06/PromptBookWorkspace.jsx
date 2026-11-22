@@ -1,3 +1,4 @@
+import {confirmAction} from '../components/workspace-dialog.js';
 import React,{useEffect,useRef,useState} from 'react';
 import {Upload,FolderOpen,Trash2} from 'lucide-react';
 import {parsePromptBook,bookOutline,entryValue,saveEntryValue,mergeEpisodeMedia,clearPromptBook,bookSharedReferences,restoreEntryReference} from '../../core/promptBook.js';
@@ -58,7 +59,7 @@ export function PromptBookWorkspace({state,setState,getState=()=>state,saveLocal
    let next=linkedDistributionBook(snapshot,decisions,accountId);
    next={...next,name:`${next.name} · ${linkedVersions.find(row=>row.id===linkedVersion)?.label||'当前版本'}`};
    if(scope.current!==accountId)throw Error('账号已变化，未载入旧账号项目');
-   if(books.some(book=>book.id===next.id)&&!window.confirm('重新载入会替换本联动项目在图视生成中的编辑；已生成视频保留。继续载入？'))return;
+   if(books.some(book=>book.id===next.id)&&!(await confirmAction('重新载入会替换本联动项目在图视生成中的编辑；已生成视频保留。继续载入？')))return;
    await api.promptArtSave({accountId,projectId:linkedProjectId,baseRevision:saved?.revision||0,data:saveBindingVersion(saved,snapshot,decisions)});
    if(scope.current!==accountId)throw Error('账号已变化，未载入旧账号项目');
    changeWorkflow(workflow=>({...workflow,selectedBookId:next.id,books:[...(workflow.books||[]).filter(book=>book.id!==next.id),next]}));
@@ -101,7 +102,7 @@ export function PromptBookWorkspace({state,setState,getState=()=>state,saveLocal
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
  };
  const clearCurrent=async()=>{
-  if(!book||importing.current||!window.confirm(`确定清除“${book.name}”的全部提示词、编辑进度和已导入素材吗？生成结果不受影响。`))return;
+  if(!book||importing.current||!(await confirmAction(`确定清除“${book.name}”的全部提示词、编辑进度和已导入素材吗？生成结果不受影响。`, {danger:true})))return;
   importing.current=true;setBusy(true);setError('');setNotice('');
   try{
    flushEditing();

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const {sameJson}=require('../core/threeWayMerge.js');
 
 // Exercise the component's actual cloud loader and polling effect with controlled
 // timers and responses, including a timer callback already queued at navigation.
@@ -22,6 +23,7 @@ function harness(api, projects = [], reconcile = projects => projects) {
     api,
     directorProjectsRef: {current: projects},
     reconcileDirectorLinks: reconcile,
+    sameJson,
     setState: fn => {state.local = fn(state.local);},
     active: false,selectedProjectId:null,
     cloudActiveRef: { current: false },
@@ -33,7 +35,7 @@ function harness(api, projects = [], reconcile = projects => projects) {
     setInterval: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearInterval: id => timers.delete(id),
     setCloudProjects: rows => { state.cloud = typeof rows==='function'?rows(state.cloud):rows; calls.push('cloud'); },
-    setCollaborationProjects: rows => { state.collaboration = rows; calls.push('collaboration'); },
+    setCollaborationProjects: rows => { state.collaboration = typeof rows==='function'?rows(state.collaboration):rows; calls.push('collaboration'); },
     setIsProducer: value => { state.producer = value; calls.push('producer'); },
   });
   const render = active => {

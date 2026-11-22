@@ -6,7 +6,7 @@
 .persistent-ai{position:fixed;inset:0;display:grid;grid-template-columns:260px minmax(0,1fr) 90px;background:var(--surface);z-index:100}
 
 .chat-history{background:var(--surface-2);border-right:1px solid var(--line);padding:20px 14px;overflow-y:auto}
-.chat-history h3{font:600 15px 'Noto Serif SC';margin:0 0 16px;color:var(--ink)}
+.chat-history h3{font:600 15px var(--studio-font, sans-serif);margin:0 0 16px;color:var(--ink)}
 .session-row{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;margin:2px 0;transition:all var(--fast) var(--ease)}
 .session-row:hover{background:var(--surface)}
 .session-row.active{background:var(--surface);box-shadow:var(--shadow-xs)}

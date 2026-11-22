@@ -140,8 +140,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
   const auditRanges=run=>{
     const segments=run.plan.segments;
     const size=segments.reduce((n,s)=>n+(run.segmentDrafts[s.id]?.prompt?.content.length||0),0)+run.plan.sourceText.length;
-    if(size<24000)return [segments.map(s=>s.index)];
-    return segments.map((s,i)=>i?null:[s.index]).filter(Boolean).concat(segments.slice(1).map((s,i)=>[segments[i].index,s.index]));
+    if(size<24000||segments.length<2)return [segments.map(s=>s.index)];
+    return segments.slice(1).map((segment,index)=>[segments[index].index,segment.index]);
   };
   const execute=async run=>{
     const version=(versions.get(run.id)||0)+1;versions.set(run.id,version);

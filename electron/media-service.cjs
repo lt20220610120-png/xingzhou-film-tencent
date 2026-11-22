@@ -77,8 +77,8 @@ async function downloadToFile(url, destDir, ext,{verifyImage=false,fileName,sign
   if(verifyImage)await validateGeneratedImage(bytes);
   signal?.throwIfAborted();
   const temporary=file+'.'+crypto.randomBytes(4).toString('hex')+'.part';
-  try{fs.mkdirSync(destDir,{recursive:true});fs.writeFileSync(temporary,bytes);fs.renameSync(temporary,file);return file;}
-  catch(error){try{fs.unlinkSync(temporary);}catch{}if(verifyImage)error.imageVerified=true;throw error;}
+  try{await fs.promises.mkdir(destDir,{recursive:true});await fs.promises.writeFile(temporary,bytes,{signal});signal?.throwIfAborted();await fs.promises.rename(temporary,file);return file;}
+  catch(error){await fs.promises.unlink(temporary).catch(()=>{});if(verifyImage)error.imageVerified=true;throw error;}
 }
 
 function imageReceiptPath(receiptId, destDir) {
@@ -87,32 +87,78 @@ function imageReceiptPath(receiptId, destDir) {
 }
 
 const pendingImageDownloads = new Map();
-function pendingImageSource(receiptId,destDir){
- let receipt;try{receipt=JSON.parse(fs.readFileSync(imageReceiptPath(receiptId,destDir),'utf8'));}catch{throw new Error('图片结果记录不存在，请检查本地资料目录');}
+async function writeImageReceipt(file,receipt){
+ const temporary=file+'.tmp';
+ try{await fs.promises.writeFile(temporary,JSON.stringify(receipt),{mode:0o600});await fs.promises.rename(temporary,file);}
+ finally{await fs.promises.unlink(temporary).catch(()=>{});}
+}
+async function pendingImageSource(receiptId,destDir){
+ let receipt;try{receipt=JSON.parse(await fs.promises.readFile(imageReceiptPath(receiptId,destDir),'utf8'));}catch{throw new Error('图片结果记录不存在，请检查本地资料目录');}
  if(!/^https?:\/\//i.test(receipt.source))throw new Error('该结果为内嵌图片，请继续保存或手动上传');
  return receipt.source;
+}
+async function pruneImageDownloadReceipts(destDir,{now=Date.now()}={}){
+ const folder=path.join(destDir,'.pending-image-downloads');
+ try{
+  const root=await fs.promises.lstat(folder);
+  if(!root.isDirectory()||root.isSymbolicLink())return;
+ }catch(error){if(error.code==='ENOENT')return;throw error;}
+ for(const entry of await fs.promises.readdir(folder,{withFileTypes:true})){
+  if(!entry.isFile()||!(/^[a-f0-9-]{36}\.json(?:\.tmp)?$/.test(entry.name)))continue;
+  const file=path.join(folder,entry.name);
+  try{
+   if(entry.name.endsWith('.tmp')){
+    if(now-(await fs.promises.stat(file)).mtimeMs>86400000)await fs.promises.unlink(file);
+    continue;
+   }
+   if(pendingImageDownloads.has(file))continue;
+   const image='image-result-'+entry.name.slice(0,-5)+'.png';
+   const imageFile=path.join(destDir,image);
+   const stat=await fs.promises.lstat(imageFile,{bigint:true});
+   if(!stat.isFile()||!stat.size)continue;
+   const handle=await fs.promises.open(file,'r'),head=Buffer.alloc(32);
+   try{await handle.read(head);}finally{await handle.close();}
+   if(!head.toString('ascii').startsWith('{"source":"data:'))continue;
+   const receipt=JSON.parse(await fs.promises.readFile(file,'utf8'));
+   if(!receipt.verified||receipt.downloadedFile!==image||!/^data:[^,]*;base64,/i.test(receipt.source)||pendingImageDownloads.has(file))continue;
+   const {source,...metadata}=receipt;
+   const expected=Buffer.from(source.slice(source.indexOf(',')+1),'base64');
+   if(BigInt(expected.length)!==stat.size)continue;
+   const [onDisk,original]=await Promise.all([
+    require('./file-digest.cjs').sha256File(imageFile),
+    crypto.subtle.digest('SHA-256',expected)
+   ]);
+   if(onDisk!==Buffer.from(original).toString('hex'))continue;
+   const current=await fs.promises.lstat(imageFile,{bigint:true});
+   if(!current.isFile()||current.ino!==stat.ino||current.size!==stat.size||current.mtimeNs!==stat.mtimeNs||current.ctimeNs!==stat.ctimeNs||pendingImageDownloads.has(file))continue;
+   await require('./atomic-json.cjs').writeJsonAtomic(file,metadata);
+  }catch(error){if(!['ENOENT','EPERM','EBUSY'].includes(error.code)&&!(error instanceof SyntaxError))throw error;}
+ }
 }
 function retryImageDownload(receiptId, destDir) {
   const receiptPath = imageReceiptPath(receiptId, destDir);
   if (pendingImageDownloads.has(receiptPath)) return pendingImageDownloads.get(receiptPath);
   const work = (async () => {
     let receipt;
-    try { receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')); }
+    try { receipt = JSON.parse(await fs.promises.readFile(receiptPath, 'utf8')); }
     catch { throw new Error('已保存的图片结果记录不存在，请先检查本地资料目录'); }
     try {
       // A stable filename closes the crash gap between writing bytes and sending
       // the IPC result. Never fetch or generate again if verified bytes exist.
       const fileName=`image-result-${receiptId}.png`,cached=path.join(destDir,fileName);
-      if(fs.existsSync(cached)){try{await validateGeneratedImage(fs.readFileSync(cached));return cached;}catch(error){if(error.code!=='IMAGE_CONTENT_INVALID')throw error;}}
+      try{await validateGeneratedImage(await fs.promises.readFile(cached));return cached;}
+      catch(error){if(!['ENOENT','IMAGE_CONTENT_INVALID'].includes(error.code))throw error;}
+      if(!receipt.source)throw Error('已保存的本机图片不存在或损坏');
       const filePath = await downloadToFile(receipt.source, destDir, 'png',{verifyImage:true,fileName});
-      try{fs.writeFileSync(receiptPath+'.tmp',JSON.stringify({...receipt,verified:true,downloadedFile:fileName,verifiedAt:new Date().toISOString(),lastFailure:null}),{mode:0o600});fs.renameSync(receiptPath+'.tmp',receiptPath);}catch{/* The stable file can be recovered without changing the original receipt. */}
+      const {source,...metadata}=receipt;
+      try{await writeImageReceipt(receiptPath,{...metadata,...(/^https?:\/\//i.test(source)?{source}:{}),verified:true,downloadedFile:fileName,verifiedAt:new Date().toISOString(),lastFailure:null});}catch{/* The stable file can be recovered without changing the original receipt. */}
       return filePath;
     } catch (cause) {
       const reason=cause.status?'upstream':['IMAGE_CONTENT_INVALID','MEDIA_CONTENT_EMPTY'].includes(cause.code)?'invalid':isMediaNetworkError(cause)||isMediaNetworkError(cause.cause)?'network':'save';
       const unavailable=[401,403,404,410].includes(cause.status)||/不存在|已过期|not found|expired/i.test(cause.upstreamMessage||'');
       const advice=reason==='upstream'?(unavailable?'上游表示源图片不存在、过期或拒绝访问；这不是本地磁盘故障。可打开结果地址核对，仍不可用时主动放弃旧结果后再生成。':'上游结果地址下载失败，可稍后重试取回原图，或在浏览器核对。'):reason==='invalid'?'尚未确认生成了可显示的图片，请核对上游结果；不会把错误网页保存为图片。':reason==='network'?'请检查系统代理或网络；可在浏览器打开原结果后上传。':'请检查本地资料目录、磁盘空间或权限后继续保存。';
       const verified=Boolean(cause.imageVerified);
-      try{fs.writeFileSync(receiptPath+'.tmp',JSON.stringify({...receipt,lastFailure:{reason,httpStatus:cause.status,upstreamCode:cause.upstreamCode,upstreamMessage:cause.upstreamMessage,verified,at:new Date().toISOString()}}),{mode:0o600});fs.renameSync(receiptPath+'.tmp',receiptPath);}catch{}
+      try{await writeImageReceipt(receiptPath,{...receipt,lastFailure:{reason,httpStatus:cause.status,upstreamCode:cause.upstreamCode,upstreamMessage:cause.upstreamMessage,verified,at:new Date().toISOString()}});}catch{}
       throw Object.assign(new Error(`${verified?'已验证图片，但本地保存未完成':'接口已返回结果，尚未取回有效图片'}：${cause.message}。${advice} 不会自动重新生图。`), {
         cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId, downloadReason:reason,httpStatus:cause.status,upstreamCode:cause.upstreamCode,imageVerified:verified,
       });
@@ -125,11 +171,9 @@ function retryImageDownload(receiptId, destDir) {
 async function saveGeneratedImage(source, destDir) {
   const receiptId = crypto.randomUUID();
   const receiptPath = imageReceiptPath(receiptId, destDir);
-  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  await fs.promises.mkdir(path.dirname(receiptPath), { recursive: true });
   // Save the provider result before downloading it. No API key is recorded.
-  const temporary = `${receiptPath}.tmp`;
-  fs.writeFileSync(temporary, JSON.stringify({ source, createdAt: new Date().toISOString() }), { mode: 0o600 });
-  fs.renameSync(temporary, receiptPath);
+  await writeImageReceipt(receiptPath,{source,createdAt:new Date().toISOString()});
   return retryImageDownload(receiptId, destDir);
 }
 
@@ -229,13 +273,17 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   if (!prompt?.trim()) throw new Error('请填写视频描述');
   if(references.length>1 || references.some(r=>r.kind!=='image'))throw new Error('当前自定义视频接口仅支持一张首帧参考，请切换飞拓接口使用多素材参考');
   firstFramePath=firstFramePath||references[0]?.filePath;firstFrameUrl=firstFrameUrl||references[0]?.url;
-  const localFrame = firstFramePath && fs.existsSync(firstFramePath) ? `data:image/png;base64,${fs.readFileSync(firstFramePath).toString('base64')}` : '';
-  if (isFeituoEndpoint(endpoint)) return generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, onStatus, destDir, signal, imageUrls: firstFrameUrl || localFrame ? [firstFrameUrl || localFrame] : [] });
-  const base = normalizeBase(endpoint);
+  const feituo=isFeituoEndpoint(endpoint);
   let firstFrameDataUrl = '';
-  if (firstFramePath && fs.existsSync(firstFramePath)) {
-    firstFrameDataUrl = `data:image/png;base64,${fs.readFileSync(firstFramePath).toString('base64')}`;
+  if(firstFramePath&&!(feituo&&firstFrameUrl)){
+    try{
+      const bytes=await fs.promises.readFile(firstFramePath,{signal});
+      const mime={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'}[path.extname(firstFramePath).toLowerCase()]||'image/png';
+      firstFrameDataUrl=`data:${mime};base64,${bytes.toString('base64')}`;
+    }catch(error){if(error.code!=='ENOENT')throw error;}
   }
+  if(feituo)return generateFeituoVideo({ apiKey, model, prompt, ratio, duration, resolution, onStatus, destDir, signal, imageUrls: [firstFrameUrl||firstFrameDataUrl].filter(Boolean) });
+  const base=normalizeBase(endpoint);
   const createResponse = await fetch(`${base}/contents/generations/tasks`, {
     method: 'POST',
     headers: authHeaders(apiKey),
@@ -270,4 +318,4 @@ async function generateVideo({ endpoint, apiKey, model, prompt, ratio, duration,
   throw new Error('视频生成超时（10 分钟），请稍后在服务商控制台查看任务');
 }
 
-module.exports = { imageReferenceFile, saveGeneratedImage, downloadToFile, retryImageDownload, pendingImageSource, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };
+module.exports = { imageReferenceFile, saveGeneratedImage, downloadToFile, retryImageDownload, pendingImageSource,pruneImageDownloadReceipts, generateImage, generateVideo, normalizeBase, buildVideoContent, buildFeituoVideoPayload, parseFeituoStatus };

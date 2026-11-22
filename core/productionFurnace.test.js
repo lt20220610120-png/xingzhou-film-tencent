@@ -94,6 +94,33 @@ test('Agent conversation persists streamed assistant text before the final respo
  const c=createProductionController({load:async()=>[],save:async r=>saved.push(structuredClone(r)),adapters:{chat:async(run,{onDelta})=>{delta=onDelta;await onDelta('先');await pending;await onDelta('后');return{reply:'先后',action:'none'};}}});
  const run=await c.create('p',productionDefaults());const request=c.chat(run.id,{text:'继续执行',model:'m'});for(let i=0;i<20&&!delta;i++)await new Promise(r=>setImmediate(r));assert.equal(run.conversation.at(-1).role,'assistant');assert.equal(run.conversation.at(-1).text,'先');release();await request;assert.equal(run.conversation.at(-1).text,'先后');assert(saved.some(snapshot=>snapshot.conversation?.some(message=>message.role==='assistant'&&message.text==='先')));
 });
+
+test('a burst of streamed text checkpoints incrementally without writing each token',async()=>{
+ const writes=[];
+ let release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ let emitted;
+ const burst=new Promise(resolve=>{emitted=resolve;});
+ const controller=createProductionController({load:async()=>[],save:async row=>writes.push(row),adapters:{chat:async(_,{onDelta})=>{
+  await onDelta('起');
+  for(let i=0;i<40;i++)await onDelta('文');
+  emitted();await gate;
+  return {reply:'起'+'文'.repeat(40),action:'none'};
+ }}});
+ const observed=[];const unsubscribe=controller.subscribe(()=>observed.push(controller.getRevision()));
+ const run=await controller.create('p',productionDefaults()),pending=controller.chat(run.id,{text:'模拟输出'});
+ try{
+  await burst;
+  assert.ok(run.conversation.at(-1).text.endsWith('文'.repeat(40)));
+  assert.ok(writes.length<10,'a burst must not write one full snapshot per token');
+  for(let i=0;i<80&&!writes.some(row=>row.conversation?.at(-1)?.text==='起'+'文'.repeat(40));i++)await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(writes.at(-1).conversation.at(-1).text,'起'+'文'.repeat(40));
+ }finally{release();await pending;}
+ assert.equal(writes.at(-1).chatActive,false);
+ assert.equal(observed.at(-1),controller.getRevision());
+ assert.ok(observed.length<10);
+ unsubscribe();const deliveries=observed.length;await controller.saveRule(run.id,'新的流程说明');assert.equal(observed.length,deliveries);
+});
 test('chat cannot change projects after paid submissions and failed action remains visible',async()=>{
  const c=createProductionController({load:async()=>[],save:async()=>{},adapters:{chat:async()=>({reply:'尝试改选',action:'select_collab',projectId:'other'}),selectCollab:async()=>{throw Error('不应执行');}}});const run=await c.create('p',productionDefaults());run.items=[{id:'submitted'}];
  await assert.rejects(c.chat(run.id,{text:'切换',model:'m'}),/已有视频提交记录/);assert.match(run.conversation.at(-1).text,/指令未完成/);assert.equal(run.collabProjectId,undefined);

@@ -12,6 +12,21 @@ const empty = () => ({ fruitProjects: [], scriptProjects: [], scriptLibrary: [] 
 const project = (state, kind = 'script') => state[`${kind}Projects`].at(-1);
 const make = (mode = 'free') => createCreatorProject(empty(), { name: '测试作品', mode, groupId: 'group-1' });
 
+test('editing one episode shares unchanged content and history with the previous project',()=>{
+ const seed=make();
+ const withEpisode=addCreatorEpisode(seed,'script',project(seed).id,{title:'第二集'});
+ const withRecord=appendCreatorRecord(withEpisode,'script',project(seed).id,{id:'saved-history',type:'history',output:'旧稿',status:'replaced'});
+ const before=project(withRecord),second=before.episodes[1];
+ const edited=project(updateCreatorEpisode(withRecord,'script',before.id,second.id,{result:'新增一字'}));
+ assert.notEqual(edited.episodes[1],second);
+ assert.equal(edited.episodes[0],before.episodes[0]);
+ assert.equal(edited.creator.story,before.creator.story);
+ assert.equal(edited.creator.sections,before.creator.sections);
+ assert.equal(edited.creator.records[0],before.creator.records[0]);
+ assert.equal(normalizeCreatorProject(edited),edited);
+ assert.equal(second.result,'');
+});
+
 test('migration retains both episode sides and conflicting masters without stale aggregate overriding edits', () => {
   const old = { id: 'old', name: '旧作品', mode: 'original', groupId: 'g', finalScript: '旧总稿', masterScript: '另一份旧稿', episodes: [{ id: 'e1', title: '第1集', content: '原稿', result: '逐集转换稿', selectedSkill: 'skill' }] };
   const migrated = normalizeCreatorProject(old, 'script');

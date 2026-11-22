@@ -7,6 +7,12 @@ test('cloud project deletion and restoration require this project owner, regardl
  assert.equal(canManageCloudProject({owner_id:'other',myRole:'collaborator'},{id:'owner',isProducer:true}),false);
  assert.equal(canManageCloudProject({owner_id:'other',myRole:'producer'},{id:'owner'}),false);
 });
+test('polling an unchanged collaboration link preserves the director project list',()=>{
+ const projects=[{id:'local',sourceType:'library',collaborationProjectId:'copy',groupId:'director-cloud'}];
+ const rows=[{id:'copy',director_project_id:'local'}];
+ assert.equal(reconcileDirectorLinks(projects,rows),projects);
+ assert.equal(reconcileDirectorAssociations(projects,[]),projects);
+});
 test('only matching server release decisions detach stale associations; missing/stale decisions leave protection',()=>{
  const p={id:'local',sourceType:'library',collaborationProjectId:'copy',groupId:'director-cloud',masterScript:'原稿',episodes:[]};
  assert.equal(isLocalRecyclableDirector(reconcileDirectorAssociations([p],[{projectId:'local',collaborationProjectId:'copy',status:'released'}])[0]),true);

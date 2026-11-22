@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createQuickGenerationController } from './directorQuickGeneration.js';
 
-const fixture = () => {
+const fixture = ({promptBody='自然表演与对应原话。'}={}) => {
   let accountId = 'account-a';
   const source = '1-1 景：客厅 日 内\n甲说：“先把门关上。”\n乙关门，说：“好了。”';
   const project = { id:'p', style:'真人电影集', aspectRatio:'9:16', episodes:[{id:'e',content:source}] };
@@ -15,8 +15,12 @@ const fixture = () => {
     getContext:()=>({accountId,project,episode:project.episodes[0],inputText:source,skill,profile,permissions:{canGenerate:true}}),
     checkpoints:{save:async({run})=>files.set(run.id,structuredClone(run)),list:async()=>[...files.values()],load:async({runId})=>structuredClone(files.get(runId))},
     executeText:async({messages})=>{
-      calls.push({kind:messages[0].content.includes('核对')?'audit':'plan'});
-      if (messages[0].content.includes('核对')) return JSON.stringify({ok:true,issues:[]});
+      if (messages[0].content.includes('核对')) {
+        const audit=JSON.parse(messages[1].content.split('【核对范围与场景事实 · JSON】\n').at(-1));
+        calls.push({kind:'audit',range:audit.range});
+        return JSON.stringify({ok:true,issues:[]});
+      }
+      calls.push({kind:'plan'});
       return JSON.stringify({segments:[
         {end:{unitId:'u1'},timing:{speechSeconds:28,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'甲在门旁',endState:'甲说完',boundary:'切乙',visualNotes:[]},
         {end:{unitId:'u2'},timing:{speechSeconds:8,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'乙站门旁',endState:'门已关',boundary:'结束',visualNotes:[]}
@@ -28,7 +32,7 @@ const fixture = () => {
       wholeCalls+=1;
       if(failRepair && wholeCalls>1) throw new Error('模拟整场修复网络中断');
       if(pending) await pending;
-      return {output:(failRepair?labels.slice(0,1):labels).map(label=>`${label}\n【画面内容】\n自然表演与对应原话。`).join('\n\n')};
+      return {output:(failRepair?labels.slice(0,1):labels).map(label=>`${label}\n【画面内容】\n${promptBody}`).join('\n\n')};
     },
     commitRun:async(run)=>{commits.push(structuredClone(run));return {applied:true};},
   });
@@ -50,6 +54,16 @@ test('auto scene submits all numbered brackets in one Skill request, audits and 
   assert.equal(run.promptIds.length,2);
   await f.controller.resume(run.id);
   assert.equal(f.commits.length,1);
+});
+
+test('a long multi-segment reply audits the first segment together with its neighbor only once',async()=>{
+ const f=fixture({promptBody:'长镜头按原文完成动作。'.repeat(1300)});
+ const run=await f.controller.start(f.request);
+ assert.equal(run.phase,'completed');
+ assert.deepEqual(f.calls.filter(row=>row.kind==='audit').map(row=>row.range),[[1,2]]);
+ assert.deepEqual(Object.keys(run.checks.ranges),['1-2']);
+ await f.controller.resume(run.id);
+ assert.equal(f.calls.filter(row=>row.kind==='audit').length,1);
 });
 
 test('partial whole-scene output preserves accepted draft across failed whole-scene repair and resume',async()=>{

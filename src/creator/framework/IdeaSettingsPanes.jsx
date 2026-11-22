@@ -1,3 +1,4 @@
+import {confirmAction} from '../../components/workspace-dialog.js';
 import React,{useState} from 'react';
 import {Plus,Sparkles,Trash2,Check} from 'lucide-react';
 import {Heading,AgentSelect,Panel,Field,Empty,Tag,EditDialog,categories} from './FrameworkParts.jsx';
@@ -24,7 +25,7 @@ export function SettingsPane({f,command,run,busy}){
   {present.map(category=><details className="fw-setting-category" key={category}><summary><strong>{category}</strong><span>{f.settings.items.filter(x=>x.category===category).length} 条</span></summary>
    {f.settings.items.filter(x=>x.category===category).map(item=><article className="fw-note" key={item.id}><p>{item.text}</p><div className="fw-actions">
     <button className="secondary" onClick={()=>{setSupplement(item.text);command({type:'settings.draft',text:item.text});}}>编辑 / 补充</button>
-    <button className="ghost danger" aria-label={`删除设定${item.text.slice(0,12)}`} onClick={()=>{if(window.confirm('删除这条设定？删除前的内容会保留在设定历史，相关故事需要重新复核。'))command({type:'settings.remove',id:item.id});}}><Trash2 size={15}/>删除</button>
+    <button className="ghost danger" aria-label={`删除设定${item.text.slice(0,12)}`} onClick={async ()=>{if((await confirmAction('删除这条设定？删除前的内容会保留在设定历史，相关故事需要重新复核。', {danger:true})))command({type:'settings.remove',id:item.id});}}><Trash2 size={15}/>删除</button>
    </div></article>)}
   </details>)}
   {f.settings.pending.length>0&&<div className="fw-settings-pending"><h3>待处理补充 · {f.settings.pending.length}</h3>{f.settings.pending.map(item=><SettingCandidate key={item.id} item={item} f={f} command={command}/>)}</div>}

@@ -36,6 +36,23 @@ function fixture(t, overrides = {}) {
 
 const source = { name: '单人制作', episodes: [{ id: 'e1', title: '第一集', prompts: [{ id: 's1', label: '1-1-1', content: '原稿' }] }] };
 
+test('local presence reads one record at startup and never scans it again during rapid requests',async t=>{
+ const f=fixture(t),writer=f.setup();
+ const project=await writer.createProject(source);await writer.createProject(source);await writer.createProject(source);
+ const service=f.setup(),disk=fs.promises.readFile;
+ let reads=0;
+ t.mock.method(fs.promises,'readFile',(...args)=>{if(/\.json$/.test(String(args[0])))reads++;return disk(...args);});
+ assert.deepEqual(await Promise.all(Array.from({length:8},()=>service.hasLocalProjects())),Array(8).fill(true));
+ assert.equal(reads,1);
+ assert.equal(await service.hasLocalProjects(),true);
+ assert.equal(reads,1);
+ f.switchAccount('another');
+ assert.equal(await service.isLocal(project.id),false);
+ assert.equal(await service.hasLocalProjects(),false);
+ await service.createProject(source);
+ assert.equal(await service.hasLocalProjects(),true);
+});
+
 test('an existing first invitation can retry with the selected director cloud binding', async t => {
   const requests = [];
   const f = fixture(t, {

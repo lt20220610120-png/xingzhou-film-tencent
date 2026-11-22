@@ -28,6 +28,31 @@ test('unchanged bulk update does not create a new upload or local write',async()
  const before=f.localWrites.length;await f.store.updateMany([{number:1,reduce:r=>r}]);await f.store.publish(1,['1-1']);
  assert.equal(f.localWrites.length,before);assert.equal(f.saveCalls.length,1);assert.equal(f.publishCalls.length,1);
 });
+
+test('updating one review preserves untouched records and no-op refresh skips a disk write',async()=>{
+ const f=fixture({count:2});await f.store.load(f.project);
+ const before=f.store.snapshot();
+ await f.store.update(1,()=>generated(1));
+ const updated=f.store.snapshot();
+ assert.notEqual(updated.episodes[1],before.episodes[1]);
+ assert.equal(updated.episodes[2],before.episodes[2]);
+ const writes=f.localWrites.length;
+ await f.store.load(f.project);
+ assert.equal(f.store.snapshot().episodes[2],before.episodes[2]);
+ assert.equal(f.localWrites.length,writes);
+});
+
+test('review checkpoint bounds verbose audit replies and keeps protected recovery history',async()=>{
+ const protectedRecord={at:0,reason:'正文变更',sourceContent:'旧正文',scenes:[]};
+ const humanRecord={at:1,reason:'roster-upsert',previous:{name:'【旧名】'}};
+ const record={...generated(1),history:[protectedRecord,humanRecord,...Array.from({length:100},(_,i)=>({at:i+2,reason:'并发逐场模型对应回包',rawOutput:'诊断 '+i}))]};
+ const f=fixture({disk:{episodes:{1:record}}});await f.store.load(f.project);
+ const history=f.store.snapshot().episodes[1].history;
+ assert.deepEqual(history.slice(0,2),[protectedRecord,humanRecord]);
+ assert.ok(history.length<=32,'only bounded recent diagnostic replies belong in active checkpoints');
+ assert.equal(history.at(-1).rawOutput,'诊断 99');
+ assert.deepEqual(f.disk.episodes[1].history,history);
+});
 function revise(record,description){
  const item=reviewRoster(record)[0];
  return {...editArtReview(record,{type:'roster-upsert',itemId:item.id,sceneIds:record.scenes.map(s=>s.id),item:{...item,description,note:'最新本地补充',ready:true}}),rawOutput:'最新模型完整回包',generation:{status:'saved',taskId:'new-local-task'}};

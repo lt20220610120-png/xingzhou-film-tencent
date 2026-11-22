@@ -1,7 +1,7 @@
 import {sameDirectorEdition} from '../../core/directorPromptEditions.js';
 import {createDirectorCheckpointReader} from '../../core/directorRunView.js';
 import {storageWorkBusy} from '../../core/storageWork.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createQuickGenerationController, isQuickRunActive } from '../../core/directorQuickGeneration.js';
 import { commitQuickSceneRun,directorSceneInput } from '../../core/directorQuickStore.js';
 import { executeSkillWithAi, assertMessageCapacity } from '../../core/skillExecution.js';
@@ -13,6 +13,7 @@ import {flushEditing} from '../editing.js';
 import {createDirectorManualController,commitManualSceneRun} from '../../core/directorManualGeneration.js';
 import {directorJobs} from '../../core/backgroundJobs.js';
 import {beginDirectorSceneGeneration} from '../../core/directorGenerationSession.js';
+import {sameJson} from '../../core/threeWayMerge.js';
 
 function browserCheckpoints(accountRef) {
   const key=()=>`xz-director-quick-runs:${accountRef.current || 'signed-out'}`;
@@ -27,8 +28,11 @@ function browserCheckpoints(accountRef) {
 export function useDirectorQuickGeneration({state,stateRef,setState,api,accountId,persistence,initialized}) {
   const accountRef=useRef(accountId);accountRef.current=accountId;
   const directorySwitchRef=useRef(false),directoryEpochRef=useRef(0);
-  const [,render]=useState(0);
   const [restoreError,setRestoreError]=useState('');
+  const progress=useMemo(()=>{
+    const listeners=new Set();let revision=0;
+    return {publish:()=>{revision++;for(const listener of listeners)listener();},getRevision:()=>revision,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);}};
+  },[]);
   const controllerRef=useRef(null);
   const manualControllerRef=useRef(null);
   const batchControllerRef=useRef(null),cloudSyncRef=useRef(null),cloudScheduledRef=useRef(new Map());
@@ -67,7 +71,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     };
     const beginRun=async run=>{let result;setState(current=>{result=beginDirectorSceneGeneration({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};};
     controllerRef.current=createQuickGenerationController({beginRun,
-      getContext,checkpoints,onChange:()=>render(n=>n+1),cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
+      getContext,checkpoints,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
       groundedTiming:true,editorialPlanning:true,maxQualityAttempts:3,
       executeText:async({messages,taskId,snapshot,maxOutputTokens=16384})=>{
         const context=getContext(snapshot),profile=context.profile;
@@ -82,7 +86,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       },
       commitProgress:run=>commit(run,true),commitRun:run=>commit(run),
     });
-    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,beginRun,onChange:()=>render(n=>n+1),cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
+    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,beginRun,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
       executeSkill:async({input,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,assistantRole:'行舟影视导演提示词助手',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
       reviewSkill:async({input,beforeUserMessages,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,beforeUserMessages,assistantRole:'行舟影视导演提示词复核Agent',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
       commitRun:async run=>{if(accountRef.current!==run.snapshot.accountId)return{applied:false,conflict:'账号已切换'};let result;setState(current=>{result=commitManualSceneRun({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};},
@@ -91,7 +95,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     const batchScenes={get:id=>childFor(id).get(id),start:(context,opts)=>(context.segmentationMode==='manual'?manualControllerRef.current:controllerRef.current).start(context,opts),
       resume:async id=>((await checkpoints.load({runId:id}))?.kind==='manual-scene'?manualControllerRef.current:controllerRef.current).resume(id),
       stop:id=>childFor(id).stop(id),pauseAfterRequest:id=>childFor(id).pauseAfterRequest(id)};
-    batchControllerRef.current=createDirectorBatchController({sceneController:batchScenes,checkpoints,getContext,onChange:()=>render(n=>n+1)});
+    batchControllerRef.current=createDirectorBatchController({sceneController:batchScenes,checkpoints,getContext,onChange:progress.publish});
   }
   const controller=controllerRef.current;
   const manualController=manualControllerRef.current;
@@ -112,14 +116,23 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   },[accountId,initialized]);
   // Editing is local. Only an explicit upload publishes a captured version.
   useEffect(()=>{controller.activate();manualController.activate();batchController.activate();cloudSync.activate();return()=>{batchController.dispose();controller.dispose();manualController.dispose();cloudSync.dispose();};},[]);
-  const runs=[...controller.entries({summary:true}),...manualController.entries({summary:true})].filter(run=>run.snapshot.accountId===accountId);
-  const batches=batchController.entries({summary:true}).filter(batch=>batch.snapshot.accountId===accountId);
+  return useMemo(()=>{
+  let seenRevision=-1,runs,batches;
+  const summaries=()=>{
+    const revision=progress.getRevision();
+    if(revision!==seenRevision){
+      seenRevision=revision;
+      runs=[...controller.entries({summary:true}),...manualController.entries({summary:true})].filter(run=>run.snapshot.accountId===accountId);
+      batches=batchController.entries({summary:true}).filter(batch=>batch.snapshot.accountId===accountId);
+    }
+    return {runs,batches};
+  };
   const assertNoSingleWork=projectId=>{const prefix=JSON.stringify([accountRef.current,projectId]).slice(0,-1)+',';if(directorJobs.entries().some(([key,job])=>key.startsWith(prefix)&&job.status==='running')||[...controller.entries({summary:true}),...manualController.entries({summary:true})].some(r=>r.snapshot.accountId===accountRef.current&&r.snapshot.projectId===projectId&&isQuickRunActive(r)))throw new Error('本项目有场景正在生成，请等待完成或停止后继续整本任务');};
   const freshSceneRequest=request=>{flushEditing();const current=stateRef.current,project=current.directorProjects?.find(p=>p.id===request.project.id),episode=project?.episodes?.find(e=>e.id===request.episode.id);if(!project||!episode)throw Error('项目或分集已变化');return{...request,accountId:accountRef.current,project,episode,inputText:directorSceneInput(project,episode,request.sceneLabel),skill:current.skills?.find(s=>s.id===request.skill?.id),profile:current.apiProfiles?.find(p=>p.id===request.profile?.id)};};
   return {
     startManualScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):manualController.start(freshSceneRequest(request)),
     startScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):controller.start(freshSceneRequest(request)),resume:(runId,options)=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):controller.resume(runId,options),stop:runId=>controller.stop(runId),
-    runs,restoreError,
+    get runs(){return summaries().runs;},restoreError,subscribe:progress.subscribe,getRevision:progress.getRevision,
     saveLocal:async()=>{persistence.enqueue(stateRef.current);await persistence.flush();},
     getManualSceneRun:id=>manualController.get(id),
     resumeManualScene:id=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):manualController.resume(id),
@@ -130,8 +143,8 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     resumeBatch:async id=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');const batch=batchController.get(id);if(!batch)throw new Error('找不到整本任务');if(!isDirectorBatchActive(batch))assertNoSingleWork(batch.snapshot.projectId);return batchController.resume(id);},
     pauseBatch:id=>batchController.pause(id),cancelBatch:id=>batchController.cancel(id),
     getBatch:id=>batchController.get(id),
-    getProjectBatch:projectId=>{const row=batches.filter(b=>b.snapshot.projectId===projectId&&sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),b.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?batchController.get(row.id):null;},
-    isProjectBatchActive:projectId=>batches.some(b=>b.snapshot.projectId===projectId&&isDirectorBatchActive(b)),
+    getProjectBatch:projectId=>{const row=summaries().batches.filter(b=>b.snapshot.projectId===projectId&&sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),b.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?batchController.get(row.id):null;},
+    isProjectBatchActive:projectId=>summaries().batches.some(b=>b.snapshot.projectId===projectId&&isDirectorBatchActive(b)),
     isCloudSaving:cloudSync.isSaving,getCloudProject:id=>stateRef.current.directorProjects?.find(p=>p.id===id),
     uploadCloudProject:async id=>{
       if(directorySwitchRef.current)throw new Error('资料位置正在切换，请稍后上传');
@@ -141,7 +154,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       if(!project?.cloudBase&&!project?.cloudRemote)throw new Error('尚未取得云端版本，请刷新后重试');
       if(project.cloudLocked||project.canWrite===false||project.permissions?.canWrite===false)throw new Error('项目已锁定或没有写入权限，本地版本已保留');
       const document={name:project.name,script:project.masterScript||'',episodes:project.episodes||[]},previous=project.pendingCloudSubmission,base=project.cloudBase||project.cloudRemote;
-      const submission=previous&&JSON.stringify(previous.document)===JSON.stringify(document)&&JSON.stringify(previous.base)===JSON.stringify(base)?previous:{id:crypto.randomUUID(),document:structuredClone(document),base:structuredClone(base),conflictOnly:Boolean(project.cloudConflict),createdAt:new Date().toISOString()};
+      const submission=previous&&sameJson(previous.document,document)&&sameJson(previous.base,base)?previous:{id:crypto.randomUUID(),document:structuredClone(document),base:structuredClone(base),conflictOnly:Boolean(project.cloudConflict),createdAt:new Date().toISOString()};
       setState(current=>({...current,directorProjects:current.directorProjects.map(p=>p.id===id?{...p,pendingCloudSubmission:submission,localCollaborationVersions:previous?.id===submission.id?p.localCollaborationVersions:[...(p.localCollaborationVersions||[]),submission]}:p)}));
       persistence.enqueue(stateRef.current);await persistence.flush();
       if(account!==accountRef.current)throw new Error('账号已切换，本地版本已保留');
@@ -149,10 +162,11 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       const result=await cloudSync.flush(id,submission);
       if(!result?.acknowledged)throw new Error('上传未确认，本地版本已保留，请刷新后核对');
     },
-    getSceneRun:(projectId,episodeId,sceneLabel)=>{const project=stateRef.current.directorProjects?.find(p=>p.id===projectId),activeId=project?.episodes?.find(e=>e.id===episodeId)?.activeSceneGenerationRuns?.[sceneLabel]?.runId;const row=runs.filter(run=>run.kind!=='manual-scene'&&(!activeId||run.id===activeId)&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel&&sameDirectorEdition(project,run.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?controller.get(row.id):null;},
+    getSceneRun:(projectId,episodeId,sceneLabel)=>{const project=stateRef.current.directorProjects?.find(p=>p.id===projectId),activeId=project?.episodes?.find(e=>e.id===episodeId)?.activeSceneGenerationRuns?.[sceneLabel]?.runId;const row=summaries().runs.filter(run=>run.kind!=='manual-scene'&&(!activeId||run.id===activeId)&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel&&sameDirectorEdition(project,run.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?controller.get(row.id):null;},
     pauseAndFlush:async()=>{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
     prepareDirectorySwitch:async()=>{if(storageWorkBusy()||directorJobs.entries().some(([,j])=>j.status==='running')||[...(stateRef.current.fruitProjects||[]),...(stateRef.current.scriptProjects||[])].some(p=>(p.creator?.records||[]).some(r=>r.status==='running')))throw new Error('仍有创作任务正在运行，请任务完成后再切换资料目录');directorySwitchRef.current=true;directoryEpochRef.current++;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
     finishDirectorySwitch:()=>{directoryEpochRef.current++;try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();window.dispatchEvent(new Event('xz-storage-changed'));}finally{directorySwitchRef.current=false;}},
-    active:runs.some(isQuickRunActive)||batches.some(isDirectorBatchActive),
+    get active(){const current=summaries();return current.runs.some(isQuickRunActive)||current.batches.some(isDirectorBatchActive);},
   };
+  },[accountId,restoreError,progress,controller,manualController,batchController,cloudSync,persistence,stateRef,setState]);
 }

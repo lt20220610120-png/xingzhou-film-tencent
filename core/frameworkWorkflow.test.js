@@ -77,6 +77,22 @@ test('complete event story precedes independent episode plans and body switching
  p=cmd(p,{type:'plan.restore',id:'p1'});p=cmd(p,{type:'plan.activate',id:'p1'});
  assert.equal(p.episodes[0].result,'版本一正文');assert.equal(p.episodes[0].finalConfirmed,true);
 });
+
+test('typing a framework episode preserves untouched plans, settings and manuscript versions',()=>{
+ let p=cmd(setup(),{type:'mainline.confirm'});
+ p=cmd(p,{type:'plan.add',plan:{id:'one',episodes:[{id:'e1',eventIds:['a']},{id:'e2',eventIds:['b']}]}});
+ p=cmd(p,{type:'plan.add',plan:{id:'two',episodes:[{id:'e3',eventIds:['a']}]}});
+ p=cmd(p,{type:'plan.activate',id:'one'});
+ const initial=frameworkState(p);
+ const next=cmd(p,{type:'episode.update',planId:'one',episodeId:'e2',patch:{result:'单字编辑'}});
+ const updated=frameworkState(next);
+ assert.equal(updated.settings,initial.settings);
+ assert.equal(updated.groups,initial.groups);
+ assert.equal(updated.plans[1],initial.plans[1]);
+ assert.equal(updated.plans[0].episodes[0],initial.plans[0].episodes[0]);
+ assert.equal(next.episodes[1].result,'单字编辑');
+ assert.equal(p.episodes[1].result,'');
+});
 test('simulation adoption enforces runtime input and locks and leaves original project untouched',()=>{
  let p=setup();p=cmd(p,{type:'node.lock',id:'a',locked:true});
  p=cmd(p,{type:'simulation.add',simulation:{id:'s',inputFingerprint:'f',groups:[{id:'g',title:'阶段',events:[{id:'a',title:'篡改'},{id:'b',title:'b'}]}]}});

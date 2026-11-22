@@ -1,3 +1,4 @@
+import {confirmAction} from './workspace-dialog.js';
 import React,{useState,useEffect,useRef} from 'react';
 import {createPortal} from 'react-dom';
 import {HardDrive,RefreshCw,Trash2,X} from 'lucide-react';
@@ -14,7 +15,7 @@ export function TemporaryReferenceManager({api,className=''}){
  const clean=async mode=>{
   if(inFlight.current)return;const rows=(data?.items||[]).filter(r=>r.canDelete&&(mode==='expired'?r.state==='expired':mode==='unused'||selected.has(r.id)));
   if(!rows.length)return;
-  if(!window.confirm(`清理 ${rows.length} 个云端临时副本（${bytes(rows.reduce((s,r)=>s+r.size,0))}）？\n只清理已到期或任务已结束的副本，本机原文件、项目图片和生成结果保留。`))return;
+  if(!(await confirmAction(`清理 ${rows.length} 个云端临时副本（${bytes(rows.reduce((s,r)=>s+r.size,0))}）？\n只清理已到期或任务已结束的副本，本机原文件、项目图片和生成结果保留。`, {danger:true})))return;
   inFlight.current=true;setBusy(true);setError('');setNotice('');
   try{const result=await api.generationReferenceCleanup({ids:rows.map(r=>r.id)});await load();setNotice(`已清理 ${result.removed} 项，释放 ${bytes(result.bytesFreed)}${result.skipped?`；${result.skipped} 项已被任务使用，已保留`:''}。${result.failed?.length?'未完成：'+result.failed.map(r=>r.name+'（'+r.message+'）').join('、'):''}`);}catch(e){setError(e.message);}finally{inFlight.current=false;setBusy(false);}
  };

@@ -1,10 +1,10 @@
 // Read/download only. This supervisor never calls a generation POST and remains
 // independent of the production submit queue, Agent and currently visible page.
-function createGenerationMonitor({jobs,getProfiles,authorize,concurrency=4,now=Date.now,onUpdate=()=>{}}){
+function createGenerationMonitor({jobs,getProfiles,authorize,currentOwner,concurrency=4,now=Date.now,onUpdate=()=>{}}){
  const active=new Map(),cooldown=new Map();
  let epoch=0;
  return {async pump(){
-  const expected=epoch,owner=await authorize();if(!owner?.id||expected!==epoch)return;const manager=jobs(),tasks=manager.list({includeArchived:true});
+  const expected=epoch,owner=currentOwner?currentOwner():await authorize();if(!owner?.id||expected!==epoch)return;const manager=jobs(),tasks=manager.list({includeArchived:true});
   const due=tasks.filter(j=>j.kind==='video'&&!['success','failed'].includes(j.status)&&(j.jobId||j.status==='downloading'&&(j.url||j.urls?.length))&&j.referenceAccountId===String(owner.id)&&!active.has(j.id)&&Math.max(j.nextPollAt||0,cooldown.get(j.id)||0)<=now()).sort((a,b)=>(a.checkedAt?Date.parse(a.checkedAt):0)-(b.checkedAt?Date.parse(b.checkedAt):0));
   if(!due.length||active.size>=concurrency)return;
   const profiles=await getProfiles();if(expected!==epoch)return;

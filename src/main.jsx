@@ -20,6 +20,12 @@ import './ui-refinement.css';
 
 const root = document.getElementById('root');
 if (root) {
+  window.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && event.target.closest?.('select:open')) {
+      // Chromium closes the picker by default. Keep this Escape out of enclosing dialogs.
+      event.stopPropagation();
+    }
+  }, true);
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <RenderErrorBoundary><SoftwareLicenseBoundary><App /></SoftwareLicenseBoundary></RenderErrorBoundary>
@@ -35,3 +41,4 @@ import './workspace-readability.css';
 import './components/formatted-text.css';
 import './workspace-refresh.css';
 import './access-experience.css';
+import '../canvas-app/workspace-controls.css';

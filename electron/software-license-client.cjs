@@ -1,9 +1,10 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const {isDeepStrictEqual}=require('node:util');
 const {proofMessage}=require('../cloud-backend/shared/software-license.cjs');
 const PAID=new Set(['ai-chat','test-ai-connection','generation-submit','media-generate-image','media-generate-video','collab-generate-asset-image','collab-generate-video']);
 PAID.add('audio-generate');PAID.add('storyboard-batch-start');PAID.add('storyboard-batch-resume');
-function createLicenseClient({directory,safeStorage,call,token,version,onChange=()=>{}}){
- let key,activation='',epoch=0,last={status:'unchecked',allowed:false},checked=0,exemptToken='',routedToken=null,kind='unknown',activationUntil=0,accountEntry=false;
+function createLicenseClient({directory,safeStorage,call,token,version,onChange=()=>{},clock=()=>Date.now()}){
+ let key,activation='',epoch=0,last={status:'unchecked',allowed:false},lease=null,checking=null,exemptToken='',routedToken=null,kind='unknown',activationUntil=0,accountEntry=false;
  const keyFile=path.join(directory,'software-device-key.json');
  const hintFile=path.join(directory,'software-license-route.json');
  let monthlyHint=false;try{monthlyHint=JSON.parse(fs.readFileSync(hintFile,'utf8')).monthly===true;}catch{}
@@ -20,7 +21,14 @@ function createLicenseClient({directory,safeStorage,call,token,version,onChange=
   const encrypted=safeStorage.encryptString(JSON.stringify(key)).toString('base64');fs.mkdirSync(directory,{recursive:true});
   fs.writeFileSync(keyFile,JSON.stringify({version:1,encrypted}),{flag:'wx',mode:0o600});return key;
  }
- function update(state){last=state;checked=Date.now();onChange({...state});return {...state};}
+ function update(state,bearer){
+  const previous=last;last=state;
+  const expires=Date.parse(state.expiresAt),seconds=Number(state.leaseSeconds);
+  lease=bearer&&state.authenticated&&state.allowed&&state.status==='active'&&Number.isFinite(expires)&&seconds>0
+   ?{bearer,epoch,until:Math.min(expires,clock()+Math.min(seconds,60)*1000)}:null;
+  if(!isDeepStrictEqual(previous,state))onChange({...state});
+  return {...state};
+ }
  async function decorate(action,payload={},bearer=''){
   if(['license-route','license-challenge','recover','send-email-code'].includes(action))return payload;
   if(bearer&&bearer===exemptToken)return payload;
@@ -38,22 +46,36 @@ function createLicenseClient({directory,safeStorage,call,token,version,onChange=
   if(!username&&monthlyHint){kind='monthly';return update({status:'required',allowed:false,authenticated:false});}
   return update({...r,allowed:false});
  }
- async function check(){const expected=epoch,bearer=token();try{
+ async function checkRemote(expected,bearer){try{
   if(isExempt())return {...last,status:'exempt',allowed:true};
   if(routedToken!==bearer){await route();if(isExempt())return {...last};}
   if(accountEntry&&!bearer)return update({status:'account',allowed:false,authenticated:false});
-  if(activation&&Date.now()<activationUntil)return update({status:'prepared',allowed:false,authenticated:Boolean(bearer)});
+  if(activation&&clock()<activationUntil)return update({status:'prepared',allowed:false,authenticated:Boolean(bearer)});
   activation='';activationUntil=0;
-  kind='monthly';const result=await call('license-check',{},bearer);if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新校验');return update(result);
- }catch(error){if(expected===epoch)update({status:kind==='monthly'||monthlyHint?'error':'account-error',allowed:false,error:error.message});throw error;}}
+  kind='monthly';const result=await call('license-check',{},bearer);if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新校验');return update(result,bearer);
+ }catch(error){if(expected===epoch&&bearer===token())update({status:kind==='monthly'||monthlyHint?'error':'account-error',allowed:false,error:error.message});throw error;}}
+ function check(){
+  const expected=epoch,bearer=token();
+  if(checking?.epoch===expected&&checking.bearer===bearer)return checking.work;
+  const work=checkRemote(expected,bearer).finally(()=>{if(checking?.work===work)checking=null;});
+  checking={epoch:expected,bearer,work};
+  return work;
+ }
  return {
   decorate,check,route,state:()=>({...last}),shouldHeartbeat:()=>!isExempt()&&(kind==='monthly'||monthlyHint),
   rememberedCard:()=>readCard(),forgetCard:()=>{writeCard('');return {forgotten:true};},
   reset({forgetRoute=false}={}){accountEntry=Boolean(forgetRoute&&last.status==='exempt'&&exemptToken);epoch++;activation='';activationUntil=0;exemptToken='';routedToken=null;kind='unknown';if(forgetRoute){monthlyHint=false;try{fs.unlinkSync(hintFile);}catch{}}update({status:accountEntry?'account':'unchecked',allowed:false,authenticated:false});},
-  async prepare(code){const expected=epoch,bearer=token();kind='monthly';const value=String(code||'').trim();const r=await call('license-prepare',{code:value});if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新验证卡密');epoch++;rememberMonthly();writeCard(value);activation=r.activationToken;activationUntil=Date.now()+Math.min(900,Number(r.expiresIn)||900)*1000;update({status:'prepared',allowed:false,authenticated:Boolean(bearer)});return {prepared:true,expiresIn:r.expiresIn};},
-  async redeem(){const expected=epoch,bearer=token(),r=await call('license-redeem',{},bearer);if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新校验');epoch++;activation='';activationUntil=0;return update(r);},
-  authenticated(){activation='';activationUntil=0;accountEntry=false;epoch++;checked=0;exemptToken='';routedToken=null;},
-  async requireActive(force=true){const value=isExempt()?{status:'exempt',allowed:true}:force||Date.now()-checked>=60000?await check():last;if(!value.allowed)throw Error('软件授权未生效或已到期，请在启动授权页续卡后进入软件');return value;},
+  async prepare(code){const expected=epoch,bearer=token();kind='monthly';const value=String(code||'').trim();const r=await call('license-prepare',{code:value});if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新验证卡密');epoch++;rememberMonthly();writeCard(value);activation=r.activationToken;activationUntil=clock()+Math.min(900,Number(r.expiresIn)||900)*1000;update({status:'prepared',allowed:false,authenticated:Boolean(bearer)});return {prepared:true,expiresIn:r.expiresIn};},
+  async redeem(){const expected=epoch,bearer=token(),r=await call('license-redeem',{},bearer);if(expected!==epoch||bearer!==token())throw Error('账号已切换，请重新校验');epoch++;activation='';activationUntil=0;return update(r,bearer);},
+  authenticated(){activation='';activationUntil=0;accountEntry=false;epoch++;lease=null;exemptToken='';routedToken=null;},
+  async requireActive(force=false){
+   const bearer=token();
+   const refreshing=checking?.epoch===epoch&&checking.bearer===bearer;
+   const usable=!force&&!refreshing&&lease?.epoch===epoch&&lease.bearer===bearer&&clock()<lease.until;
+   const value=isExempt()?{status:'exempt',allowed:true}:usable?{...last}:await check();
+   if(!value.allowed)throw Error('软件授权未生效或已到期，请在启动授权页续卡后进入软件');
+   return value;
+  },
   needsLicense(channel){return PAID.has(channel)||/^(chatgpt-web|doubao-work|gemini-web|libtv-login|like-pairing|like-bind|import-full-script|import-skill|discover-models|admin-workflow-(?:create|start|resume))/.test(channel);},
  };
 }

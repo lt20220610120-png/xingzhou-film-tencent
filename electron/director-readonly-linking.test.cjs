@@ -15,7 +15,7 @@ test('项目协作同步提示词不得向导演工作台写入或创建项目',
 test('导演云项目列表把受邀项目加入工作台，并按云项目ID去重', () => {
   const director = read('src/v06/DirectorWorkspace.jsx');
   assert.match(director, /reconcileDirectorCloudProjects/);
-  assert.match(director, /candidate\.cloudProjectId === project\.cloudProjectId/);
+  assert.match(director, /cloudIds\.has\(project\.cloudProjectId\)/);
 });
 
 test('找不到或无法唯一确定导演项目时不覆盖现有内容', () => {

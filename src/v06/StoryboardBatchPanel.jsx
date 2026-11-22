@@ -1,3 +1,4 @@
+import {useWorkspacePolling} from './useWorkspacePolling.js';
 import React,{useState,useEffect,useRef} from 'react';
 import {Sparkles,Square,Play,TimerReset} from 'lucide-react';
 import {Dialog} from './GlobalTools.jsx';
@@ -8,10 +9,28 @@ const labels={pending:'待发送',preparing:'准备中',submitted:'已发送 · 
 const readDraft=key=>{try{const q=readQueuedDraft(key);return q.found?q.value:JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}};
 export default function StoryboardBatchPanel({api,project,accountId,episodeId,sceneId,settings,assets,media,binding,canEdit,onProjectChange,onRecommended,settingsBusy,onStatusChange}){
  const [scope,setScope]=useState('scene'),[runs,setRuns]=useState([]),[pending,setPending]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const owned=useRef(new Map()),alive=useRef(true),scopeKey=useRef(''),run=runs[0];
- scopeKey.current=accountId+'|'+project.id;
- const load=async()=>{if(!api.storyboardBatchList)return;const requestScope=accountId+'|'+project.id;try{const rows=await api.storyboardBatchList({accountId,projectId:project.id});if(!alive.current||scopeKey.current!==requestScope)return;setRuns(rows);let changed=false;for(const batch of rows)for(const item of batch.items){const capture=owned.current.get(batch.id+':'+item.id);if(capture&&item.jobId){if(JSON.stringify(readDraft(capture.key))===capture.before)queueDraft(capture.key,null);owned.current.delete(batch.id+':'+item.id);changed=true;}}if(changed&&api.collabGetProject){const fresh=await api.collabGetProject({projectId:project.id});if(alive.current&&scopeKey.current===requestScope)onProjectChange(fresh);}}catch(e){if(alive.current&&scopeKey.current===requestScope)setError(e.message);}};
- useEffect(()=>{alive.current=true;setRuns([]);setError('');setPending(null);owned.current.clear();void load();const timer=setInterval(load,5000);return()=>{alive.current=false;clearInterval(timer);};},[api,project.id,accountId]);
+ const owned=useRef(new Map()),run=runs[0],scopeKey=JSON.stringify([accountId,project.id]);
+ useEffect(()=>{setRuns([]);setError('');setPending(null);owned.current.clear();},[scopeKey]);
+ const poll=useWorkspacePolling(async current=>{
+  try{
+   const rows=await api.storyboardBatchList({accountId,projectId:project.id});
+   if(!current())return;
+   setRuns(rows);
+   let changed=false;
+   for(const batch of rows)for(const item of batch.items){
+    const key=batch.id+':'+item.id,capture=owned.current.get(key);
+    if(capture&&item.jobId){
+     if(JSON.stringify(readDraft(capture.key))===capture.before)queueDraft(capture.key,null);
+     owned.current.delete(key);changed=true;
+    }
+   }
+   if(changed&&api.collabGetProject){
+    const fresh=await api.collabGetProject({projectId:project.id});
+    if(current())onProjectChange(fresh);
+   }
+  }catch(e){if(current())setError(e.message);}
+ },{scope:scopeKey,enabled:Boolean(api.storyboardBatchList),delay:5000});
+ const load=()=>poll({afterCurrent:true});
  const start=async()=>{if(busy)return;setBusy(true);setError('');try{const result=await api.storyboardBatchStart({accountId,projectId:project.id,scope,episodeId,sceneId,items:pending});for(const resultItem of result.items){if(resultItem.status==='skipped')continue;const item=pending.find(i=>i.shotId===resultItem.shotId);if(!item)continue;const key=`xz-shot-draft:${project.id}:${item.shotId}${item.publicationId?':'+item.publicationId:''}`;owned.current.set(result.id+':'+resultItem.id,{key,before:JSON.stringify(readDraft(key))});}setRuns(current=>[result,...current]);setPending(null);void load();}catch(e){setError(e.message);}finally{setBusy(false);}};
  useEffect(()=>{onStatusChange?.(run?{percent:run.percent,running:run.running}:null);},[run,onStatusChange]);
  if(!api.storyboardBatchStart)return null;

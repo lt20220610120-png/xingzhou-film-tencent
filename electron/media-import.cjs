@@ -20,17 +20,19 @@ async function importMediaFiles({ dialog, destDir, kind = 'image', multiple = fa
   const sources = multiple ? result.filePaths : result.filePaths.slice(0, 1);
   // Validate the whole selection before making copies or changing the editor.
   for (const source of sources) {
-    if (!filter.extensions.includes(path.extname(source).slice(1).toLowerCase()) || !fs.statSync(source).isFile()) {
+    if (!filter.extensions.includes(path.extname(source).slice(1).toLowerCase()) || !(await fs.promises.stat(source)).isFile()) {
       throw new Error(`无法导入${filter.name.slice(0, 2)}：${path.basename(source)}`);
     }
   }
-  fs.mkdirSync(destDir, { recursive: true });
-  return sources.map(source => {
+  await fs.promises.mkdir(destDir, { recursive: true });
+  const imported=[];
+  for(const source of sources){
     const name = path.basename(source);
     const filePath = path.join(destDir, `${randomUUID()}_${name}`);
-    fs.copyFileSync(source, filePath);
-    return { filePath, name, kind };
-  });
+    await fs.promises.copyFile(source,filePath,fs.constants.COPYFILE_EXCL);
+    imported.push({filePath,name,kind});
+  }
+  return imported;
 }
 
 module.exports = { importMediaFiles };

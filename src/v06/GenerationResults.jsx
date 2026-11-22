@@ -1,15 +1,17 @@
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, Download, Copy, Film, Trash2, ChevronDown, ExternalLink, CircleAlert } from 'lucide-react';
 import HoverInfo from './HoverInfo.jsx';
 import models from '../../core/feituo-models.json';
 import { mediaSource } from '../../core/generationReferences.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { MediaPreview } from './MediaPreview.jsx';
+import { useWorkspaceActive } from '../components/WorkspacePresence.jsx';
 import './GenerationResults.css';
 
 const names = { submitting: '提交中', submitted: '排队 / 生成中', downloading: '已生成 · 下载中', success: '已成功', failed: '失败', uncertain: '待核对' };
 const resultStatus=task=>task.status==='submitted'&&task.remoteStatus==='awaiting-canvas'?'待在 LibTV 生成':names[task.status]||task.status;
 const clearable = task => ['success', 'failed', 'uncertain'].includes(task.status);
+const resultPageSize = 48;
 function storageSize(bytes = 0) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -18,15 +20,28 @@ function storageSize(bytes = 0) {
 }
 
 export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, onDeleteMany, onClear, compact=tasks.every(t=>t.kind==='video'),square=false,selectedIds=[],onSelect,latestId }) {
+  const active=useWorkspaceActive();
   const [preview, setPreview] = useState(null), [error, setError] = useState('');
   const [cleanup, setCleanup] = useState(null), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
   const [menuOpen,setMenuOpen]=useState(false),menu=useRef(null),trigger=useRef(null);
-  const cleanupChoices=[
+  const [limit,setLimit]=useState(resultPageSize), moreResults=useRef(null);
+  const hasMore=tasks.length>limit;
+  const showMore=useCallback(()=>setLimit(value=>value+resultPageSize),[]);
+  useEffect(()=>{
+    if(!active||!hasMore||!moreResults.current||typeof IntersectionObserver==='undefined')return;
+    const observer=new IntersectionObserver(entries=>{
+      if(entries.some(entry=>entry.isIntersecting)){observer.disconnect();showMore();}
+    },{rootMargin:'240px'});
+    observer.observe(moreResults.current);
+    return()=>observer.disconnect();
+  },[active,hasMore,limit,showMore]);
+  useEffect(()=>{if(!active){setPreview(null);setMenuOpen(false);setCleanup(null);}},[active]);
+  const cleanupChoices=useMemo(()=>[
     {label:'清除失败',rows:tasks.filter(t=>t.status==='failed')},
     {label:'清除已完成',rows:tasks.filter(t=>t.status==='success')},
     {label:'清除待核对',rows:tasks.filter(t=>t.status==='uncertain')},
     {label:'清空当前界面',rows:tasks,includeActive:true},
-  ];
+  ],[tasks]);
   useEffect(()=>{if(!menuOpen)return;const outside=e=>{if(!menu.current?.contains(e.target))setMenuOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[menuOpen]);
 
   const closePreview = useCallback(() => setPreview(null), []);
@@ -70,7 +85,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
     </header>
     {error && !cleanup && <p className="collab-error" role="alert">{error}</p>}
     {notice && <p className="generation-cleanup-notice" role="status">{notice}</p>}
-    <div className="generation-result-grid">{tasks.map(task => <article key={task.id}>
+    <div className="generation-result-grid">{tasks.slice(0,limit).map(task => <article key={task.id}>
       <header>{onSelect&&task.status==='success'&&<label className="generation-result-select"><input type="checkbox" aria-label={`选择结果 ${task.id}`} checked={selectedIds.includes(task.id)} onChange={()=>onSelect(task)}/>{latestId===task.id?'最新':'选择'}</label>}<span className={`status-${task.status}`}>{resultStatus(task)}</span>{square&&(task.error||task.warning)&&<HoverInfo label="查看任务提示" content={task.error||task.warning}><CircleAlert size={14}/></HoverInfo>}<small>{task.kind === 'video' ? task.duration?`${task.duration} 秒`:'' : '图片'}</small></header>
       {(task.filePath || task.url) ? <button className="generation-result-preview" aria-label="预览生成结果" onClick={() => setPreview(task)}>
         {task.kind === 'image' ? <img loading="lazy" decoding="async" src={mediaSource(task)} alt="生成图片"/> : <video src={mediaSource(task)} preload={square?'metadata':'none'} muted/>}<span>点击预览</span>
@@ -89,6 +104,7 @@ export function GenerationResults({ tasks, api, onReuse, onRefresh, onDelete, on
         {(onClear || onDelete || onDeleteMany) && <button className="card-delete" title="清除这条结果" aria-label={`清除结果 ${task.promptLabel || task.shotLabel || task.id}`} disabled={busy} onClick={() => askClear([task],'删除这条生成记录',!clearable(task))}><Trash2 size={15}/></button>}
       </div>{task.costYuan != null && <small>¥{Number(task.costYuan).toFixed(2)}</small>}</footer>
     </article>)}</div>
+    {hasMore&&<button ref={moreResults} type="button" className="secondary generation-result-more" onClick={showMore}>显示更多结果</button>}
     {!tasks.length && <div className="generation-empty"><Film/><p>还没有生成结果</p></div>}
     {preview && <MediaPreview key={preview.id} item={preview} onClose={closePreview} onDownload={exportTask}/>}
     <DeleteConfirm open={!!cleanup} title={`${cleanup?.label||'清理结果'}（${cleanup?.rows.length||0} 条）？`}

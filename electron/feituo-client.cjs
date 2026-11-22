@@ -71,7 +71,7 @@ async function submit(input) {
     for (const [k,v] of Object.entries(payload)) body.append(k,String(v));
     for (const r of refs) {
       let blob;
-      if (r.filePath) {const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4','.aac':'audio/aac','.ogg':'audio/ogg'}[path.extname(r.filePath).toLowerCase()];if(!mime)throw new Error('不支持此参考文件格式');blob = new Blob([fs.readFileSync(r.filePath)],{type:mime});}
+      if (r.filePath) {const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4','.aac':'audio/aac','.ogg':'audio/ogg'}[path.extname(r.filePath).toLowerCase()];if(!mime)throw new Error('不支持此参考文件格式');blob = new Blob([await fs.promises.readFile(r.filePath,{signal:input.signal})],{type:mime});}
       else { const result = await readMediaBytes(r.url, { timeoutMs:120000, signal:input.signal, label:`参考素材 ${r.name || ''}` }); blob = new Blob([result.bytes],{type:result.mime}); }
       body.append(`${r.kind}s`, blob, r.filePath ? path.basename(r.filePath) : (r.filename || `${r.kind}.${r.kind === 'image' ? 'png' : r.kind === 'video' ? 'mp4' : 'mp3'}`));
     }

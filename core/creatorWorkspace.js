@@ -48,20 +48,31 @@ export function filterCreatorProjects(projects,{kind='script',channel='rewrite',
   return channel==='rewrite'?mode==='rewrite':mode!=='rewrite'&&(originalFilter==='all'||mode===originalFilter);
  });
 }
-const normalizeSection = section => ({ input: '', output: '', accepted: false, locked: false, stale: false, ...clone(section || {}) });
-const refIds = value => Array.isArray(value) ? [...new Set(value)] : [];
-const normalizeStoryCharacter = (item, id) => ({ ...clone(item || {}), id: item?.id || id,
+const asArray=value=>Array.isArray(value)?value:[];
+const withFields=(value,fields)=>value&&Object.keys(fields).every(key=>Object.is(value[key],fields[key]))?value:{...value,...fields};
+function normalizeRows(value,normalize){
+ const original=asArray(value),rows=[];let changed=false;
+ for(const item of original){
+  if(!item){changed=true;continue;}
+  const normalized=normalize(item,rows.length);rows.push(normalized);changed||=normalized!==item;
+ }
+ return changed?rows:original;
+}
+const normalizeSection = section => section&&own(section,'input')&&own(section,'output')&&own(section,'accepted')&&own(section,'locked')&&own(section,'stale')
+  ? section : {input:'',output:'',accepted:false,locked:false,stale:false,...section};
+const refIds = value => {const input=asArray(value),unique=new Set(input);return unique.size===input.length?input:[...unique];};
+const normalizeStoryCharacter = (item, id) => withFields(item,{id: item?.id || id,
   name: text(item?.name), description: text(item?.description), start: String(item?.start ?? ''), end: String(item?.end ?? ''), accepted: Boolean(item?.accepted),
 });
-const normalizeStoryEvent = (item, id, order) => ({ ...clone(item || {}), id: item?.id || id,
+const normalizeStoryEvent = (item, id, order) => withFields(item,{id: item?.id || id,
   title: text(item?.title), content: text(item?.content), result: text(item?.result),
   characterIds: refIds(item?.characterIds), predecessorIds: refIds(item?.predecessorIds), parentEventId: item?.parentEventId || null,
   episodeIds: refIds(item?.episodeIds), actualTime: String(item?.actualTime ?? ''), order: Number.isFinite(item?.order) ? item.order : order,
   accepted: Boolean(item?.accepted),
 });
-const normalizeStory = (story, projectId) => ({ ...clone(story || {}),
-  events: (Array.isArray(story?.events) ? story.events : []).filter(Boolean).map((item, index) => normalizeStoryEvent(item, `${projectId || 'legacy'}_event_${index + 1}`, index)),
-  characters: (Array.isArray(story?.characters) ? story.characters : []).filter(Boolean).map((item, index) => normalizeStoryCharacter(item, `${projectId || 'legacy'}_character_${index + 1}`)),
+const normalizeStory = (story, projectId) => withFields(story,{
+  events: normalizeRows(story?.events,(item,index)=>normalizeStoryEvent(item,`${projectId || 'legacy'}_event_${index + 1}`,index)),
+  characters: normalizeRows(story?.characters,(item,index)=>normalizeStoryCharacter(item,`${projectId || 'legacy'}_character_${index + 1}`)),
 });
 const adoptedStory = project => ({
   characters: project.creator.story.characters.filter(item => item.accepted).map(({ id, name, description, start, end }) => ({ id, name, description, start, end })),
@@ -76,14 +87,14 @@ const adoptedStory = project => ({
       events:project.creator.story.events.filter(item=>!item.accepted&&eventIds.has(item.id)).map(({id,title})=>({id,title,accepted:false}))};
   })(),
 });
-const normalizeEpisode = (episode, kind, id) => ({
-  ...clone(episode || {}), id: episode?.id || id, title: text(episode?.title),
+const normalizeEpisode = (episode, kind, id) => withFields(episode,{
+  id: episode?.id || id, title: text(episode?.title),
   type: episode?.type || (episode?.kind === 'setting' ? 'settings' : 'episode'),
   [sideField(kind, 'input')]: text(episode?.[sideField(kind, 'input')]),
   [sideField(kind, 'output')]: text(episode?.[sideField(kind, 'output')]),
-  sourceEpisodeIds: Array.isArray(episode?.sourceEpisodeIds) ? [...episode.sourceEpisodeIds] : [],
+  sourceEpisodeIds: asArray(episode?.sourceEpisodeIds),
   generationVersion: Number(episode?.generationVersion) || 0,
-  generationVersions: Array.isArray(episode?.generationVersions) ? clone(episode.generationVersions) : [],
+  generationVersions: asArray(episode?.generationVersions),
   finalConfirmed: Boolean(episode?.finalConfirmed), stale: Boolean(episode?.stale),
 });
 const episodeBlocks = (episodes, kind, side) => {
@@ -102,41 +113,30 @@ export const normalizeCreatorProject = (project, kind = 'script') => {
   projectKey(kind);
   const initialMigration = project.creator?.schemaVersion !== SCHEMA_VERSION;
   const previous = project.creator || {};
-  const sections = Object.fromEntries(Object.keys(sectionLabels).map(key => [key, normalizeSection(previous.sections?.[key])]));
-  for (const [key, value] of Object.entries(previous.sections || {})) sections[key] = normalizeSection(value);
-  let episodes = (Array.isArray(project.episodes) ? project.episodes : []).filter(Boolean)
-    .map((episode, index) => normalizeEpisode(episode, kind, `${project.id || 'legacy'}_episode_${index + 1}`));
+  const sections = withFields(previous.sections,Object.fromEntries([...new Set([...Object.keys(sectionLabels),...Object.keys(previous.sections||{})])].map(key=>[key,normalizeSection(previous.sections?.[key])])));
+  let episodes = normalizeRows(project.episodes,(episode,index)=>normalizeEpisode(episode,kind,`${project.id || 'legacy'}_episode_${index + 1}`));
   // A legacy project with only a master needs a readable node. A project whose
   // episodes exist must retain those episodes even when their chosen side is blank.
   const aggregate = kind === 'fruit' ? text(project.masterScript) : text(project.finalScript) || text(project.masterScript);
   if (initialMigration && !episodes.length && aggregate.trim()) {
     episodes = [normalizeEpisode({ title: '完整剧本', [sideField(kind, 'output')]: aggregate }, kind, `${project.id || 'legacy'}_master`)];
   }
-  const legacy = clone(previous.legacy || {});
-  for (const key of ['masterScript', 'finalScript']) {
-    if (initialMigration && text(project[key]).trim() && text(project[key]).trim() !== episodeBlocks(episodes, kind, 'output')) {
-      legacy[key] = project[key];
-    }
+  let legacy=previous.legacy||{};
+  if(initialMigration&&['masterScript','finalScript'].some(key=>text(project[key]).trim())){
+   const output=episodeBlocks(episodes,kind,'output');
+   for(const key of ['masterScript','finalScript'])if(text(project[key]).trim()&&text(project[key]).trim()!==output)legacy={...legacy,[key]:project[key]};
   }
-  const source = previous.source ? clone(previous.source) : null;
-  if (source) {
-    source.id ||= `${project.id || 'legacy'}_source`;
-    source.name = text(source.name);
-    source.content = text(source.content);
-    source.episodes = (Array.isArray(source.episodes) ? source.episodes : []).map((episode, index) => ({
-      ...episode, id: episode.id || `${source.id}_episode_${index + 1}`, title: text(episode.title), content: text(episode.content),
-    }));
-  }
-  const records = (Array.isArray(previous.records) ? previous.records : []).filter(Boolean).map(record => clone(record));
-  const normalized = {
-    ...project, episodes,
-    creator: {
-      ...clone(previous), schemaVersion: SCHEMA_VERSION, mode: resolveMode(project, kind),
-      sections, source, references: Array.isArray(previous.references) ? clone(previous.references) : [],
-      records, chat: Array.isArray(previous.chat) ? clone(previous.chat) : [], legacy,
-      story: normalizeStory(previous.story, project.id),
-    },
-  };
+  const currentSource=previous.source,sourceId=currentSource?.id||`${project.id || 'legacy'}_source`;
+  const source=currentSource?withFields(currentSource,{
+   id:sourceId,name:text(currentSource.name),content:text(currentSource.content),
+   episodes:normalizeRows(currentSource.episodes,(episode,index)=>withFields(episode,{id:episode.id||`${sourceId}_episode_${index+1}`,title:text(episode.title),content:text(episode.content)})),
+  }):null;
+  const creator=withFields(previous,{
+   schemaVersion:SCHEMA_VERSION,mode:resolveMode(project,kind),sections,source,legacy,
+   references:asArray(previous.references),records:normalizeRows(previous.records,record=>record),chat:asArray(previous.chat),
+   story:normalizeStory(previous.story,project.id),
+  });
+  const normalized=withFields(project,{creator,episodes});
   return kind === 'script' && normalized.creator.mode === 'framework' ? normalizeFrameworkProject(normalized) : normalized;
 };
 
@@ -174,21 +174,24 @@ const mutateProject = (state, kind, id, mutate) => {
     if(before.creator.framework?.activePlanId===next.creator.framework?.activePlanId)next = markFollowingEpisodesStale(before, next, kind);
     if(next.creator.mode==='framework'&&next.creator.framework?.activePlanId){
       const f=next.creator.framework;
-      next={...next,creator:{...next.creator,framework:{...f,plans:f.plans.map(plan=>plan.id===f.activePlanId?{...plan,episodes:clone(next.episodes)}:plan)}}};
+      next={...next,creator:{...next.creator,framework:{...f,plans:f.plans.map(plan=>plan.id===f.activePlanId&&plan.episodes!==next.episodes?{...plan,episodes:next.episodes}:plan)}}};
     }
-    if (JSON.stringify(adoptedStory(before)) !== JSON.stringify(adoptedStory(next))) next = markDerivedSectionsStale(staleEpisodes(next, kind), ['skeleton','timeline','detail','episodeOutline','simulation']);
+    if(before.creator.story!==next.creator.story&&JSON.stringify(adoptedStory(before))!==JSON.stringify(adoptedStory(next)))next=markDerivedSectionsStale(staleEpisodes(next,kind),['skeleton','timeline','detail','episodeOutline','simulation']);
+    const changedInput=before.episodes!==next.episodes||['mode','sections','source','references','story','rewrite','framework'].some(key=>before.creator[key]!==next.creator[key]);
+    const previousRecords=changedInput?null:new Set(before.creator.records);
     const fingerprints = new Map();
     const records = next.creator.records.map(record => {
       if (!record.inputFingerprint || !['candidate', 'pending', 'running', 'completed', 'success'].includes(record.status)) return record;
+      if(previousRecords?.has(record))return record;
       const key = JSON.stringify(record.target || {});
       if (!fingerprints.has(key)) fingerprints.set(key, creatorInputFingerprint(next, record.target));
-      return { ...record, stale: record.inputFingerprint !== fingerprints.get(key) };
+      return withFields(record,{stale:record.inputFingerprint!==fingerprints.get(key)});
     });
     return { ...next, creator: { ...next.creator, records }, updatedAt: now() };
   }) };
 };
 const staleEpisodes = (project, kind, predicate = () => true) => ({ ...project,
-  episodes: project.episodes.map((episode, index) => predicate(episode, index) && text(episode[sideField(kind, 'output')]).trim()
+  episodes: project.episodes.map((episode, index) => !episode.stale&&predicate(episode, index) && text(episode[sideField(kind, 'output')]).trim()
     ? { ...episode, stale: true } : episode),
 });
 const markDerivedSectionsStale=(project,keys)=>({...project,creator:{...project.creator,sections:Object.fromEntries(Object.entries(project.creator.sections).map(([key,value])=>[key,keys.includes(key)&&text(value.output).trim()?{...value,stale:true}:value]))}});
@@ -201,6 +204,7 @@ const SECTION_DEPENDENCIES={
  timeline:['detail','episodeOutline','simulation'],experience:['simulation'],simulation:['detail','episodeOutline'],detail:['episodeOutline'],
 };
 const markFollowingEpisodesStale = (before, after, kind) => {
+  if(before.episodes===after.episodes)return after;
   let affectedFrom = Infinity;
   const previousById = new Map(before.episodes.map(episode => [episode.id, episode]));
   const inputField = sideField(kind, 'input'), outputField = sideField(kind, 'output');
@@ -318,7 +322,7 @@ const patchManualSection = (project, kind, key, patch) => {
 
 /** Patch creator fields only; the project wrapper and other sections survive. */
 export const updateCreatorProject = (state, kind, id, patch = {}) => mutateProject(state, kind, id, p => {
-  const creatorPatch = clone(patch.creator || patch), sectionPatch = creatorPatch.sections;
+  const creatorPatch = {...(patch.creator || patch)}, sectionPatch = creatorPatch.sections;
   delete creatorPatch.sections;
   let next = { ...p, creator: { ...p.creator, ...creatorPatch, schemaVersion: SCHEMA_VERSION } };
   if (own(creatorPatch, 'story')) {

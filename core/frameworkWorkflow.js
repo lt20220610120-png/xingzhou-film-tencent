@@ -4,6 +4,7 @@ const clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value))
 const list=value=>Array.isArray(value)?value:[];
 const text=value=>typeof value==='string'?value:'';
 const own=(value,key)=>Object.prototype.hasOwnProperty.call(value||{},key);
+const normalizedFrameworks=new WeakSet();
 export function normalizeSettingCategory(value){
  const category=text(value).trim();
  const aliases={background:'时代与背景',era:'时代与背景',premise:'核心脑洞',concept:'核心脑洞',rule:'世界规则',rules:'世界规则',world:'世界规则',world_rules:'世界规则',ability:'个人金手指',power:'个人金手指',golden_finger:'个人金手指'};
@@ -65,6 +66,13 @@ export function normalizeFrameworkProject(project){
  const mode=project.creator?.mode||project.mode;
  if(mode&&mode!=='framework')return project;
  if(project.creator?.mode!=='framework'&&project.mode!=='framework'&&!project.creator?.framework)return project;
+ const current=project.creator?.framework;
+ if(current&&normalizedFrameworks.has(current)&&['items','pending'].every(key=>current.settings[key].every(row=>row.category===normalizeSettingCategory(row.category)))){
+  const active=current.plans.find(plan=>plan.id===current.activePlanId);
+  const hasStoredPlan=current.plans.length||current.archives.some(row=>row.kind==='plan');
+  const episodes=active?active.episodes:hasStoredPlan&&project.episodes?.length?[]:project.episodes;
+  return episodes===project.episodes?project:{...project,episodes};
+ }
  const creator=clone(project.creator||{}),old=creator.framework||{},initial=old.version!==2;
  const prefix=project.id||'legacy';
  const groups=list(old.groups).length?old.groups:initial?structuredLegacy(creator):[];
@@ -92,7 +100,8 @@ export function normalizeFrameworkProject(project){
  if(initial&&f.plans.some(p=>p.legacy)){for(const p of f.plans.filter(p=>p.legacy))p.episodes=clone(project.episodes);}
  if(!initial)for(const p of f.plans){const original=list(old.plans).find(v=>v.id===p.id);if(original?.legacy)p.episodes=clone(original.episodes);}
  const active=f.plans.find(p=>p.id===f.activePlanId);
- return {...clone(project),episodes:active?clone(active.episodes):f.plans.length||f.archives.some(a=>a.kind==='plan')?[]:clone(project.episodes||[]),creator:{...creator,framework:f}};
+ normalizedFrameworks.add(f);
+ return {...project,episodes:active?active.episodes:f.plans.length||f.archives.some(a=>a.kind==='plan')?[]:project.episodes||[],creator:{...creator,framework:f}};
 }
 export const frameworkState=project=>normalizeFrameworkProject(project)?.creator?.framework;
 export const frameworkEvents=project=>{const f=frameworkState(project);return f?rows(f):[];};
@@ -148,11 +157,34 @@ function invalidate(before,f){
 function snapshotArchive(f,kind,value,id=value.id){f.archives.push({id,kind,snapshot:clone(value),createdAt:now()});}
 function addEvent(f,c){const value=event(c.event,c.event?.id||uid());insert(destination(f,c),value,c.index);return value;}
 
+function updateFrameworkEpisode(project,command){
+ const f=project.creator.framework,v=find(f.plans,command.planId,'集纲版本'),e=find(v.episodes,command.episodeId,'分集'),patch=command.patch||{};
+ if(own(patch,'eventIds')){
+  if(!Array.isArray(patch.eventIds))fail('INVALID','分集事件引用必须是列表。');
+  const valid=new Set(groupedRows(f).map(row=>row.event.id));
+  if(patch.eventIds.some(id=>!valid.has(id)))fail('INVALID','分集引用了不存在或尚未归组的事件。');
+ }
+ if(own(patch,'result')&&!command.draft||patch.finalConfirmed){settingsGate(f);if(v.stale)fail('STALE','集纲依赖的事件或规则已变化，请先复核集纲。');}
+ if(own(patch,'id'))fail('INVALID','不可修改分集编号。');
+ const position=v.episodes.indexOf(e),bodyChanged=own(patch,'result')&&patch.result!==e.result;
+ const outlineChanged=['content','title','eventIds','hook','continuity','duration'].some(key=>own(patch,key)&&!equal(patch[key],e[key]));
+ const episodes=v.episodes.map((row,index)=>{
+  if(index<position)return row;
+  const changes=index===position?{...(bodyChanged?{finalConfirmed:false,stale:false}:{}),...clone(patch)}:{};
+  if(outlineChanged||bodyChanged&&index>position&&text(row.result))Object.assign(changes,{stale:Boolean(text(own(changes,'result')?changes.result:row.result)),finalConfirmed:false});
+  return Object.keys(changes).some(key=>!equal(changes[key],row[key]))?{...row,...changes}:row;
+ });
+ const updated={...f,plans:f.plans.map(plan=>plan===v?{...plan,episodes}:plan)};
+ assertIds(updated);normalizedFrameworks.add(updated);
+ return {...project,episodes:v.id===f.activePlanId?episodes:project.episodes,creator:{...project.creator,framework:updated},updatedAt:now()};
+}
+
 /** Commands are atomic: failed validation never mutates the caller's project. */
 export function applyFrameworkCommand(project,command){
- const p=normalizeFrameworkProject(project);if(!p?.creator?.framework)fail('INVALID','当前项目不是框架式创作。');
+ const normalized=normalizeFrameworkProject(project);if(!normalized?.creator?.framework)fail('INVALID','当前项目不是框架式创作。');
  if(!command||typeof command.type!=='string')fail('INVALID','缺少操作类型。');
- const c=clone(command),before=clone(p.creator.framework),f=p.creator.framework;
+ if(command.type==='episode.update')return updateFrameworkEpisode(normalized,command);
+ const p=clone(normalized),c=clone(command),before=normalized.creator.framework,f=p.creator.framework;
  let lockException;
  switch(c.type){
  case 'creator.config':Object.assign(p.creator,clone(c.patch||{}));p.creator.framework=f;break;
@@ -333,17 +365,6 @@ export function applyFrameworkCommand(project,command){
  case 'plan.activate':find(f.plans,c.id,'集纲版本');f.activePlanId=c.id;break;
  case 'plan.delete':{const v=find(f.plans,c.id,'集纲版本');snapshotArchive(f,'plan',v);f.plans=f.plans.filter(v=>v.id!==c.id);if(f.activePlanId===c.id)f.activePlanId=null;break;}
  case 'plan.restore':{const a=[...f.archives].reverse().find(a=>a.kind==='plan'&&a.id===c.id)||fail('NOT_FOUND','找不到可恢复版本。');if(f.plans.some(v=>v.id===a.snapshot.id))fail('INVALID','该版本已经存在。');f.plans.push(clone(a.snapshot));break;}
- case 'episode.update':{
-  const v=find(f.plans,c.planId,'集纲版本'),e=find(v.episodes,c.episodeId,'分集');
-  if(own(c.patch,'eventIds')){if(!Array.isArray(c.patch.eventIds))fail('INVALID','分集事件引用必须是列表。');for(const id of c.patch.eventIds)if(!groupedRows(f).some(r=>r.event.id===id))fail('INVALID','分集引用了不存在或尚未归组的事件。');}
-  if(own(c.patch,'result')&&!c.draft||c.patch?.finalConfirmed){settingsGate(f);if(v.stale)fail('STALE','集纲依赖的事件或规则已变化，请先复核集纲。');}
-  if(own(c.patch,'id'))fail('INVALID','不可修改分集编号。');
-  if(own(c.patch,'result')&&c.patch.result!==e.result){e.finalConfirmed=false;e.stale=false;for(const following of v.episodes.slice(v.episodes.indexOf(e)+1))if(text(following.result)){following.stale=true;following.finalConfirmed=false;}}
-  const outlineChanged=['content','title','eventIds','hook','continuity','duration'].some(key=>own(c.patch,key)&&!equal(c.patch[key],e[key]));
-  Object.assign(e,clone(c.patch||{}));
-  if(outlineChanged){for(const affected of v.episodes.slice(v.episodes.indexOf(e))){affected.stale=Boolean(text(affected.result));affected.finalConfirmed=false;}}
-  break;
- }
  case 'version.snapshot':{const id=uid();snapshotArchive(f,'version',{...clone(f),archives:[],snapshotName:text(c.name)},id);break;}
  case 'version.restore':{
   const a=find(f.archives.filter(a=>a.kind==='version'),c.id,'项目版本');snapshotArchive(f,'version',{...clone(f),archives:[],snapshotName:'恢复前自动备份'},uid());
@@ -354,6 +375,7 @@ export function applyFrameworkCommand(project,command){
  assertIds(f);lockGuard(before,f,lockException);
  // Explicit review/confirmation actions are the only way to clear a stale mark.
  if(!['mainline.confirm','mainline.confirmAll','mainline.confirmGroups','mainline.review','version.restore','node.lock'].includes(c.type))invalidate(before,f);
- const active=f.plans.find(v=>v.id===f.activePlanId);p.episodes=active?clone(active.episodes):[];
+ const active=f.plans.find(v=>v.id===f.activePlanId);p.episodes=active?active.episodes:[];
+ normalizedFrameworks.add(f);
  p.updatedAt=now();return p;
 }

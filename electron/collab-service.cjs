@@ -9,18 +9,18 @@ const gateway = (action, payload = {}, token = '') => sharedGateway(action, payl
 async function uploadToBucket(projectId, filePath, kindHint, token, onUploaded, {
   requestSignature=gateway, putObject=require('./win-ai-api-fetch.cjs').winAIFetch,
 }={}) {
-  if (!filePath || !path.isAbsolute(filePath) || !fs.statSync(filePath,{throwIfNoEntry:false})?.isFile()) throw new Error('素材文件不存在');
+  if (!filePath || !path.isAbsolute(filePath) || !(await fs.promises.stat(filePath).catch(()=>null))?.isFile()) throw new Error('素材文件不存在');
   const ext = (path.extname(filePath) || '.bin').toLowerCase();
   const mime = projectMediaMime(ext, kindHint);
   const filename = path.basename(filePath);
   const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
-  const body = fs.readFileSync(filePath);
+  const body = kind==='image'||kind==='audio'?await fs.promises.readFile(filePath):await fs.openAsBlob(filePath,{type:mime});
   const signed = await requestSignature('media-upload-url', { projectId, filename, kind, mime, ...(kindHint==='asset'?{purpose:'asset-image'}:{}) }, token);
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const put = await putObject(signed.url, {
-        method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length) },
+        method: 'PUT', headers: { Authorization: signed.authorization, 'Content-Type': signed.contentType || mime, 'Content-Length': String(body.length??body.size) },
         body, redirect:'error', signal: AbortSignal.timeout(120000),
       });
       await put.body?.cancel?.();
@@ -31,7 +31,7 @@ async function uploadToBucket(projectId, filePath, kindHint, token, onUploaded, 
       await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)));
     }
   }
-  if (onUploaded) {
+  if (onUploaded && Buffer.isBuffer(body)) {
     try { await onUploaded(signed.url,{bytes:body,mime}); } catch {}
   }
   return { url: signed.url || '', objectPath: signed.objectKey, objectKey: signed.objectKey, filename, mime, kind };

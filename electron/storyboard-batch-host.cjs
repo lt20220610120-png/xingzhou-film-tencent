@@ -10,7 +10,7 @@ function createStoryboardBatchHost({directory,owner,license,getProject,listMedia
   const {storyboardGenerationInput}=await import('../core/storyboardBatch.js'),{storyboardSaveUpdates}=await import('../core/promptAssetUsage.js');
   const {cleanStoryboardReferenceValue}=await import('../core/storyboardReferences.js');
   item.value=cleanStoryboardReferenceValue(item.value,run.projectId);
-  const input=await storyboardGenerationInput({state:getState(),value:item.value,getLibTVModel:model=>schema(run.accountId,model)});
+  const input=await storyboardGenerationInput({state:await getState(),value:item.value,getLibTVModel:model=>schema(run.accountId,model)});
   await queue.assertDispatch({storyboardBatchRunId:run.id});
   const savedProject=await patchShot({projectId:run.projectId,episodeId:item.episodeId,shotId:item.shotId,editPolicy:'direct',requireExactBase:true,storyboardPublicationId:item.publicationId,...(!ep.storyboardPrompts?{promptEditionId:ep.promptEditionId||'legacy'}:{}),base:{content:shot.content,generationConfig:shot.generationConfig},updates:storyboardSaveUpdates({...item.value,referenceBindingMode:'storyboard'})});
   const acknowledged=storyboardSaveUpdates({...item.value,referenceBindingMode:'storyboard'}),savedShot=(savedProject?.episodes||[]).flatMap(ep=>ep.storyboardPrompts||ep.prompts||[]).find(s=>s.id===item.shotId);item.baseContent=savedShot?.content??acknowledged.content;item.baseGenerationConfig=savedShot?.generationConfig??acknowledged.generationConfig;

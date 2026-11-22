@@ -1,3 +1,4 @@
+import {confirmAction} from '../components/workspace-dialog.js';
 import {mergeStoryboardSaveReceipt} from '../../core/storyboardSaveReceipt.js';
 import {adoptedAssetImage} from '../../core/adoptedAssetImage.js';
 import {projectVoiceCards} from '../../core/characterVoices.js';
@@ -47,6 +48,7 @@ import {ProjectVideoPool} from './ProjectVideoPool.jsx';
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
+import {useWorkspacePolling,useWorkspaceVisible} from './useWorkspacePolling.js';
 import {
   ArrowLeft, Plus, X, Users, AudioLines, FileText, Palette, Box, Clapperboard,
   UserPlus, BarChart3, MessagesSquare, Sparkles, RefreshCw, Send,
@@ -71,6 +73,7 @@ import {artWorkflowState} from '../../core/artWorkflow.js';
 const SECTION_ICONS = { info: FileText, 'art-review': ClipboardCheck, art: Palette, voices: AudioLines, assets: Box, storyboard: Clapperboard, 'video-pool': Film, invite: UserPlus, stats: BarChart3, group: MessagesSquare };
 const collabAnalysisJobs = new Map();
 const collabAnalysisRuns = new Map();
+const analysisChanged = key => window.dispatchEvent(new CustomEvent('xingzhou-art-analysis-change',{detail:key}));
 function currentAnalysisJob(key){
  const active=[...(collabAnalysisRuns.get(key)||[])].filter(job=>['running','stopping'].includes(job.status));
  if(!active.length)return collabAnalysisJobs.get(key);
@@ -83,19 +86,24 @@ const fmtTime = (v) => { try { return new Date(v).toLocaleString('zh-CN', { hour
 const runAnalysis = args => runContinuousArtAnalysis(args);
 
 const stopAnalysis = async ({projectId,api,accountId}) => {
- const jobs=[...(collabAnalysisRuns.get(analysisJobKey(accountId,projectId))||[])];
+ const key=analysisJobKey(accountId,projectId),jobs=[...(collabAnalysisRuns.get(key)||[])];
  for(const job of jobs){job.cancelled=true;job.wakeRetry?.();job.status='stopped';job.notice='已停止信息读取，已有清单继续分发';}
+ analysisChanged(key);
  await Promise.allSettled([...new Set(jobs.flatMap(job=>[job.taskId,...(job.taskIds||[])]).filter(Boolean))].map(taskId=>api.cancelAiTask?.({taskId})));
 };
 
 function useCollabAnalysisJob(project,api,accountId,assets=[]) {
   const projectId=project.id,key=analysisJobKey(accountId,projectId);
   const [, setVersion] = useState(0);
+  const active=useWorkspaceVisible();
   useEffect(() => {
+    if(!active)return;
     const update = () => setVersion((value) => value + 1);
     let cancelled=false;
     const store=getArtReviewStore({api,projectId,accountId});
     const unsubscribe=store.subscribe(update);
+    const progress=event=>{if(event.detail===key)update();};
+    window.addEventListener('xingzhou-art-analysis-change',progress);
     store.load(project,assets).then(ledger=>{
       if(cancelled||!ledger)return;
       const old=currentAnalysisJob(key);
@@ -103,8 +111,8 @@ function useCollabAnalysisJob(project,api,accountId,assets=[]) {
       const summary=summarizeArtReview(ledger,project);
       collabAnalysisJobs.set(key,{...old,...summary,status:summary.pending?'pending':'completed',notice:artSyncNotice(summary),error:artReviewFailureSummary(summary.syncErrors)});update();
     }).catch(error=>{if(!cancelled){collabAnalysisJobs.set(key,{status:'failed',error:error.message});update();}});
-    update(); const timer = setInterval(update, 500); return () => {cancelled=true;unsubscribe();clearInterval(timer);};
-  }, [projectId,accountId,api,project.analysis_progress]);
+    return () => {cancelled=true;unsubscribe();window.removeEventListener('xingzhou-art-analysis-change',progress);};
+  }, [active,projectId,accountId,api,project.analysis_progress]);
   return currentAnalysisJob(key);
 }
 
@@ -119,11 +127,11 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   if (!allEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先添加剧本分集');
   const scope = targetEpisodeNumbers?.length ? `第 ${targetEpisodeNumbers.join('、')} 集` : '全部分集';
   const job = { status: 'running', error: '', notice: `${scope}美术分析准备中…`, cancelled: false, taskId: '', targetEpisodeNumbers,activeEpisodes:[] };
-  collabAnalysisJobs.set(key, job);runs.add(job);
+  collabAnalysisJobs.set(key, job);runs.add(job);analysisChanged(key);
   try {
     const result = await runAnalysis({ project, genre, profile, api, job,
       targetEpisodeNumbers, existingAssets: assets, force, mapOnly, focusItem, detailsOnly, accountId,
-      pipeline:true,onPublished:published=>window.dispatchEvent(new CustomEvent('xingzhou-storyboard-published',{detail:{accountId,project:published}})),onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data),onProgress: () => {} });
+      pipeline:true,onPublished:published=>window.dispatchEvent(new CustomEvent('xingzhou-storyboard-published',{detail:{accountId,project:published}})),onBindingSaved:data=>notifyBindingSaved(project.id,accountId,data),onProgress: () => analysisChanged(key) });
     job.status = job.cancelled ? 'stopped' : result.errors?.length ? 'paused' : result.workflow?.phase==='review' ? 'awaiting-review' : 'completed'; job.taskId = '';
     Object.assign(job,result);job.notice = result.automaticPublication&&!result.automaticPublication.remaining&&!result.errors?.length?`全剧 ${result.automaticPublication.published} 条提示词已自动核实发布`:`${artSyncNotice(result)} ${result.workflow?.message||''}`;job.error=(result.errors||[]).join('\n');
   } catch (error) {
@@ -134,7 +142,7 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
       job.status = 'failed'; job.error = `分析暂停：${readableCloudError(error)}。已完成片段已保存，继续时仅处理未完成部分。`; job.notice = '';
     }
   }
-  runs.delete(job);collabAnalysisJobs.set(key,job);return job;
+  runs.delete(job);collabAnalysisJobs.set(key,job);analysisChanged(key);return job;
 }
 
 export function ReviewSection(props){
@@ -446,7 +454,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     } catch(e) { setError(readableCloudError(e)); }
     finally { setBusy(false); }
   };
-  const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; if(!window.confirm('删除这张图片？若正在采用，将改用最新的剩余图片。'))return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
+  const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; if(!(await confirmAction('删除这张图片？若正在采用，将改用最新的剩余图片。', {danger:true})))return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
   const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: displayAssetName(asset,assets), images: [{ ...selectedImage, assetName: displayAssetName(asset,assets) }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
   const previewRequest = useRef(0);
   useEffect(() => { previewRequest.current++; }, [asset.id, selectedImage?.id]);
@@ -482,7 +490,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
           <div className="image-recovery-row"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit||pendingImage.reason==='expired'}>{generating||busy?<Loader2 size={14} className="spin"/>:<RefreshCw size={14}/>} {generating||busy?'处理中…':pendingImage.filePath?'继续保存图片':pendingImage.taskId?'查询原任务':'重试取回原图'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传原图</button></div>
           <div className={`image-recovery-row${pendingImage.receiptId?'':' image-recovery-single'}`}>
             {pendingImage.receiptId&&<button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开结果地址。如能看到原图，可保存后点击上传原图。');}catch(e){setError(e.message);}}}>打开结果地址</button>}
-            <button className="secondary image-recovery-abandon" disabled={busy||generating||!canEdit} onClick={()=>{if(window.confirm(`${pendingImage.taskId?'原生成任务可能仍在运行，放弃恢复不会取消上游任务。':'原恢复记录仍保留在本机。'}确定放弃旧结果？之后点击“生成图片”会重新调用接口并可能产生费用。`)){clearAssetImageRecovery(project.id,asset.id);setError('已放弃旧结果；可上传原图，或点击“生成图片”提交新任务（可能产生费用）。');}}}>放弃旧结果</button>
+            <button className="secondary image-recovery-abandon" disabled={busy||generating||!canEdit} onClick={async ()=>{if((await confirmAction(`${pendingImage.taskId?'原生成任务可能仍在运行，放弃恢复不会取消上游任务。':'原恢复记录仍保留在本机。'}确定放弃旧结果？之后点击“生成图片”会重新调用接口并可能产生费用。`, {danger:true}))){clearAssetImageRecovery(project.id,asset.id);setError('已放弃旧结果；可上传原图，或点击“生成图片”提交新任务（可能产生费用）。');}}}>放弃旧结果</button>
           </div>
           <small>恢复只取回原结果；放弃后再点“生成图片”会提交新任务，可能产生费用。</small>
           {error&&<div className="image-recovery-error" role="status">{error}</div>}
@@ -906,7 +914,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
         {wholeModal}
         {exportError&&<div className="collab-error" role="alert">{exportError}</div>}
         <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}>{wholeControls}</ProjectCompositionControl>
-        <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!window.confirm('确定清除整个项目的全部图片缓存？请先确认已下载到本地。')) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
+        <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!(await confirmAction('确定清除整个项目的全部图片缓存？请先确认已下载到本地。', {danger:true}))) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
         {exportChoiceOpen&&<ArtExportChoiceDialog versions={exportVersions} version={selectedExportVersion} onVersionChange={setExportVersion} loading={!availableExportBinding&&!exportBindingError} error={exportBindingError} exporting={exporting} onClose={()=>setExportChoiceOpen(false)} onChoose={layout=>{if(layout==='flat')void exportImages(projectImages,`${project.name}-全部美术图片`,'flat');else if(layout==='episode')void exportWithVoices(projectImages,`${project.name}-按集美术素材`,'episode');else if(layout==='scene')void exportWithVoices(projectImages,`${project.name}-按场景美术素材`,'scene');else askExport(exportPromptVersion);}}/>}
         {exportAudioChoice&&<ArtExportAudioDialog onClose={()=>setExportAudioChoice(null)} onChoose={includeAudio=>{const run=exportAudioChoice.run;setExportAudioChoice(null);void run(includeAudio);}}/>}
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
@@ -1118,11 +1126,11 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
       batchRunning.current=false;setBatchBusy(false);
     }
   };
-  const abandonBatch = () => {
+  const abandonBatch = async () => {
     if(!canEdit||!onlyMissing||showArchived||batchRunning.current||batchBusy)return;
     const plan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
     if(!plan.targets.length)return;
-    if(!window.confirm(`一键放弃 ${plan.targets.length} 项旧结果？\n范围：${recoveryScope}。\n仅解除这些资产的恢复状态，不删除已保存图片；上游任务不会因此取消。\n不会自动重新生成；之后手动点击生成会新建任务，并可能产生费用。`))return;
+    if(!(await confirmAction(`一键放弃 ${plan.targets.length} 项旧结果？\n范围：${recoveryScope}。\n仅解除这些资产的恢复状态，不删除已保存图片；上游任务不会因此取消。\n不会自动重新生成；之后手动点击生成会新建任务，并可能产生费用。`, {danger:true})))return;
     const result=abandonAssetImageRecoveries(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
     setRecoveryReport({kind:'abandoned',scope:recoveryScope,success:result.cleared.length,failures:[],skipped:result.skipped.length,busy:result.busy.length,remaining:0});setImageProgress(null);
   };
@@ -1219,13 +1227,13 @@ export function InviteSection({ project, directorCloudProjectId, api, refresh })
   const [removeTarget, setRemoveTarget] = useState(null);
   const episodes = Array.isArray(project.episodes) ? project.episodes : [];
 
-  const load = useCallback(async () => {
+  const poll = useWorkspacePolling(async current => {
     try {
-      const [m, t] = await Promise.all([api.collabListMembers({ projectId: project.id }), api.collabListTasks({ projectId: project.id })]);
-      setMembers(m || []); setTasks(t || []); setLoadError('');
-    } catch (e) { setLoadError(`成员读取失败：${readableCloudError(e)}`); }
-  }, [api, project.id]);
-  useEffect(() => { load(); const timer = setInterval(load, 10000); return () => clearInterval(timer); }, [load]);
+      const [m,t]=await Promise.all([api.collabListMembers({projectId:project.id}),api.collabListTasks({projectId:project.id})]);
+      if(current()){setMembers(m||[]);setTasks(t||[]);setLoadError('');}
+    } catch(e) {if(current())setLoadError('成员读取失败：'+readableCloudError(e));}
+  },{scope:project.id,delay:10000});
+  const load=()=>poll({afterCurrent:true});
 
   const invite = async () => {
     if (busy) return;
@@ -1342,11 +1350,10 @@ export function InviteSection({ project, directorCloudProjectId, api, refresh })
 function StatsSection({ project, api }) {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState('');
-  const load = useCallback(async () => {
-    try { setStats(await api.collabGetStats({ projectId: project.id })); setError(''); }
-    catch (e) { setError(e.message); }
-  }, [project.id]);
-  useEffect(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer); }, [load]);
+  useWorkspacePolling(async current=>{
+    try {const bundle=await api.collabGetStats({projectId:project.id});if(current()){setStats(bundle);setError('');}}
+    catch(e){if(current())setError(e.message);}
+  },{scope:project.id,delay:15000});
 
   if (error) return <div className="collab-error">{error}</div>;
   if (!stats) return <div className="collab-empty"><Loader2 size={22} className="spin" /><p>正在读取云端数据…</p></div>;
@@ -1393,24 +1400,15 @@ function GroupSection({ project, api, account }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef(null);
-  const followLatest=useRef(true),inFlight=useRef(null),sending=useRef(false);
-
-  const load = useCallback(() => {
-    if(inFlight.current)return inFlight.current;
-    const request=Promise.resolve().then(()=>api.collabListMessages({projectId:project.id})).then(rows=>{
-      if(Array.isArray(rows))setMessages([...new Map(rows.map(row=>[String(row.id),row])).values()]);
-    }).catch(()=>{}).finally(()=>{inFlight.current=null;});
-    inFlight.current=request;return request;
-  }, [api,project.id]);
-
-  useEffect(() => {
-    if(!workspaceActive)return;
-    let listening=true;
-    Promise.resolve().then(()=>api.collabListMembers({projectId:project.id})).then(rows=>{if(listening)setMembers(rows||[]);}).catch(()=>{});
-    void load();
-    const timer=setInterval(load,4000);
-    return ()=>{listening=false;clearInterval(timer);};
-  }, [workspaceActive,api,project.id,load]);
+  const followLatest=useRef(true),sending=useRef(false);
+  const load=useWorkspacePolling(async current=>{
+    const rows=await api.collabListMessages({projectId:project.id});
+    if(current()&&Array.isArray(rows))setMessages([...new Map(rows.map(row=>[String(row.id),row])).values()]);
+  },{scope:project.id,delay:4000});
+  useWorkspacePolling(async current=>{
+    const rows=await api.collabListMembers({projectId:project.id});
+    if(current())setMembers(rows||[]);
+  },{scope:project.id,repeat:false});
   useLayoutEffect(()=>{
     const list=listRef.current;
     if(workspaceActive&&followLatest.current&&list)list.scrollTop=list.scrollHeight;
@@ -1420,7 +1418,7 @@ function GroupSection({ project, api, account }) {
     if (sending.current || !draft.trim()) return;
     sending.current=true;
     setBusy(true); setError('');
-    try { await api.collabSendMessage({ projectId: project.id, content: draft }); setDraft(current=>current===draft?'':current); await inFlight.current; await load(); }
+    try { await api.collabSendMessage({ projectId: project.id, content: draft }); setDraft(current=>current===draft?'':current); await load({afterCurrent:true}).catch(()=>{}); }
     catch (e) { setError(e.message); }
     finally { sending.current=false;setBusy(false); }
   };
@@ -1429,7 +1427,7 @@ function GroupSection({ project, api, account }) {
     if (sending.current) return;
     sending.current=true;
     setBusy(true); setError('');
-    try { const r = await api.collabSendImage({ projectId: project.id }); if (r) {await inFlight.current;await load();} }
+    try { const r = await api.collabSendImage({ projectId: project.id }); if (r) await load({afterCurrent:true}).catch(()=>{}); }
     catch (e) { setError(e.message); }
     finally { sending.current=false;setBusy(false); }
   };
@@ -1564,19 +1562,31 @@ export function CollabWorkspace({ state, api, account }) {
   const applyProject=useCallback(saved=>{if(!saved?.id)return;refreshRequestRef.current+=1;setProject(current=>{if(current?.id!==saved.id)return current;const next=mergeStoryboardSaveReceipt(current,saved);writeCache(`project-${saved.id}`,next);return next;});},[]);
   const [refreshNotice, setRefreshNotice] = useState('');
 
-  const loadProjects = useCallback(async (options = {}) => {
-    try { const rows = await api.collabListProjects(options) || []; setProjects(rows); writeCache('projects', rows); setListError(''); }
-    catch (e) { setListError(String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,'')); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => {
-    loadProjects();
-    api.collabIsProducer?.().then(setIsProducer).catch(() => setIsProducer(false));
-  }, [loadProjects]);
+  const listRequest=useRef(null);
+  const loadProjects=useCallback((options={})=>{
+    const {current=()=>true,afterCurrent=false,...query}=options;
+    if(!current())return Promise.resolve();
+    if(listRequest.current){
+      if(!afterCurrent&&!query.refreshCloud)return listRequest.current;
+      return listRequest.current.then(()=>loadProjects(options));
+    }
+    const request=(async()=>{
+      try {
+        const rows=await api.collabListProjects(query)||[];
+        if(current()){setProjects(rows);writeCache('projects',rows);setListError('');}
+      } catch(e) {if(current())setListError(readableCloudError(e));}
+      finally {if(current())setLoading(false);}
+    })();
+    listRequest.current=request;
+    return request.finally(()=>{if(listRequest.current===request)listRequest.current=null;});
+  },[api,writeCache]);
+  useWorkspacePolling(async current=>{
+    try{const value=await api.collabIsProducer?.();if(current())setIsProducer(Boolean(value));}
+    catch{if(current())setIsProducer(false);}
+  },{scope:account?.id,repeat:false});
 
   // 记忆功能：切走再回来直接恢复上次操作的项目（缓存先显 + 后台刷新）
-  useEffect(() => {
+  useWorkspacePolling(current=>{
     if (restoredRef.current) return;
     restoredRef.current = true;
     const requestId = ++refreshRequestRef.current;
@@ -1590,25 +1600,23 @@ export function CollabWorkspace({ state, api, account }) {
       setSection(lastSection && sectionsForRole(cachedProject.myRole).includes(lastSection) ? lastSection : sectionsForRole(cachedProject.myRole)[0]);
     }
     // 后台校验项目仍可访问并拉取最新数据
-    Promise.all([
+    return Promise.all([
       api.collabGetProject({ projectId: lastId }),
       api.collabListAssets({ projectId: lastId }),
     ]).then(([p, a]) => {
-      if (requestId !== refreshRequestRef.current) return;
+      if (!current() || requestId !== refreshRequestRef.current) return;
       const normalizedAssets=prepareAssets(p,a || []);
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${lastId}`, p); writeCache(`assets-${lastId}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
     }).catch(() => {
-      if (!cachedProject) localStorage.removeItem('xz-collab-last-project');
+      if (current()&&!cachedProject) localStorage.removeItem('xz-collab-last-project');
+    }).finally(()=>{
+      if (!current()&&requestId===refreshRequestRef.current) restoredRef.current=false;
     });
-  }, []);
+  },{scope:account?.id,repeat:false});
 
-  useEffect(() => {
-    if (project) return undefined;
-    const timer = setInterval(loadProjects, 12000);
-    return () => clearInterval(timer);
-  }, [project, loadProjects]);
+  useWorkspacePolling(current=>loadProjects({current}),{scope:account?.id,delay:12000,enabled:!project});
 
   useEffect(() => { try { if (section) localStorage.setItem('xz-collab-last-section', section); } catch { /* noop */ } }, [section]);
 
@@ -1621,7 +1629,7 @@ export function CollabWorkspace({ state, api, account }) {
     const work=(async()=>{
     if (!project?.id) return;
     const projectId = project.id;
-    const isCurrentTarget = () => accountScope.current === (account?.id||'local') && currentProjectIdRef.current === projectId && (options.manual || currentSectionRef.current !== 'art-review');
+    const isCurrentTarget = () => accountScope.current === (account?.id||'local') && currentProjectIdRef.current === projectId && (options.manual || currentSectionRef.current !== 'art-review') && (!options.visible || options.visible());
     if (!isCurrentTarget()) return;
     const requestId = ++refreshRequestRef.current;
     try {
@@ -1673,12 +1681,9 @@ export function CollabWorkspace({ state, api, account }) {
     window.addEventListener('xingzhou-storyboard-published',accept);return()=>window.removeEventListener('xingzhou-storyboard-published',accept);
   },[account?.id,project?.id]);
 
-  // 实时刷新：进入项目后轮询云端
-  useEffect(() => {
-    if (!project?.id || section === 'art-review') return;
-    const timer = setInterval(refreshProject, 12000);
-    return () => clearInterval(timer);
-  }, [project?.id, section, refreshProject]);
+  useWorkspacePolling(visible=>refreshProject({visible}),{
+    scope:project?.id,delay:12000,enabled:Boolean(project?.id)&&section!=='art-review',immediate:false,
+  });
 
   const openProject = async (id) => {
     if (openingProjectRef.current?.id === id && openingProjectRef.current.accountId === accountScope.current) return;
@@ -1735,7 +1740,7 @@ export function CollabWorkspace({ state, api, account }) {
       const episodes = (dp.episodes || []).map((ep) => ({ title: ep.title, content: ep.content || '', prompts: (ep.prompts || []).map((p) => ({ ...p })) }));
       const created = await api.collabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes });
       setDialogOpen(false);
-      await loadProjects();
+      await loadProjects({afterCurrent:true});
       await openProject(created.id);
     } catch (e) { setCreateError(e.message); }
     finally { setCreating(false); }
@@ -1781,9 +1786,9 @@ export function CollabWorkspace({ state, api, account }) {
           <StartProjectDialog directorProjects={state.directorProjects || []} busy={creating} error={createError}
             onClose={() => setDialogOpen(false)} onCreate={createProject} />
         )}
-        <DeletedProjects projects={projects.filter((p) => p.deleted_at)} api={api} account={account} onChanged={loadProjects} />
+        <DeletedProjects projects={projects.filter((p) => p.deleted_at)} api={api} account={account} onChanged={()=>loadProjects({afterCurrent:true})} />
         {deleteError && <div className="collab-error">删除失败：{deleteError}</div>}
-        <DeleteConfirm open={Boolean(deleteTarget)} title="删除协作项目" name={deleteTarget?.name} error={deleteError} detail={deleteTarget?.storageMode==='local'?'项目将移入本机回收站，可从回收站恢复。是否确定删除？':'项目会进入云端三天恢复期，到期后清理项目及关联记录。是否确定删除？'} onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget||!canManageCloudProject(deleteTarget,account)) return; try { await api.collabDeleteProject({ projectId: deleteTarget.id }); setDeleteTarget(null); await loadProjects(); } catch (err) { setDeleteError(err.message || '云端删除请求失败'); } }} />
+        <DeleteConfirm open={Boolean(deleteTarget)} title="删除协作项目" name={deleteTarget?.name} error={deleteError} detail={deleteTarget?.storageMode==='local'?'项目将移入本机回收站，可从回收站恢复。是否确定删除？':'项目会进入云端三天恢复期，到期后清理项目及关联记录。是否确定删除？'} onCancel={() => setDeleteTarget(null)} onConfirm={async () => { if (!deleteTarget||!canManageCloudProject(deleteTarget,account)) return; try { await api.collabDeleteProject({ projectId: deleteTarget.id }); setDeleteTarget(null); await loadProjects({afterCurrent:true}); } catch (err) { setDeleteError(err.message || '云端删除请求失败'); } }} />
       </div>
     );
   }
@@ -1814,12 +1819,12 @@ export function CollabWorkspace({ state, api, account }) {
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
       <main className="collab-stage">
-        <EpisodeIdentityPanel key={project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
-        <PromptPublicationProgress key={`${account?.id}:${project.id}`} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
+        <EpisodeIdentityPanel key={'identity:'+project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
+        <PromptPublicationProgress key={'publication:'+account?.id+':'+project.id} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
         <div className="collab-storage-status" role="status">{project.storageMode==='local'?<><Save size={14}/>本机保存</>:project.localPreparing?<><RefreshCw size={14}/>正在准备本机项目副本</>:<><Users size={14}/>云端协作</>}{project.localPreparationError&&<span>{project.localPreparationError}</span>}</div>
         {section === 'info' && <InfoSection project={project} assets={assets} refresh={refreshProject} api={api} state={state} canEdit={canEditArt} accountId={account?.id} onProjectChange={applyProject} onOpenReview={number=>{if(number)rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'art-review'},{episodeNumber:number});setSection('art-review');}} />}
-        {section === 'art-review' && <ReviewSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
-        {section === 'art' && <ArtSection key={`${account?.id}:${project.id}`} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
+        {section === 'art-review' && <ReviewSection key={'review:'+account?.id+':'+project.id} project={project} assets={assets} api={api} state={state} canEdit={canEditArt} accountId={account?.id} refresh={refreshProject} onOpenArt={()=>setSection('art')} />}
+        {section === 'art' && <ArtSection key={'art:'+account?.id+':'+project.id} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
         {section === 'voices' && <ProjectVoices project={project} assets={assets} api={api} state={state} accountId={account?.id} canEdit={canEditArt}/> }
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
         {section === 'storyboard' && <StoryboardSection onOpenReview={sectionsForRole(myRole).includes('art-review')?entry=>{const navScope={accountId:account?.id,projectId:project.id,section:'art-review'},nav=readCollabNavigation(navScope);rememberCollabNavigation(navScope,{episodeNumber:entry.episode,scenes:{...nav.scenes,[entry.episode]:entry.sceneId},promptId:entry.id});setSection('art-review');}:undefined} project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
@@ -1827,7 +1832,7 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject}
           directorCloudProjectId={state.directorProjects?.find(source => source.id === project.director_project_id)?.cloudProjectId} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}
-        {section === 'group' && <GroupSection key={project.id} project={project} api={api} account={account} />}
+        {section === 'group' && <GroupSection key={'group:'+project.id} project={project} api={api} account={account} />}
       </main>
     </div>
   );

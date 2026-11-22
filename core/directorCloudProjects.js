@@ -1,4 +1,4 @@
-import {threeWayMerge} from './threeWayMerge.js';
+import {sameJson as same,threeWayMerge} from './threeWayMerge.js';
 import {parseDirectorScenes} from './scriptImport.js';
 const cloudLocalId = (cloud) => `cloud-${cloud.id}`;
 
@@ -10,10 +10,6 @@ const newerPrompt = (a, b) => {
   const tb = Date.parse(b?.editedAt || b?.edited_at || b?.createdAt || 0) || 0;
   return tb > ta ? b : a;
 };
-
-const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value==='object'
-  ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
-const same = (a,b) => JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 
 export function mergeQuickScenePlans(localEpisode={},cloudEpisode={},baseEpisode) {
   const byId=new Map(),conflicts=[];
@@ -43,9 +39,11 @@ export function mergeQuickScenePlans(localEpisode={},cloudEpisode={},baseEpisode
 
 const attachPlans = (episode,local={},cloud={},base) => {
   const merged=mergeQuickScenePlans(local,cloud,base),active={};
+  const plansById=new Map(merged.plans.map(plan=>[plan.id,plan])),scenesByNumber=new Map();
   for(const [label,id] of Object.entries(merged.activePlanIds)){
-    const plan=merged.plans.find(plan=>plan.id===id);
-    const scene=parseDirectorScenes(episode.content,Number(label.split('-')[0]) || 1).find(scene=>scene.label===label);
+    const plan=plansById.get(id),number=Number(label.split('-')[0])||1;
+    if(!scenesByNumber.has(number))scenesByNumber.set(number,new Map(parseDirectorScenes(episode.content,number).map(scene=>[scene.label,scene])));
+    const scene=scenesByNumber.get(number).get(label);
     const input=Object.hasOwn(episode.quickSceneEdits || {},label)?String(episode.quickSceneEdits[label] ?? ''):scene?.content;
     if(plan && scene && plan.sceneLabel===label && plan.sourceSnapshot===input)active[label]=id;
   }
@@ -91,7 +89,10 @@ export const mergeCloudEpisodes = (localEpisodes = [], cloudEpisodes = []) => {
 };
 
 const fromCloud = (cloud, existing = {}) => {
- if(existing.cloudLive)return {...existing,cloudLocked:Boolean(cloud.locked??existing.cloudLocked),cloudRole:cloud.myRole||existing.cloudRole};
+ if(existing.cloudLive){
+  const cloudLocked=Boolean(cloud.locked??existing.cloudLocked),cloudRole=cloud.myRole||existing.cloudRole;
+  return cloudLocked===existing.cloudLocked&&cloudRole===existing.cloudRole?existing:{...existing,cloudLocked,cloudRole};
+ }
  // A list request begun before our save can arrive after the newer receipt.
  // Keep the newer document and baseline; the next poll fetches live permissions.
  if(existing.cloudUpdatedAt && cloud.updated_at && Date.parse(cloud.updated_at)<Date.parse(existing.cloudUpdatedAt))return existing;
@@ -141,15 +142,20 @@ const fromCloud = (cloud, existing = {}) => {
 };
 
 export const reconcileDirectorCloudProjects = (localProjects = [], cloudProjects = []) => {
+  const byCloudId=new Map(),bySourceId=new Map();
+  cloudProjects.forEach((row,index)=>{
+    if(!byCloudId.has(row.id))byCloudId.set(row.id,{row,index});
+    if(!bySourceId.has(row.analysis_output))bySourceId.set(row.analysis_output,{row,index});
+  });
   const next = localProjects.map((project) => {
-    const cloud = cloudProjects.find((item) => item.id === project.cloudProjectId || item.analysis_output === project.id);
-    return cloud ? fromCloud(cloud, project) : project.cloudProjectId ? { ...project, groupId: 'director-cloud' } : project;
+    const id=byCloudId.get(project.cloudProjectId),source=bySourceId.get(project.id),cloud=(!id||source&&source.index<id.index?source:id)?.row;
+    return cloud ? fromCloud(cloud, project) : project.cloudProjectId&&project.groupId!=='director-cloud' ? { ...project, groupId: 'director-cloud' } : project;
   });
+  const localIds=new Set(next.map(project=>project.id)),cloudIds=new Set(next.map(project=>project.cloudProjectId));
   cloudProjects.forEach((cloud) => {
-    const exists = next.some((project) => project.cloudProjectId === cloud.id || project.id === cloudLocalId(cloud));
-    if (!exists) next.push(fromCloud(cloud));
+    if(!cloudIds.has(cloud.id)&&!localIds.has(cloudLocalId(cloud))){next.push(fromCloud(cloud));cloudIds.add(cloud.id);localIds.add(cloudLocalId(cloud));}
   });
-  return next;
+  return next.length===localProjects.length&&next.every((project,index)=>project===localProjects[index])?localProjects:next;
 };
 
 export const removeDirectorCloudProjection = (localProjects = [], cloudProjectId) => localProjects

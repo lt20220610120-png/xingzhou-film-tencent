@@ -1,6 +1,6 @@
 import {FormattedText} from '../components/FormattedText.jsx';
 import {ModelSelect} from './ModelSelect.jsx';
-import React, { useState, useRef, useEffect } from 'react';
+import React, {memo,useCallback,useMemo,useState,useRef,useEffect} from 'react';
 import {
   Bot, Plus, X, MessageSquare, Sparkles, Pin, PinOff,
   Trash2, Paperclip
@@ -15,7 +15,7 @@ const LAST_USED_SKILL_KEY = 'xz-last-used-skill';
 /**
  * SessionRow - 单个会话行
  */
-function SessionRow({ item, active, setState, setTarget }) {
+const SessionRow=memo(function SessionRow({ item, active, setState, setTarget }) {
   return (
     <div className={`session-row ${active ? 'active' : ''}`}>
       <button className="session-title" onClick={() => setState((s) => setActiveChat(s, item.id))}>
@@ -32,7 +32,14 @@ function SessionRow({ item, active, setState, setTarget }) {
       </button>
     </div>
   );
-}
+});
+
+const ChatBubble=memo(function ChatBubble({message,register}){
+  const bind=useCallback(node=>register(message.id,node),[message.id,register]);
+  return <div id={`msg-${message.id}`} ref={bind} className={`chat-bubble ${message.role}`}>
+    {message.role==='assistant'?<FormattedText text={message.content}/>:message.content}
+  </div>;
+});
 
 /**
  * PersistentChat - 持久会话聊天组件
@@ -52,10 +59,11 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
   const [busySessions,setBusySessions]=useState({});const sendingRef=useRef(new Set());
   const [deleteTarget, setDeleteTarget] = useState(null);
   const msgRefs = useRef({});
+  const registerMessage=useCallback((id,node)=>{if(node)msgRefs.current[id]=node;else delete msgRefs.current[id];},[]);
 
-  const sessions = [...(state.chatSessions || [])].sort(
+  const sessions = useMemo(()=>[...(state.chatSessions || [])].sort(
     (a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.updatedAt) - new Date(a.updatedAt)
-  );
+  ),[state.chatSessions]);
   const activeSession = sessions.find((s) => s.id === state.activeChatId) || sessions[0];
   const selectedSkill = state.skills?.find(skill=>skill.id===skillId);
 
@@ -206,16 +214,7 @@ export function PersistentChat({ open, onClose, state, setState, api, attachment
             </div>
           )}
 
-          {activeSession?.messages?.map((msg) => (
-            <div
-              key={msg.id}
-              id={`msg-${msg.id}`}
-              ref={(el) => { if (el) msgRefs.current[msg.id] = el; }}
-              className={`chat-bubble ${msg.role}`}
-            >
-              {msg.role==='assistant'?<FormattedText text={msg.content}/>:msg.content}
-            </div>
-          ))}
+          {activeSession?.messages?.map(message=><ChatBubble key={message.id} message={message} register={registerMessage}/>)}
         </div>
 
         {/* 紧凑输入区域：Skill + 发送按钮同行 */}

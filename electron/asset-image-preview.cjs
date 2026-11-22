@@ -11,7 +11,7 @@ function createAssetImagePreview({resolveImage,readBytes,readAccount,previewCach
       const local=await previewCache.get(image.url,account);
       if(readAccount()!==account)throw new Error('账号已切换，请重新打开图片');
       if(local)return {...image,originalUrl:image.url,url:local};
-      const original=peekOriginal?.(image.url,account);
+      const original=await peekOriginal?.(image.url,account);
       if(!original) {
         image=await resolveImage({...payload,preview:true,quickPreview:!!peekOriginal});
         if(readAccount()!==account)throw new Error('账号已切换，请重新打开图片');

@@ -1,6 +1,7 @@
 import React, {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
+import {useWorkspaceVisible} from './useWorkspacePolling.js';
 import {List,Layers,Check,CheckCheck,ChevronDown,ChevronLeft,ChevronRight,ClipboardCheck,CloudUpload,Loader2,MapPin,Package,PencilLine,Plus,RefreshCw,Undo2,Users,X} from 'lucide-react';
 import {inspectCollabEpisodes} from '../../core/collabEpisodes.js';
 import {parseAssetName,displayAssetName} from '../../core/collabStore.js';
@@ -114,6 +115,7 @@ function ReviewScene({scene,record,voiceItems=[],canChange,onAct,onUpdate,onEdit
 }
 
 export default function ArtReviewSection({project,assets,api,state,accountId,canEdit,refresh,analysisJob,onAnalyze,onStop,onOpenArt}){
+ const visible=useWorkspaceVisible();
  const episodeInspection=useMemo(()=>inspectCollabEpisodes(project.episodes),[project.episodes]);
  const episodes=episodeInspection.episodes;
  const store=useMemo(()=>getArtReviewStore({api,projectId:project.id,accountId}),[api,project.id,accountId]);
@@ -128,8 +130,8 @@ export default function ArtReviewSection({project,assets,api,state,accountId,can
  const publishTasks=useRef(new Set()),sceneNavRef=useRef(null),[selectedScenes,setSelectedScenes]=useState(()=>readCollabNavigation(navScope).scenes||{});
  useEffect(()=>{rememberCollabNavigation(navScope,{episodeNumber:number,scenes:selectedScenes,promptVersionId:reviewVersion});},[accountId,project.id,number,selectedScenes,reviewVersion]);
  const [modelId,setModelId,profile]=useWindowModel(`analysis:${project.id}`,state.apiProfiles||[],state.activeApiId);
- useEffect(()=>store.subscribe(()=>rerender(v=>v+1)),[store]);
- useEffect(()=>{let active=true;store.load(project,assets).catch(e=>active&&setError(e.message)).finally(()=>active&&setLoading(false));return()=>{active=false;};},[store,project,assets]);
+ useEffect(()=>visible?store.subscribe(()=>rerender(v=>v+1)):undefined,[store,visible]);
+ useEffect(()=>{if(!visible)return;let active=true;store.load(project,assets).catch(e=>active&&setError(e.message)).finally(()=>active&&setLoading(false));return()=>{active=false;};},[store,project,assets,visible]);
  useEffect(()=>{if(!episodes.some(e=>e.episodeNumber===number))setNumber(episodes[0]?.episodeNumber);},[episodes,number]);
  const ledger=store.snapshot(),episode=episodes.find(e=>e.episodeNumber===number),record=ledger.episodes[number],current=isReviewCurrent(record,episode),running=['running','stopping'].includes(analysisJob?.status);
  const workflow=artWorkflowState(ledger,project);

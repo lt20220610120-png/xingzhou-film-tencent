@@ -1,4 +1,4 @@
-const fs = require('node:fs');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const COS_HOST = 'xingzhou-media-test-1469762028.cos.ap-guangzhou.myqcloud.com';
@@ -9,6 +9,7 @@ const CACHE_EXTENSIONS = IMAGE_EXTENSIONS + '|' + AUDIO_EXTENSIONS;
 const CACHE_MAX_BYTES = 24 * 1024 ** 3;
 const CACHE_MAX_AGE = 90 * 86400000;
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+const hashBytes=async bytes=>Buffer.from(await crypto.subtle.digest('SHA-256',bytes)).toString('hex');
 const projectPath = new RegExp('^/projects/[\\w-]+/(?:image/[\\w.-]+\\.(?:'+IMAGE_EXTENSIONS+')|audio/[\\w.-]+\\.(?:'+AUDIO_EXTENSIONS+'))$', 'i');
 const entryName = new RegExp('^[a-f0-9]{64}\\.(?:'+CACHE_EXTENSIONS+')$');
 
@@ -35,24 +36,24 @@ const mediaMime = /^(?:image\/(?:png|jpeg|webp|gif)|audio\/(?:wav|x-wav|wave|mpe
 
 function createCosImageCache({directory,maxBytes=CACHE_MAX_BYTES,maxEntryBytes=64*1024*1024,maxAgeMs=CACHE_MAX_AGE,onRead=()=>{}}) {
   const pending = new Map();
-  let entries, total = 0;
-  const remove = file => { for (const name of [file,file+'.json']) { try { fs.unlinkSync(name); } catch {} } };
+  let entries,total=0,writeTail=Promise.resolve();
+  const remove=async file=>{await Promise.all([file,file+'.json'].map(name=>fs.unlink(name).catch(()=>{})));};
   const remember = (file, size, time) => {
     if (!entries) return;
     total += size - (entries.get(file)?.size || 0);
     if (size) entries.set(file,{file,size,time});
     else entries.delete(file);
   };
-  const prune = currentFile => {
+  const prune = async currentFile => {
     if (!entries) {
       entries = new Map();
-      for (const name of fs.readdirSync(directory)) {
+      for (const name of await fs.readdir(directory)) {
         if (!entryName.test(name)) continue;
         const file = path.join(directory,name);
         try {
-          const stat = fs.lstatSync(file);
+          const stat = await fs.lstat(file);
           if (!stat.isFile()) continue;
-          if (Date.now()-stat.mtimeMs > maxAgeMs || !fs.existsSync(file+'.json')) { remove(file); continue; }
+          if (Date.now()-stat.mtimeMs > maxAgeMs || !await fs.lstat(file+'.json').then(s=>s.isFile(),()=>false)) { await remove(file); continue; }
           remember(file,stat.size,stat.mtimeMs);
         } catch {}
       }
@@ -61,56 +62,62 @@ function createCosImageCache({directory,maxBytes=CACHE_MAX_BYTES,maxEntryBytes=6
     for (const entry of [...entries.values()].sort((a,b)=>a.time-b.time)) {
       if (total <= maxBytes) break;
       if (entry.file === currentFile) continue;
-      remove(entry.file);
+      await remove(entry.file);
       remember(entry.file,0,0);
     }
   };
-  const peekFile = (identity, scope, withBytes) => {
+  const peekFile = async (identity, scope, withBytes) => {
     if (!identity) return null;
     const filePath = path.join(directory,identity);
     try {
-      const stat = fs.lstatSync(filePath);
+      const stat = await fs.lstat(filePath);
       if (!stat.isFile() || stat.size < 1 || stat.size > maxEntryBytes || Date.now()-stat.mtimeMs > maxAgeMs) return null;
       const metaFile = filePath+'.json';
-      const metaStat = fs.lstatSync(metaFile);
+      const metaStat = await fs.lstat(metaFile);
       if (!metaStat.isFile() || metaStat.size > 1024) return null;
-      const meta = JSON.parse(fs.readFileSync(metaFile,'utf8'));
+      const meta = JSON.parse(await fs.readFile(metaFile,'utf8'));
       if (!mediaMime.test(meta.mime) || (meta.scope && meta.scope !== hash(scope))) return null;
-      const bytes = withBytes || !meta.scope ? fs.readFileSync(filePath) : null;
-      if (bytes && meta.sha256 !== hash(bytes)) return null;
-      if (!meta.scope) fs.writeFileSync(metaFile,JSON.stringify({...meta,scope:hash(scope)}));
+      const bytes = withBytes || !meta.scope ? await fs.readFile(filePath) : null;
+      if (bytes && meta.sha256 !== await hashBytes(bytes)) return null;
+      if (!meta.scope) await require('./atomic-json.cjs').writeJsonAtomic(metaFile,{...meta,scope:hash(scope)});
       const now = new Date();
-      fs.utimesSync(filePath,now,now);
+      await fs.utimes(filePath,now,now);
       remember(filePath,stat.size,+now);
       return {filePath,mime:meta.mime,...(withBytes?{bytes}:{})};
     } catch { return null; }
   };
-  const write = (identity, scope, result) => {
+  const store = async (identity, scope, result) => {
     if (!identity || !result?.bytes?.length || result.bytes.length > Math.min(maxEntryBytes,maxBytes)
       || !mediaMime.test(result.mime)) return result;
     const filePath = path.join(directory,identity);
     const tmp = filePath+'.'+crypto.randomUUID()+'.tmp';
     try {
-      fs.mkdirSync(directory,{recursive:true});
-      if (!fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink()) return result;
-      fs.writeFileSync(tmp,result.bytes);
-      fs.writeFileSync(tmp+'.json',JSON.stringify({mime:result.mime,sha256:hash(result.bytes),scope:hash(scope)}));
-      fs.renameSync(tmp,filePath);
-      fs.renameSync(tmp+'.json',filePath+'.json');
+      await fs.mkdir(directory,{recursive:true});
+      const root=await fs.lstat(directory);
+      if (!root.isDirectory() || root.isSymbolicLink()) return result;
+      await fs.writeFile(tmp,result.bytes);
+      await fs.writeFile(tmp+'.json',JSON.stringify({mime:result.mime,sha256:await hashBytes(result.bytes),scope:hash(scope)}));
+      await fs.rename(tmp,filePath);
+      await fs.rename(tmp+'.json',filePath+'.json');
       remember(filePath,result.bytes.length,Date.now());
-      prune(filePath);
+      await prune(filePath);
       return {...result,filePath};
     } catch {
-      remove(tmp);
-      try { fs.unlinkSync(tmp+'.json'); } catch {}
+      await remove(tmp);
       return result;
     }
+  };
+  const write=(identity,scope,result)=>{
+    if(!identity)return result;
+    const work=writeTail.then(()=>store(identity,scope,result));
+    writeTail=work.catch(()=>{});return work;
   };
   const read = async (address,scope,load,{signal}={}) => {
     signal?.throwIfAborted();
     const identity = cacheIdentity(address,scope);
     if (!identity) return load();
-    const local = peekFile(identity,scope,true);
+    const local = await peekFile(identity,scope,true);
+    signal?.throwIfAborted();
     if (local) { onRead('cacheHit',local.bytes.length); return local; }
     // A cancellable consumer owns its network request. It can still use any
     // complete local copy and will cache its own successful response.
@@ -127,9 +134,9 @@ function createCosImageCache({directory,maxBytes=CACHE_MAX_BYTES,maxEntryBytes=6
   return {
     read,
     peek: (address,scope)=>peekFile(cacheIdentity(address,scope),scope,false),
-    seed(address,scope,result) {
+    async seed(address,scope,result) {
       const url = projectObject(address);
-      const stored=write(scope && url && !url.search ? objectIdentity(url,scope) : null,scope,result);
+      const stored=await write(scope && url && !url.search ? objectIdentity(url,scope) : null,scope,result);
       if(stored?.filePath) onRead('uploadSeed',stored.bytes.length);
       return stored;
     },

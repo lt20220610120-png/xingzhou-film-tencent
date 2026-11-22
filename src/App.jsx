@@ -1,3 +1,4 @@
+import {confirmAction,dismissWorkspaceDialogs,setWorkspaceDialogsEnabled,showNotice} from './components/workspace-dialog.js';
 import {upgradeMuseProfiles} from '../core/museLocal.js';
 import {LogoutConfirm} from './components/LogoutConfirm.jsx';
 import {SettingsUtilityCards} from './components/SettingsUtilityCards.jsx';
@@ -19,7 +20,7 @@ import {navigationForRole,SHARED_WORKSPACES,ROLE_WORKSPACES} from '../core/works
 import {ModelSelect,useWindowModel} from './v06/ModelSelect.jsx';
 import {GenerationMonitor} from './v06/GenerationMonitor.jsx';
 import packageInfo from '../package.json';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
   Film, BookOpen, Library, ScrollText, Settings, Sparkles, KeyRound, Network,
   FileText, Bot, Plus, X, Star, Trash2, Save, Upload, Download,
@@ -782,7 +783,7 @@ function FruitLibrary({ state, setState, api }) {
     if (!result) return;
     const parsed = splitFullScript(result.content);
 
-    if (project.episodes.some((e) => e.rawText || e.scriptText) && !confirm(`导入将替换《${project.name}》现有分集，确定继续吗？`)) return;
+    if (project.episodes.some((e) => e.rawText || e.scriptText) && !(await confirmAction(`导入将替换《${project.name}》现有分集，确定继续吗？`))) return;
 
     const episodes = parsed.episodes.map((ep, i) => ({
       id: `import-${Date.now()}-${i}`,
@@ -805,7 +806,7 @@ function FruitLibrary({ state, setState, api }) {
       } : p),
     }));
     setActivePane(episodes[0]?.id || 'master');
-    alert(parsed.detected ? `已识别并导入 ${episodes.length} 集。` : '未识别到明确分集标题，已作为第 1 集完整导入。');
+    await showNotice(parsed.detected ? `已识别并导入 ${episodes.length} 集。` : '未识别到明确分集标题，已作为第 1 集完整导入。');
   };
 
   const handleAiApply = (content, scope) => {
@@ -863,7 +864,10 @@ function FruitLibrary({ state, setState, api }) {
           <div>
             <button className="secondary import-button" onClick={handleImportScript}><Upload size={17} /> 导入完整剧本</button>
             <button className="secondary ai-button" onClick={() => setShowAiDrawer(true)}><MessageSquare size={17} /> AI 创作助手</button>
-            <button className="ghost danger" onClick={() => { confirm('确定删除？') && (setState((s) => deleteFruitProject(s, project.id)), setSelectedId(null)); }}>
+            <button className="ghost danger" onClick={async () => {
+              if (!await confirmAction(`将《${project.name}》移入回收站？之后可在回收站恢复。`, {danger:true, acceptLabel:'移入回收站'})) return;
+              setState(s => deleteFruitProject(s, project.id)); setSelectedId(null);
+            }}>
               <Trash2 size={16} />
             </button>
           </div>
@@ -1127,9 +1131,31 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
 /* ================================================================
  * App - 主应用组件
  * ================================================================ */
+function createSaveStatus() {
+  let value = { saved: false };
+  const listeners = new Set();
+  return {
+    read: () => value,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    update(next) {
+      if (value.saved === next.saved && value.saving === next.saving && value.error === next.error) return;
+      value = next;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+function SaveStatusOutlet({ store, children }) {
+  return children(useSyncExternalStore(store.subscribe, store.read));
+}
+
 function App() {
   const [role, setRole] = useState(null);
-  const [nav, setNav] = useState('fruit');
+  const [nav, setNavigation] = useState('fruit');
+  const setNav = useCallback(next => {
+    dismissWorkspaceDialogs();
+    setNavigation(next);
+  }, []);
   const lastRole=useRef('creator'),rolePages=useRef({creator:'fruit',director:'director'});
   if(role){lastRole.current=role;if(ROLE_WORKSPACES[role]?.includes(nav))rolePages.current[role]=nav;}
   const [creatorDestination,setCreatorDestination]=useState(null),[creatorSection,setCreatorSection]=useState({});
@@ -1141,9 +1167,9 @@ function App() {
   const canvasFrameRef = useRef(null);
   const [canvasVisited, setCanvasVisited] = useState(false);
   const [visitedWorkspaces, setVisitedWorkspaces] = useState({});
-  const [creatorSaveStatus, setCreatorSaveStatus] = useState({ saved: false });
+  const saveStatus = useMemo(createSaveStatus, []);
   useEffect(() => {
-    if (nav === 'director' || nav === 'collab' || SHARED_WORKSPACES.includes(nav) || ['fruit', 'studio', 'scripts'].includes(nav)) {
+    if (nav === 'director' || nav === 'collab' || nav === 'generation' || SHARED_WORKSPACES.includes(nav) || ['fruit', 'studio', 'scripts'].includes(nav)) {
       const key = ['fruit', 'studio', 'scripts'].includes(nav) ? 'creator' : nav;
       setVisitedWorkspaces((current) => current[key] ? current : { ...current, [key]: true });
     }
@@ -1151,6 +1177,10 @@ function App() {
   const initialCanvasRoute = useRef(canvasRoute);
   useEffect(() => { if (nav === 'canvas') setCanvasVisited(true); }, [nav]);
   const [account, setAccount] = useState(null);
+  useEffect(() => {
+    setWorkspaceDialogsEnabled(Boolean(role && account?.id));
+    return () => setWorkspaceDialogsEnabled(false);
+  }, [role, account?.id]);
   const [authReady, setAuthReady] = useState(false);
   const [registerRole, setRegisterRole] = useState(null);
   const [lockedRole, setLockedRole] = useState(null);
@@ -1169,6 +1199,7 @@ function App() {
 
   // All state mutations share the latest synchronous snapshot, including background commits.
   const stateRef = useRef(state);
+  const getState = useCallback(() => stateRef.current, []);
   const setState = useCallback(updates => {
     const next = typeof updates === 'function' ? updates(stateRef.current) : updates;
     stateRef.current = next;
@@ -1181,6 +1212,18 @@ function App() {
     saveDelta: api.saveWorkspaceDelta,
   });
   const persistence = persistenceRef.current;
+  const saveLocal = useCallback(async () => {
+    persistence.enqueue(stateRef.current);
+    await persistence.flush();
+  }, [persistence]);
+  const saveCreator = useCallback(async () => {
+    try {
+      flushEditing();
+      saveStatus.update({saving:true});
+      await saveLocal();
+      saveStatus.update({saved:true});
+    } catch (error) { saveStatus.update({error:error.message}); }
+  }, [saveLocal, saveStatus]);
   useEffect(()=>{
     if(!initialized||storageLoadError||!account?.id||!window.xingzhou)return;
     const migrated=migrateDirectorReplies(stateRef.current,account.id,localStorage);
@@ -1264,12 +1307,12 @@ function App() {
     catch (error) { console.warn('浏览器缓存已满，继续保存本地资料文件', error.name); }
     try {
       persistence.enqueue(snapshot); await persistence.flush();
-      setCreatorSaveStatus(savePending.current ? { saving: true } : { saved: true });
-    } catch (error) { setCreatorSaveStatus({ error: error.message }); }
+      saveStatus.update(savePending.current ? { saving: true } : { saved: true });
+    } catch (error) { saveStatus.update({ error: error.message }); }
   };
   useEffect(() => {
     if (!initialized) return;
-    savePending.current = true; setCreatorSaveStatus(current => current.saving ? current : { saving: true });
+    savePending.current = true; saveStatus.update({ saving: true });
     scheduleSaveDeadline();
     clearTimeout(saveQuiet.current); saveQuiet.current = setTimeout(() => persistLocal.current(), 1200);
     return () => clearTimeout(saveQuiet.current);
@@ -1422,14 +1465,14 @@ function App() {
           <FloatingAIButton onOpen={() => setAiOpen(true)} />
         )}
 
-        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <WorkspacePresence active={!!role&&['fruit','studio','scripts'].includes(nav)}><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={()=>stateRef.current} api={api} onNavigate={setNav} saveStatus={creatorSaveStatus} onSave={async () => { try { flushEditing(); setCreatorSaveStatus({saving:true}); persistence.enqueue(stateRef.current); await persistence.flush(); setCreatorSaveStatus({saved:true}); } catch(error) { setCreatorSaveStatus({error:error.message}); } }}/></WorkspacePresence>}
+        {(visitedWorkspaces.creator || ['fruit','studio','scripts'].includes(nav)) && <WorkspacePresence active={!!role&&['fruit','studio','scripts'].includes(nav)}><SaveStatusOutlet store={saveStatus}>{status=><CreatorWorkspace area={lastCreatorArea.current} destination={creatorDestination} onSectionChange={rememberCreatorSection} state={state} setState={setState} getState={getState} api={api} onNavigate={setNav} saveStatus={status} onSave={saveCreator}/>}</SaveStatusOutlet></WorkspacePresence>}
         {(visitedWorkspaces.skills||nav==='skills')&&<WorkspacePresence active={!!role&&nav==='skills'}><SkillLibrary state={state} setState={setState}/></WorkspacePresence>}
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
         {!!role&&nav==='winai'&&<WinAIWorkspace key={account?.id} account={account}/>}
-        {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><ProjectRecycleBin state={state} setState={setState} saveStatus={creatorSaveStatus} onNavigate={setNav}/></WorkspacePresence>}
-        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={()=>stateRef.current} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
+        {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><SaveStatusOutlet store={saveStatus}>{status=><ProjectRecycleBin state={state} setState={setState} saveStatus={status} onNavigate={setNav}/>}</SaveStatusOutlet></WorkspacePresence>}
+        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={getState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} setState={setState} production={production} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
-        {nav === 'generation' && <GenerationWorkspace state={state} setState={setState} getState={()=>stateRef.current} saveLocal={quickGeneration.saveLocal} api={api} account={account} />}
+        {(visitedWorkspaces.generation || nav === 'generation') && <WorkspacePresence active={!!role&&nav==='generation'}><GenerationWorkspace key={account?.id} state={state} setState={setState} getState={getState} saveLocal={saveLocal} api={api} account={account} /></WorkspacePresence>}
         {(visitedWorkspaces.collab || nav === 'collab') && <WorkspacePresence active={!!role&&nav==='collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></WorkspacePresence>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
           ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html?v=${packageInfo.version}${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />

@@ -2,6 +2,19 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const tick=()=>new Promise(r=>setImmediate(r));
 async function fixture(t,overrides={}){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-sb-batch-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const jobs=[],sent=[];let account='a';const mod=require('./storyboard-batch.cjs');const q=mod.createStoryboardBatchQueue({directory:dir,owner:()=>account,loadJobs:()=>jobs,guard:async()=>{},submit:async(item,run)=>{sent.push(item.shotId);const job={id:'j'+item.shotId,projectId:'p',shotId:item.shotId,storyboardBatchRunId:run.id,storyboardBatchItemId:item.id,status:'submitted'};jobs.push(job);return job;},...overrides});return {q,jobs,sent,dir,switchAccount:()=>account='b'};}
 const items=()=>[1,2,3].map(n=>({shotId:'s'+n,label:`1-1-${n}`,value:{prompt:'原词'+n,references:[]}}));
+test('settled queues roll over without removing an unresolved task or its original job',async t=>{
+ const fixtureState=await fixture(t,{completedLimit:1});
+ const {q,dir,jobs}=fixtureState;
+ const begin=shotId=>q.start({projectId:'p',accountId:'a',items:[{shotId,label:shotId,value:{prompt:'test',references:[]}}]});
+ const uncertain=begin('keep');await q.idle();jobs[0].status='uncertain';
+ begin('first');await q.idle();jobs[1].status='success';
+ const latest=begin('second');await q.idle();jobs[2].status='success';
+ begin('trigger');await q.idle();
+ const durable=JSON.parse(fs.readFileSync(path.join(dir,'batches.json'),'utf8'));
+ assert(durable.some(run=>run.id===uncertain.id&&run.items[0].jobId==='jkeep'));
+ assert(durable.some(run=>run.id===latest.id));
+ assert(!durable.some(run=>run.items[0].shotId==='first'));
+});
 test('stop aborts the active batch request, and a retry receives a fresh signal',async t=>{
  let signal,started;
  const ready=new Promise(resolve=>started=resolve);

@@ -1,3 +1,4 @@
+import {confirmAction} from '../components/workspace-dialog.js';
 import React, { useState,useEffect,useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
@@ -90,9 +91,9 @@ export function ProjectCardHub({
     else onCreateGroup?.(name);
     setGroupDialog(null);
   };
-  const removeGroup = () => {
+  const removeGroup = async () => {
     const group = groups.find(item => item.id === filterGroup);
-    if (!group || !window.confirm(`删除分组“${group.name}”？组内项目会移回未分组。`)) return;
+    if (!group || !(await confirmAction(`删除分组“${group.name}”？组内项目会移回未分组。`, {danger:true}))) return;
     onDeleteGroup?.(group.id);
     setFilterGroup(isDirector ? 'director-workbench' : 'all');
   };

@@ -14,6 +14,7 @@ async function pruneStorageCaches(dataDir,{now=Date.now()}={}){
    try{const current=await fs.lstat(row.file);if(!current.isFile()||current.isSymbolicLink()||current.mtimeMs!==row.time)continue;await fs.unlink(row.file);bytesFreed+=current.size;total-=row.size;const meta=row.file+sidecar;const s=await fs.lstat(meta).catch(()=>null);if(s?.isFile()&&!s.isSymbolicLink()){await fs.unlink(meta);bytesFreed+=s.size;}}catch(e){if(!['ENOENT','EPERM','EBUSY'].includes(e.code))throw e;}
   }
  }
+ await require('./media-service.cjs').pruneImageDownloadReceipts(path.join(dataDir,'画布素材'),{now});
  return {bytesFreed};
 }
 module.exports={pruneStorageCaches};

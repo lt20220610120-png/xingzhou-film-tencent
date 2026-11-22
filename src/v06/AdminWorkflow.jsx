@@ -1,4 +1,5 @@
-import React,{useEffect,useState} from 'react';
+import React,{useState} from 'react';
+import {useWorkspacePolling} from './useWorkspacePolling.js';
 import {mediaModelChoices} from '../../core/modelChoices.js';
 import './AdminWorkflow.css';
 import {workflowPreflightIssues} from '../../core/workflowPreflight.js';
@@ -11,9 +12,11 @@ export function AdminWorkflow({account,state,setState,api,active=true,onNavigate
  const [ratio,setRatio]=useState('9:16'),[duration,setDuration]=useState(32),[resolution,setResolution]=useState('720p'),[visualStyle,setVisualStyle]=useState('真人电影级'),[imagePrimary,setImagePrimary]=useState('志-image-2'),[imageFallback,setImageFallback]=useState('龙-image-2'),[upscaleTarget,setUpscaleTarget]=useState('1080p'),[editorTemplate,setEditorTemplate]=useState('待选择 OpenFilm 模板'),[endStage,setEndStage]=useState('archive'),[post,setPost]=useState({music:'使用我准备的音乐，按情绪换曲并淡入淡出',subtitles:'统一字幕样式，待配置',ending:'使用指定尾帧，待提供',versions:'成片、无字幕版'}),[agentKind,setAgentKind]=useState('codex'),[preflight,setPreflight]=useState(null);
  const [issuesOnly,setIssues]=useState(true),choices=mediaModelChoices(state,'video'),chosen=choices.find(c=>c.id===modelKey);
  const run=runs.find(r=>r.id===selected)||runs[0],book=books.find(b=>b.id===bookId);
- const refresh=async()=>{try{setRuns(await api.adminWorkflowList());}catch(e){setError(e.message);}};
- useEffect(()=>{if(!active||!account.isAdmin)return;let alive=true;const load=async()=>{try{const rows=await api.adminWorkflowList();if(alive)setRuns(rows);}catch(e){if(alive)setError(e.message);}};void load();const timer=setInterval(load,5000);return()=>{alive=false;clearInterval(timer);};},[active,account.id]);
- const act=async action=>{setBusy(true);setError('');try{await action();await refresh();}catch(e){setError(e.message);}finally{setBusy(false);}};
+ const refresh=useWorkspacePolling(async current=>{
+  try{const rows=await api.adminWorkflowList();if(current())setRuns(rows);}
+  catch(e){if(current())setError(e.message);}
+ },{scope:account.id,enabled:active&&account.isAdmin,delay:5000});
+ const act=async action=>{setBusy(true);setError('');try{await action();await refresh({afterCurrent:true});}catch(e){setError(e.message);}finally{setBusy(false);}};
  const settings={preflightVersion:1,endStage,mode,agentKind,profileId:chosen?.profileId,model:chosen?.model,aiProfileId:aiId,visualStyle,imagePrimary,imageFallback,ratio,duration:Number(duration),resolution,upscaleTarget,editorTemplate,humanConfirmed:confirmed,post};
  const configIssues=[...(!book?['请选择整本提示词项目']:[]),...(!folder?['请选择输出目录']:[]),...workflowPreflightIssues(settings)];
  const configKey=JSON.stringify({bookId,folder,settings});

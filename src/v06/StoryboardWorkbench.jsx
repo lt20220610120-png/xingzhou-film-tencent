@@ -1,3 +1,4 @@
+import {useWorkspacePolling} from './useWorkspacePolling.js';
 import {promptMaterialRow} from '../../core/promptMaterialStatus.js';
 import './prompt-material-overview.css';
 import {recommendedPromptDuration,recommendedStoryboardTiming} from '../../core/promptDisplay.js';
@@ -100,7 +101,7 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  };
  const chooseUpload=async tab=>{
   const item=await api.collabUploadMedia({projectId:project.id,episode:epNumber,scene,note:`参考素材 ${shot.label}`,kind:tab});
-  if(!item)return null;const all=await api.collabListMedia({projectId:project.id});await loadMedia();const found=all.find(m=>m.id===item.id);return found?{...found,name:found.filename||found.note}:null;
+  if(!item)return null;const all=await loadMedia();const found=all?.find(m=>m.id===item.id);return found?{...found,name:found.filename||found.note}:null;
  };
  const deletedMediaIds=new Set(tasks.filter(t=>t.projectVideoDeleted).map(t=>t.mediaId));
  const cloudVideos=media.filter(m=>!deletedMediaIds.has(m.id)&&m.kind==='video'&&(m.note?.includes(`[shot:${shot.id}]`)||m.note===shot.label)&&m.scene===scene).map(m=>({...m,mediaId:m.id,shotLabel:shot.label,localResult:false,status:'success',prompt:shot.content}));
@@ -152,9 +153,16 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
  };
  const prompts=(episode?.prompts||[]).filter(p=>p.label===currentScene||p.label?.startsWith(currentScene+'-'));
  const selectEpisode=id=>{setEpisodeId(id);setScene('');setError('');};
- const request=useRef(0);
- const loadMedia=async()=>{const ticket=++request.current;try{const [m,t]=await Promise.all([api.collabListMedia({projectId:project.id}),api.generationList({includeArchived:true})]);if(ticket===request.current){setMedia((m||[]).filter(ref=>isProjectGenerationReference(ref,project.id)));setTasks(t||[]);}}catch(e){setError(e.message||'素材读取失败，请重试');}};
- useEffect(()=>{const nav=readCollabNavigation({accountId,projectId:project.id,section:'storyboard'}),target=episodes.find((e,i)=>inferDirectorEpisodeNumber(e,i+1)===Number(nav.episodeNumber));setEpisodeId(target?.id||null);setScene(target?nav.sceneId||'':'');loadMedia();const timer=setInterval(loadMedia,8000);return()=>{request.current++;clearInterval(timer);};},[project.id]);
+ const updateMedia=useWorkspacePolling(async current=>{
+  try{
+   const [m,t]=await Promise.all([api.collabListMedia({projectId:project.id}),api.generationList({includeArchived:true})]);
+   if(!current())return;
+   setMedia((m||[]).filter(ref=>isProjectGenerationReference(ref,project.id)));setTasks(t||[]);
+   return m||[];
+  }catch(e){if(current())setError(e.message||'素材读取失败，请重试');}
+ },{scope:JSON.stringify([accountId,project.id]),delay:8000});
+ const loadMedia=()=>updateMedia({afterCurrent:true});
+ useEffect(()=>{const nav=readCollabNavigation({accountId,projectId:project.id,section:'storyboard'}),target=episodes.find((e,i)=>inferDirectorEpisodeNumber(e,i+1)===Number(nav.episodeNumber));setEpisodeId(target?.id||null);setScene(target?nav.sceneId||'':'');},[accountId,project.id]);
  useEffect(()=>{if(episode)rememberCollabNavigation({accountId,projectId:project.id,section:'storyboard'},{episodeNumber:epNumber,sceneId:currentScene});},[accountId,project.id,epNumber,currentScene,episode?.id]);
  const openedShot=useRef('');
  useEffect(()=>{if(bindingLoading||!episode)return;const nav=readCollabNavigation({accountId,projectId:project.id,section:'storyboard'});if(!nav.shotId||openedShot.current===nav.shotId)return;const frame=requestAnimationFrame(()=>{const el=[...document.querySelectorAll('.collab-shot-card')].find(e=>e.dataset.shotId===nav.shotId);if(el){openedShot.current=nav.shotId;el.scrollIntoView({block:'start'});}});return()=>cancelAnimationFrame(frame);},[bindingLoading,episode?.id,currentScene,accountId,project.id]);

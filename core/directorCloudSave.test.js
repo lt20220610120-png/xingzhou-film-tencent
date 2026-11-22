@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {acknowledgeDirectorCloudSave,reconcileDirectorCloudProjects} from './directorCloudProjects.js';
+test('polling unchanged live director metadata preserves the same local document reference',()=>{
+ const project={id:'local',cloudLive:true,cloudProjectId:'cloud',cloudLocked:false,cloudRole:'producer',masterScript:'本地剧本',episodes:[]};
+ const projects=[project];
+ assert.equal(reconcileDirectorCloudProjects(projects,[{id:'cloud',locked:false,myRole:'producer'}]),projects);
+ const changed=reconcileDirectorCloudProjects(projects,[{id:'cloud',locked:true,myRole:'collaborator'}]);
+ assert.equal(changed[0].cloudLocked,true);
+ assert.equal(changed[0].cloudRole,'collaborator');
+ assert.equal(changed[0].episodes,project.episodes);
+});
 test('save acknowledgement preserves typing in flight and advances baseline for the next edit',()=>{
  const submitted={name:'项目',script:'B',episodes:[]};
  const local={id:'local',cloudProjectId:'cloud',cloudRole:'producer',name:'项目',masterScript:'C',episodes:[],cloudBase:{...submitted,script:'A'}};

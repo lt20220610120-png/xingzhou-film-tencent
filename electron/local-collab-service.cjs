@@ -48,6 +48,8 @@ function adoptAssetImage(asset, image) {
 
 function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, isStorageLocked = () => false, projectBusy = () => false, adoptedVoices = () => ({}) }) {
   const queues = new Map(), imports = new Map(), importResults = new Map(), transfers = new Set(), indexReads = new Map(), preparingProjects = new Map();
+  let presence;
+  const freshness=10000;
   function scope() {
     const session = getSession();
     const account = session?.account;
@@ -64,6 +66,21 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
   const key = (current, id) => current.root + '|' + id;
   const file = (current, id) => path.join(current.root, id + '.json');
   const view = (current, record) => mediaFor(current).materialize(record);
+  function presenceFor(current){
+    if(presence?.root!==current.root||presence?.token!==current.token){
+      presence={root:current.root,token:current.token,projects:new Map(),epoch:0,any:null,pending:null};
+    }
+    return presence;
+  }
+  const diskStamp=async filename=>{
+    try{const s=await fs.lstat(filename,{bigint:true});return `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;}
+    catch(error){if(error.code==='ENOENT')return '';throw error;}
+  };
+  function rememberPresence(cache,id,value,stamp){
+    cache.projects.delete(id);
+    cache.projects.set(id,{value,stamp,until:Date.now()+freshness});
+    if(cache.projects.size>1000)cache.projects.delete(cache.projects.keys().next().value);
+  }
   async function stored(current, id) {
     if (!UUID.test(String(id || ''))) return null;
     const record = await readJson(file(current, id));
@@ -74,6 +91,12 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     assertScope(current, true);
     await writeJsonAtomic(file(current, record.project.id), record);
     assertScope(current);
+    const cache=presenceFor(current),id=record.project.id,local=!record.shared;
+    const previous=cache.projects.get(id)?.value;
+    cache.epoch++;
+    rememberPresence(cache,id,local,await diskStamp(file(current,id)));
+    if(local)cache.any={value:true,stamp:await diskStamp(current.root),until:Date.now()+freshness};
+    else if(previous!==false)cache.any=null;
   }
   function serial(current, id, work) {
     const k = key(current, id);
@@ -91,11 +114,54 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     if (record.project.locked) throw error('项目已锁定，暂不可编辑', 423);
     if (record.share?.committing) throw error('云端邀请结果待确认，请回到邀请页重试原邀请', 409);
   }
-  async function allRecords(current) {
+  async function recordIds(current) {
     let entries;
     try { entries = await fs.readdir(current.root); }
     catch (cause) { if (cause.code === 'ENOENT') return []; throw cause; }
-    return Promise.all(entries.filter(name => name.endsWith('.json') && UUID.test(name.slice(0, -5))).map(name => stored(current, name.slice(0, -5))));
+    return entries.filter(name=>name.endsWith('.json')&&UUID.test(name.slice(0,-5))).map(name=>name.slice(0,-5));
+  }
+  async function allRecords(current) {
+    return Promise.all((await recordIds(current)).map(id=>stored(current,id)));
+  }
+  async function isLocalRecord(current,id){
+    if(!UUID.test(String(id||'')))return false;
+    const cache=presenceFor(current);
+    const stamp=await diskStamp(file(current,id));
+    assertScope(current);
+    const existing=cache.projects.get(id);
+    if(existing?.until>Date.now()&&existing.stamp===stamp)return existing.value;
+    if(existing?.work)return existing.work;
+    const work=(async()=>{
+      const record=await stored(current,id);
+      assertScope(current);
+      if(cache.projects.get(id)?.work!==work)return cache.projects.get(id)?.value??false;
+      const local=Boolean(record&&!record.shared);
+      if(await diskStamp(file(current,id))===stamp)rememberPresence(cache,id,local,stamp);
+      return local;
+    })();
+    cache.projects.set(id,{work});
+    try{return await work;}
+    finally{if(cache.projects.get(id)?.work===work)cache.projects.delete(id);}
+  }
+  async function hasLocalRecord(current){
+    const cache=presenceFor(current);
+    const stamp=await diskStamp(current.root);
+    assertScope(current);
+    if(cache.any?.until>Date.now()&&cache.any.stamp===stamp)return cache.any.value;
+    if(cache.pending)return cache.pending;
+    const expected=cache.epoch;
+    const work=(async()=>{
+      let local=false;
+      for(const id of await recordIds(current)){
+        if(await isLocalRecord(current,id)){local=true;break;}
+      }
+      assertScope(current);
+      if(cache.epoch===expected&&await diskStamp(current.root)===stamp)cache.any={value:local,stamp,until:Date.now()+freshness};
+      return cache.epoch!==expected&&cache.any?.until>Date.now()?cache.any.value:local;
+    })();
+    cache.pending=work;
+    try{return await work;}
+    finally{if(cache.pending===work)cache.pending=null;}
   }
   function beginLocalPreparation(current, project, retry = false, initialState) {
     if (!UUID.test(project.id) || project.owner_id !== current.account.id || project.myRole !== 'producer' || project.locked || project.deleted_at || isStorageLocked()) return;
@@ -251,8 +317,9 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
   return {
     ...cloud,
     hasLocalTransfer: () => transfers.size > 0 || imports.size > 0 || queues.size > 0,
-    async isLocal(id) { try { const r = await stored(scope(), id); return Boolean(r && !r.shared); } catch { return false; } },
-    async hasLocalProjects() { return (await allRecords(scope())).some(r => r && !r.shared); },
+    async isLocal(id) { try { return await isLocalRecord(scope(),id); } catch { return false; } },
+    async hasLocalProjects() { return hasLocalRecord(scope()); },
+    clearLocalPresence(){presence=null;importResults.clear();},
     waitForLocalPreparation(id) { return imports.get(key(scope(), id)); },
     async isProducer() {
       const { account } = scope();

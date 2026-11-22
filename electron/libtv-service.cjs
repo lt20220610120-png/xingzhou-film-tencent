@@ -30,24 +30,37 @@ function loginURL(text){
 }
 const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 function libtvResultURLs(raw){const rows=raw?.nodes||raw?.data?.nodes||[raw?.node||raw];const urls=[];for(const n of rows){const d=n?.data||n;for(const value of [d?.url,d?.urls,...(d?.results||[]).flatMap(r=>[r.url,r.urls])])for(const u of Array.isArray(value)?value:[value])if(typeof u==='string'&&/^https:\/\//i.test(u))urls.push(u);}return [...new Set(urls)];}
+const {sha256File}=require('./file-digest.cjs');
 async function installBinary(root,fetchFn=fetch){
- const dest=path.join(root,'tools',VERSION,'libtv.exe');
- if(fs.existsSync(dest)&&digest(fs.readFileSync(dest))===EXE_SHA)return dest;
+ const tools=path.join(root,'tools'),dest=path.join(tools,VERSION,'libtv.exe');
+ try{if(await sha256File(dest)===EXE_SHA)return dest;}catch(error){if(error.code!=='ENOENT')throw error;}
  if(process.platform!=='win32'||process.arch!=='x64')throw Error('当前 LibTV 连接器支持 Windows x64');
- const response=await fetchFn(ZIP_URL,{redirect:'error',signal:AbortSignal.timeout(180000)});
- if(!response.ok)throw Error('LibTV 官方连接器下载失败，请检查网络后重试');
- const bytes=Buffer.from(await response.arrayBuffer());
- if(bytes.length>100*1024*1024||digest(bytes)!==ZIP_SHA)throw Error('LibTV 官方连接器校验失败，未安装或执行');
- const stage=path.join(root,'tools','install-'+crypto.randomUUID());fs.mkdirSync(stage,{recursive:true});
- const zip=path.join(stage,'official.zip');fs.writeFileSync(zip,bytes);
- const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
- await promisify(execFile)(powershell,['-NoProfile','-NonInteractive','-Command','Expand-Archive -LiteralPath $env:XZ_LIBTV_ZIP -DestinationPath $env:XZ_LIBTV_STAGE -Force'],{windowsHide:true,env:{...process.env,XZ_LIBTV_ZIP:zip,XZ_LIBTV_STAGE:stage},timeout:120000});
- const extracted=path.join(stage,'libtv-win-x64','libtv.exe');
- if(digest(fs.readFileSync(extracted))!==EXE_SHA)throw Error('LibTV 程序校验失败，未执行');
- fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(extracted,dest+'.tmp');fs.renameSync(dest+'.tmp',dest);
- // Only remove known files produced by this install; no user profile or projects.
- fs.unlinkSync(zip);fs.unlinkSync(extracted);fs.rmdirSync(path.dirname(extracted));fs.rmdirSync(stage);
- return dest;
+ await fs.promises.mkdir(tools,{recursive:true});
+ const actualTools=await fs.promises.realpath(tools),stage=await fs.promises.mkdtemp(path.join(actualTools,'install-'));
+ const zip=path.join(stage,'official.zip'),temporary=dest+'.'+crypto.randomUUID()+'.tmp';
+ const signal=AbortSignal.timeout(180000);
+ try{
+  const response=await fetchFn(ZIP_URL,{redirect:'error',signal});
+  if(!response.ok||!response.body)throw Error('LibTV 官方连接器下载失败，请检查网络后重试');
+  const {Readable,Transform}=require('node:stream'),{pipeline}=require('node:stream/promises');
+  const hash=crypto.createHash('sha256');let size=0;
+  await pipeline(Readable.fromWeb(response.body),new Transform({transform(chunk,encoding,done){
+   size+=chunk.length;if(size>100*1024*1024)return done(Error('LibTV 官方连接器校验失败，未安装或执行'));
+   hash.update(chunk);done(null,chunk);
+  }}),fs.createWriteStream(zip,{flags:'wx'}),{signal});
+  if(hash.digest('hex')!==ZIP_SHA)throw Error('LibTV 官方连接器校验失败，未安装或执行');
+  const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
+  await promisify(execFile)(powershell,['-NoProfile','-NonInteractive','-Command','Expand-Archive -LiteralPath $env:XZ_LIBTV_ZIP -DestinationPath $env:XZ_LIBTV_STAGE -Force'],{windowsHide:true,env:{...process.env,XZ_LIBTV_ZIP:zip,XZ_LIBTV_STAGE:stage},timeout:120000});
+  const extracted=path.join(stage,'libtv-win-x64','libtv.exe');
+  if(await sha256File(extracted)!==EXE_SHA)throw Error('LibTV 程序校验失败，未执行');
+  await fs.promises.mkdir(path.dirname(dest),{recursive:true});
+  await fs.promises.copyFile(extracted,temporary,fs.constants.COPYFILE_EXCL);
+  await require('./atomic-json.cjs').renameWithRetry(temporary,dest);
+  return dest;
+ }finally{
+  await fs.promises.rm(temporary,{force:true}).catch(()=>{});
+  if(require('./workspace-file.cjs').isChildPath(actualTools,stage))await fs.promises.rm(stage,{recursive:true,force:true}).catch(()=>{});
+ }
 }
 function cliFailure(text, operation){
  if(operation==='upload'&&/\bENOENT\b|no such file or directory|找不到.*文件/i.test(text))return Error('参考文件已移动或当前电脑无法读取，请从项目素材重新载入');
@@ -246,7 +259,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
      if(!filePath){
       const ext={image:'png',video:'mp4',audio:'mp3'}[ref.kind];
       const bytes=readReference?await readReference(ref):(await require('./media-network.cjs').readMediaBytes(ref.url,{label:'LibTV 参考素材',signal:input.signal})).bytes;
-      fs.mkdirSync(dir,{recursive:true});filePath=temporary=path.join(dir,index+'.'+ext);fs.writeFileSync(filePath,bytes);
+      fs.mkdirSync(dir,{recursive:true});filePath=temporary=path.join(dir,index+'.'+ext);await fs.promises.writeFile(filePath,bytes,{signal:input.signal});
      }
      const uploaded=await uploadReference(id,['upload','参考-'+(index+1),'-p',projectId,'-t',ref.kind,'--resource',filePath],{signal:input.signal,expected});
      const key=uploaded.nodeKey||uploaded.newNodeKey;
@@ -276,7 +289,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
   async download(id,task,destDir,{signal}={}){signal?.throwIfAborted();const scope=session(id);if(scope.pendingLogin||scope.switching)throw Error('LibTV 账号正在切换，请稍后恢复原结果');scope.runs++;try{await authorizeTask(id,task,signal);signal?.throwIfAborted();const dir=path.join(destDir,'libtv-'+task.id);fs.mkdirSync(dir,{recursive:true});await command(id,['download','-n',task.libtvNodeId,'-p',task.libtvProjectId,'-o',dir],{signal});
    const mediaName=n=>task.kind==='image'?/\.(png|jpe?g|webp)$/i.test(n):/\.(mp4|webm|mov)$/i.test(n);
    let index=0,total=0;for(const archive of fs.readdirSync(dir).filter(n=>/\.zip$/i.test(n))){
-    const zip=await require('jszip').loadAsync(fs.readFileSync(path.join(dir,archive)));for(const entry of Object.values(zip.files)){
+    const zip=await require('jszip').loadAsync(await fs.promises.readFile(path.join(dir,archive),{signal}));for(const entry of Object.values(zip.files)){
      if(entry.dir||!mediaName(entry.name))continue;const original=entry.unsafeOriginalName||entry.name;
      if(/(?:^|[\\/])\.\.(?:[\\/]|$)|^[\\/]|:/.test(original)||index>=128)continue;
      const file=path.join(dir,`result-${index++}-`+path.basename(entry.name).replace(/[\\/:*?"<>|]/g,'_'));const temporary=file+'.tmp';

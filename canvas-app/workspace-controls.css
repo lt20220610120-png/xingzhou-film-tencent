@@ -1,0 +1,161 @@
+/* Loaded by both the main workbench and the independent canvas window. */
+:root {
+  --control-radius: 9px;
+  --control-border: var(--brand-line, #dce1e9);
+  --control-focus: var(--brand-accent, #6959bd);
+  --control-hover: var(--brand-subtle, #f1eff9);
+  --control-selected: var(--brand-selected, #ece7fb);
+  --control-ink: var(--brand-ink, #263044);
+  --control-surface: #fff;
+}
+
+:root.dark {
+  --control-border: #40414e;
+  --control-focus: #b9adfa;
+  --control-hover: #343343;
+  --control-selected: #403858;
+  --control-ink: #eeebf8;
+  --control-surface: #252530;
+}
+
+:is(button, input[type='button'], input[type='submit'], [role='button']):not(:where(.window-control, .window-controls *, .titlebar-controls *)) {
+  -webkit-app-region: no-drag;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, scale 100ms ease;
+}
+
+button:is(.primary, .secondary, .ghost, .danger, .danger-confirm, .icon-button, .auth-submit, .card-delete),
+.sidebar > button, .sidebar-group-trigger, .side-bottom > button {
+  border-radius: var(--control-radius) !important;
+}
+
+button:where(.primary, .auth-submit):not(:disabled) {
+  box-shadow: inset 0 1px 0 #ffffff2b, 0 1px 2px #22184615;
+}
+
+button:where(.secondary):not(:disabled) {
+  box-shadow: inset 0 1px 0 #ffffff60, 0 1px 2px #2218460d;
+}
+
+button:where(.ghost, .icon-button, .card-delete):not(:disabled):hover {
+  background-color: var(--control-hover);
+}
+
+:is(button, [role='button'], input[type='submit']):not(:where(:disabled, [aria-disabled='true'], [aria-busy='true'], .window-control, .window-controls *, .titlebar-controls *)):active {
+  scale: .98;
+}
+
+:is(button, select, [role='button'], input[type='submit']):focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: 2px;
+}
+
+:is(button, select):disabled { cursor: not-allowed; }
+[aria-busy='true']:is(button, [role='button']) { cursor: progress; }
+
+@supports (appearance: base-select) and selector(select::picker(select)) {
+  select:not([multiple], [size]:not([size='1'])) {
+    appearance: base-select !important;
+    -webkit-app-region: no-drag;
+    border-radius: var(--control-radius) !important;
+    border: 1px solid var(--control-border) !important;
+    column-gap: .55em;
+    align-items: center;
+    text-overflow: ellipsis;
+    padding-inline-end: .7em !important;
+    cursor: pointer;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  select:not([multiple], [size]:not([size='1'])):disabled { cursor: not-allowed; }
+
+  select:not([multiple], [size]:not([size='1'])):is(:hover, :open):not(:disabled) {
+    border-color: color-mix(in srgb, var(--control-focus) 40%, var(--control-border)) !important;
+  }
+
+  select::picker-icon {
+    content: '';
+    inline-size: .86em;
+    block-size: .86em;
+    flex: none;
+    background-color: currentColor;
+    clip-path: polygon(12% 34%, 22% 24%, 50% 52%, 78% 24%, 88% 34%, 50% 72%);
+    opacity: .64;
+    transition: rotate 140ms ease;
+  }
+
+  select:open::picker-icon { rotate: 180deg; }
+
+  select:not([multiple], [size]:not([size='1']))::picker(select) {
+    appearance: base-select;
+    min-inline-size: min(anchor-size(width), calc(100vi - 24px));
+    max-inline-size: min(32rem, calc(100vi - 24px));
+    max-block-size: min(20rem, 48dvb);
+    margin-block: 5px;
+    padding: 4px;
+    border: 1px solid var(--control-border);
+    border-radius: 12px;
+    background: var(--control-surface);
+    color: var(--control-ink);
+    box-shadow: 0 14px 34px #24203924, 0 2px 7px #2420390d;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    position-try-fallbacks: flip-inline, flip-block, flip-block flip-inline;
+  }
+
+  select:open::picker(select) { animation: workspace-picker-in 140ms ease-out; }
+
+  select:not([multiple], [size]:not([size='1'])) option {
+    min-block-size: 31px;
+    border-radius: 7px;
+    gap: .85em;
+    padding: 6px 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  select option:checked { background-color: var(--control-selected); font-weight: 600; }
+  select option:not(:disabled):is(:hover, :focus-visible) { background-color: var(--control-hover); }
+  select option:focus-visible { outline: 1px solid var(--control-focus); outline-offset: -1px; }
+  select option:disabled { opacity: .54; cursor: not-allowed; }
+  select option::checkmark { order: 1; margin-inline-start: auto; color: var(--control-focus); }
+}
+
+.workspace-dialog {
+  box-sizing: border-box;
+  inline-size: min(430px, calc(100% - 32px));
+  max-block-size: calc(100% - 32px);
+  padding: 23px;
+  border: 1px solid var(--control-border);
+  border-radius: 16px;
+  color: var(--control-ink);
+  background: var(--control-surface);
+  box-shadow: 0 22px 64px #21183229, 0 3px 10px #21183213;
+  overflow: auto;
+}
+
+.workspace-dialog[open] { animation: workspace-picker-in 160ms ease-out; }
+.workspace-dialog::backdrop { background: #221d373f; }
+.workspace-dialog h2 { margin: 0 0 9px; font-size: 18px; }
+.workspace-dialog p { margin: 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.workspace-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+.workspace-dialog-actions button { min-inline-size: 72px; padding: 8px 14px; }
+.workspace-dialog-danger {
+  border: 1px solid #a93449;
+  border-radius: var(--control-radius);
+  background: #b43d51;
+  color: #fff;
+  font-weight: 600;
+}
+.workspace-dialog-danger:hover { background: #a42e42; }
+
+@keyframes workspace-picker-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  select:open::picker(select), .workspace-dialog[open] { animation: none; }
+  :is(button, select), select::picker-icon { transition: none !important; }
+}

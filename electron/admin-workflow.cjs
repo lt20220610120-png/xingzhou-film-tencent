@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const safe=value=>String(value||'未命名').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,90)||'未命名';
-const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const {sha256File}=require('./file-digest.cjs');
 function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,mediaRoot,onActivity=()=>{},clock=()=>Date.now()}){
  const runs=new Map(),busy=new Map();fs.mkdirSync(root,{recursive:true});
  const file=id=>path.join(root,`${id}.json`);
@@ -35,16 +35,26 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
    run.episodes.push({number:episode,ready:true,stage,manifestFile});save(run);
   }
  }
- function download(run,item,job){
+ async function download(run,item,job,signal){
   if(!job.filePath)throw Error('任务完成但没有本地视频，等待原任务下载');
-  const source=fs.realpathSync(job.filePath),base=fs.realpathSync(mediaRoot()),rel=path.relative(base,source);
-  if(rel.startsWith('..')||path.isAbsolute(rel)||!rel||!fs.statSync(source).isFile()||!fs.statSync(source).size)throw Error('生成视频文件不在本机素材目录或文件为空');
+  const [source,base]=await Promise.all([fs.promises.realpath(job.filePath),fs.promises.realpath(mediaRoot())]),rel=path.relative(base,source);
+  const stat=await fs.promises.stat(source);
+  if(rel.startsWith('..')||path.isAbsolute(rel)||!rel||!stat.isFile()||!stat.size)throw Error('生成视频文件不在本机素材目录或文件为空');
   const ext=path.extname(source).toLowerCase();if(!['.mp4','.mov','.webm'].includes(ext))throw Error('结果不是支持的视频文件');
-  const directory=path.join(run.outputDir,'原始素材',`第${item.episode}集`);fs.mkdirSync(directory,{recursive:true});
+  const directory=path.join(run.outputDir,'原始素材',`第${item.episode}集`);await fs.promises.mkdir(directory,{recursive:true});
   const order=String(run.items.filter(i=>i.episode===item.episode).findIndex(i=>i.id===item.id)+1).padStart(4,'0');
-  const dest=path.join(directory,`${order}-${safe(item.label)}-${safe(item.id).slice(-12)}${ext}`),digest=hash(source);
-  if(fs.existsSync(dest)){if(hash(dest)!==digest)throw Error('目标视频已存在且内容不同，已保留文件');}
-  else {fs.copyFileSync(source,dest+'.partial');if(hash(dest+'.partial')!==digest)throw Error('视频复制校验失败');fs.renameSync(dest+'.partial',dest);}
+  const dest=path.join(directory,`${order}-${safe(item.label)}-${safe(item.id).slice(-12)}${ext}`),digest=await sha256File(source,{signal});
+  if(fs.existsSync(dest)){if(await sha256File(dest,{signal})!==digest)throw Error('目标视频已存在且内容不同，已保留文件');}
+  else{
+   const temporary=dest+'.'+crypto.randomUUID()+'.partial';
+   try{
+    await fs.promises.copyFile(source,temporary,fs.constants.COPYFILE_EXCL);
+    if(await sha256File(temporary,{signal})!==digest)throw Error('视频复制校验失败');
+    await guard(run,signal);
+    await fs.promises.rename(temporary,dest);
+   }finally{await fs.promises.rm(temporary,{force:true});}
+  }
+  signal.throwIfAborted();
   Object.assign(item,{status:'downloaded',outputFile:dest,sha256:digest,error:''});save(run);publishEpisodes(run);
  }
  async function tick(id){
@@ -70,7 +80,7 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
     if(!job){item.status='uncertain';item.error='原任务记录不存在，停止该条';save(run);return;}
     if(!['success','failed','uncertain'].includes(job.status)&&(!job.nextPollAt||job.nextPollAt<=clock()))job=await refresh(job,run,signal);
     await guard(run,signal);
-    if(job.status==='success')download(run,item,job);
+    if(job.status==='success')await download(run,item,job,signal);
     else if(['failed','uncertain'].includes(job.status)){item.status=job.status;item.error=job.error||job.warning||'原任务需要核对';save(run);}
     else{item.status='submitted';run.message=`等待 ${item.label} 的原生成任务`;save(run);}
    }

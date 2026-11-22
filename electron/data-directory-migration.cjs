@@ -1,4 +1,5 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+const rebuiltCaches=new Set(['.cloud-image-cache','.cloud-preview-cache']);
 const exists=async p=>{try{await fs.lstat(p);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}};
 const inside=(root,p)=>{const rel=path.relative(root,p);return rel!==''&&!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel);};
 function rewritePaths(value,source,target){
@@ -23,9 +24,9 @@ async function prepareDataDirectory(source,target,currentState,{deferCommit=fals
  if(inside(old,next)||inside(next,old))throw new Error('资料目录不能相互嵌套');
  // An existing destination is another workspace, not a merge destination.
  if(await exists(path.join(next,'xingzhou-data.json'))){await readState(path.join(next,'xingzhou-data.json'));return {mode:'existing'};}
- // Copy the entire configured data directory, including user-created reference
- // folders. Rewriting every in-root path is safe only when its files follow.
- const entries=await fs.readdir(old);
+ // User references and workspace state follow the migration. Rebuildable
+ // cloud-image caches stay in the source directory.
+ const entries=(await fs.readdir(old)).filter(name=>!rebuiltCaches.has(name));
  for(const name of entries)if(await exists(path.join(next,name)))throw new Error('目标目录已有部分资料，请选择空目录，避免覆盖现有文件');
  const stage=path.join(next,'.xz-migration-'+crypto.randomUUID()),created=[],sources=[];let deferred=false,settled=false;
  await fs.mkdir(stage);

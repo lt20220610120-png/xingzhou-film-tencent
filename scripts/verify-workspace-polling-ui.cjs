@@ -1,0 +1,82 @@
+const {app,BrowserWindow}=require('electron');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+
+const root=path.resolve(__dirname,'..');
+const fixture='scripts/fixtures/workspace-polling.html';
+app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'xz-polling-')));
+app.whenReady().then(async()=>{
+ let server,window;
+ try {
+  const {createServer}=await import('vite');
+  server=await createServer({root,configFile:false,logLevel:'error',optimizeDeps:{entries:[fixture]},server:{host:'127.0.0.1',port:0,watch:null}});
+  await server.listen();
+  window=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false}});
+  const errors=[];
+  window.webContents.on('console-message',details=>{if(details.level==='error')errors.push(details.message);});
+  const run=code=>window.webContents.executeJavaScript(code);
+  const wait=async code=>{
+   for(let i=0;i<100;i++){if(await run(code))return;await new Promise(resolve=>setTimeout(resolve,40));}
+   throw Error('Timed out: '+code);
+  };
+  await window.loadURL(server.resolvedUrls.local[0]+fixture);
+  await wait("document.querySelector('.collab-project-card')");
+  assert.equal(await run('pollFixture.calls.list'),1);
+  assert.ok(await run("pollFixture.click('进入项目')"));
+  await wait("document.querySelector('.collab-shell')&&pollFixture.keys(12000).length===1");
+  const timer=await run('pollFixture.keys(12000)[0]');
+  assert.ok(await run("pollFixture.click('清单核实')"));
+  await wait("document.querySelector('.art-review-heading')&&pollFixture.keys(12000).length===0");
+  assert.equal(await run('pollFixture.keys(500).length'),0);
+  assert.ok(await run("pollFixture.click('项目群')"));
+  await wait("document.querySelector('.collab-group')&&pollFixture.keys(12000).length===1&&pollFixture.keys(4000).length===1");
+  const groupTimer=await run('pollFixture.keys(12000)[0]');
+  assert.notEqual(groupTimer,timer);
+  await run('pollFixture.edit()');
+  await wait("document.querySelector('.collab-group')");
+  assert.equal(await run('pollFixture.keys(12000)[0]'),groupTimer);
+  await run("pollFixture.hold('messages');pollFixture.tick(4000)");
+  await wait('pollFixture.calls.messages===2');
+  assert.equal(await run('pollFixture.keys(4000).length'),0);
+  await run('pollFixture.active(false)');
+  await wait('pollFixture.keys(12000).length===0');
+  await run('pollFixture.active(true)');
+  await wait('pollFixture.keys(12000).length===1');
+  assert.equal(await run('pollFixture.calls.messages'),2);
+  await run("pollFixture.release('messages')");
+  await wait('pollFixture.calls.messages===3&&pollFixture.keys(4000).length===1');
+  await run('pollFixture.hidden(true)');
+  assert.equal(await run('pollFixture.keys(12000).length+pollFixture.keys(4000).length'),0);
+  await run("pollFixture.select('production');pollFixture.hidden(false)");
+  await wait("document.querySelector('.run-elapsed')&&pollFixture.keys(60000).length===1");
+  assert.equal(await run('pollFixture.keys(1000).length'),0);
+  await run("pollFixture.setRun({status:'running',executorActive:true,runtimeStartedAt:Date.now()-6000})");
+  await wait('pollFixture.keys(1000).length===1');
+  const elapsed=await run("document.querySelector('.run-elapsed').textContent");
+  await run('pollFixture.advance(3000);pollFixture.tick(1000)');
+  await wait(`document.querySelector('.run-elapsed').textContent!==${JSON.stringify(elapsed)}`);
+  await run('pollFixture.hidden(true)');
+  assert.equal(await run('pollFixture.keys(1000).length+pollFixture.keys(60000).length'),0);
+  await run('pollFixture.advance(9000);pollFixture.hidden(false)');
+  await wait('pollFixture.keys(1000).length===1&&pollFixture.calls.connect===2');
+  assert.ok(Number((await run("document.querySelector('.run-elapsed').textContent")).split(':').at(-1))>=19);
+  assert.ok(await run("pollFixture.click('分集素材')"));
+  await wait('pollFixture.calls.reads===1');
+  assert.equal(await run('pollFixture.keys(4000).length'),0);
+  await run("document.querySelector('.furnace-episode-pool').open=true");
+  await wait('pollFixture.calls.reads===2&&pollFixture.keys(4000).length===1');
+  await run("pollFixture.setRun({status:'paused',executorActive:false});document.querySelector('.furnace-episode-pool').open=false");
+  await wait('pollFixture.keys(1000).length===0&&pollFixture.keys(4000).length===0');
+  await run("pollFixture.active(false);pollFixture.hidden(true);pollFixture.setRun({status:'running',executorActive:true,runtimeStartedAt:Date.now()});pollFixture.openChild()");
+  await wait('pollFixture.keys(1000).length===1&&pollFixture.childKeys(1000).length===1');
+  await run('pollFixture.childHidden(true)');
+  assert.equal(await run('pollFixture.keys(1000).length+pollFixture.keys(60000).length'),0);
+  await run('pollFixture.childHidden(false)');
+  await wait('pollFixture.childKeys(1000).length===1&&pollFixture.childKeys(60000).length===1');
+  assert.deepEqual(errors,[]);
+  console.log('PASS isolated Electron polling, edit cadence, ArtReview idle, production clocks, collapsed episode panel and separate document');
+ }catch(error){console.error(error);process.exitCode=1;}
+ finally{window?.destroy();await server?.close();app.exit(process.exitCode||0);}
+});

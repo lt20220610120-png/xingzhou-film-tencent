@@ -13,7 +13,7 @@ function createCanvasProtocolHandler({appDir,fetchFile,runtime}){
   }catch{return new Response(null,{status:400});}
   if(relative.split('/').some(part=>part==='..'||part==='.')||/[\\:%\x00-\x1f]/.test(relative)||path.isAbsolute(relative))return new Response(null,{status:403});
   try{
-   if(relative==='config.js')return new Response(request.method==='HEAD'?null:runtime(),{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'}});
+   if(relative==='config.js')return new Response(request.method==='HEAD'?null:await runtime(),{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'}});
    const file=await verifiedDataFile(path.resolve(appDir,relative),appDir);
    return await fetchFile(pathToFileURL(file).href,{method:request.method});
   }catch(error){

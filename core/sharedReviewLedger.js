@@ -3,7 +3,7 @@ import {reviewSceneSignature} from './artReview.js';
 // Published cloud reviews win over older shared inventories; real local edits
 // remain local until deliberately saved/published.
 export function mergeSharedReviewLedger(local,project,{protectDrafts=true}={}){
- const next=structuredClone(local||{episodes:{}});next.episodes||={};
+ const next={...local,episodes:{...local?.episodes}};
  const binding=project.analysis_progress?._sharedPromptBinding;
  const shared=binding?.reviewLedger?.episodes||{};
  for(const n of new Set([...Object.keys(project.analysis_progress||{}),...Object.keys(shared)])){

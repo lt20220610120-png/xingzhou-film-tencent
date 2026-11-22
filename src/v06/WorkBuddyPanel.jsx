@@ -1,3 +1,4 @@
+import {useWorkspacePolling} from './useWorkspacePolling.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, ArrowUpCircle, CheckCircle2, FolderOpen, LoaderCircle, PanelsTopLeft, RefreshCw, ShieldCheck, X } from 'lucide-react';
@@ -281,40 +282,27 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
     return () => { cancelAnimationFrame(frame); observer.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', schedule); window.removeEventListener('scroll', schedule, true); };
   }, [panelActive]);
 
-  useEffect(() => {
-    if (!updating) return;
-    const generation = lifetime.current;
-    let stopped = false, timer;
-    const poll = async () => {
-      let next;
-      try {
-        next = await invoke('workBuddyUpdateState');
-      } catch (reason) {
-        if (!stopped && active(generation)) {
-          setProgress(previous => ({ ...previous, message: '正在更新，暂时未能读取进度…' }));
-          timer = setTimeout(poll, 1000);
-        }
-        return;
-      }
-      if (stopped || !active(generation)) return;
-      setProgress(next);
-      if (!next?.busy && !updatePending.current) {
-        updatingRef.current = false; setUpdating(false); setBusy('');
-        if (next?.error) { await showError(next.error, generation); return; }
-        try {
-          const latest = await invoke('workBuddyStatus');
-          if (!active(generation)) return;
-          applyStatus(latest);
-          setNotice('控制面板更新已完成，账号数据已保留。'); setRelease(null);
-          await openView(generation);
-        } catch (reason) { await showError(reason, generation); }
-        return;
-      }
-      if (!stopped) timer = setTimeout(poll, 1000);
-    };
-    timer = setTimeout(poll, 300);
-    return () => { stopped = true; clearTimeout(timer); };
-  }, [updating, active, applyStatus, invoke, openView, showError]);
+  useWorkspacePolling(async current=>{
+    const generation=lifetime.current;
+    let next;
+    try {next=await invoke('workBuddyUpdateState');}
+    catch {
+      if(current()&&active(generation))setProgress(previous=>({...previous,message:'正在更新，暂时未能读取进度…'}));
+      return;
+    }
+    if(!current()||!active(generation))return;
+    setProgress(next);
+    if(next?.busy||updatePending.current)return;
+    updatingRef.current=false;setUpdating(false);setBusy('');
+    if(next?.error){await showError(next.error,generation);return;}
+    try {
+      const latest=await invoke('workBuddyStatus');
+      if(!active(generation))return;
+      applyStatus(latest);
+      setNotice('控制面板更新已完成，账号数据已保留。');setRelease(null);
+      await openView(generation);
+    }catch(reason){await showError(reason,generation);}
+  },{scope:account?.id,enabled:panelActive&&updating,delay:1000,anchor:hostRef});
 
   useEffect(() => {
     if (!confirmUpdate) return;

@@ -1,5 +1,6 @@
 async function readProjectAudio(request,url,scope,{readScope,cache,relay,local,fetchFn,onDirect=()=>{}}) {
-  const cached=cache.peek(url,scope);
+  const cached=await cache.peek(url,scope);
+  if(readScope()!==scope) return new Response(null,{status:403});
   const info=cached || (request.method==='GET'
     ? await cache.read(url,scope,()=>relay(url,scope,request.signal),{signal:request.signal}) : null);
   if(readScope()!==scope) return new Response(null,{status:403});

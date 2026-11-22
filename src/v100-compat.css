@@ -14,7 +14,7 @@
 /* Skill 库：完整 Skill、文档与手动编写三种入口 */
 .skill-create-panel{margin-top:28px;padding:22px;border:1px solid #dfe5f4;border-radius:16px;background:linear-gradient(135deg,#ffffffea,#f4f2ffdd);box-shadow:0 14px 36px #31458712}
 .skill-create-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:17px}
-.skill-create-heading h2{margin:3px 0 0;font:700 22px Noto Serif SC}
+.skill-create-heading h2{margin:3px 0 0;font:700 22px var(--studio-font, sans-serif)}
 .skill-create-heading p{max-width:650px;color:var(--muted);font-size:12px;line-height:1.75}
 .skill-create-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
 .skill-create-option{min-height:132px;padding:17px;text-align:left;border:1px solid #d8e0f3;border-radius:12px;background:#fff;transition:.18s ease;display:grid;grid-template-columns:46px minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-content:center}.skill-create-option>strong,.skill-create-option>small{grid-column:2;min-width:0}

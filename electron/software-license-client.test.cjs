@@ -1,5 +1,19 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {createLicenseClient}=require('./software-license-client.cjs');
+test('rapid authorization shares the account lease; expiry, explicit refresh and switch revalidate',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-license-lease-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ let bearer='account-a',now=Date.parse('2026-11-23T00:00:00Z'),checks=0;
+ const c=createLicenseClient({directory:dir,token:()=>bearer,version:'test',clock:()=>now,call:async(action,_payload,current)=>{
+  if(action==='license-route')return{status:'monthly',authenticated:true};
+  if(action==='license-check'){checks++;return {status:'active',allowed:true,authenticated:true,leaseSeconds:60,expiresAt:new Date(now+20000).toISOString(),account:current};}
+  assert.fail(action);
+ }});
+ await Promise.all(Array.from({length:10},()=>c.requireActive()));await c.requireActive();
+ assert.equal(checks,1);
+ now+=20001;await c.requireActive();assert.equal(checks,2);
+ await c.requireActive(true);assert.equal(checks,3);
+ bearer='account-b';assert.equal((await c.requireActive()).account,bearer);assert.equal(checks,4);
+});
 test('语音生成遵从现有软件许可要求',()=>{const c=createLicenseClient({directory:os.tmpdir(),token:()=>'',version:'test'});assert.equal(c.needsLicense('audio-generate'),true);});
 test('启动必须在线，缓存状态不离线放行，保存不受影响',async()=>{let online=true;const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-license-'));try{const c=createLicenseClient({directory:dir,safeStorage:{isEncryptionAvailable:()=>true,encryptString:s=>Buffer.from(s),decryptString:b=>b.toString()},version:'2.8.66',token:()=>'',call:async action=>{if(!online)throw Error('offline');return action==='license-route'?{status:'monthly',allowed:false}:action==='license-challenge'?{nonce:'abc'}:{status:'active',allowed:true,expiresAt:'2099-01-01',leaseSeconds:60};}});await c.check();online=false;await assert.rejects(c.requireActive(),/offline/);assert.equal(c.state().allowed,false);assert.equal(c.needsLicense('save-state'),false);assert.equal(c.needsLicense('generation-refresh'),false);assert.equal(c.needsLicense('generation-submit'),true);}finally{fs.rmSync(dir,{recursive:true,force:true});}});
 

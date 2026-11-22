@@ -1,6 +1,18 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const load=()=>require('./data-directory-migration.cjs');
 async function fixture(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'xz-migrate-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const source=path.join(root,'old'),target=path.join(root,'new');await fs.mkdir(source);await fs.mkdir(target);return {source,target};}
+test('rebuildable image and preview caches stay behind while user media migrates',async t=>{
+ const {source,target}=await fixture(t);
+ for(const folder of ['.cloud-image-cache','.cloud-preview-cache','参考片']){
+  await fs.mkdir(path.join(source,folder));await fs.writeFile(path.join(source,folder,'fixture.bin'),'fixture');
+ }
+ await load().prepareDataDirectory(source,target,{});
+ for(const folder of ['.cloud-image-cache','.cloud-preview-cache']){
+  await assert.rejects(fs.access(path.join(target,folder)),{code:'ENOENT'});
+  assert.equal(await fs.readFile(path.join(source,folder,'fixture.bin'),'utf8'),'fixture');
+ }
+ assert.equal(await fs.readFile(path.join(target,'参考片','fixture.bin'),'utf8'),'fixture');
+});
 test('资料迁移复制素材、所有进度和备份，并改写本机路径，保留原目录',async t=>{
  const {source,target}=await fixture(t);const original=path.join(source,'画布素材','a.png');
  await fs.mkdir(path.dirname(original));await fs.writeFile(original,'image');

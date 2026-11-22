@@ -7,6 +7,15 @@ import {mergeSharedReviewLedger} from './sharedReviewLedger.js';
 const stores=new Map();
 const fullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(scene=>record.published?.[scene.id]?.signature===reviewSceneSignature(scene)));
 const hasLocalDraft=record=>Boolean(record?.pending||record&&record.status!=='empty'&&!fullyPublished(record));
+const reviewReplyHistory=new Set(['批量补齐信息卡回包','并发逐场模型对应回包','完整模型回包','自动逐场对应回包']);
+const recentReplyLimit=24;
+function limitReviewReplyHistory(record){
+ const history=record?.history;if(!history||history.length<=recentReplyLimit)return record;
+ let kept=0;
+ // Preserve source-change, manual, conflict and prior-candidate recovery entries.
+ const selected=history.toReversed().filter(entry=>!reviewReplyHistory.has(entry?.reason)||kept++<recentReplyLimit).reverse();
+ return selected.length===history.length?record:{...record,history:selected};
+}
 const rejectedReviewRequest=error=>[400,409].includes(error?.status)||/核实版本与当前条目不同|本集正文已改变|场次编号或原文已改变|本集已有其他核实修改|核实清单必须保留|资产名称、类别或描述格式不正确|资产清单格式不正确|场景条目必须属于本集资产名单|前集核实版本格式不正确|尚未核实或细节待补齐|本集清单过大|请选择已核实场景|资产 .+ (?:类别相互矛盾|已存在于其他类别)/.test(String(error?.message||error));
 const retireRejectedReceipt=(record,error)=>{
  const next={...record,syncError:String(error?.message||error)};
@@ -27,8 +36,12 @@ export function getArtReviewStore({api,projectId,accountId=''}){
  const enqueueCloud=(number,fn)=>{const previous=cloudLanes.get(number)||Promise.resolve(),promise=previous.catch(()=>{}).then(()=>cloudPool.run(fn));cloudLanes.set(number,promise);promise.finally(()=>{if(cloudLanes.get(number)===promise)cloudLanes.delete(number);}).catch(()=>{});return promise;};
  const patchRecord=(number,reduce)=>enqueue(()=>persistRecord(number,reduce(structuredClone(ledger.episodes[number]))));
  // Do not expose an edit or cloud acknowledgement until its local checkpoint succeeds.
- const persist=async next=>{try{await api.artReviewSaveLocal({projectId,...(accountId?{accountId}:{}),data:structuredClone(next)});}catch(error){error.artCheckpointFailure=true;throw error;}ledger=next;notify();};
- const persistRecord=async(number,record)=>{const next=structuredClone(ledger);next.episodes[number]=record;await persist(next);return record;};
+ const persist=async next=>{try{await api.artReviewSaveLocal({projectId,...(accountId?{accountId}:{}),data:next});}catch(error){error.artCheckpointFailure=true;throw error;}ledger=next;notify();};
+ const persistRecord=async(number,record)=>{
+  const saved=limitReviewReplyHistory(record);
+  await persist({...ledger,episodes:{...ledger.episodes,[number]:saved}});
+  return saved;
+ };
  // Confirmed rejections retire their immutable payload; ambiguous network
  // failures retain the receipt and request ID for an idempotent recovery.
  const publishFailure=async(number,error)=>{await patchRecord(number,r=>retireRejectedReceipt(r,error));throw error;};
@@ -73,10 +86,10 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   snapshot:()=>ledger,
   flush:()=>chain,
   subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
-  setVoiceProfile(key,reduce){return enqueue(async()=>{const next=structuredClone(ledger);next.voiceProfiles={...next.voiceProfiles,[key]:reduce(structuredClone(Object.hasOwn(next.voiceProfiles||{},key)?next.voiceProfiles[key]:{}))};await persist(next);return next.voiceProfiles[key];});},
-  setContext(value){return enqueue(()=>persist({...structuredClone(ledger),scriptContext:structuredClone(value)}));},
-  setAnalysisRun(value){return enqueue(()=>persist({...structuredClone(ledger),analysisRun:structuredClone(value)}));},
-  setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided','auto-publish'].includes(mode))throw Error('未知美术分析方式');await persist({...structuredClone(ledger),workflow:mode});});},
+  setVoiceProfile(key,reduce){return enqueue(async()=>{const value=reduce(structuredClone(ledger.voiceProfiles?.[key]??{}));await persist({...ledger,voiceProfiles:{...ledger.voiceProfiles,[key]:value}});return value;});},
+  setContext(value){return enqueue(()=>persist({...ledger,scriptContext:structuredClone(value)}));},
+  setAnalysisRun(value){return enqueue(()=>persist({...ledger,analysisRun:structuredClone(value)}));},
+  setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided','auto-publish'].includes(mode))throw Error('未知美术分析方式');if(ledger.workflow!==mode)await persist({...ledger,workflow:mode});});},
   async load(project,assets=[]){return enqueue(async()=>{
    const next=mergeSharedReviewLedger(loaded?ledger:await api.artReviewLoadLocal({projectId,...(accountId?{accountId}:{})}),project);next.episodes||={};
    for(const [n,p]of Object.entries(project.analysis_progress||{}))if(p.review){
@@ -85,17 +98,20 @@ export function getArtReviewStore({api,projectId,accountId=''}){
     // previous cloud write was acknowledged by a later project refresh.
     if(!local||!hasLocalDraft(local)&&(p.review.version||0)>(local.version||0))next.episodes[n]={...structuredClone(p.review),pending:false};
    }
-   const legacy=await api.analysisLoad?.({projectId});
-   for(const episode of inspectCollabEpisodes(project.episodes).episodes)if(!next.episodes[episode.episodeNumber]){
+   const incoming=inspectCollabEpisodes(project.episodes).episodes;
+   const missing=incoming.filter(episode=>!next.episodes[episode.episodeNumber]);
+   const legacy=missing.length?await api.analysisLoad?.({projectId}):null;
+   for(const episode of missing){
     const n=episode.episodeNumber,output=project.analysis_progress?.[n]?.output||legacy?.episodes?.[n]?.outputs?.filter(Boolean).join('\n\n')||'';
     const record=importLegacyArtReview(episode,{output,assets,genre:project.genre});
     next.episodes[n]={...record,pending:record.status!=='empty',...(record.status!=='empty'?{writeId:crypto.randomUUID()}:{})};
    }
    for(const [number,record] of Object.entries(next.episodes)){
     const recovered=record.cloudReceipt&&record.syncError&&rejectedReviewRequest(record.syncError)?retireRejectedReceipt(record,record.syncError):record;
-    next.episodes[number]=confirmPublishedUnassigned(recovered);
+    next.episodes[number]=limitReviewReplyHistory(confirmPublishedUnassigned(recovered));
    }
-   await persist(next);loaded=true;episodes=inspectCollabEpisodes(project.episodes).episodes;return ledger;
+   if(!loaded||Object.entries(next.episodes).some(([number,record])=>ledger.episodes[number]!==record))await persist(next);
+   loaded=true;episodes=incoming;return ledger;
   });},
   update(number,reduce){return enqueue(async()=>{
    const current=ledger.episodes[number];if(!current)throw Error('请先读取本集核实清单');
@@ -107,16 +123,16 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   });},
   // A bulk approval uses one atomic disk write, not one full ledger write per scene.
   updateMany(changes){return enqueue(async()=>{
-   const next=structuredClone(ledger),results=[];
+   const next={...ledger,episodes:{...ledger.episodes}},results=[];
    for(const {number,reduce}of changes){
     const current=next.episodes[number];if(!current)continue;
     const r=reduce(structuredClone(current));if(JSON.stringify(r)===JSON.stringify(current))continue;r.version=current.version||0;r.pending=true;r.writeId=crypto.randomUUID();delete r.syncError;delete r.publishRequest;delete r.uploadedWriteId;
-    if(current.cloudReceipt)r.cloudReceipt=structuredClone(current.cloudReceipt);next.episodes[number]=r;results.push(r);
+    if(current.cloudReceipt)r.cloudReceipt=structuredClone(current.cloudReceipt);const saved=limitReviewReplyHistory(r);next.episodes[number]=saved;results.push(saved);
    }
    if(results.length)await persist(next);return results;
   });},
   // Compatibility for old callers: retrying a local checkpoint never uploads it.
-  sync(){return enqueue(async()=>{await persist(structuredClone(ledger));return ledger;});},
+  sync(){return enqueue(async()=>{await persist(ledger);return ledger;});},
   publish(number,sceneIds,{onProgress}={}){
    const progress=phase=>{try{onProgress?.(phase);}catch{}};
    // Freeze the exact approved content requested by the user in the local lane.

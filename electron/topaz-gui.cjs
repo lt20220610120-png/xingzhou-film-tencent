@@ -11,7 +11,7 @@ function runTopazGui({config,input,info,directory,executeCommand=execute,guard=a
   let project;try{
    await guard();const components=topazComponents(config.topazPath);
    fs.mkdirSync(directory,{recursive:true});const source=path.join(directory,'source'+(path.extname(input)||'.mp4'));
-   fs.copyFileSync(input,source,fs.constants.COPYFILE_EXCL);
+   await fs.promises.copyFile(input,source,fs.constants.COPYFILE_EXCL);
    project=createTopazGuiProject({directory,input:source,info,factor:config.upscaleFactor});
    const cancelFile=path.join(directory,'cancel.request'),driver=path.join(directory,'xingzhou-topaz-driver.ps1');
    fs.writeFileSync(driver,fs.readFileSync(path.join(__dirname,'topaz-gui-driver.ps1')),{flag:'wx'});

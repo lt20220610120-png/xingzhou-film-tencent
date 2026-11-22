@@ -1,3 +1,4 @@
+import {useWorkspacePolling} from './useWorkspacePolling.js';
 import React,{useEffect,useRef,useState} from 'react';
 import {Film,ArrowUpRight,RefreshCw,Download,Trash2,CloudUpload} from 'lucide-react';
 import {projectVideoRows,filterProjectVideos,videoLabelCompare,groupProjectVideos,selectedProjectVideos,shareableProjectVideos,videoResultKey,videoExportId} from '../../core/projectVideoPool.js';
@@ -14,21 +15,43 @@ export function ProjectVideoPool({project,api,state,accountId,onOpenStoryboard,c
  const scopeKey=JSON.stringify([project.id,accountId]);scope.current=scopeKey;
  const remove=async records=>{const result=await api.projectVideoDelete({projectId:project.id,ids:records.map(videoExportId)});for(const key of result.removedKeys||[])hiddenKeys.current.add(key);setRows(old=>old.map(g=>{const kept=g.results.filter(r=>!hiddenKeys.current.has(videoResultKey(r)));return groupProjectVideos(kept.length?kept:[{...g,status:'not-started'}])[0];}));setNotice(`已删除 ${result.removed} 条${result.errors?.length?'；'+result.errors.join('；'):''}`);window.dispatchEvent(new Event('xz-video-pool-refresh'));return result;};
  useEffect(()=>{setSelections(new Map());hiddenKeys.current.clear();sharedJobs.current.clear();setDeleting(null);setOpened(null);setRows([]);setEpisode('');setScene('');setUploading(0);setUploadErrors([]);},[project.id,accountId]);
- const loading=useRef(false),epoch=useRef(0),latest=useRef({state,project});latest.current={state,project};
- useEffect(()=>{const ticket=++epoch.current;let disposed=false,mediaPending=false,cloudMedia=[],mediaAt=0;const querying=new Set();loading.current=false;setError('');
-  const display=tasks=>{if(disposed||ticket!==epoch.current)return;const cloud=latest.current.project;const withShared=tasks.map(task=>!task.mediaId&&sharedJobs.current.has(task.id)?{...task,mediaId:sharedJobs.current.get(task.id)}:task);setRows(groupProjectVideos(projectVideoRows(cloud,withShared,cloudMedia).filter(r=>!hiddenKeys.current.has(videoResultKey(r)))));};
-  const load=async()=>{if(loading.current)return;loading.current=true;try{
-   const tasks=await api.generationList({includeArchived:true});display(tasks); // Show submitted receipts immediately, never wait for query/download or cloud reads.
+ const latest=useRef({state,project});latest.current={state,project};
+ const reads=useRef(null);
+ if(reads.current?.scope!==scopeKey)reads.current={scope:scopeKey,tasks:[],cloudMedia:[],mediaAt:0,mediaPending:false,querying:new Set()};
+ const load=useWorkspacePolling(async current=>{
+  const view=reads.current;
+  const display=()=>{
+   if(!current())return;
+   const tasks=view.tasks.map(task=>!task.mediaId&&sharedJobs.current.has(task.id)?{...task,mediaId:sharedJobs.current.get(task.id)}:task);
+   setRows(groupProjectVideos(projectVideoRows(latest.current.project,tasks,view.cloudMedia).filter(row=>!hiddenKeys.current.has(videoResultKey(row)))));
+  };
+  try{
+   const tasks=await api.generationList({includeArchived:true});
+   if(!current())return;
+   view.tasks=tasks;display();
    for(const task of tasks.filter(t=>t.projectId===project.id&&!['success','failed'].includes(t.status)&&(t.jobId||t.status==='downloading'))){
-    if(disposed||querying.has(task.id)||task.nextPollAt&&task.nextPollAt>Date.now())continue;
-    const profile=generationMediaProfiles(latest.current.state,'video').find(p=>p.id===task.profileId);if(!profile&&task.provider!=='libtv')continue;querying.add(task.id);
-    void api.generationRefresh({id:task.id,apiKey:profile?.apiKey,endpoint:profile?.endpoint}).then(()=>api.generationList({includeArchived:true})).then(display).catch(e=>{if(!disposed)setError('原任务查询暂未完成：'+e.message);}).finally(()=>querying.delete(task.id));
+    if(view.querying.has(task.id)||task.nextPollAt&&task.nextPollAt>Date.now())continue;
+    const profile=generationMediaProfiles(latest.current.state,'video').find(p=>p.id===task.profileId);
+    if(!profile&&task.provider!=='libtv')continue;
+    view.querying.add(task.id);
+    void api.generationRefresh({id:task.id,apiKey:profile?.apiKey,endpoint:profile?.endpoint}).then(updated=>{
+     if(current()&&updated?.id===task.id){view.tasks=view.tasks.map(row=>row.id===updated.id?updated:row);display();}
+    }).catch(e=>{if(current())setError('原任务查询暂未完成：'+e.message);}).finally(()=>view.querying.delete(task.id));
    }
-   if(!mediaPending&&Date.now()-mediaAt>30000){mediaPending=true;void api.collabListMedia({projectId:project.id}).then(media=>{cloudMedia=media;mediaAt=Date.now();return api.generationList({includeArchived:true});}).then(display).catch(e=>{if(!disposed)setError('云端视频读取暂未完成，本机提交记录仍正常显示：'+e.message);}).finally(()=>{mediaPending=false;});}
-  }catch(e){if(!disposed)setError(e.message);}finally{if(ticket===epoch.current)loading.current=false;}};
-  const reload=()=>{mediaAt=0;return load();};void load();const timer=automatic?setInterval(load,4000):null;window.addEventListener('xz-video-pool-refresh',reload);
-  return()=>{disposed=true;clearInterval(timer);window.removeEventListener('xz-video-pool-refresh',reload);};
- },[project.id,accountId,automatic]);
+   if(!view.mediaPending&&Date.now()-view.mediaAt>30000){
+    view.mediaPending=true;
+    void api.collabListMedia({projectId:project.id}).then(media=>{
+     view.cloudMedia=media;view.mediaAt=Date.now();display();
+    }).catch(e=>{if(current())setError('云端视频读取暂未完成，本机提交记录仍正常显示：'+e.message);}).finally(()=>{view.mediaPending=false;});
+   }
+  }catch(e){if(current())setError(e.message);}
+ },{scope:scopeKey,delay:4000,repeat:automatic});
+ useEffect(()=>{
+  setError('');
+  const reload=()=>{reads.current.mediaAt=0;void load({afterCurrent:true});};
+  window.addEventListener('xz-video-pool-refresh',reload);
+  return()=>window.removeEventListener('xz-video-pool-refresh',reload);
+ },[scopeKey,load]);
  const scoped=filterProjectVideos(rows,{episode,scene}),successful=selectedProjectVideos(scoped,selections),active=rows.find(r=>r.id===opened);
  const uploadable=shareableProjectVideos(scoped,selections),activeUploadable=active?shareableProjectVideos([active],selections):[];
  const canUpload=canDelete&&project.storageMode!=='local'&&!project.locked;

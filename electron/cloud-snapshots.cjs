@@ -4,16 +4,18 @@ const ACTIONS=new Set(['project-get','project-list','director-project-get','dire
 // exceed the old 16 MiB limit. Keeping that snapshot lets later reads use the
 // revision-only response instead of transferring the whole project again.
 function createSnapshotCache({maxBytes=96*1024*1024}={}) {
-  const entries=new Map(); let bytes=0;
+  const entries=new Map(); let bytes=0,epoch=0;
   return {
+    clear(){epoch++;entries.clear();bytes=0;},
     prepare(action,payload,token) {
       if(!ACTIONS.has(action)) return null;
       const key=createHash('sha256').update(JSON.stringify([token,action,payload])).digest('hex');
       const previous=entries.get(key);
-      return {key,previous,headers:{'x-xingzhou-snapshot':'1',...(previous?{'x-xingzhou-known-revision':previous.revision}:{})}};
+      return {key,previous,epoch,headers:{'x-xingzhou-snapshot':'1',...(previous?{'x-xingzhou-known-revision':previous.revision}:{})}};
     },
     resolve(request,data) {
       if(!request || !data?._xzSnapshot) return data;
+      if(request.epoch!==epoch)throw Error('账号已切换，云端项目快照已失效');
       const snapshot=data._xzSnapshot;
       if(snapshot.unchanged) {
         if(!request.previous || request.previous.revision!==snapshot.revision) throw Error('云端项目缓存失效，请刷新重试');

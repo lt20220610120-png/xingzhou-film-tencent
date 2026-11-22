@@ -2,6 +2,20 @@ const test=require('node:test');const assert=require('node:assert/strict');const
 const {createSessionStore}=require('./session-store.cjs');const {createCloudAccessService}=require('./cloud-access-service.cjs');
 function encryption(){const key=crypto.randomBytes(32);return {isEncryptionAvailable:()=>true,encryptString(value){const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);const bytes=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),bytes]);},decryptString(bytes){const cipher=crypto.createDecipheriv('aes-256-gcm',key,bytes.subarray(0,12));cipher.setAuthTag(bytes.subarray(12,28));return Buffer.concat([cipher.update(bytes.subarray(28)),cipher.final()]).toString('utf8');}};}
 function directory(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xingzhou-session-security-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return dir;}
+test('hot session reads share one decrypt, detect a different writer, and forget the old account immediately',t=>{
+ const dir=directory(t),crypto=encryption(),observed={...crypto};let decodes=0;
+ observed.decryptString=bytes=>{decodes++;return crypto.decryptString(bytes);};
+ const writer=createSessionStore(dir,crypto),reader=createSessionStore(dir,observed);
+ writer.write({token:'first',account:{id:'a'}});
+ assert.equal(reader.read().account.id,'a');
+ for(let i=0;i<100;i++)assert.equal(reader.read().token,'first');
+ assert.equal(decodes,1);
+ writer.write({token:'second',account:{id:'b'}});
+ assert.equal(reader.read().token,'second');
+ assert.equal(decodes,2);
+ writer.clear();
+ assert.equal(reader.read(),null);
+});
 test('旧明文会话自动迁移、凭证不再明文落盘，其他系统密钥不能读取',t=>{
  const dir=directory(t),file=path.join(dir,'cloud-session.json'),storage=encryption();const saved={token:'synthetic-sensitive-token',account:{id:'user1'}};
  fs.writeFileSync(file,JSON.stringify(saved));const store=createSessionStore(dir,storage);assert.deepEqual(store.read(),saved);

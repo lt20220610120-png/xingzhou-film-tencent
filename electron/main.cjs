@@ -43,7 +43,7 @@ const { discoverModels } = require('./model-discovery.cjs');
 const { importMediaFiles } = require('./media-import.cjs');
 const { importEpisodeMedia, importEpisodeFiles, deleteEpisodeMedia } = require('./episode-media-import.cjs');
 const { exportImagesToFolder } = require('./image-export.cjs');
-const { createCloudAccessService, gateway:cloudGateway } = require('./cloud-access-service.cjs');
+const { createCloudAccessService, gateway:cloudGateway,clearCloudReadCaches } = require('./cloud-access-service.cjs');
 const {createWinAIPanel}=require('./win-ai-panel.cjs');
 const { createCollabService } = require('./collab-service.cjs');
 const { createWorkBuddyService } = require('./workbuddy-service.cjs');
@@ -53,7 +53,7 @@ const isDev = !app.isPackaged;
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
 let productionHost;
 let storyboardBatchHost=null,storyboardBatchRoot='';
-const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,getLocalAccount:localIpcAccount,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();videoMonitor?.cancel();void closeDesktopResources({libtv:()=>libtvService?.close(),winAI:()=>winAiPanel?.revoke(),admin:()=>workflowEngine?.pauseAll(),production:()=>productionHost?.stop(),storyboard:()=>storyboardBatchHost?.stopAll()});}});
+const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,getLocalAccount:localIpcAccount,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();videoMonitor?.cancel();clearCloudReadCaches();collabService?.clearLocalPresence();activeImageCacheDir=undefined;activeImageCache=undefined;const previousWorkflow=workflowEngine,previousBatch=storyboardBatchHost;workflowEngine=null;void closeDesktopResources({libtv:()=>libtvService?.close(),winAI:()=>winAiPanel?.revoke(),admin:()=>previousWorkflow?.pauseAll(),production:()=>productionHost?.stop(),storyboard:async()=>{if(!previousBatch)return;previousBatch.stopAll();await previousBatch.idle();if(storyboardBatchHost===previousBatch&&!previousBatch.hasActive())storyboardBatchHost=null;}});}});
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
@@ -114,7 +114,9 @@ for (const [channel, action] of Object.entries({
 })) ipcMain.handle(channel, (event, payload) => { assertWorkBuddySender(event); return action(payload); });
 function readJson(file, fallback=null){ try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return fallback} }
 function ensureDir(dir){ fs.mkdirSync(dir,{recursive:true}); return dir; }
-function getDataDir(){ const config=readJson(CONFIG_FILE(),{}); return ensureDir(config.dataDir||defaultDataDir()); }
+let activeDataDirectory;
+function getDataDir(){ return activeDataDirectory||=ensureDir(readJson(CONFIG_FILE(),{}).dataDir||defaultDataDir()); }
+async function readJsonAsync(file,fallback=null){try{return JSON.parse(await fs.promises.readFile(file,'utf8'));}catch{return fallback;}}
 function dataFile(dir=getDataDir()){ return path.join(dir,'xingzhou-data.json'); }
 function directorProjectsDir(dir=getDataDir()){ return ensureDir(path.join(dir,'导演工作台的项目')); }
 function directorProjectsFile(dir=getDataDir()){ return path.join(directorProjectsDir(dir),'director-projects.json'); }
@@ -140,14 +142,26 @@ ipcMain.handle('import-creator-video', () => importCreatorVideo({ dialog, window
 ipcMain.handle('save-txt-batch',async(_,{folderName,files})=>{const r=await dialog.showOpenDialog({title:'选择导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;return require('./text-batch-export.cjs').writeTextBatch(r.filePaths[0],folderName,files||[]);});
 ipcMain.handle('storage-info',()=>storageInfo());
 const stateBackupLoads = new Map();
-let videoProfileCache;
+let providerCache;
+const stateReads=new Map(),providerKeys=['apiProfiles','mediaProfiles','activeApiId','activeImageApiId','activeVideoApiId','activeAudioApiId'];
+function rememberProviderSettings(file,state){
+ providerCache={file,...Object.fromEntries(providerKeys.filter(key=>Object.hasOwn(state||{},key)).map(key=>[key,state[key]]))};
+}
+async function providerSettings(){
+ const file=dataFile();
+ if(providerCache?.file!==file)await loadPersistedState();
+ if(file!==dataFile())return providerSettings();
+ return providerCache?.file===file?providerCache:{};
+}
 let directoryMigration=false;
 let preparedDirectory=null;
 function loadPersistedState() {
  const file = dataFile();
- const pending = loadCreatorStateWithBackup(file);
+ if(stateReads.has(file))return stateReads.get(file);
+ const pending=loadCreatorStateWithBackup(file).finally(()=>{if(stateReads.get(file)===pending)stateReads.delete(file);});
+ stateReads.set(file,pending);
  // Retain failures to block automatic writes until the renderer successfully reloads.
- const barrier=pending.then(state=>{videoProfileCache={file,mediaProfiles:state?.mediaProfiles||[]};return true;});barrier.catch(()=>{});stateBackupLoads.set(file, barrier);
+ const barrier=pending.then(state=>{if(file===dataFile())rememberProviderSettings(file,state);return true;});barrier.catch(()=>{});stateBackupLoads.set(file, barrier);
  return pending;
 }
 ipcMain.handle('load-state',()=>loadPersistedState());
@@ -156,7 +170,7 @@ ipcMain.handle('save-state',async(_,state)=>{
  ensureDir(getDataDir());const file=dataFile();
  await (stateBackupLoads.get(file)||loadPersistedState());
  await require('./state-writer.cjs').writeStateAsync(file,state);
- videoProfileCache={file,mediaProfiles:state?.mediaProfiles||[]};
+ rememberProviderSettings(file,state);
  return storageInfo();
 });
 ipcMain.handle('save-workspace-delta',async(_,delta)=>{
@@ -164,12 +178,17 @@ ipcMain.handle('save-workspace-delta',async(_,delta)=>{
  const file=dataFile();
  await (stateBackupLoads.get(file)||loadPersistedState());
  await require('./state-writer.cjs').writeStateAsync(file,delta,{directorFile:directorProjectsFile(path.dirname(file))});
- if(delta.workspace?.remove.includes('mediaProfiles')||Object.hasOwn(delta.workspace?.set||{},'mediaProfiles')){
-  videoProfileCache={file,mediaProfiles:delta.workspace.set.mediaProfiles||[]};
+ if(providerCache?.file===file){
+  const merged={...providerCache};
+  for(const key of providerKeys){
+   if(delta.workspace?.remove?.includes(key))delete merged[key];
+   if(Object.hasOwn(delta.workspace?.set||{},key))merged[key]=delta.workspace.set[key];
+  }
+  rememberProviderSettings(file,merged);
  }
  return true;
 });
-ipcMain.handle('load-director-projects',()=>{const file=directorProjectsFile();const data=readJson(file,null);if(Array.isArray(data))return data;const backup=readJson(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
+ipcMain.handle('load-director-projects',async()=>{const file=directorProjectsFile();const data=await readJsonAsync(file,null);if(Array.isArray(data))return data;const backup=await readJsonAsync(file.replace(/\.json$/,'.backup.json'),null);return Array.isArray(backup)?backup:data;});
 ipcMain.handle('save-director-projects',async(_,projects)=>{if(directoryMigration)throw new Error('资料目录正在迁移，请稍后保存');const file=directorProjectsFile();await require('./state-writer.cjs').writeStateAsync(file,projects||[],{backup:true});return file});
 function assertDirectorQuickSender(event) {
  if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error('只允许主工作区访问导演生成进度');
@@ -199,8 +218,10 @@ async function commitDataDirectory({migrationId}={}){
  const {next,currentState,migration}=preparedDirectory;
  await migration.commit?.();
  ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE()+'.writing',JSON.stringify({dataDir:next},null,2),'utf8');fs.renameSync(CONFIG_FILE()+'.writing',CONFIG_FILE());
+ activeDataDirectory=next;providerCache=undefined;stateBackupLoads.clear();collabService?.clearLocalPresence();
  preparedDirectory=null;directoryMigration=false;
- return {info:storageInfo(),state:readJson(dataFile(next),currentState),directorProjects:readJson(directorProjectsFile(next),null)};
+ const [state,directorProjects]=await Promise.all([readJsonAsync(dataFile(next),currentState),readJsonAsync(directorProjectsFile(next),null)]);
+ return {info:storageInfo(),state,directorProjects};
 }
 ipcMain.handle('commit-data-dir',(_,payload)=>commitDataDirectory(payload));
 ipcMain.handle('cancel-data-dir',async(_,payload)=>{if(preparedDirectory?.id===payload?.migrationId){await preparedDirectory.migration.cancel?.();preparedDirectory=null;directoryMigration=false;}return true;});
@@ -222,7 +243,7 @@ function walkImportFiles(rootDir){
 }
 ipcMain.handle('import-skill-directory',async()=>{const r=await dialog.showOpenDialog({title:'选择完整 Skill 目录',properties:['openDirectory']});if(r.canceled||!r.filePaths[0])return null;const rootDir=r.filePaths[0];return {rootName:path.basename(rootDir),files:walkImportFiles(rootDir)}});
 ipcMain.handle('import-skill-document',async()=>{const r=await dialog.showOpenDialog({title:'导入 Skill 文档',properties:['openFile'],filters:[{name:'Skill 文档',extensions:['txt','md','markdown','text']}]});if(r.canceled||!r.filePaths[0])return null;const filePath=r.filePaths[0];return {fileName:path.basename(filePath),content:fs.readFileSync(filePath,'utf8').replace(/^\uFEFF/,'')}});
-ipcMain.handle('import-full-script',async()=>{const r=await dialog.showOpenDialog({title:'导入完整剧本',properties:['openFile'],filters:[{name:'剧本文档',extensions:['txt','md','text','docx']}]});if(r.canceled||!r.filePaths[0])return null;const filePath=r.filePaths[0];const ext=path.extname(filePath).toLowerCase();let content,encoding='docx';if(ext==='.docx')content=(await mammoth.extractRawText({path:filePath})).value;else ({content,encoding}=require('./text-import.cjs').decodeImportText(fs.readFileSync(filePath)));return {filePath,fileName:path.basename(filePath),content,encoding}});
+ipcMain.handle('import-full-script',async()=>{const r=await dialog.showOpenDialog({title:'导入完整剧本',properties:['openFile'],filters:[{name:'剧本文档',extensions:['txt','md','text','docx']}]});if(r.canceled||!r.filePaths[0])return null;const filePath=r.filePaths[0];const ext=path.extname(filePath).toLowerCase();let content,encoding='docx';if(ext==='.docx')content=(await mammoth.extractRawText({path:filePath})).value;else ({content,encoding}=require('./text-import.cjs').decodeImportText(await fs.promises.readFile(filePath)));return {filePath,fileName:path.basename(filePath),content,encoding}});
 const activeAiRequests=new Map();
 const aiTaskProgress=new Map();
 const safeProviderDiagnostic=value=>{
@@ -377,7 +398,7 @@ function createProjectCollab() {
     upload(projectId,filePath,kind,token) {
       const account = imageCacheAccount(), cache = currentMediaCache();
       return require('./collab-service.cjs').uploadToBucket(projectId,filePath,kind,token,(url,result)=>{
-        if (account && account===imageCacheAccount() && cache===currentMediaCache()) cache.seed(url,account,result);
+        if (account && account===imageCacheAccount() && cache===currentMediaCache()) return cache.seed(url,account,result);
       });
     },
     async verifyStoryboardAudio(file,{projectId,reference}) {
@@ -531,7 +552,7 @@ ipcMain.handle('collab-export-images',async(_,{folderName='美术图片',images=
  const uniqueFile=target=>{if(!fs.existsSync(target))return target;const ext=path.extname(target);const base=target.slice(0,-ext.length);let index=2;while(fs.existsSync(`${base} (${index})${ext}`))index+=1;return `${base} (${index})${ext}`};
  if(!Array.isArray(images)||!images.length)throw new Error('没有可导出的图片');
  const first=images[0];
- if(!archive){const ext=imageExt(first);const r=await dialog.showSaveDialog({title:'保存图片',defaultPath:`${safe(filename||first.assetName||'图片')}${ext}`,filters:[{name:'图片文件',extensions:[ext.slice(1)]}]});if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,await fetchImage(first));return {file:r.filePath,count:1}}
+ if(!archive){const ext=imageExt(first);const r=await dialog.showSaveDialog({title:'保存图片',defaultPath:`${safe(filename||first.assetName||'图片')}${ext}`,filters:[{name:'图片文件',extensions:[ext.slice(1)]}]});if(r.canceled||!r.filePath)return null;await fs.promises.writeFile(r.filePath,await fetchImage(first));return {file:r.filePath,count:1}}
  const r=await dialog.showOpenDialog({title:'选择图片导出位置',properties:['openDirectory','createDirectory']});if(r.canceled||!r.filePaths[0])return null;
  const dir=path.join(r.filePaths[0],safe(folderName));
  return exportImagesToFolder({images,dir,layout,fetchImage});
@@ -596,9 +617,9 @@ const prepareVideoReferences=require('./niney-reference-upload.cjs').createNiney
   compress:(bytes,mime,ref)=>require('./reference-image-copy.cjs').compressReferenceImage(bytes,mime,{
     nativeImage,maxEdge:['first_frame','last_frame'].includes(ref.role)?2560:2304,
   }),
-  readLocalOriginal:(url,account)=>{
+  readLocalOriginal:async(url,account)=>{
     const cache=currentMediaCache();
-    if(!cache.peek(url,account)) return null;
+    if(!await cache.peek(url,account)) return null;
     return cache.read(url,account,()=>null);
   },
 });
@@ -619,7 +640,7 @@ async function manageGenerationReferences(action,payload={}){
 ipcMain.handle('generation-reference-list',()=>manageGenerationReferences('generation-reference-list'));
 ipcMain.handle('generation-reference-cleanup',(_,p)=>manageGenerationReferences('generation-reference-cleanup',p));
 ipcMain.handle('generation-archive',(_,p)=>jobs().archive(p));
-ipcMain.handle('generation-clear',(_,p={})=>jobs().clear({...p,retainedPaths:[...generationRetainedPaths(readJson(dataFile(),{})),...generationRetainedPaths(readJson(directorProjectsFile(),[])),...generationRetainedPaths(p.retainedPaths)]}));
+ipcMain.handle('generation-clear',async(_,p={})=>{const [state,director]=await Promise.all([readJsonAsync(dataFile(),{}),readJsonAsync(directorProjectsFile(),[])]);return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths)]});});
 ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
 async function submitGeneration(event,p){
  if(p.storyboardEdit&&!p.storyboardBatchRunId&&storyboardBatchHost?.hasPending(p.projectId,p.shotId))throw Error('此分镜已在批量队列中');
@@ -643,7 +664,7 @@ async function submitGeneration(event,p){
    const {validateImportedSubmission}=await import('../core/importedArtBinding.js');
    compiled=validateImportedSubmission(promptArtStore().load({accountId,projectId:p.bindingProjectId}),bindingValue,accountId);
 
-  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:loadPromptBinding,collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:bindingValue,accountId,bindingOptions:p.workflowRunId&&!event.workflow?await productionHost.bindingOptions({runId:p.workflowRunId,projectId:p.bindingProjectId}):{},localSources:readJson(directorProjectsFile(),[])||[]});
+  }else compiled=await validateLinkedSubmission({api:{promptArtLoad:loadPromptBinding,collabGetProject:payload=>collabService.getProject(payload),collabListAssets:payload=>collabService.listAssets(payload),artReviewLoadLocal:payload=>artReviewStore().load(payload)},book:{accountId:p.bindingAccountId,linkedProjectId:p.bindingProjectId,bindingVersionId:p.bindingVersionId},entry:{sourcePromptId:p.bindingSourcePromptId},value:bindingValue,accountId,bindingOptions:p.workflowRunId&&!event.workflow?await productionHost.bindingOptions({runId:p.workflowRunId,projectId:p.bindingProjectId}):{},localSources:await readJsonAsync(directorProjectsFile(),[])||[]});
   p={...p,prompt:compiled.prompt,references:compiled.references};
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
@@ -672,7 +693,7 @@ function currentStoryboardBatch(){
  const root=path.join(mediaDir(),'storyboard-batch-queue');
  if(storyboardBatchHost&&storyboardBatchRoot===root)return storyboardBatchHost;
  storyboardBatchHost?.stopAll();storyboardBatchRoot=root;
- storyboardBatchHost=require('./storyboard-batch-host.cjs').createStoryboardBatchHost({directory:root,owner:()=>String(readCloudSession()?.account?.id||''),license:()=>licenseClient.requireActive(),getProject:p=>collabService.getProject(p),listMedia:p=>collabService.listMedia(p),listJobs:()=>jobs().list({includeArchived:true}),getState:()=>readJson(dataFile(),{}),schema:(id,model)=>getLibTV().schema(id,model,'video'),patchShot:p=>collabService.patchStoryboard(p),submit:(p,signal)=>submitGeneration({securitySignal:signal},p)});
+ storyboardBatchHost=require('./storyboard-batch-host.cjs').createStoryboardBatchHost({directory:root,owner:()=>String(readCloudSession()?.account?.id||''),license:()=>licenseClient.requireActive(),getProject:p=>collabService.getProject(p),listMedia:p=>collabService.listMedia(p),listJobs:()=>jobs().list({includeArchived:true}),getState:providerSettings,schema:(id,model)=>getLibTV().schema(id,model,'video'),patchShot:p=>collabService.patchStoryboard(p),submit:(p,signal)=>submitGeneration({securitySignal:signal},p)});
  return storyboardBatchHost;
 }
 for(const action of ['start','list','stop','resume'])ipcMain.handle('storyboard-batch-'+action,async(_,p)=>{if(p.accountId!==String(readCloudSession()?.account?.id||''))throw Error('账号已变化');if(directoryMigration)throw Error('资料目录正在迁移');if(action==='start'||action==='resume')await licenseClient.requireActive();if(action==='list'){await collabService.getProject({projectId:p.projectId});return currentStoryboardBatch().list(p);}return currentStoryboardBatch()[action](p);});
@@ -684,7 +705,7 @@ function currentWorkflow(){
  workflowEngine?.pauseAll();workflowRoot=root;
  workflowEngine=require('./admin-workflow.cjs').createWorkflowEngine({root,authorize:workflowAdmin,onActivity:(id,running)=>adminAwake.set(id,running),mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),
   prepare:async(run,item,guard,save,signal)=>{
-   await guard();const state=readJson(dataFile(),{}),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(state,'video').find(p=>p.id===run.settings.profileId),ai=state.apiProfiles?.find(p=>p.id===run.settings.aiProfileId);
+   await guard();const state=await providerSettings(),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(state,'video').find(p=>p.id===run.settings.profileId),ai=state.apiProfiles?.find(p=>p.id===run.settings.aiProfileId);
    if(!ai)throw Error('AI 接口已不存在，请恢复原配置');
    const call=async messages=>{await guard();const result=await requestText({...ai,messages,maxOutputTokens:8192},{signal,geminiRun,doubaoRun,chatgptRun});await guard();return result;};
    const {beginImportedBinding,importedSnapshot,runBindingRepair}=await import('../core/importedArtBinding.js');
@@ -704,13 +725,13 @@ function currentWorkflow(){
    await guard();return input;
   },
   submit:async(input,signal)=>{await workflowAdmin();return submitGeneration({securitySignal:signal,workflow:true},input);},
-  refresh:async(job,run,signal)=>{const account=await workflowAdmin(),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(readJson(dataFile(),{}),'video').find(p=>p.id===run.settings.profileId);if(!profile)throw Error('原生成接口配置不存在');return jobs().refresh({id:job.id,apiKey:profile.apiKey,endpoint:profile.endpoint,accountId:job.provider==='libtv'?String(account.id):undefined,signal});}
+  refresh:async(job,run,signal)=>{const account=await workflowAdmin(),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(await providerSettings(),'video').find(p=>p.id===run.settings.profileId);if(!profile)throw Error('原生成接口配置不存在');return jobs().refresh({id:job.id,apiKey:profile.apiKey,endpoint:profile.endpoint,accountId:job.provider==='libtv'?String(account.id):undefined,signal});}
  });return workflowEngine;
 }
 ipcMain.handle('admin-workflow-list',async()=>{await workflowAdmin();return currentWorkflow().list();});
 ipcMain.handle('admin-workflow-folder',async()=>{await workflowAdmin();const result=await dialog.showOpenDialog({title:'选择工作流输出目录',properties:['openDirectory','createDirectory']});await workflowAdmin();if(result.canceled)return null;const folder=fs.realpathSync(result.filePaths[0]);workflowFolders.add(folder);return folder;});
 ipcMain.handle('admin-workflow-create',async(_,p)=>{
- const account=await workflowAdmin(),state=readJson(dataFile(),{}),book=state.generationWorkflow?.books?.find(b=>b.id===p.bookId);
+ const account=await workflowAdmin(),state=await readJsonAsync(dataFile(),{}),book=state.generationWorkflow?.books?.find(b=>b.id===p.bookId);
  if(!book||book.accountId&&book.accountId!==String(account.id))throw Error('请选择当前账号已准备的提示词项目');
  if(!workflowFolders.has(p.outputRoot))throw Error('请通过选择目录按钮确认输出位置');
  const s=p.settings||{},settings={preflightVersion:1,endStage:String(s.endStage||'archive'),agentKind:String(s.agentKind||'other').slice(0,40),visualStyle:String(s.visualStyle||'').slice(0,100),imagePrimary:String(s.imagePrimary||'').slice(0,200),imageFallback:String(s.imageFallback||'').slice(0,200),upscaleTarget:String(s.upscaleTarget||'1080p').slice(0,50),editorTemplate:String(s.editorTemplate||'').slice(0,500),mode:s.mode,profileId:s.profileId,model:s.model,aiProfileId:s.aiProfileId,duration:Number(s.duration),ratio:String(s.ratio||''),resolution:String(s.resolution||''),humanConfirmed:s.humanConfirmed===true,topazPath:String(s.topazPath||'').slice(0,500),openFilmPath:String(s.openFilmPath||'').slice(0,500),post:{target:'1080p',music:String(s.post?.music||'').slice(0,2000),subtitles:String(s.post?.subtitles||'').slice(0,1000),ending:String(s.post?.ending||'').slice(0,1000),versions:String(s.post?.versions||'成片').slice(0,1000)}};
@@ -724,12 +745,10 @@ ipcMain.handle('admin-workflow-action',async(_,p)=>{await workflowAdmin();return
 ipcMain.handle('admin-workflow-open',async(_,p)=>{await workflowAdmin();const folder=await currentWorkflow().output(p.id);fs.mkdirSync(folder,{recursive:true});return shell.openPath(folder);});
 function startWorkflowTimer(){
  videoMonitor=require('./generation-monitor.cjs').createGenerationMonitor({jobs,getProfiles:async()=>{
-  const file=dataFile();
-  if(videoProfileCache?.file!==file)await loadPersistedState();
   const {generationMediaProfiles}=await import('../core/canvasStore.js');
-  return generationMediaProfiles(videoProfileCache||{},'video');
- },authorize:async()=>{if(directoryMigration)return null;try{await licenseClient?.requireActive();return readCloudSession()?.account;}catch{return null;}}});
- const tick=()=>{if(workflowEngine)void workflowEngine.pump().catch(()=>workflowEngine.pauseAll());void videoMonitor.pump().catch(()=>{});};workflowTimer=setInterval(tick,5000);workflowTimer.unref();void tick();
+  return generationMediaProfiles(await providerSettings(),'video');
+ },currentOwner:()=>directoryMigration?null:readCloudSession()?.account,authorize:async()=>{if(directoryMigration)return null;try{await licenseClient?.requireActive();return readCloudSession()?.account;}catch{return null;}}});
+ const tick=()=>{const activeWorkflow=workflowEngine;if(activeWorkflow)void activeWorkflow.pump().catch(()=>activeWorkflow.pauseAll());void videoMonitor.pump().catch(()=>{});};workflowTimer=setInterval(tick,5000);workflowTimer.unref();void tick();
 }
 
 const {createProductionAwake}=require('./production-awake.cjs'),{powerSaveBlocker}=require('electron');
@@ -746,7 +765,7 @@ const fnkoDirect=(payload,signal)=>require('./fnko-direct.cjs').runFnkoDirect(pa
 async function completedFnkoFile(payload,signal){const result=await fnkoDirect(payload,signal);if(result.filePath)return result.filePath;throw Error((result.error||'任务仍在处理')+'；原任务已保存在生成结果中，请刷新原任务，不要重新提交。');}
 ipcMain.handle('media-generate-image',async(event,payload)=>{try{if(payload.provider==='libtv')return libtvDirect({...payload,kind:'image'},event.securitySignal);if(require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint))return fnkoDirect({...payload,kind:'image'},event.securitySignal);return {filePath:await generateImage({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal})}}catch(error){if(error.downloadReceiptId)return imageDownloadFailure(error);throw error}});
 ipcMain.handle('media-retry-image-download',async(_,payload)=>{try{return {filePath:await retryImageDownload(payload.receiptId,mediaDir())}}catch(error){if(error.downloadReceiptId)return imageDownloadFailure(error);throw error}});
-ipcMain.handle('media-open-image-result',async(_,payload)=>{const source=require('./media-service.cjs').pendingImageSource(payload.receiptId,mediaDir());await shell.openExternal(safeExternalUrl(source));return true;});
+ipcMain.handle('media-open-image-result',async(_,payload)=>{const source=await require('./media-service.cjs').pendingImageSource(payload.receiptId,mediaDir());await shell.openExternal(safeExternalUrl(source));return true;});
 ipcMain.handle('media-generate-video',async(event,payload)=>payload.provider==='libtv'?libtvDirect({...payload,kind:'video'},event.securitySignal):require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?({filePath:await completedFnkoFile({...payload,kind:'video'},event.securitySignal)}):({filePath:await generateVideo({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal,onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}})}));
 ipcMain.handle('media-import-file',async(_,kind)=>(await importMediaFiles({dialog,destDir:mediaDir(),kind}))[0] || null);
 ipcMain.handle('media-import-files',async(_,kind)=>importMediaFiles({dialog,destDir:mediaDir(),kind,multiple:true}));
@@ -773,8 +792,8 @@ ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestro
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:LOCAL_MEDIA_PRIVILEGES},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 function registerCanvasAppProtocol(){
  const {createCanvasProtocolHandler}=require('./canvas-protocol.cjs');
- protocol.handle('xzapp',createCanvasProtocolHandler({appDir:path.join(__dirname,'../canvas-app'),fetchFile:(url,options)=>net.fetch(url,options),runtime:()=>{
-  const profile=readJson(dataFile(),{}).mediaProfiles?.find(p=>p.provider==='museLocal');
+ protocol.handle('xzapp',createCanvasProtocolHandler({appDir:path.join(__dirname,'../canvas-app'),fetchFile:(url,options)=>net.fetch(url,options),runtime:async()=>{
+  const profile=(await providerSettings()).mediaProfiles?.find(p=>p.provider==='museLocal');
   return require('./muse-canvas-runtime.cjs').canvasRuntime(profile);
  }}));
 }

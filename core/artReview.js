@@ -38,7 +38,7 @@ export const isSceneVerified=scene=>Boolean(scene?.approval?.signature===reviewS
 export const reviewUnassignedSignature=record=>JSON.stringify([record.sourceContent,(record.unassigned||[]).map(i=>[i.category,i.name,i.description,i.ready,i.detailStatus||'',i.manualSceneIds||null]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 export const isArtEpisodeFullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(s=>isSceneVerified(s)&&record.published?.[s.id]?.signature===reviewSceneSignature(s)));
 export function confirmPublishedUnassigned(record){
- if(!record.unassignedApproval&&isArtEpisodeFullyPublished(record))record.unassignedApproval={signature:reviewUnassignedSignature(record),kind:'published'};
+ if(!record.unassignedApproval&&isArtEpisodeFullyPublished(record))return {...record,unassignedApproval:{signature:reviewUnassignedSignature(record),kind:'published'}};
  return record;
 }
 export const needsArtReviewDetails=item=>item.detailStatus!=='nonvisual'&&(!item.ready||!item.description?.trim()||!item.manual&&Boolean(characterAppearanceIssue(item)));
