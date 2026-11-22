@@ -3,6 +3,7 @@
 .auth-screen{height:100vh;overflow-y:auto;overflow-x:hidden;background:radial-gradient(circle at 76% 13%,#ece6ff,#0000 34%),linear-gradient(135deg,#f7faff,#f4f2ff);padding:28px clamp(30px,5vw,78px) 60px;color:#172448}
 .auth-topbar{display:flex;justify-content:space-between;align-items:center}
 .auth-topbar>button{width:48px;height:48px;border:1px solid #e1e6f2;background:#fff;color:#73809d;border-radius:50%;display:grid;place-items:center;box-shadow:0 10px 28px #344b8e18}
+.auth-topbar>.auth-return-to-activation{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:auto;height:40px;padding:0 13px;border-color:#e2d9ee;border-radius:9px;color:#5f4c9e;box-shadow:none}
 .auth-layout{max-width:1320px;margin:48px auto 0;display:grid;grid-template-columns:minmax(370px,.9fr) minmax(520px,1.1fr);gap:70px;align-items:start}
 .auth-intro{padding-top:20px}.auth-back{display:flex;align-items:center;gap:7px;border:0;background:transparent;color:#52658f;padding:0;margin-bottom:44px}.auth-back svg{width:18px}
 .auth-kicker{display:block;color:#3473ec;letter-spacing:2px;font-size:12px;font-weight:800}.auth-intro h1{margin:11px 0 14px;font:700 clamp(43px,5vw,64px) var(--studio-font, sans-serif),serif;color:#14203c}.auth-intro>p{max-width:570px;color:#6f7c99;font-size:16px;line-height:1.9}

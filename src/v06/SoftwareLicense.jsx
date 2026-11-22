@@ -12,30 +12,48 @@ const fmt=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour
 
 export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
  const [state,setState]=useState({status:'unchecked',allowed:false}),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedCode,setSavedCode]=useState('');
- const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck),cardInput=useRef(null),retryTimer=useRef(null),retryDelay=useRef(5000);
- const apply=next=>{setState(next);if(next.error)setError(readable(next.error));else if(next.allowed||['unchecked','prepared'].includes(next.status))setError('');};
+ const [loginFromLock,setLoginFromLock]=useState(false);
+ const sequence=useRef(0),mounted=useRef(false),supported=Boolean(api?.licenseCheck),cardInput=useRef(null),loginButton=useRef(null),activationPending=useRef(false),retryTimer=useRef(null),retryDelay=useRef(5000);
+ const apply=next=>{
+  setState(next);
+  if(next.error)setError(readable(next.error));
+  else if(next.allowed||['unchecked','prepared','account'].includes(next.status))setError('');
+  else if(next.authenticated)setError('当前账号的软件授权未生效，请验证卡密后继续');
+ };
  const scheduleRetry=()=>{if(!mounted.current||retryTimer.current)return;const delay=retryDelay.current;retryDelay.current=Math.min(30000,delay*2);retryTimer.current=setTimeout(()=>{retryTimer.current=null;if(mounted.current)void check();},delay);};
- const check=async()=>{const id=++sequence.current;try{const next=await api.licenseCheck();retryDelay.current=5000;if(retryTimer.current){clearTimeout(retryTimer.current);retryTimer.current=null;}if(mounted.current&&id===sequence.current)apply(next);return next;}catch(e){if(mounted.current&&id===sequence.current){setError(readable(e));setState({status:'error',allowed:false});scheduleRetry();}}};
+ const check=async()=>{const id=++sequence.current;try{const next=await api.licenseCheck();if(mounted.current&&id===sequence.current){retryDelay.current=5000;if(retryTimer.current){clearTimeout(retryTimer.current);retryTimer.current=null;}apply(next);return next;}}catch(e){if(mounted.current&&id===sequence.current){setError(readable(e));setState({status:'error',allowed:false});scheduleRetry();}}};
  useEffect(()=>{mounted.current=true;if(supported)void check();
   if(supported)Promise.resolve(api.licenseRememberedCard?.()).then(value=>{if(mounted.current&&value)setSavedCode(String(value));}).catch(()=>{});
   const off=api?.onLicenseState?.(next=>{if(mounted.current){sequence.current++;apply(next);if(next.allowed){retryDelay.current=5000;if(retryTimer.current){clearTimeout(retryTimer.current);retryTimer.current=null;}}if(next.status==='unchecked')void check();}});return()=>{mounted.current=false;sequence.current++;if(retryTimer.current)clearTimeout(retryTimer.current);retryTimer.current=null;off?.();};},[supported]);
  const accountReady=state.allowed||['prepared','account'].includes(state.status);
- const workspaceReady=Boolean(state.allowed&&state.authenticated!==false);
- const stage=workspaceReady?'workspace':accountReady?'account':'lock';
+ const workspaceReady=!loginFromLock&&state.allowed===true&&state.authenticated===true;
+ const showAccount=!busy&&(accountReady||loginFromLock);
+ const stage=workspaceReady?'workspace':showAccount?'account':'lock';
  useEffect(()=>{if(supported)Promise.resolve(api.appAccessStage?.(stage)).catch(()=>{});},[stage,supported]);
  if(!supported)return children;
  const entered=code.trim(),pending=entered||savedCode;
- const activate=async event=>{event.preventDefault();if(busy)return;setBusy(true);setError('');try{
+ const activate=async event=>{event.preventDefault();if(activationPending.current)return;activationPending.current=true;setBusy(true);setError('');try{
   if(!pending){await check();return;}
+  sequence.current++;
+  if(retryTimer.current){clearTimeout(retryTimer.current);retryTimer.current=null;}
   await api.licensePrepare({code:pending});setCode('');
   const account=await api.authSession();
-  if(account)apply(await api.licenseRedeem());else apply({status:'prepared',allowed:false,authenticated:false});
- }catch(e){setError(readable(e));}finally{if(mounted.current)setBusy(false);}};
+  const next=account?await api.licenseRedeem():{status:'prepared',allowed:false,authenticated:false};
+  if(mounted.current)apply(next);
+ }catch(e){if(mounted.current)setError(readable(e));}finally{activationPending.current=false;if(mounted.current)setBusy(false);}};
  const forget=async()=>{setSavedCode('');setError('');setCode('');try{await api.licenseForgetCard?.();}catch{}requestAnimationFrame(()=>cardInput.current?.focus());};
- const authenticated=async()=>{setError('');await check();};
+ const authenticated=async()=>{
+  setError('');
+  await check();
+  if(mounted.current)setLoginFromLock(false);
+ };
+ const backToActivation=()=>{
+  setLoginFromLock(false);
+  requestAnimationFrame(()=>{const input=cardInput.current;if(input&&!input.disabled)input.focus();else loginButton.current?.focus();});
+ };
  const checking=state.status==='unchecked';
  return <>
-  {workspaceReady?children:accountReady?<RegistrationScreen initialMode="login" allowRegistration onClose={()=>api.closeAccessWindow?.()} onRegistered={authenticated} onLogin={authenticated}/>:<main className="startup-license-lock" aria-label="软件启动锁">
+  {workspaceReady?children:showAccount?<RegistrationScreen initialMode="login" allowRegistration={!loginFromLock} onBackToActivation={loginFromLock?backToActivation:undefined} onClose={()=>api.closeAccessWindow?.()} onRegistered={authenticated} onLogin={authenticated}/>:<main className="startup-license-lock" aria-label="软件启动锁">
    <section className="startup-lock-card"><div className="startup-lock-brand"><img src={companyLogo} alt=""/><span>行舟影视<small>XINGZHOU FILM</small></span></div>
     <h1>激活行舟影视</h1>
     {checking&&<p>正在验证设备授权…</p>}
@@ -47,6 +65,7 @@ export function SoftwareLicenseBoundary({children,api=window.xingzhou}){
      {error&&<p className="startup-lock-error" role="alert" id="startup-card-error">{error}</p>}
      <button type="submit" disabled={checking||busy||(!pending&&state.status!=='error')}>{checking?'正在验证…':busy?'正在激活…':<>验证并激活<ArrowRight size={17}/></>}</button>
     </form>
+    <button type="button" className="startup-lock-login" ref={loginButton} disabled={busy} onClick={()=>{if(!activationPending.current)setLoginFromLock(true);}}>已有账号登录</button>
    </section>
   </main>}
   <SoftwareUpdatePrompt api={api}/>

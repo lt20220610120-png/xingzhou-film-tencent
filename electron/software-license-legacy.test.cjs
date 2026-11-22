@@ -7,4 +7,30 @@ test('匿名旧用户名仅允许登录，不能取得软件使用权',async()=>
 test('切换账号丢弃旧的预验结果，显式退出清除月卡路由提示',async()=>{let finish;const f=fixture(async action=>action==='license-prepare'?await new Promise(r=>finish=r):{status:'monthly',allowed:false});try{await f.client.route();assert(fs.existsSync(path.join(f.directory,'software-license-route.json')));const pending=f.client.prepare('fixture');f.setToken('');f.client.reset({forgetRoute:true});finish({activationToken:'stale'});await assert.rejects(pending,/账号已切换/);assert(!fs.existsSync(path.join(f.directory,'software-license-route.json')));assert.deepEqual(await f.client.decorate('login',{username:'old'}),{username:'old'});assert.equal(f.client.shouldHeartbeat(),false);}finally{fs.rmSync(f.directory,{recursive:true,force:true});}});
 test('已识别月卡用户重启断网仍停在授权页，不退回普通账号入口',async()=>{const f=fixture(async()=>{throw Error('offline');});try{fs.writeFileSync(path.join(f.directory,'software-license-route.json'),JSON.stringify({monthly:true}));const c=createLicenseClient({directory:f.directory,token:()=>'',version:'2.8.67',call:async()=>{throw Error('offline');}});await assert.rejects(c.check(),/offline/);assert.equal(c.state().status,'error');assert.equal(c.state().allowed,false);}finally{fs.rmSync(f.directory,{recursive:true,force:true});}});
 
+test('an exempt username with a stale monthly hint logs in without device proof, while a bound monthly login still signs',async()=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'xz-login-route-'));
+ try {
+  fs.writeFileSync(path.join(directory,'software-license-route.json'),JSON.stringify({monthly:true}));
+  const calls=[];
+  const client=createLicenseClient({
+   directory,safeStorage:{isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value),decryptString:bytes=>bytes.toString()},
+   token:()=>'',version:'2.8.198',
+   async call(action,payload,bearer){
+    calls.push({action,payload,bearer});
+    if(action==='license-route')return {status:payload.username==='old'?'login':'monthly',allowed:false};
+    if(action==='license-challenge')return {nonce:'fixture'};
+    return {status:'required',allowed:false};
+   }
+  });
+  await client.check();
+  calls.length=0;
+  const old={username:'old',password:'fixture-only'};
+  assert.deepEqual(await client.decorate('login',old),old);
+  assert.deepEqual(calls,[{action:'license-route',payload:{username:'old'},bearer:''}]);
+  const monthly=await client.decorate('login',{username:'bound',password:'fixture-only'});
+  assert.equal(monthly._licenseProof.nonce,'fixture');
+  assert.deepEqual(calls.map(x=>x.action),['license-route','license-route','license-challenge']);
+ } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
 test('logout from a verified exempt session retains only the account entry, never an active lease',async()=>{const f=fixture(async(action,payload,token)=>token==='old'?{status:'exempt',allowed:true,authenticated:true}:{status:'unknown',allowed:false,authenticated:false});try{await f.client.check();f.setToken('');f.client.reset({forgetRoute:true});assert.equal((await f.client.check()).status,'account');await assert.rejects(f.client.requireActive(),/未生效/);f.client.authenticated();assert.notEqual(f.client.state().allowed,true);}finally{fs.rmSync(f.directory,{recursive:true,force:true});}});

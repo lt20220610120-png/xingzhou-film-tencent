@@ -5,6 +5,7 @@ module.exports = function configurePackagedSmoke(app) {
   const root = process.env.XINGZHOU_SMOKE_TEST_ROOT;
   if (!root) return false;
   if (!path.isAbsolute(root)) throw new Error('Smoke test root must be absolute');
+  const startupOnly = process.env.XINGZHOU_SMOKE_STARTUP_ONLY === '1';
   globalThis.fetch = async () => { throw new Error('Network disabled during packaged smoke test'); };
   for (const key of ['appData', 'userData', 'documents', 'temp']) {
     const dir = path.join(root, key); fs.mkdirSync(dir, { recursive: true }); app.setPath(key, dir);
@@ -28,6 +29,9 @@ module.exports = function configurePackagedSmoke(app) {
   app.whenReady().then(() => {
     const { session } = require('electron');
     session.defaultSession.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']}, (_, done) => done({cancel:true}));
+    if (startupOnly) require('./cloud-access-service.cjs').configureCloudFetch(async () => {
+      throw new Error('Outbound gateway blocked by the startup smoke test');
+    });
   });
   let mainWindowClaimed=false;
   app.on('browser-window-created', (_, win) => {
@@ -36,6 +40,11 @@ module.exports = function configurePackagedSmoke(app) {
     win.webContents.on('did-fail-load', (_, code, description) => { report.errors.push(`Load failed ${code} ${description}`); finish(false); });
     win.webContents.once('did-finish-load', async () => {
       try {
+        if (startupOnly) {
+          report.startup = await win.webContents.executeJavaScript("Boolean(document.body && window.xingzhou?.authSession)");
+          finish(report.startup);
+          return;
+        }
         report.likeConnectorBridge=await win.webContents.executeJavaScript("['likeStatus','likePairing','likeBind','likeOpenProject','likeExtensionFolder'].every(k=>typeof window.xingzhou[k]==='function')");if(!report.likeConnectorBridge)throw Error('Like connector preload bridge missing');
         report.adminWorkflowGate=await win.webContents.executeJavaScript(`(async()=>{const api=window.xingzhou;const bridge=['adminWorkflowList','adminWorkflowCreate','adminWorkflowAction','adminWorkflowFolder','adminWorkflowOpen'].every(k=>typeof api[k]==='function');let denied=0;for(const action of [()=>api.adminWorkflowList(),()=>api.adminWorkflowCreate({}),()=>api.adminWorkflowAction({id:'fake',action:'start'}),()=>api.promptArtSave({})]){try{await action();}catch{denied++;}}return {bridge,denied,associationDisabled:!(await api.promptArtStatus()).enabled};})()`);
         if(!report.adminWorkflowGate.bridge||report.adminWorkflowGate.denied!==4||!report.adminWorkflowGate.associationDisabled)throw Error('Administrator workflow gate failed');
@@ -166,7 +175,17 @@ module.exports = function configurePackagedSmoke(app) {
         await win.webContents.executeJavaScript("window.xingzhou.appAccessStage('lock')");report.startupWindow.relockedSize=win.getSize();if(Math.abs(win.getSize()[0]-520)>8||win.isResizable())throw Error('Native relock failed '+JSON.stringify(report.startupWindow));
         report.codexLocal={module:typeof require('./codex-catalog.cjs').readLocalCodexCatalog==='function',bridge:await win.webContents.executeJavaScript("typeof window.xingzhou?.codexLocalCatalog==='function'")};
         if(!Object.values(report.codexLocal).every(Boolean))throw Error('Local Codex catalog bridge missing');
-        report.softwareLicense=await win.webContents.executeJavaScript("({bridge:['licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(k=>typeof window.xingzhou[k]==='function'),gate:!!document.querySelector('.startup-license-lock')&&document.querySelectorAll('.startup-license-lock input').length===1&&document.querySelectorAll('.startup-license-lock button').length===1,rolesHidden:document.querySelectorAll('.studio-role').length===0,noEntry:!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='进入行舟影视'),updates:typeof window.xingzhou.checkUpdate==='function'&&!document.querySelector('.license-update')})");
+        report.softwareLicense=await win.webContents.executeJavaScript(`(() => {
+          const lock = document.querySelector('.startup-license-lock');
+          return {
+            bridge: ['licenseCheck','licensePrepare','licenseRedeem','licenseAdmin'].every(key => typeof window.xingzhou[key] === 'function'),
+            gate: lock?.querySelectorAll('input').length === 1 && Boolean(lock.querySelector('form button[type=submit]')),
+            existingAccount: lock?.querySelector('.startup-lock-login')?.textContent.trim() === '已有账号登录',
+            rolesHidden: document.querySelectorAll('.studio-role').length === 0,
+            noEntry: !document.querySelector('#app-sidebar'),
+            updates: typeof window.xingzhou.checkUpdate === 'function' && !document.querySelector('.license-update'),
+          };
+        })()`);
         const mediaDir=path.join(root,'documents','行舟影视资料','画布素材','整本提示词素材');
         fs.mkdirSync(mediaDir,{recursive:true});
         const files=['图片.png','音频.wav','视频.mp4'].map((name,index)=>{

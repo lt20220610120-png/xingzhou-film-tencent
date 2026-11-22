@@ -32,7 +32,10 @@ function createLicenseClient({directory,safeStorage,call,token,version,onChange=
  async function decorate(action,payload={},bearer=''){
   if(['license-route','license-challenge','recover','send-email-code'].includes(action))return payload;
   if(bearer&&bearer===exemptToken)return payload;
-  if(action==='login'&&!activation&&kind!=='monthly')return payload;
+  if(action==='login'&&!activation){
+   const candidate=await call('license-route',{username:payload.username},'');
+   if(candidate.status==='login')return payload;
+  }
   let id;try{id=identity();}catch(error){if(['login','session','license-check','recover','send-email-code','logout'].includes(action))return payload;throw error;}
   const {nonce}=await call('license-challenge',{publicKey:id.publicKey});
   const value={...payload,_licenseVersion:version,...(activation&&['login','register','license-redeem'].includes(action)?{_licenseActivation:activation}:{})};

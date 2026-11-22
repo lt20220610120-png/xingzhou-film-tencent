@@ -15,7 +15,7 @@ localStorage.setItem('xz-role', 'director');
 localStorage.setItem('xz-director-last-project', director.id);
 localStorage.setItem('xz-director-last-pane', ep.id);
 const answers = {
-  authSession: account, licenseCheck: {status:'active', allowed:true}, onLicenseState: null, appVersion:'2.8.196',
+  authSession: account, licenseCheck: {status:'active', allowed:true, authenticated:true}, onLicenseState: null, appVersion:'2.8.196',
   checkUpdate: null, storageInfo: {dataDir:'isolated',dataFile:'isolated',engine:'fixture'},
   loadState: saved, loadDirectorProjects: saved.directorProjects,
   directorCollabListProjects: [], directorQuickListRuns: [], productionList: [],

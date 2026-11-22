@@ -41,7 +41,7 @@ test('注册页只保留必要结构：字段、发送验证码与主操作，�
   }
 });
 
-test('激活页不再有说明行，主操作只有一个提交按钮', async () => {
+test('激活页保留单独的卡密提交与已有账号登录入口', async () => {
   const { createServer } = await import('vite');
   const React = require('react');
   const { renderToStaticMarkup } = require('react-dom/server');
@@ -62,7 +62,8 @@ test('激活页不再有说明行，主操作只有一个提交按钮', async ()
     assert.equal((html.match(/type="submit"/g) || []).length, 1, '主操作只应有一个提交按钮');
     assert.ok(/正在验证…|验证并激活/.test(html), '提交按钮应显示主操作');
     assert.equal(html.includes('登录管理员账号'), false, '不得添加管理员专用入口');
-    assert.equal(html.includes('href="#login"'), false, '激活页不得添加登录旁路');
+    assert.match(html, /<button type="button"[^>]*>已有账号登录<\/button>/);
+    assert.equal(html.includes('>workspace<'), false, '设备与账号尚未获授权');
   } finally {
     await server.close();
   }

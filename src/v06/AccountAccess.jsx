@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Film, LockKeyhole, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Film, LockKeyhole, UserRound, X } from 'lucide-react';
 import { BrandLogo } from './GlobalTools.jsx';
 import { USERNAME_HINT, USERNAME_ERROR, validateRegistration } from '../../cloud-backend/shared/registration-validation.mjs';
 
@@ -51,12 +51,13 @@ export function SendCodeButton({ email, onError }) {
   );
 }
 
-export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLogin, allowRegistration=true, initialMode='register', initialUsername='' }) {
+export function RegistrationScreen({ requestedRole, onClose, onBackToActivation, onRegistered, onLogin, allowRegistration=true, initialMode='register', initialUsername='' }) {
   const [mode, setMode] = useState(allowRegistration?initialMode:'login');
   const [form, setForm] = useState({ username: initialUsername, displayName: '', password: '', confirmPassword: '', email: '', emailCode: '', inviteCode: '' });
   const [error, setError] = useState('');
   const [errorField, setErrorField] = useState('');
   const formRef = useRef(null);
+  const submitPending = useRef(false);
   const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const meta = roleMeta[requestedRole]||{label:'创作',destination:'对应工作台',icon:UserRound};
@@ -66,9 +67,15 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
     if (key === errorField) { setError(''); setErrorField(''); }
   };
   const fieldProps = (key) => ({ name: key, 'aria-invalid': errorField === key, 'aria-describedby': errorField === key ? 'registration-error' : undefined });
-  const switchMode = (next) => { setMode(next); setError(''); setErrorField(''); setNotice(''); };
+  const switchMode = (next) => {
+    if (submitPending.current || next === mode) return;
+    setMode(next);
+    setError(''); setErrorField(''); setNotice('');
+    setForm(current => ({ ...current, password: '', confirmPassword: '' }));
+  };
   const submit = async (event) => {
     event.preventDefault();
+    if (submitPending.current) return;
     setError(''); setErrorField(''); setNotice('');
     if (mode === 'register') {
       const invalid = validateRegistration(form) || (form.password !== form.confirmPassword ? { field: 'confirmPassword', message: '两次输入的密码不一致' } : null);
@@ -78,15 +85,16 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
         return;
       }
     }
+    submitPending.current = true;
     setSubmitting(true);
     try {
       if (mode === 'register') {
 
         const account = await window.xingzhou.authRegister({ ...form, ...(requestedRole?{requestedRole}:{}) });
-        onRegistered(account);
+        await onRegistered(account);
       } else if (mode === 'login') {
         const account = await window.xingzhou.authLogin({ username: form.username, password: form.password });
-        onLogin(account);
+        await onLogin(account);
       } else {
         const found = await window.xingzhou.authRecover({ username: form.username, email: form.email, emailCode: form.emailCode, newPassword: form.password || undefined });
         setNotice(`该邮箱绑定的账号是：${found.username}${form.password ? '，新密码已生效，请切换到登录页登录。' : '，可直接用原密码登录。'}`);
@@ -94,6 +102,7 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
     } catch (reason) {
       setError(humanizeError(reason, '操作失败，请检查后重试'));
     } finally {
+      submitPending.current = false;
       setSubmitting(false);
     }
   };
@@ -101,7 +110,9 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
     <main className="auth-screen">
       <header className="auth-topbar">
         <BrandLogo />
-        <button aria-label="关闭" onClick={onClose}><X /></button>
+        {onBackToActivation
+          ? <button type="button" className="auth-return-to-activation" onClick={onBackToActivation} disabled={submitting}><ArrowLeft size={16} />返回激活页</button>
+          : <button type="button" aria-label="关闭" onClick={onClose} disabled={submitting}><X /></button>}
       </header>
       <div className="auth-layout">
         <section className="auth-intro">
@@ -110,9 +121,9 @@ export function RegistrationScreen({ requestedRole, onClose, onRegistered, onLog
         </section>
         <form ref={formRef} className="auth-card" onSubmit={submit} noValidate={mode === 'register'}>
           <div className="auth-tabs">
-            {allowRegistration&&<button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')}>创建账号</button>}
-            <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')}>已有账号登录</button>
-            <button type="button" className={mode === 'recover' ? 'active' : ''} onClick={() => switchMode('recover')}>找回账号</button>
+            {allowRegistration&&<button type="button" className={mode === 'register' ? 'active' : ''} disabled={submitting} onClick={() => switchMode('register')}>创建账号</button>}
+            <button type="button" className={mode === 'login' ? 'active' : ''} disabled={submitting} onClick={() => switchMode('login')}>已有账号登录</button>
+            <button type="button" className={mode === 'recover' ? 'active' : ''} disabled={submitting} onClick={() => switchMode('recover')}>找回账号</button>
           </div>
           {mode === 'register' ? <>
             <div className="auth-field-grid">
