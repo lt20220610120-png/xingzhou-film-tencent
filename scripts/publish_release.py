@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from release_assets import ensure_release_asset
@@ -27,6 +28,27 @@ def require_status(status, expected, operation):
         raise RuntimeError(f'{operation} 失败（HTTP {status}）')
 
 
+def curl_request(url, headers, method='GET', data=None, *, timeout=30):
+    # Use stdin for authorization headers so the token never appears in arguments.
+    config='\n'.join('header = '+json.dumps(f'{name}: {value}') for name,value in headers.items())+'\n'
+    with tempfile.TemporaryDirectory(prefix='xingzhou-publish-http-') as scratch:
+        directory=Path(scratch)
+        target=directory/'response'
+        command=['curl.exe' if os.name=='nt' else 'curl','--http1.1','--silent','--show-error',
+                 '--connect-timeout','10','--max-time',str(timeout),'--config','-','--request',method,
+                 '--output',str(target),'--write-out','%{http_code}',url]
+        if method=='GET':
+            command+=['--retry','2','--retry-all-errors','--retry-delay','1']
+        if data is not None:
+            payload=directory/'request'
+            payload.write_bytes(data)
+            command+=['--data-binary','@'+str(payload)]
+        run=subprocess.run(command,input=config.encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        if run.returncode or not run.stdout.isdigit():
+            raise OSError(f'{method} {urllib.parse.urlsplit(url).hostname} 连接未确认')
+        return int(run.stdout),target.read_bytes()
+
+
 def github_request():
     token=os.environ.get('GITHUB_TOKEN')
     if not token:
@@ -36,6 +58,8 @@ def github_request():
         headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json'}
         if content_type:
             headers['Content-Type']=content_type
+        if os.name=='nt' and not url.startswith('https://uploads.github.com/'):
+            return curl_request(url,headers,method,data)
         req=urllib.request.Request(url,data=data,headers=headers,method=method)
         try:
             with urllib.request.urlopen(req,timeout=120 if url.startswith('https://uploads.github.com/') else 25) as response:
@@ -47,6 +71,10 @@ def github_request():
 
 def official_manifest():
     req=urllib.request.Request(OFFICIAL,headers={'Cache-Control':'no-cache'})
+    if os.name=='nt':
+        status,data=curl_request(OFFICIAL,req.headers)
+        require_status(status,{200},'读取官网更新清单')
+        return json.loads(data)
     with urllib.request.urlopen(req,timeout=20) as response:
         return json.load(response)
 
@@ -101,8 +129,14 @@ def stage_release(request, version, notes):
         return found
     payload={'tag_name':f'v{version}','target_commitish':'main','name':f'行舟影视 {version}',
              'body':notes,'draft':True,'prerelease':False}
-    status,data=request(f'{API}/repos/{REPO}/releases','POST',json.dumps(payload).encode(),'application/json')
-    require_status(status,{201},'创建 GitHub 发布草稿')
+    try:
+        status,data=request(f'{API}/repos/{REPO}/releases','POST',json.dumps(payload).encode(),'application/json')
+        require_status(status,{201},'创建 GitHub 发布草稿')
+    except (OSError,RuntimeError):
+        saved=find_release(request,version)
+        if saved:
+            return saved
+        raise
     return json.loads(data)
 
 
@@ -180,9 +214,15 @@ def main():
             return
         ensure_release_asset(request,REPO,release_id,source,name,size,digest)
         if release.get('draft') or args.allow_rollback:
-            status,_=request(f'{API}/repos/{REPO}/releases/{release_id}','PATCH',
-                             b'{"draft":false,"prerelease":false,"make_latest":"true"}','application/json')
-            require_status(status,{200},'公开 GitHub 正式发布')
+            url=f'{API}/repos/{REPO}/releases/{release_id}'
+            try:
+                status,_=request(url,'PATCH',b'{"draft":false,"prerelease":false,"make_latest":"true"}','application/json')
+                require_status(status,{200},'公开 GitHub 正式发布')
+            except (OSError,RuntimeError):
+                status,result=request(url)
+                saved=json.loads(result) if status==200 else {}
+                if saved.get('draft',True) or saved.get('prerelease',True):
+                    raise
         # Reuse the exact signed bytes on explicitly resumed partial publication.
         manifest=signed_manifest(version,name,notes,digest,size,[item for item in channels.values() if item['version']==version])
         content=(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
