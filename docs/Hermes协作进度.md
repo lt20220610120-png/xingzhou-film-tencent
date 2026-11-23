@@ -4,10 +4,11 @@ Codex 默认直接在 `D:/AI/Qwen3-TTS/xingzhou-release` 开发。Hermes 只在�
 
 ## 当前进展
 
-2.8.201 候选版。直连错误分流、后台读取复用及两路素材准备已完成，3,273 项 Node 测试、25 项 Python 测试、Vite 和隔离 LibTV 界面检查通过。正在验证正式载荷和公开更新。[验收](release-verification-2.8.201.md)
+2.8.201 已发布。官网、GitHub 发布仓库及源码仓库已同步签名更新清单。正式载荷启动、旧加密凭据与 2.8.200 软件内更新均已验证。[验收](release-verification-2.8.201.md)
 
 ## 最近已发布版本
 
+- **2.8.201，2026-11-23。** LibTV 真直连及三类诊断，后台读取复用，两路素材准备与实时进度。隔离 Electron、正式 NSIS 与 200 → 201 更新验证通过。实现 `a70c61c`，Release 455216856。[验收](release-verification-2.8.201.md)
 - **2.8.200，2026-11-23。** LibTV 本机网络模式、SOCKS5、连接诊断和准备阶段反馈通过隔离验证。正式 NSIS、三份签名清单与 199 → 200 更新下载通过。实现 `71322bc`，Release 455106129。[验收](archive/verification/release-verification-2.8.200.md)
 - **2.8.199，2026-11-23。** LibTV 多素材恢复上传和可读诊断，分镜增删保位、切场回顶、视频池一次性定位。真实 Electron、正式 NSIS、三份签名清单及 198 → 199 更新下载均通过。实现 `5885ede`，Release 454973543。[验收](archive/verification/release-verification-2.8.199.md)
 - **2.8.198，2026-11-23。** 修复 Windows 历史目录加密凭据兼容，新增激活页已有账号登录。真实 Electron 复现断档并验证原设备身份，正式 NSIS、三份签名清单和 197 → 198 更新下载通过。实现 `e24ae72`，Release 454679579。[验收](archive/verification/release-verification-2.8.198.md)
