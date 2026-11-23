@@ -1,6 +1,7 @@
 const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
 const {ART_ROLES,assetImageObject,objectFromLink}=require('./project-media-policy.cjs');
+const {parseAssetReferencePreference}=require('../shared/asset-reference-preference.cjs');
 const {assetImageLink}=require('./asset-image-links.cjs');
 const adoptedImageSelector=import('../shared/adopted-asset-image.mjs');
 const DENY = { status: 403, body: { error: '你没有这个项目的操作权限' } };
@@ -85,7 +86,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'producer-status') return ok({ isProducer: producer });
 
   const COLLAB_ACTIONS = ['project-get','project-update','project-delete','project-restore','project-lock','project-link-director','stats-get',
-    'episode-identity-resolve','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','assets-list','asset-create','asset-update','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
+    'episode-identity-resolve','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','assets-list','asset-create','asset-update','asset-reference-image-preference','asset-image-record','asset-image-url','asset-image-delete','asset-images-clear',
     'tasks-list','task-assign','task-update','task-delete','messages-list','message-send'];
   let collabRow;
   const fullProjectRead = action==='project-get' && !payload.bindingContext && !payload.shotReceipt && repo.getProjectAccess;
@@ -98,7 +99,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
 
   // Ordinary writes fail closed. Restore may reactivate a recycled project;
   // project-lock may unlock a live one, but cannot mutate a recycled one.
-  const WRITE_ACTIONS = ['asset-create','asset-update','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
+  const WRITE_ACTIONS = ['asset-create','asset-update','asset-reference-image-preference','asset-image-record','asset-image-delete','asset-images-clear','task-assign','task-update','task-delete','media-record','media-delete','message-send',
     'episode-identity-resolve','project-update','project-delete','project-link-director','art-episode-append','analysis-publish','prompt-binding-save','art-review-save','art-review-publish','storyboard-patch','member-add','member-remove','member-role','project-lock'];
   if (WRITE_ACTIONS.includes(action)) {
     if (!projectId) return DENY;
@@ -373,7 +374,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
       group.push(image);
       byAsset.set(image.asset_id,group);
     }
-    return ok(rows.map(row => {
+    return ok(rows.map(({no_reference_image, ...row}) => {
       const group = byAsset.get(row.id) || [];
       const pointer = assetImageLink(row.image_url,signer,projectId);
       const pictures = group.map(img=>({id:img.id,projectId,assetId:row.id,...assetImageLink(img.object_path||img.url,signer,projectId),filename:img.filename,mime:img.mime}));
@@ -382,6 +383,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
       return {
         ...row, image_url:pointer.url,
         adoptedImageId:adopted?.id||null,
+        noReferenceImage:no_reference_image===true&&!row.image_url,
         images:pictures,
       };
     }));
@@ -434,6 +436,13 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return withPreview({ id: 'legacy', projectId, assetId: asset.id, ...assetImageLink(asset.image_url, signer,projectId) });
   }
   if (action === 'asset-create') { const r = guard(await repo.createAsset(projectId, payload, user.id)); return r ? ok(r) : DENY; }
+  if (action === 'asset-reference-image-preference') {
+    if (!ART_ROLES.includes(await roleOf(projectId,user,repo,collabRow))) return DENY;
+    const preference = parseAssetReferencePreference(payload);
+    if (!preference) return {status:400,body:{error:'请选择有效的资产和参考图状态'}};
+    const saved = guard(await repo.setAssetReferenceImagePreference(projectId,preference,user.id));
+    return saved ? ok(saved) : DENY;
+  }
   if (action === 'asset-update') {
     if (!projectId || !payload.assetId) return { status: 400, body: { error: '缺少项目或资产编号' } };
     const myRole = await roleOf(projectId, user, repo);

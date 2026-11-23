@@ -36,6 +36,29 @@ function fixture(t, overrides = {}) {
 
 const source = { name: '单人制作', episodes: [{ id: 'e1', title: '第一集', prompts: [{ id: 's1', label: '1-1-1', content: '原稿' }] }] };
 
+test('local reference-image preference survives restart and protects the adopted image of another look', async (t) => {
+  const f = fixture(t), service = f.setup();
+  const {id: projectId} = await service.createProject(source);
+  const empty = await service.createAsset({projectId, name:'张三（便装）'});
+  const drawn = await service.createAsset({projectId, name:'张三（制服）'});
+  const image = await service.attachAssetImage({projectId, assetId:drawn.id, filePath:'uniform.png'});
+  const set = (target, assetIds, noReferenceImage) => target.setAssetReferenceImagePreference({projectId, assetIds, noReferenceImage});
+  assert.deepEqual(await set(service, [drawn.id, empty.id, empty.id], true), {updatedIds:[empty.id], skippedIds:[drawn.id]});
+  const reopened = f.setup();
+  let assets = await reopened.listAssets({projectId});
+  assert.equal(assets.find(asset => asset.id === empty.id).noReferenceImage, true);
+  assert.equal(assets.find(asset => asset.id === drawn.id).adoptedImageId, image.id);
+  assert.notEqual(assets.find(asset => asset.id === drawn.id).noReferenceImage, true);
+  await set(reopened, [empty.id], false);
+  assert.equal((await f.setup().listAssets({projectId})).find(asset => asset.id === empty.id).noReferenceImage, false);
+  await set(reopened, [empty.id], true);
+  await reopened.attachAssetImage({projectId, assetId:empty.id, filePath:'casual.png'});
+  assets = await f.setup().listAssets({projectId});
+  assert.equal(assets.find(asset => asset.id === empty.id).noReferenceImage, false);
+  assert.equal(assets.find(asset => asset.id === drawn.id).adoptedImageId, image.id);
+  assert.deepEqual(f.calls, []);
+});
+
 test('local presence reads one record at startup and never scans it again during rapid requests',async t=>{
  const f=fixture(t),writer=f.setup();
  const project=await writer.createProject(source);await writer.createProject(source);await writer.createProject(source);

@@ -20,3 +20,11 @@ test('missing-image view filters individual outfits and accepts legacy URLs or c
  assets[1].images=[{id:'new'}];assert.deepEqual(visibleArtAssets(assets,true).map(a=>a.id),['no-image']);
  assert.equal(assets.length,4,'filtering never removes stored assets');
 });
+test('without-reference outfits remain searchable and leave default selection on refresh',()=>{
+ const previous=[{id:'makeup-day',images:[{id:'i',url:'https://example.test/day.png'}]},{id:'makeup-night'},{id:'mug'}];
+ const assets=previous.map(row=>row.id==='makeup-night'?{...row,noReferenceImage:true}:row);
+ assert.deepEqual(ungeneratedAssets(assets).map(a=>a.id),['mug']);
+ assert.deepEqual(visibleArtAssets(assets,false),assets);
+ assert.deepEqual(reconcileAssetSelection(['makeup-day','makeup-night','mug'],previous,assets),['makeup-day','mug']);
+ assert.deepEqual(ungeneratedAssets(previous).map(a=>a.id),['makeup-night','mug']);
+});

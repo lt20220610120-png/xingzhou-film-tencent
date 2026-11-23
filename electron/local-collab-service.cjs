@@ -7,6 +7,7 @@ const { appendArtEpisodeSnapshot, composeDirectorScript, numberedEpisodes } = re
 const { applyEpisodeIdentityChange, composeEpisodeIdentityScript, filterRemovedDirectorEpisodes } = require('../cloud-backend/src/episode-identity-repair.cjs');
 const { validateImageComposition } = require('../cloud-backend/src/image-composition.cjs');
 const { publishedReferenceUses } = require('../cloud-backend/src/reference-upload-delete.cjs');
+const {parseAssetReferencePreference} = require('../cloud-backend/shared/asset-reference-preference.cjs');
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const accountFolder = id => createHash('sha256').update(String(id)).digest('hex');
@@ -43,6 +44,7 @@ function localAsset(projectId, value, previous) {
 function adoptAssetImage(asset, image) {
   asset.adoptedImageId = image?.id || null;
   asset.image_url = image?.url || '';
+  if (image) asset.noReferenceImage = false;
   asset.updated_at = time();
 }
 
@@ -446,6 +448,23 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
         adoptAssetImage(asset, image);
       } else for (const field of ['name','description']) if (typeof changes[field] === 'string') asset[field] = changes[field];
       return asset;
+    }),
+    setAssetReferenceImagePreference: p => write('setAssetReferenceImagePreference', p, async record => {
+      const preference = parseAssetReferencePreference(p);
+      if (!preference) throw error('请选择有效的资产和参考图状态');
+      const {assetHasAdoptedImage} = await import('../core/assetReferencePolicy.js');
+      const assets = new Map(record.assets.map(asset => [asset.id, asset]));
+      const updatedIds = [], skippedIds = [];
+      for (const id of preference.assetIds) {
+        const asset = assets.get(id);
+        if (!asset || (preference.noReferenceImage && assetHasAdoptedImage(asset))) {
+          skippedIds.push(id);
+          continue;
+        }
+        asset.noReferenceImage = preference.noReferenceImage;
+        updatedIds.push(id);
+      }
+      return {updatedIds, skippedIds};
     }),
     resolveAssetImage: p => read('resolveAssetImage', p, record => {
       const asset = assetIn(record, p.assetId);

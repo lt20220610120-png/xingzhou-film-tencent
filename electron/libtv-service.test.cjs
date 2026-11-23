@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const {createLibTVService,parseCLIJSON,loginURL}=require('./libtv-service.cjs');
+const {createLibTVService,parseCLIJSON,loginURL,cliFailure}=require('./libtv-service.cjs');
 const safeStorage={isEncryptionAvailable:()=>true,encryptString:s=>Buffer.from('encrypted:'+s),decryptString:b=>b.toString().slice(10)};
 const aliceKey=require('node:crypto').createHash('sha256').update('alice').digest('hex').slice(0,32);
 test('an unavailable storyboard audio is reported before uploading earlier references', async t=>{
@@ -62,4 +62,21 @@ test('official login seals credentials at rest and strips secrets from status; o
 test('prepare persists node identity before a single run and reference commands preserve chosen order',async()=>{const f=fixture();await f.service.login('alice');const refs=['a.png','b.png'].map(name=>{const filePath=path.join(f.root,name);fs.writeFileSync(filePath,'fake');return{kind:'image',filePath};});const task=await f.service.prepare('alice',{libtvOwnerKey:aliceKey,kind:'image',model:'image-key',prompt:'当前镜头',ratio:'16:9',references:refs,id:'local-id'});assert.equal(task.libtvNodeId,'node-id');assert.equal(task.libtvProjectId,'canvas-id');assert.equal(f.calls.some(c=>c.includes('--run')),false);assert.deepEqual(f.calls.filter(c=>c[0]==='upload').map(c=>c.at(-1)),refs.map(r=>r.filePath));await f.service.run('alice',task);assert.equal(f.calls.filter(c=>c.includes('--run')).length,1);await f.service.query('alice',task);assert.equal(f.calls.filter(c=>c.includes('--run')).length,1);await assert.rejects(f.service.query('bob',task),/账号/);await f.service.close();});
 test('restore fails on another LibTV identity instead of querying old account content',async()=>{const f=fixture();await f.service.login('alice');await assert.rejects(f.service.query('alice',{libtvOwnerKey:(await f.service.status('alice')).ownerKey,libtvIdentity:'someone-else',libtvProjectId:'x',libtvNodeId:'y'}),/账号|空间/);await f.service.close();});
 test('account switch is blocked for the whole prepare operation, not only final generation',async()=>{let release;const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-switch-'));const key=require('node:crypto').createHash('sha256').update('alice').digest('hex').slice(0,32),dir=path.join(root,'accounts',key);fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'credentials.enc'),safeStorage.encryptString('{"token":"test"}'));const service=createLibTVService({root,safeStorage,ensureBinary:async()=>'/fixture',runCLI:async args=>{if(args[0]==='account')return{user:{uuid:'u'},activeAccount:{accountId:1},accounts:[{accountId:1}],teamId:0};if(args[0]==='model')return{modelKey:'i',modelName:'模型',schema:{properties:{}}};if(args[0]==='project')return await new Promise(r=>release=r);if(args[0]==='node')return{newNodeKey:'n'};}});const prepared=service.prepare('alice',{libtvOwnerKey:aliceKey,kind:'image',model:'i',prompt:'x'});while(!release)await new Promise(r=>setImmediate(r));assert.equal(service.hasRunning(),true,'preparation must block directory migration and space switching');await assert.rejects(service.useAccount('alice','1'),/运行/);release({projectUuid:'p'});await prepared;await service.close();});
-test('a failed safe CLI read retries once with new routing then stops',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-network-reset-')),dir=path.join(root,'accounts',aliceKey);fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'credentials.enc'),safeStorage.encryptString('{}'));let attempts=0,invalidations=0,environmentCalls=0;const network={environment:async()=>{environmentCalls++;return{env:{}};},invalidate:()=>invalidations++,close:async()=>{}};const service=createLibTVService({root,safeStorage,network,ensureBinary:async()=>'/fixture',runCLI:async()=>{attempts++;throw Object.assign(Error('LibTV 网络连接失败（ECONNRESET）'),{code:'LIBTV_NETWORK'});}});try{const status=await service.status('alice');assert.equal(status.loggedIn,false);assert.match(status.message,/ECONNRESET/);assert.equal(attempts,2);assert.equal(invalidations,2);assert.equal(environmentCalls,2);}finally{await service.close();fs.rmSync(root,{recursive:true,force:true});}});
+test('a persistent safe CLI read failure retries twice with refreshed routing then stops',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-network-reset-')),dir=path.join(root,'accounts',aliceKey);
+ fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'credentials.enc'),safeStorage.encryptString('{}'));
+ let attempts=0;
+ const reports=[],invalidations=[],hint={host:'api2.liblib.art',mode:'system-proxy',protocol:'http'};
+ const network={environment:async({retryRoute})=>{reports.push(retryRoute);return {env:{}};},invalidate:route=>invalidations.push(route),close:async()=>{}};
+ const service=createLibTVService({root,safeStorage,network,ensureBinary:async()=>'/fixture',runCLI:async()=>{
+  attempts++;
+  throw Object.assign(cliFailure('ECONNRESET','account'),{routeHint:hint});
+ }});
+ t.after(async()=>{await service.close();fs.rmSync(root,{recursive:true,force:true});});
+ const status=await service.status('alice');
+ assert.equal(status.loggedIn,false);
+ assert.match(status.message,/ECONNRESET.*已尝试 3 次/);
+ assert.equal(attempts,3);
+ assert.deepEqual(invalidations,[hint,hint,hint]);
+ assert.deepEqual(reports,[undefined,hint,hint]);
+});

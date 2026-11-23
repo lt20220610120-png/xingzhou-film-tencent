@@ -1,10 +1,11 @@
 import {withStorageWork} from './storageWork.js';
 import {assetHasImages} from './assetImages.js';
+import {assetSkipsReferenceImage} from './assetReferencePolicy.js';
 import {assetReferencePeers,characterBaselineAsset} from './collabStore.js';
 
 export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()=>null,includeGenerated=false,categoryOrder=false}={}){
  const unique=[...new Map(assets.filter(a=>['character','scene','prop'].includes(a.category)).map(a=>[a.id,a])).values()];
- return unique.filter(a=>includeGenerated||!assetHasImages(a)).sort((a,b)=>(categoryOrder?['character','scene','prop'].indexOf(a.category)-['character','scene','prop'].indexOf(b.category):0)||(a.first_episode||Infinity)-(b.first_episode||Infinity)).map(asset=>{
+ return unique.filter(a=>!assetSkipsReferenceImage(a)&&(includeGenerated||!assetHasImages(a))).sort((a,b)=>(categoryOrder?['character','scene','prop'].indexOf(a.category)-['character','scene','prop'].indexOf(b.category):0)||(a.first_episode||Infinity)-(b.first_episode||Infinity)).map(asset=>{
   const selected=readReference(asset.id),recovery=readRecovery(asset.id);
   const peers=assetReferencePeers(asset,unique);
   const base=selected?peers.find(a=>a.id===selected):asset.category==='character'?characterBaselineAsset(asset,unique):asset.category==='scene'?peers[0]:null;
@@ -22,7 +23,7 @@ export function pendingCharacterBaselines(assets){
  const roots=new Map();
  for(const asset of assets.filter(a=>a.category==='character'&&!(Array.isArray(a.sceneIds)&&!a.sceneIds.length&&!a.episodes?.length))){
   const base=characterBaselineAsset(asset,assets);
-  if(base&&!assetHasImages(base))roots.set(base.id,base);
+  if(base&&!assetHasImages(base)&&!assetSkipsReferenceImage(base))roots.set(base.id,base);
  }
  return [...roots.keys()];
 }

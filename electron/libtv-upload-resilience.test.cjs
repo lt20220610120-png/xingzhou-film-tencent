@@ -1,24 +1,32 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const {once,EventEmitter}=require('node:events');
+const {setTimeout:delay}=require('node:timers/promises');
 const {createLibTVService,cliFailure}=require('./libtv-service.cjs');
 
-function fixture(t,{onUpload,onRun}={}){
+function fixture(t,{onAccount,onProject,onUpload,onRun}={}){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-resilient-'));
  const owner=crypto.createHash('sha256').update('fixture').digest('hex').slice(0,32);
  const accountDir=path.join(root,'accounts',owner);
  fs.mkdirSync(accountDir,{recursive:true});
  const safeStorage={isEncryptionAvailable:()=>true,encryptString:text=>Buffer.from(text),decryptString:buffer=>buffer.toString()};
  fs.writeFileSync(path.join(accountDir,'credentials.enc'),'{}');
- const events=new EventEmitter(),uploads=[],runs=[],nodes=[],invalidations=[];
+ const events=new EventEmitter(),reads=[],uploads=[],runs=[],nodes=[],invalidations=[];
  const network={
   environment:async()=>({env:{}}),
   invalidate:hint=>{invalidations.push(hint);events.emit('invalidated');},
   close:async()=>{},
  };
  const runCLI=async(args,{signal})=>{
-  if(args[0]==='account')return {user:{uuid:'fixture-user'},activeAccount:{accountId:1}};
+  if(args[0]==='account'){
+   reads.push(performance.now());
+   await onAccount?.(signal);
+   return {user:{uuid:'fixture-user'},activeAccount:{accountId:1}};
+  }
   if(args[0]==='model')return {modelKey:'sample',modelName:'示例',schema:{properties:{modeType:{items:{mixed2video:[0,8]}},count:[1],ratio:{enum:['16:9']}},config:{settings:['ratio']}}};
-  if(args[0]==='project')return {projectUuid:'fixture-canvas'};
+  if(args[0]==='project'){
+   await onProject?.();
+   return {projectUuid:'fixture-canvas'};
+  }
   if(args[0]==='upload'){const [_,label]=args;uploads.push(label);await onUpload?.(label,signal,events);return {nodeKey:label};}
   if(args.includes('--run')){runs.push(args);return onRun?.()||{};}
   if(args[1]==='create'){nodes.push(args);return {newNodeKey:'generated-node'};}
@@ -31,7 +39,7 @@ function fixture(t,{onUpload,onRun}={}){
   ...Array.from({length:6},(_,i)=>({kind:'image',filePath:path.join(root,'image-'+i+'.png')})),
   {kind:'audio',name:'角色甲',filePath:wav},{kind:'audio',name:'角色乙',filePath:wav},
  ];
- return {service,uploads,runs,nodes,invalidations,references,events,accountDir,
+ return {service,reads,uploads,runs,nodes,invalidations,references,events,accountDir,
   prepare:signal=>service.prepare('fixture',{libtvOwnerKey:owner,kind:'video',model:'sample',prompt:'@image1 @audio2',references,signal})};
 }
 
@@ -84,6 +92,76 @@ test('external cancel and service shutdown abort upload backoff without another 
   assert.equal(new Set(f.uploads).size,f.uploads.length);
   assert.equal(fs.existsSync(path.join(f.accountDir,'credentials.json')),false);
  }
+});
+
+test('account verification and reference upload can cross a five-second network disruption',async t=>{
+ function outage(reason){
+  const attempts=[];
+  return {attempts,fail(){
+   attempts.push(performance.now());
+   if(attempts.at(-1)-attempts[0]<5000)throw cliFailure(reason,'test');
+  }};
+ }
+ const read=outage('ETIMEDOUT'),upload=outage('TypeError: fetch failed');
+ const checking=fixture(t,{onAccount:read.fail});
+ const uploading=fixture(t,{onUpload(label){if(label==='参考-1')upload.fail();}});
+ await Promise.all([checking.prepare(),uploading.prepare()]);
+ for(const outage of [read,upload]){
+  const [first,second,third]=outage.attempts;
+  assert.equal(outage.attempts.length,3);
+  assert.ok(second-first>=1350,'do not immediately consume the second attempt');
+  assert.ok(third-second>=3800,'allow a longer pause before the last attempt');
+ }
+ assert.deepEqual([checking.runs.length,uploading.runs.length],[0,0]);
+});
+
+test('cancelling during account verification backoff prevents more reads or preparation',async t=>{
+ const f=fixture(t,{onAccount(){throw cliFailure('ETIMEDOUT','account');}});
+ const controller=new AbortController(),retrying=once(f.events,'invalidated');
+ const outcome=assert.rejects(f.prepare(controller.signal),error=>error.beforeSubmission&&/停止/.test(error.message));
+ await retrying;
+ controller.abort();
+ assert.equal(await Promise.race([outcome.then(()=>true),delay(150,false)]),true);
+ assert.equal(f.reads.length,1);
+ assert.deepEqual([f.uploads.length,f.nodes.length,f.runs.length],[0,0,0]);
+ assert.equal(fs.existsSync(path.join(f.accountDir,'credentials.json')),false);
+});
+
+test('a deadline interrupts active reference upload and keeps preparation unsubmitted',async t=>{
+ const timeout=AbortSignal.timeout;
+ t.mock.method(AbortSignal,'timeout',milliseconds=>timeout(milliseconds===90_000?50:milliseconds));
+ const f=fixture(t,{async onUpload(_label,signal){await delay(400,undefined,{signal});}});
+ await assert.rejects(f.prepare(),error=>error.beforeSubmission&&/@image[12].*上传参考素材.*ETIMEDOUT/.test(error.message));
+ assert.equal(f.uploads.length,2);
+ assert.deepEqual([f.nodes.length,f.runs.length],[0,0]);
+ assert.equal(fs.existsSync(path.join(f.accountDir,'credentials.json')),false);
+});
+
+test('the preparation deadline stops a stalled preflight without touching the paid command',async t=>{
+ const timeout=AbortSignal.timeout;
+ t.mock.method(AbortSignal,'timeout',milliseconds=>timeout(milliseconds===240_000?50:milliseconds));
+ const f=fixture(t,{async onAccount(signal){await delay(400,undefined,{signal});}});
+ await assert.rejects(f.prepare(),error=>error.beforeSubmission&&/准备超时.*未提交生成/.test(error.message));
+ assert.equal(f.reads.length,1);
+ assert.deepEqual([f.uploads.length,f.nodes.length,f.runs.length],[0,0,0]);
+});
+
+test('cancelling while another preparation is creating the canvas does not wait for that request',async t=>{
+ const entered=Promise.withResolvers(),release=Promise.withResolvers();
+ const f=fixture(t,{onProject(){entered.resolve();return release.promise;}});
+ const first=f.prepare();
+ await entered.promise;
+ const controller=new AbortController();
+ const second=assert.rejects(f.prepare(controller.signal),error=>error.beforeSubmission&&/停止/.test(error.message));
+ try{
+  await delay(20);
+  controller.abort();
+  assert.equal(await Promise.race([second.then(()=>true),delay(150,false)]),true);
+ }finally{
+  release.resolve();
+  await Promise.all([first,second]);
+ }
+ assert.deepEqual([f.uploads.length,f.nodes.length,f.runs.length],[8,1,0]);
 });
 
 test('earlier successful HTTP diagnostics do not hide a later bare fetch failure',()=>{

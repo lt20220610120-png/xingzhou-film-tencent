@@ -497,6 +497,7 @@ ipcMain.handle('collab-restore-project',(_,payload)=>collabService.restoreProjec
 ipcMain.handle('collab-create-asset',(_,payload)=>collabService.createAsset(payload));
 ipcMain.handle('collab-list-assets',(_,payload)=>collabService.listAssets(payload));
 ipcMain.handle('collab-update-asset',(_,payload)=>collabService.updateAsset(payload));
+ipcMain.handle('collab-set-asset-reference-image-preference',(_,payload)=>collabService.setAssetReferenceImagePreference(payload));
 
 ipcMain.handle('collab-generate-asset-image',async(event,payload)=>{const filePath=payload.provider==='libtv'?(await libtvDirect({...payload,kind:'image'},event.securitySignal)).filePath:require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?await completedFnkoFile({...payload,kind:'image'},event.securitySignal):await generateImage({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal});return collabService.attachAssetImage({projectId:payload.projectId,assetId:payload.assetId,filePath})});
 ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'选择资产图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.attachAssetImage({...payload,filePath:r.filePaths[0]})});

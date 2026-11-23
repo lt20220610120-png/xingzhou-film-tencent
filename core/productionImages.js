@@ -46,13 +46,21 @@ export async function produceImages({ctx,api,project,assets,primary,fallback,pol
    let dispatched=false,reserved=false;
    try{const generated=await withSlot(model,async()=>{
     ctx.guard();if(!pending&&budgets.has(model.id))return {skipBudget:true};
-    item.status='submitting';if(!pending){item.attempts++;item.policyAttempts[model.policyKey]=(item.policyAttempts[model.policyKey]||0)+1;item.activeModel=model.id;item.activePolicy=model.policyKey;reserved=true;}await ctx.checkpoint();ctx.guard();dispatched=true;
-    return requestAssetImage(api,p.id,asset.id,{...model,profileId:model.profileId,model:model.model,prompt,size:model.imageRatio||c.imageRatio,references:ref?autoReferences(`@${ref.name}`,[ref]):[]});
+    item.status='submitting';if(!pending){item.attempts++;item.policyAttempts[model.policyKey]=(item.policyAttempts[model.policyKey]||0)+1;item.activeModel=model.id;item.activePolicy=model.policyKey;reserved=true;}await ctx.checkpoint();ctx.guard();
+    if(pending)dispatched=true;
+    return requestAssetImage(api,p.id,asset.id,{...model,profileId:model.profileId,model:model.model,prompt,size:model.imageRatio||c.imageRatio,references:ref?autoReferences(`@${ref.name}`,[ref]):[]},{
+     recoveryOnly:Boolean(pending),respectReferencePreference:true,beforeDispatch:()=>{ctx.guard();dispatched=true;},
+    });
    });if(generated.skipBudget)continue;ctx.guard();
     if(!generated?.filePath)throw Error('生图接口没有返回图片文件');const attached=await api.collabAttachGeneratedAssetImage({projectId:p.id,assetId:asset.id,episode:asset.first_episode||0,filePath:generated.filePath});ctx.guard();if(!attached?.url)throw Error('图片已生成但未保存到项目');
     clearAssetImageRecovery(p.id,asset.id);item.status='done';item.error='';assets=await api.collabListAssets({projectId:p.id});if(run.monitor?.art){run.monitor.art.summary.images=assets.filter(assetHasImages).length;run.monitor.art.summary.assets=assets.length;run.monitor.checkedAt=Date.now();}await ctx.log?.(`图片完成：${asset.name}`,'success');await ctx.checkpoint();ctx.notifyMaterials?.();return attached;
    }catch(error){
-    if(!dispatched&&!pending){if(reserved){item.attempts--;item.policyAttempts[model.policyKey]--;delete item.activeModel;delete item.activePolicy;}item.status='queued';await ctx.checkpoint();ctx.guard();throw error;}
+    if(!dispatched&&!pending){
+     if(reserved){item.attempts--;item.policyAttempts[model.policyKey]--;delete item.activeModel;delete item.activePolicy;}
+     item.status='queued';await ctx.checkpoint();ctx.guard();
+     if(error.code==='ASSET_REFERENCE_IMAGE_EXEMPT')return {skipped:true};
+     throw error;
+    }
     ctx.guard();const recovery=readAssetImageRecovery(p.id,asset.id);item.error=error.message;
     if(isFundingError(error)&&!recovery){item.attempts--;item.policyAttempts[model.policyKey]--;item.status='budget';budgets.set(model.id,String(error.message).replace(/\s*\(request id:[^)]*\)/ig,''));await ctx.log?.(`生图渠道余额不足，切换已配置备用渠道：${model.name||model.model}`,'warning');await ctx.checkpoint();continue;}
     const kind=imageFailureKind(error,recovery);item.status=kind;await ctx.checkpoint();

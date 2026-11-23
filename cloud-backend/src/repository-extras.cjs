@@ -340,12 +340,23 @@ function extendRepository(pool) {
         throw error;
       } finally {client.release();}
     },
+    async setAssetReferenceImagePreference(pid,{assetIds,noReferenceImage},uid) {
+      return transaction(async client=>{
+        if (!await lockWritableMediaProject(client,pid,uid,ART_ROLES)) return null;
+        const {rows} = await client.query(`update collab_assets set no_reference_image=$3,
+          updated_at=case when no_reference_image is distinct from $3 then now() else updated_at end
+          where project_id=$1 and id=any($2::uuid[]) and (not $3 or coalesce(btrim(image_url),'')='') returning id`,
+        [pid,assetIds,noReferenceImage]);
+        const updated = new Set(rows.map(row=>row.id));
+        return {updatedIds:assetIds.filter(id=>updated.has(id)), skippedIds:assetIds.filter(id=>!updated.has(id))};
+      });
+    },
     async selectAssetImage(pid,assetId,imageId,uid) {
       return transaction(async client=>{
         if (!await lockWritableMediaProject(client,pid,uid,ART_ROLES)) return null;
         const image=(await client.query("select object_path,url from collab_media where project_id=$1 and asset_id::text=$2 and id::text=$3 and kind='asset-image'",[pid,assetId,imageId])).rows[0];
-        if (!image || (image.object_path && !assetImageObject(image.object_path,pid))) return null;
-        return (await client.query('update collab_assets set image_url=$3,updated_at=now() where project_id=$1 and id::text=$2 returning *',[pid,assetId,image.object_path||image.url])).rows[0]||null;
+        if (!(image?.object_path || image?.url) || (image.object_path && !assetImageObject(image.object_path,pid))) return null;
+        return (await client.query('update collab_assets set image_url=$3,no_reference_image=false,updated_at=now() where project_id=$1 and id::text=$2 returning *',[pid,assetId,image.object_path||image.url])).rows[0]||null;
       });
     },
     async recordAssetImage(pid,p,uid) {
@@ -359,7 +370,7 @@ function extendRepository(pool) {
         const saved=(await client.query(
           "insert into collab_media(project_id,asset_id,episode,kind,object_path,filename,mime,user_id,username) values($1,$2,$3,'asset-image',$4,$5,$6,$7,$8) returning *",
           [pid,p.assetId,p.episode||0,key,p.filename||'',p.mime||'',uid,p.username||''])).rows[0];
-        await client.query('update collab_assets set image_url=$3,updated_at=now() where id::text=$2 and project_id=$1',[pid,p.assetId,key]);
+        await client.query('update collab_assets set image_url=$3,no_reference_image=false,updated_at=now() where id::text=$2 and project_id=$1',[pid,p.assetId,key]);
         return saved;
       });
     },

@@ -1,6 +1,7 @@
 import {bindingProblems,entryBindingSignature} from './promptArtBinding.js';
 import {promptReviewMatches} from './promptReviewBatch.js';
 import {hasActiveDistributionClaim} from './promptDistributionService.js';
+import {assetSkipsReferenceImage} from './assetReferencePolicy.js';
 
 export const materialStatusLabels={unlinked:'待关联',stale:'关联已过期',missing:'待补充',failed:'关联失败',interrupted:'上次未完成',blocked:'清单待完成',media:'素材待就绪',unpublished:'待发布',ready:'分镜就绪',queued:'排队中',preparing:'准备清单',waiting:'等待请求',requesting:'关联中',receiving:'接收结果',saving:'保存中',retrying:'重试中',running:'其他窗口处理中'};
 const phases=new Set(['queued','preparing','waiting','requesting','receiving','saving','retrying','running']);
@@ -13,7 +14,7 @@ export function promptMaterialRow(state,entry,distribution={}){
  const attempt=saved?.sceneDistributionAttempts?.[snapshot.versionId+':'+entry.id],live=distribution.entryTasks?.[entry.id],task=live&&(!live.versionId||live.versionId===snapshot.versionId)?live:null;
  const counts={character:0,scene:0,prop:0,voice:current?new Set((decision.speakers||[]).map(s=>s.voiceUid)).size:0};
  if(current)for(const category of ['character','scene','prop'])counts[category]=new Set((decision.needs||[]).filter(n=>n.visibility==='visible'&&n.cardUid&&n.category===category).map(n=>n.cardUid)).size;
- const noReference=associated&&!(decision.needs||[]).some(n=>n.visibility==='visible')&&!decision.speakers?.length;
+ const noReference=associated&&!(decision.needs||[]).some(n=>n.visibility==='visible'&&!assetSkipsReferenceImage(snapshot.cards.find(card=>card.uid===n.cardUid)))&&!decision.speakers?.length;
  let status=associated?(mediaProblems.length?'media':published?'ready':'unpublished'):!entry.sceneReady?'blocked':current&&(decision.needs||[]).some(n=>n.visibility==='visible'&&!n.cardUid)?'missing':decision&&!current?'stale':'unlinked';
  let issues=associated?mediaProblems:problems;
  if(!associated&&attempt?.status==='failed'){status='failed';issues=[attempt.error||'关联未完成',...issues];}

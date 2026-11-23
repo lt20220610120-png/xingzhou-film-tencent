@@ -13,10 +13,10 @@ async function run(kind,{recovering=false,reference=false,local=false}={}){
  const asset={id:'doctor',name:'【博士-研究制服】',category:'character',first_episode:1,episodes:[1],images:[],description:'服装：白色实验室长褂、深灰长裤；妆造：棕灰后梳短发、眼镜。'};
  const other={id:'other',name:'【其他造型】',category:'character',images:[{id:'ref-image',url:'https://example.test/ref.png'}]};
  const assets=[asset,other],calls=[],errors=[];
- const api={mediaGenerateImage:async p=>{calls.push(p);return {};},generationRefresh:async()=>{calls.push('recover');return {status:'success',filePath:'old.png'};},collabAttachGeneratedAssetImage:async()=>({id:'saved',url:'https://example.test/saved.png'})};
+ const api={collabListAssets:async()=>assets,mediaGenerateImage:async p=>{calls.push(p);return {};},generationRefresh:async()=>{calls.push('recover');return {status:'success',filePath:'old.png'};},collabAttachGeneratedAssetImage:async()=>({id:'saved',url:'https://example.test/saved.png'})};
  const scope={...core,...recovery,...refs,...batchCore,api,project:{id:crypto.randomUUID(),style:''},asset,assets,pendingImage:recovering?{taskId:'old-task'}:null,
   accountId:'a',refId:local?'__local__':reference?'other':null,localStorage:{getItem:k=>k.startsWith('xz-asset-local-reference:')?(local?JSON.stringify({id:'local',kind:'image',filePath:'C:/managed-media/reference.png',name:'参考.png'}):null):local?'__local__':reference?'other':null},generating:false,busy:false,canEdit:true,size:'1024x1024',profile:{id:'mock'},batchProfile:{id:'mock'},batchSize:'1024x1024',
-  projectCharacterComposition:()=>({}),generatingAssetIdsRef:{current:new Set()},batchSelectedIds:['doctor'],batchBusy:false,imageConcurrency:1,stopImages:{current:false},episode:1,
+  projectCharacterComposition:()=>({}),generatingAssetIdsRef:{current:new Set()},batchSelectedIds:['doctor'],batchBusy:false,referencePreference:{updating:{current:false}},imageConcurrency:1,stopImages:{current:false},episode:1,
   setError:e=>errors.push(e),setExportError:e=>errors.push(e),setBusy:()=>{},setGeneratingAssetIds:()=>{},setBatchBusy:()=>{},setWholeDialog:()=>{},setImageProgress:()=>{},setLocalImages:()=>{},setSelectedImageId:()=>{},
   readableCloudError:e=>e.message,beforeGenerate:null,onGenerateImage:null,refresh:async()=>{},draftStore:{read:()=>null}};
  if(recovering)scope.readAssetImageRecovery=()=>({taskId:'old-task'});

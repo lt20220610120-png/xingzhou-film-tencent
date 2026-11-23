@@ -5,9 +5,11 @@ const {setTimeout:delay}=require('node:timers/promises');
 const {createLibTVNetwork,acceptsHost,untilAbort,normalizeLibTVNetworkOptions}=require('./libtv-network.cjs');
 const {failure:networkFailure,codeFromCLI}=require('./libtv-network-error.cjs');
 const {writeJsonAtomic}=require('./atomic-json.cjs');
-const uploadBackoff=[300,800];
+const PREPARE_RETRY_DELAYS=[1_500,4_000];
+const READ_TIMEOUT=45_000,UPLOAD_TIMEOUT=90_000,PREPARE_TIMEOUT=240_000;
 const stopped=()=>Error('LibTV 本机连接已停止');
 const operationSignal=(lifetime,external)=>external?AbortSignal.any([lifetime,external]):lifetime;
+const canRetry=error=>error?.code==='LIBTV_NETWORK'&&(error.retryable??networkFailure(error.networkCode).retryable);
 const IDENTITY_TTL=30_000,MODEL_TTL=10*60_000,REFERENCE_CONCURRENCY=2;
 const VERSION='1.1.3';
 const ZIP_URL=`https://liblibai-web-static.liblib.cloud/cli/${VERSION}/libtv-windows-amd64.zip`;
@@ -175,7 +177,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
  const createTransport=()=>createLibTVNetwork({getSettings:()=>settings});
  let transport=network||(runCLI?null:createTransport()),lifetime=new AbortController(),settingsWrite=Promise.resolve(),changingNetwork=false;
  const diagnostics=new Map();
- const children=new Set(),sessions=new Map(),preparations=new Set(),withReferenceSlot=createReferenceScheduler();let installer,epoch=0;
+ const children=new Set(),sessions=new Map(),preparations=new Set(),withReferenceSlot=createReferenceScheduler();let installer;
  async function binary(signal){
   if(ensureBinary)return untilAbort(ensureBinary(),signal);
   if(!installer){
@@ -234,14 +236,35 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
   }
  }
  async function command(id,args,options={}){
-  const expected=epoch,signal=operationSignal(lifetime.signal,options.signal),request={...options,signal};
+  const signal=operationSignal(lifetime.signal,options.signal),request={...options,signal};
   const readOnly=args[0]==='model'||args[0]==='account'&&['info','list'].includes(args[1])||args[0]==='node'&&args.length===4&&args[2]==='-p';
-   request.allowFallback=readOnly||args[0]==='upload'||args[0]==='download'||['node','project'].includes(args[0])&&args[1]==='create';
-  try{return await commandOnce(id,args,request);}
-  catch(error){
-   if(!readOnly||expected!==epoch||signal.aborted||error.code!=='LIBTV_NETWORK'||error.retryable===false)throw error;
-    try{await delay(300,undefined,{signal});}catch(error){if(signal.aborted)throw stopped();throw error;}
-    return commandOnce(id,args,{...request,retryRoute:error.routeHint});
+  const upload=args[0]==='upload';
+  request.allowFallback=readOnly||upload||args[0]==='download'||['node','project'].includes(args[0])&&args[1]==='create';
+  // Only reads and reference uploads can be replayed after a CLI request.
+  if(!readOnly&&!upload)return commandOnce(id,args,request);
+  const deadline=AbortSignal.timeout(upload?UPLOAD_TIMEOUT:READ_TIMEOUT);
+  request.signal=operationSignal(signal,deadline);
+  try{
+   for(let attempt=0;;attempt++){
+    try{return await commandOnce(id,args,request);}
+    catch(error){
+     if(request.signal.aborted||!canRetry(error))throw error;
+     if(attempt===PREPARE_RETRY_DELAYS.length){
+      error.message+='（已尝试 '+(attempt+1)+' 次）';
+      throw error;
+     }
+     request.retryRoute=error.routeHint;
+     await delay(PREPARE_RETRY_DELAYS[attempt],undefined,{signal:request.signal});
+    }
+   }
+  }catch(error){
+   if(signal.aborted)throw stopped();
+   if(deadline.aborted){
+    const timeout=networkFailure('ETIMEDOUT');
+    timeout.message=networkStage(args)+'时失败：'+timeout.message;
+    throw timeout;
+   }
+   throw error;
   }
  }
  async function commandOnce(id,args,options){
@@ -270,7 +293,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
    const error=route?.diagnose?.(reason)||reason;
    if(error?.code==='LIBTV_AUTH')clearMetadata(s);
    if(error?.code==='LIBTV_NETWORK'){
-     if(!upload)channel?.invalidate?.(error.routeHint);
+    if(!upload||canRetry(error))channel?.invalidate?.(error.routeHint);
     error.message=networkStage(args)+'时失败：'+error.message;
    }
    throw error;
@@ -278,25 +301,6 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
     if(route?.routeReport)options.onRoute?.(route.routeReport());
    route?.dispose?.();
    if(leased&&!--s.leases){try{seal(s);}finally{s.resolveIdle();s.resolveIdle=null;}}
-  }
- }
- async function uploadReference(id,args,{signal}){
-  let retryRoute;
-  for(let attempt=0;;attempt++){
-   if(signal.aborted)throw stopped();
-   try{return await command(id,args,{signal,retryRoute});}
-   catch(error){
-    if(signal.aborted)throw stopped();
-    if(error.code!=='LIBTV_NETWORK'||!(error.retryable??networkFailure(error.networkCode).retryable))throw error;
-     transport?.invalidate?.(error.routeHint);
-    if(attempt>=uploadBackoff.length){
-     error.message+='（已尝试 '+(attempt+1)+' 次）';
-     throw error;
-    }
-    retryRoute=error.routeHint;
-    try{await delay(uploadBackoff[attempt],undefined,{signal});}
-    catch(error){if(signal.aborted)throw stopped();throw error;}
-   }
   }
  }
  const hasCredential=s=>fs.existsSync(path.join(s.dir,'credentials.enc'))||fs.existsSync(path.join(s.dir,'credentials.json'));
@@ -345,13 +349,19 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
  const projectResult=raw=>raw.projectMeta?.uuid||raw.projectUuid||raw.uuid||raw.data?.projectMeta?.uuid||raw.data?.projectUuid;
  async function ensureProject(id,info,{name='行舟影视 · 默认项目',signal,force=false}={}){
   const s=session(id),prior=s.projectWriter||Promise.resolve();
-  const work=prior.catch(()=>{}).then(async()=>{
+  const turn=prior.catch(()=>{});
+  const work=turn.then(async()=>{
+   signal?.throwIfAborted();
    const {file,value}=projectState(id,info),selected=value.projects.find(p=>p.id===value.selectedId);
    if(!force&&selected)return selected;
    const raw=await command(id,['project','create',name],{signal}),projectId=projectResult(raw);
    if(typeof projectId!=='string'||!projectId)throw Error('LibTV 画布创建未确认，请到官网核对，未提交生成');
    const row={id:projectId,name,createdAt:Date.now(),url:taskUrl({libtvProjectId:projectId})};value.projects.push(row);value.selectedId=row.id;saveProjects(file,value);return row;
-  });s.projectWriter=work;return work;
+  });
+  s.projectWriter=work;
+  // A cancelled waiter may leave the queue without cancelling its predecessor.
+  try{await untilAbort(turn,signal);}catch(error){work.catch(()=>{});throw error;}
+  return work;
  }
  async function changeProject(id,action){const s=session(id);if(s.runs||s.leases||s.pendingLogin||s.switching)throw Error('任务正在准备或提交，请完成后再切换 LibTV 项目');s.switching=true;try{return await action(await identity(id));}finally{s.switching=false;}}
  const projectName=name=>{const clean=String(name||'').trim();if(!clean||clean.length>80)throw Error('项目名称需为1至80个字');return clean;};
@@ -453,7 +463,8 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
    const scope=session(id);
    if(changingNetwork||scope.pendingLogin||scope.switching)throw Error('LibTV 账号或网络模式正在切换，请稍后生成');
    scope.runs++;
-   const abort=new AbortController(),signal=operationSignal(operationSignal(lifetime.signal,input.signal),abort.signal);
+   const abort=new AbortController(),active=operationSignal(lifetime.signal,input.signal);
+   const deadline=AbortSignal.timeout(PREPARE_TIMEOUT),signal=AbortSignal.any([active,deadline,abort.signal]);
    const dir=path.join(scope.dir,'references',crypto.randomUUID()),temporary=new Set(),audioFiles=new Map();
    const finished=Promise.withResolvers();preparations.add(finished.promise);
    const report=progress=>{try{input.onLibTVProgress?.(progress);}catch{}};
@@ -488,7 +499,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
       filePath=path.join(dir,index+'.'+ext);temporary.add(filePath);
       await fs.promises.writeFile(filePath,bytes,{signal});
      }
-     const uploaded=await uploadReference(id,['upload','参考-'+(index+1),'-p',projectId,'-t',ref.kind,'--resource',filePath],{signal});
+     const uploaded=await command(id,['upload','参考-'+(index+1),'-p',projectId,'-t',ref.kind,'--resource',filePath],{signal});
      const key=uploaded.nodeKey||uploaded.newNodeKey;
      if(!key)throw Error('LibTV 参考上传未确认');
      ids[index]=key;
@@ -503,6 +514,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
     const baseline=await command(id,['node',nodeId,'-p',projectId],{signal});
     return {libtvOwnerKey:info.ownerKey,libtvIdentity:info.identity,libtvProjectId:projectId,libtvProjectName:project.name,libtvNodeId:nodeId,libtvCanvasUrl:taskUrl({libtvProjectId:projectId}),libtvInitialUrls:libtvResultURLs(baseline),jobId:nodeId};
    }catch(error){
+    if(deadline.aborted&&!active.aborted)throw Object.assign(Error('LibTV 准备超时，未提交生成。请检查网络和参考素材后重试'),{beforeSubmission:true});
     if(signal.aborted&&!error?.beforeSubmission)throw Object.assign(stopped(),{beforeSubmission:true});
     throw error;
    }finally{
@@ -547,7 +559,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
     const preparing=[...preparations];
    const installation=installer&&!installer.done?installer:null;
    if(installation){installer=null;installation.controller.abort(stopped());}
-   epoch++;lifetime.abort(stopped());lifetime=new AbortController();const oldTransport=transport;transport=null;
+   lifetime.abort(stopped());lifetime=new AbortController();const oldTransport=transport;transport=null;
    for(const s of sessions.values()){s.loginController?.abort();clearMetadata(s);}
    const exiting=new Promise(resolve=>{
     if(!children.size)return resolve();

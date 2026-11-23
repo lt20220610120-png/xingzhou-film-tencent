@@ -27,6 +27,24 @@ test('pause during durable pre-submit checkpoint rolls back an attempt that neve
  const f=setup(1);f.ctx.checkpoint=async()=>{if(f.ctx.run.imageItems.a0?.status==='submitting')f.ctx.run.status='paused';};await produceImages(f);
  assert.equal(f.calls.length,0);assert.equal(f.ctx.run.imageItems.a0.attempts,0);assert.equal(f.ctx.run.imageItems.a0.status,'queued');
 });
+test('production checks the latest asset preference before spending and can resume after revocation',async()=>{
+ const f=setup(1);let exempt=true;
+ f.api.collabListAssets=async()=>f.assets.map(asset=>({...asset,noReferenceImage:exempt}));
+ assert.equal((await produceImages(f)).partial,false);
+ assert.deepEqual(f.calls,[]);
+ assert.equal(f.ctx.run.imageItems.a0.attempts,0);
+ exempt=false;
+ assert.equal((await produceImages(f)).partial,false);
+ assert.deepEqual(f.calls,['primary']);
+});
+test('a pause while verifying the freshest asset data prevents transmission',async()=>{
+ const f=setup(1);
+ f.api.collabListAssets=async()=>{f.ctx.run.status='paused';return f.assets;};
+ await produceImages(f);
+ assert.deepEqual(f.calls,[]);
+ assert.equal(f.ctx.run.imageItems.a0.attempts,0);
+ assert.equal(f.ctx.run.imageItems.a0.status,'queued');
+});
 test('actual image requests respect independent primary and fallback concurrency',async()=>{
  const f=setup(9),live={primary:0,fallback:0},peak={primary:0,fallback:0};f.policies=[{...f.primary,attempts:1,imageConcurrency:1,policyKey:'primary'},{...f.fallback,attempts:1,imageConcurrency:3,policyKey:'backup'}];f.delay=ms=>new Promise(r=>setTimeout(r,Math.min(ms,1)));
  f.api.mediaGenerateImage=async request=>{const key=request.model;live[key]++;peak[key]=Math.max(peak[key],live[key]);await new Promise(r=>setTimeout(r,key==='primary'?1:20));live[key]--;if(key==='primary')throw Error('model unavailable');return {filePath:'fixture.png'};};

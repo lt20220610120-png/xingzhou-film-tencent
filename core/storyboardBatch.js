@@ -2,7 +2,7 @@ import {recommendedPromptDuration,recommendedStoryboardTiming} from './promptDis
 import {storyboardShots} from './storyboardPublication.js';
 import {inferDirectorEpisodeNumber} from './scriptImport.js';
 import {storyboardPromptValue,canRefreshStoryboardBinding} from './promptAssetUsage.js';
-import {cleanStoryboardReferenceValue} from './storyboardReferences.js';
+import {cleanStoryboardReferenceValue,projectStoryboardImageAliases} from './storyboardReferences.js';
 import {applyStoryboardDefaults,storyboardSettingKeys,rebaseStoryboardDefaultsDraft,rebaseLocalStoryboardDraft} from './storyboardDefaults.js';
 import {projectReferenceCandidates,matchBasicReferences} from './automaticReferences.js';
 import {generationMediaProfiles,activeMediaProfile,videoModelCapabilities,isFeituoEndpoint} from './canvasStore.js';
@@ -23,7 +23,7 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
   return storyboardShots(ep).flatMap(shot=>{
    const scene=String(shot.label||'').split('-').slice(0,2).join('-');if(scope==='scene'&&scene!==sceneId)return [];
    const key=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`,stored=readDraft(key),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(stored,shot,defaults),shot,project);
-   const refs=projectReferenceCandidates(assets,media,project.id,episode,scene,{assetImageSlots:true});
+   const refs=projectReferenceCandidates(assets,media,project.id,episode,scene,{assetImageSlots:true,includeEmptyAssetSlots:true});
    let value=cleanStoryboardReferenceValue(draft?.value||{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||refs},project.id);
    value=applyStoryboardDefaults(value,ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,shot.id);
    if(!draft||canRefreshStoryboardBinding(draft,shot)){const linked=storyboardPromptValue(binding,shot,value,accountId);if(linked&&!(linked.referenceBindingMode==='pending'&&!linked.references?.length&&value.references?.length))value=linked;}
@@ -47,12 +47,16 @@ export async function storyboardGenerationInput({state,value,getLibTVModel}){
  const ratios=caps.ratios?.length?caps.ratios:['16:9'],ratio=ratios.includes(value.ratio)?value.ratio:ratios[0];
  const limits=referencePolicy(isFeituoEndpoint(profile.endpoint),caps),key=k=>k==='image'?'maxImages':k==='audio'?'maxAudios':'maxVideos';
  const allowed=libtv?['image','audio','video']:['image','audio','video'].filter(k=>limits?.[key(k)]!==0);
- const input=matchBasicReferences(value,value.references||[],{allowedKinds:[...new Set([...allowed,'audio'])]});validateCompiledBinding(input,[...new Set([...allowed,'audio'])]);
+ const input=matchBasicReferences(value);validateCompiledBinding(input,[...new Set([...allowed,'audio'])]);
  const modelCapabilities=normalizeCapabilities({...caps,...model.capabilities});
  const candidateRefs=(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind));
- const selected=selectAudioReferences({...input,prompt:bindReferencePrompt(input.prompt,candidateRefs),references:candidateRefs},modelCapabilities);
- const refs=selected.references.filter(r=>allowed.includes(r.kind));
- const hasAssetSlots=input.references?.some(r=>r.assetImageSlot);
+ const hasAssetSlots=candidateRefs.some(r=>r.assetImageSlot);
+ const prompt=projectStoryboardImageAliases(input.prompt,input.references||[],candidateRefs).prompt;
+ const prepared={...input,prompt:bindReferencePrompt(prompt,candidateRefs),references:candidateRefs};
+ // Main-process resolution determines which seats become images. Only then
+ // can image-dependent audio limits be evaluated with the real reference count.
+ const selected=hasAssetSlots?prepared:selectAudioReferences(prepared,modelCapabilities);
+ const refs=hasAssetSlots?candidateRefs:selected.references.filter(r=>allowed.includes(r.kind));
  if(!hasAssetSlots)assertMinimumReferenceImages(refs,modelCapabilities);
  if(!hasAssetSlots&&limits)for(const k of allowed)if(limits[key(k)]!=null&&refs.filter(r=>r.kind===k).length>limits[key(k)])throw Error(`当前模型的${{image:'图片',audio:'音频',video:'视频'}[k]}参考超出上限`);
  if(model.protocol==='metadata-content'&&refs.some(r=>r.filePath&&!r.url))throw Error('当前官转模型要求公网素材链接');

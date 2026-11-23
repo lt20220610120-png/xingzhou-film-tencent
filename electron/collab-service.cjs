@@ -160,6 +160,7 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     directorSyncLive:p=>call('director-live-sync',p),
     directorListVersions:p=>call('director-version-list',p),directorGetVersion:p=>call('director-version-get',p),directorPublishVersion:p=>call('director-version-publish',p),directorRestoreVersion:p=>call('director-version-restore',p),
     createAsset: (p) => call('asset-create', p), listAssets: (p) => call('assets-list', p), updateAsset: (p) => call('asset-update', p),
+    setAssetReferenceImagePreference: p => call('asset-reference-image-preference', p),
     resolveAssetImage: (p) => call('asset-image-url', p),
     attachAssetImage: async (p) => { const uploaded = await upload(p.projectId, p.filePath, 'asset', session().token || ''); return call('asset-image-record', { ...p, ...uploaded }); },
     attachGeneratedAssetImage: attachGenerated,

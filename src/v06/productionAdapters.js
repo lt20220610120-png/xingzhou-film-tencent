@@ -25,6 +25,7 @@ import {produceImages} from '../../core/productionImages.js';
 import {runProductionVideoTask} from '../../core/productionVideoTask.js';
 import {videoAttemptChoices} from '../../core/productionVideoPolicy.js';
 import {assetHasImages} from '../../core/assetImages.js';
+import {assetSkipsReferenceImage} from '../../core/assetReferencePolicy.js';
 import {mediaModelChoices} from '../../core/modelChoices.js';
 import {generationMediaProfiles} from '../../core/canvasStore.js';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
@@ -140,7 +141,7 @@ export function createProductionAdapters({api,getState,setState,getQuick,getAcco
    await ctx.log?.(`批量监测完成：提示词 ${scenes.filter(s=>s.count).length}/${scenes.length} 场，清单已发布 ${monitor.summary.published}/${monitor.summary.scenes} 场，已有图片 ${monitor.summary.images}/${monitor.summary.assets}；只接续缺项，不重做已完成成果。`);
    const voiceRoster=voiceStore&&voiceAutomationEnabled(ctx.run.config)?projectVoiceRoster(voiceProject,voiceStore.snapshot()):null;
    const voiceDone=!voiceAutomationEnabled(ctx.run.config)||Boolean(voiceRoster?.complete&&voiceRoster.characters.every(x=>voiceStore.snapshot().voiceProfiles?.[x.key]?.confirmed));
-   return {information:Boolean(voiceStore)&&missingInformationEpisodes(voiceProject,voiceStore.snapshot()).length===0&&(!voiceAutomationEnabled(ctx.run.config)||projectVoiceRoster(voiceProject,voiceStore.snapshot()).complete),prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitorAssets.every(a=>assetHasImages(a)||ctx.run.imageItems?.[a.id]?.status==='skipped')};
+   return {information:Boolean(voiceStore)&&missingInformationEpisodes(voiceProject,voiceStore.snapshot()).length===0&&(!voiceAutomationEnabled(ctx.run.config)||projectVoiceRoster(voiceProject,voiceStore.snapshot()).complete),prompts:promptDone,voices:voiceDone,art:monitor.episodes.length>0&&monitor.episodes.every(e=>e.complete),images:monitor.summary.assets>0&&monitorAssets.every(a=>assetHasImages(a)||assetSkipsReferenceImage(a)||ctx.run.imageItems?.[a.id]?.status==='skipped')};
   },
   async inspect(run){const source=project(run),rows=await api.collabListProjects(),candidates=productionProjectCandidates(rows,source);const id=run.collabProjectId||run.config.collabProjectId||source.collaborationProjectId||candidates[0]?.id;
    let assets=[],cloud;if(id&&candidates.some(p=>p.id===id)){cloud=await api.collabGetProject({projectId:id});assets=await api.collabListAssets({projectId:id});}

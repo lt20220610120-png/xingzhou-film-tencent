@@ -122,6 +122,7 @@ function validateSnapshot(payload, projectId) {
       episodes: [...new Set(episodes.map(number => episodeNumber(number, 1)))],
       adoptedImageId: asset.adoptedImageId ? id(asset.adoptedImageId, '采用图片') : null,
       imageKey: asset.image_url ? mediaKey(asset.image_url, projectId) : '',
+      ...(typeof asset.noReferenceImage === 'boolean' ? {noReferenceImage:asset.noReferenceImage} : {}),
     };
   });
   unique(assets, 'id');
@@ -161,7 +162,9 @@ function stable(value) {
 
 function snapshotRevision(project, assets, media, members) {
   const order = list => [...list].sort((a, b) => String(a.id || a.user_id).localeCompare(String(b.id || b.user_id)));
-  return createHash('sha256').update(JSON.stringify(stable([project, order(assets), order(media), order(members)]))).digest('hex');
+  const compatibleAssets = assets.map(({no_reference_image, ...row}) =>
+    no_reference_image === true ? {...row, no_reference_image} : row);
+  return createHash('sha256').update(JSON.stringify(stable([project, order(compatibleAssets), order(media), order(members)]))).digest('hex');
 }
 
 function invitation(value) {
@@ -254,12 +257,13 @@ async function saveSnapshot(client, projectId, current, next, user) {
     if (asset.adoptedImageId && (!adopted || adopted.assetId !== asset.id || adopted.kind !== 'asset-image')) {
       fail(400, '采用图片与资产不匹配');
     }
-    const { rows } = await client.query(`insert into collab_assets(id,project_id,category,name,description,first_episode,episodes,image_url)
-      values($1,$2,$3,$4,$5,$6,$7,$8)
+    const { rows } = await client.query(`insert into collab_assets(id,project_id,category,name,description,first_episode,episodes,image_url,no_reference_image)
+      values($1,$2,$3,$4,$5,$6,$7,$8,case when $8<>'' then false else coalesce($9,false) end)
       on conflict(id) do update set category=excluded.category,name=excluded.name,description=excluded.description,
-        first_episode=excluded.first_episode,episodes=excluded.episodes,image_url=excluded.image_url,updated_at=now()
+        first_episode=excluded.first_episode,episodes=excluded.episodes,image_url=excluded.image_url,
+        no_reference_image=case when excluded.image_url<>'' then false else coalesce($9,collab_assets.no_reference_image) end,updated_at=now()
       where collab_assets.project_id=excluded.project_id returning id`,
-    [asset.id, projectId, asset.category, asset.name, asset.description, asset.firstEpisode, asset.episodes, adopted?.objectKey || asset.imageKey]);
+    [asset.id, projectId, asset.category, asset.name, asset.description, asset.firstEpisode, asset.episodes, adopted?.objectKey || asset.imageKey, asset.noReferenceImage ?? null]);
     if (!rows.length) fail(409, '资产编号与现有项目冲突');
   }
   for (const item of next.media) {

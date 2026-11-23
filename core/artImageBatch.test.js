@@ -31,3 +31,13 @@ test('reference-only batch follows declared roots, deduplicates people and skips
  assert.deepEqual(planAssetCategoryBatch(rows,{category:'character',selectedIds:ids}).map(j=>j.asset.id).sort(),['b','solo']);
  assert(planAssetCategoryBatch(rows,{category:'character',selectedIds:['v','b','solo','later']}).some(j=>j.asset.id==='v'));
 });
+
+test('asset exemptions suppress default, explicitly selected, and reference-only batch dispatch',async()=>{
+ const rows=[asset('skip','【张三】',1,{noReferenceImage:true}),asset('keep','【王五】',1),asset('prop','小道具',1,{category:'prop',noReferenceImage:true})];
+ assert.deepEqual(planArtImageBatch(rows).map(j=>j.asset.id),['keep']);
+ assert.deepEqual(planAssetCategoryBatch(rows,{category:'character',selectedIds:['skip','keep']}).map(j=>j.asset.id),['keep']);
+ assert.deepEqual(pendingCharacterBaselines(rows),['keep']);
+ const calls=[];
+ await runArtImageBatch(planArtImageBatch(rows),{generate:async item=>{calls.push(item.id);return {url:'mock'};}});
+ assert.deepEqual(calls,['keep']);
+});

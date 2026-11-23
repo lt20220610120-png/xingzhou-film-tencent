@@ -47,6 +47,7 @@ create table if not exists collab_assets (
   id uuid primary key default gen_random_uuid(), project_id uuid not null references collab_projects(id) on delete cascade,
   category text not null check (category in ('character','scene','prop')), name text not null,
   description text default '', first_episode int default 1, episodes int[] default '{}', image_url text default '',
+  no_reference_image boolean not null default false,
   updated_by text default '', created_at timestamptz default now(), updated_at timestamptz default now(), unique(project_id,name)
 );
 create table if not exists collab_tasks (

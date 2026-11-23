@@ -60,3 +60,19 @@ test('legacy voice identity resolves the shared audio and replaces the unavailab
  assert.equal(result.references[0].filePath,undefined);
  assert.equal(result.references[0].url,audio.url);
 });
+test('asset-resolution errors use the ready-seat index after an earlier empty seat',async()=>{
+ const slots=Array.from({length:7},(_,index)=>({...ref,id:String(index+1),assetId:String(index+1),name:'资产'+(index+1)}));
+ await assert.rejects(renewImageReferences({projectId:'p',storyboardEdit:true,references:slots},services(async ({assetId})=>{
+  if(assetId==='6')throw Object.assign(Error('空位'),{code:'ASSET_SLOT_EMPTY'});
+  if(assetId==='7')throw Error('模拟网络中断');
+  return {id:'adopted',url:'adopted.png'};
+ })),/@image6「资产7」 无法读取：模拟网络中断/);
+});
+test('a changed image set requires refreshing the earlier renderer view before dispatch',async()=>{
+ const input={projectId:'p',storyboardEdit:true,storyboardVisibleImageIds:[],references:[ref]};
+ const resolve=services(async()=>({id:'now-valid',url:'https://fixture.test/new.png'}));
+ await assert.rejects(renewImageReferences(input,resolve),/分镜参考图片已变化/);
+ const updated=await renewImageReferences({...input,storyboardVisibleImageIds:[ref.id]},resolve);
+ assert.equal(updated.references[0].imageId,'now-valid');
+ assert.ok(!Object.hasOwn(updated,'storyboardVisibleImageIds'));
+});

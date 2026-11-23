@@ -1,3 +1,5 @@
+import {assetSkipsReferenceImage} from './assetReferencePolicy.js';
+
 export function uniqueAssetImages(images = []) {
   const seen = new Set();
   return images.filter(image => {
@@ -8,7 +10,7 @@ export function uniqueAssetImages(images = []) {
 }
 
 export const assetHasImages = asset => Boolean(asset.image_url || asset.images?.length);
-export const ungeneratedAssets = assets => assets.filter(asset => !assetHasImages(asset));
+export const ungeneratedAssets = assets => assets.filter(asset => !assetHasImages(asset) && !assetSkipsReferenceImage(asset));
 export const visibleArtAssets = (assets,onlyMissing=false) => onlyMissing?ungeneratedAssets(assets):assets;
 
 // Preserve manual selection, excluding newly completed images and adding new unfinished assets.
@@ -16,6 +18,7 @@ export function reconcileAssetSelection(selected, previousAssets, assets) {
   const previous = new Map(previousAssets.map(asset => [asset.id, assetHasImages(asset)]));
   const wanted = new Set(selected);
   return assets.filter(asset => {
+    if (assetSkipsReferenceImage(asset)) return false;
     if (!previous.has(asset.id)) return !assetHasImages(asset);
     if (!previous.get(asset.id) && assetHasImages(asset)) return false;
     return wanted.has(asset.id);

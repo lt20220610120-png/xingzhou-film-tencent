@@ -42,3 +42,48 @@ test('asset generation and download recovery keep the project identity at the ac
  await assert.rejects(requestAssetImage(api,'local147','asset147',{model:'image'}));await requestAssetImage(api,'local147','asset147',{});
  assert.equal(generated.projectId,'local147');assert.equal(generated.assetId,'asset147');assert.equal(recovered.projectId,'local147');clearAssetImageRecovery('local147','asset147');
 });
+
+test('a queued asset marked on a different desktop is checked just before a new paid batch request',async()=>{
+ let reads=0, paid=0, marked=false;
+ const key='remote-preference-batch';
+ const api={collabListAssets:async p=>{assert.deepEqual(p,{projectId:key});reads++;return [{id:'asset-a',noReferenceImage:marked},{id:'asset-b',noReferenceImage:false}];},
+  mediaGenerateImage:async()=>{paid++;return {filePath:'result.png'};}};
+ const options={respectReferencePreference:true};
+ marked=true;
+ await assert.rejects(requestAssetImage(api,key,'asset-a',{},options),{code:'ASSET_REFERENCE_IMAGE_EXEMPT'});
+ assert.equal(paid,0);
+ await requestAssetImage(api,key,'asset-a',{}); // Explicit single-card generation remains available.
+ clearAssetImageRecovery(key,'asset-a');
+ marked=false;
+ await requestAssetImage(api,key,'asset-a',{},options);
+ assert.equal(reads,2);
+ assert.equal(paid,2);
+ clearAssetImageRecovery(key,'asset-a');
+});
+
+test('asset preference lookup fails closed, coalesces concurrent checks and leaves recovery read-only',async()=>{
+ let reads=0, paid=0;
+ const projectId='remote-preference-recovery',options={respectReferencePreference:true};
+ const api={collabListAssets:async()=>{reads++;throw Error('offline');},
+  mediaGenerateImage:async()=>{paid++;return {pendingDownload:{id:'original'}};},
+  mediaRetryImageDownload:async()=>({filePath:'original.png'})};
+ const blocked=await Promise.allSettled(['a','b'].map(id=>requestAssetImage(api,projectId,id,{},options)));
+ assert.deepEqual(blocked.map(result=>result.reason.code),['ASSET_REFERENCE_IMAGE_UNVERIFIED','ASSET_REFERENCE_IMAGE_UNVERIFIED']);
+ assert.equal(reads,1);
+ assert.equal(paid,0);
+ await assert.rejects(requestAssetImage(api,projectId,'a',{}),/原图尚未取回/);
+ assert.equal((await requestAssetImage(api,projectId,'a',{},options)).filePath,'original.png');
+ assert.equal(reads,1);
+ assert.equal(paid,1);
+ clearAssetImageRecovery(projectId,'a');
+});
+
+test('pausing during a fresh preference read prevents the queued asset from submitting',async()=>{
+ let release, paid=0;
+ const api={collabListAssets:()=>new Promise(resolve=>{release=resolve;}),mediaGenerateImage:async()=>{paid++;}};
+ const work=requestAssetImage(api,'paused-preference','asset-a',{}, {respectReferencePreference:true,beforeDispatch:()=>{throw Error('已暂停');}});
+ await Promise.resolve();
+ release([{id:'asset-a',noReferenceImage:false}]);
+ await assert.rejects(work,/已暂停/);
+ assert.equal(paid,0);
+});

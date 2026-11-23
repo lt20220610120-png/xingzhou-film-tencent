@@ -13,6 +13,7 @@ import {activeDirectorEditionId,directorPromptEditions,directorEditionEpisodes} 
 import {currentDirectorEpisodePrompts} from './directorCreative.js';
 import {promptTimingMetadata} from './promptDisplay.js';
 import {mergeSharedReviewLedger} from './sharedReviewLedger.js';
+import {assetHasAdoptedImage,assetSkipsReferenceImage} from './assetReferencePolicy.js';
 
 const categories={人物:'character',场景:'scene',道具:'prop'};
 const clean=text=>String(text||'').normalize('NFKC').replace(/[【】\[\]\s]/g,'');
@@ -44,7 +45,7 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
      const aliases=sameProject&&uniqueCard?(previous.cards||[]).filter(row=>row.category===item.category&&row.name===item.name&&row.sceneIds.some(id=>Number(id.split('-')[0])===episode.episodeNumber)&&!usedCardUids.has(row.uid)):[];
      const old=previous.cards?.find(row=>row.key===key&&!usedCardUids.has(row.uid))||(aliases.length===1?aliases[0]:null),matches=assets.filter(asset=>asset.name===item.name&&asset.category===item.category);
      const asset=matches.length===1?matches[0]:null;
-     card={key,uid:old?.uid||crypto.randomUUID(),category:item.category,name:item.name,description:item.description||'',detailStatus:item.detailStatus||'',sceneIds:[],publishedSceneIds:[],assetId:asset?.id||null,adoptedImageId:adoptedAssetImage(asset)?.id||null,images:bindingImages(asset)};
+     card={key,uid:old?.uid||crypto.randomUUID(),category:item.category,name:item.name,description:item.description||'',detailStatus:item.detailStatus||'',sceneIds:[],publishedSceneIds:[],assetId:asset?.id||null,adoptedImageId:assetHasAdoptedImage(asset)?adoptedAssetImage(asset)?.id||null:null,images:bindingImages(asset),...(assetSkipsReferenceImage(asset)?{noReferenceImage:true}:{})};
      cards.push(card);
      usedCardUids.add(card.uid);
     }
@@ -76,7 +77,7 @@ export function bindingSnapshot(project,ledger,assets,previous={},includeEdition
   return {editionId:row.id,editionName:row.name,...(row.legacyOriginal?{legacyOriginal:true}:{}),entries:source.entries,issues:source.issues,invalidEntries:source.invalidEntries};
  });
  snapshot.publishedAssociations=Object.fromEntries((project.episodes||[]).flatMap(ep=>(ep.storyboardPrompts||[]).filter(s=>s.storyboardPublicationId&&s.sourcePromptId&&typeof s.sourceContent==='string'&&Array.isArray(s.generationConfig?.bindingAssets)).map(s=>[s.sourcePromptId,{sourceHash:bindingHash(s.sourceContent),versionId:s.generationConfig.bindingVersionId,assets:s.generationConfig.bindingAssets}])));
- snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.adoptedImageId,card.images.map(image=>[image.id,imageIdentity(image)])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
+ snapshot.signature=bindingHash([snapshot.voiceCards.map(c=>[c.uid,c.sceneIds,c.reference.id]),snapshot.directorProjectId,cards.map(card=>[card.uid,card.category,card.name,card.description,card.detailStatus,card.sceneIds,card.publishedSceneIds,card.assetId,card.adoptedImageId,card.images.map(image=>[image.id,imageIdentity(image)]),...(card.noReferenceImage?[true]:[])]),entries,...(editionId?[editionId,snapshot.editionName,snapshot.promptEditions]:[])]);
  return snapshot;
 }
 export const cardInEntry=(card,entry)=>card.sceneIds.includes(entry.sceneId)&&(!card.entryIds||card.entryIds.includes(entry.id));
@@ -179,7 +180,7 @@ export function bindingProblems(snapshot,entry,decision,{requireImages=false,req
   if(!card||card.category!==need.category||card.detailStatus==='nonvisual'){problems.push(`${need.text} 未关联到本场正确类别的卡片`);continue;}
   if(requireImages){
    if(!card.assetId||!card.publishedSceneIds.includes(entry.sceneId))problems.push(`${card.name} 尚未核实发布`);
-   if(!card.images.some(image=>image.id===need.imageId))problems.push(`${card.name} 尚未选定有效图片`);
+   if(!assetSkipsReferenceImage(card)&&!card.images.some(image=>image.id===need.imageId))problems.push(`${card.name} 尚未选定有效图片`);
   }
  }
  return [...new Set(problems)];
@@ -215,6 +216,7 @@ export function compileEntryBinding(snapshot,entry,decision,{voiceEnabled=true,o
  const sourceFields=decision.origin==='scene-inventory-ai'?readPromptFoundationFields(entry.prompt):null;
  for(const need of effective.needs.filter(row=>row.visibility==='visible')){
   const card=snapshot.cards.find(card=>card.uid===need.cardUid),image=card.images.find(image=>image.id===need.imageId);
+  if(!storyboardSlots&&assetSkipsReferenceImage(card))continue;
   const identity={assetId:card.assetId,projectId:snapshot.projectId,category:card.category,name:card.name,kind:'image'};
   const ref=storyboardSlots?{...identity,id:card.assetId,assetImageSlot:true}
    :card.reference?{...card.reference,category:card.category,name:card.name}

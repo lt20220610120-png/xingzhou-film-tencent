@@ -1,5 +1,8 @@
+import {assetSkipsReferenceImage} from './assetReferencePolicy.js';
+
 const key = (projectId, assetId) => `xz-asset-image-recovery:${projectId}:${assetId}`;
 const memory = new Map();
+const preferenceReads = new WeakMap();
 function remember(projectId, assetId, value) {
   const id = key(projectId, assetId); memory.set(id, value);
   try { localStorage.setItem(id, JSON.stringify(value)); } catch {}
@@ -23,14 +26,34 @@ export function assetImageRecoverySummary(pending) {
   if(pending?.reason==='network')return '原结果尚未取回，请检查网络或系统代理后重试。';
   return '已保留接口返回的结果，尚未取回有效图片。';
 }
-export async function requestAssetImage(api, projectId, assetId, payload, {recoveryOnly=false}={}) {
+async function verifyBatchAssetPreference(api, projectId, assetId) {
+  let projects = preferenceReads.get(api);
+  if (!projects) { projects = new Map(); preferenceReads.set(api, projects); }
+  if (!projects.has(projectId)) {
+    const read = Promise.resolve().then(() => api.collabListAssets({projectId})).finally(() => projects.delete(projectId));
+    projects.set(projectId, read);
+  }
+  const assets = await projects.get(projectId).catch(() => null);
+  const asset = Array.isArray(assets) && assets.find(row => row.id === assetId);
+  if (!asset) throw Object.assign(new Error('无法核对资产最新的参考图状态，未提交生图。'), {code:'ASSET_REFERENCE_IMAGE_UNVERIFIED'});
+  if (assetSkipsReferenceImage(asset)) throw Object.assign(new Error('已标记无需参考图，已跳过生图。'), {code:'ASSET_REFERENCE_IMAGE_EXEMPT'});
+}
+
+export async function requestAssetImage(api, projectId, assetId, payload, {recoveryOnly=false,respectReferencePreference=false,beforeDispatch}={}) {
   const pending = readAssetImageRecovery(projectId, assetId);
   // Recovery tools must never fall through to a paid generation, even if a
   // receipt was cleared after the list was planned.
   if(recoveryOnly&&!pending?.filePath&&!pending?.taskId&&!pending?.receiptId)throw new Error('没有待恢复的旧结果，已跳过；未提交新的生图请求。');
   if (pending?.filePath) return pending;
   if (pending?.reason==='expired') throw new Error('服务商结果链接已不可用，请找回原图后上传，或明确放弃旧结果后重新生图。');
-  const result = pending?.taskId ? await api.generationRefresh({id:pending.taskId,endpoint:payload.endpoint,apiKey:payload.apiKey}) : pending?.receiptId ? await api.mediaRetryImageDownload({receiptId:pending.receiptId,projectId,assetId}) : await api.mediaGenerateImage({...payload,projectId,assetId});
+  let result;
+  if (pending?.taskId) result = await api.generationRefresh({id:pending.taskId,endpoint:payload.endpoint,apiKey:payload.apiKey});
+  else if (pending?.receiptId) result = await api.mediaRetryImageDownload({receiptId:pending.receiptId,projectId,assetId});
+  else {
+    if (respectReferencePreference) await verifyBatchAssetPreference(api,projectId,assetId);
+    beforeDispatch?.();
+    result = await api.mediaGenerateImage({...payload,projectId,assetId});
+  }
   if(pending?.taskId&&result?.status==='failed'){clearAssetImageRecovery(projectId,assetId);throw Error(result.error||'原任务已确认失败，可再次点击生成新任务');}
   if(result?.pendingGeneration||(pending?.taskId&&result?.status!=='success')){const taskId=result.pendingGeneration?.id||pending.taskId;remember(projectId,assetId,{taskId,reason:result.pendingGeneration?.provider||pending?.reason||'generation'});throw Error(result.error||result.warning||'原任务尚未完成，刷新会继续查询原结果，不会重新生成');}
   if (result?.pendingDownload) {

@@ -5,6 +5,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {setTimeout:pause}=require('node:timers/promises');
 const {createGenerationJobs}=require('../electron/generation-jobs.cjs');
+const {renewImageReferences}=require('../electron/generation-reference-recovery.cjs');
 
 const root=path.resolve(__dirname,'..');
 const fixture='scripts/fixtures/storyboard-libtv-preflight.html';
@@ -14,7 +15,7 @@ app.setPath('sessionData',profile);
 app.disableHardwareAcceleration();
 
 app.whenReady().then(async()=>{
- let server,win,exit=0,phase='account',mockPaid=0,operation=null,activeController=null;
+ let server,win,exit=0,phase='account',mockPaid=0,operation=null,activeController=null,adopted=false;
  try{
   const {createServer}=await import('vite');
   server=await createServer({root,configFile:false,cacheDir:path.join(profile,'vite-cache'),logLevel:'error',
@@ -28,6 +29,7 @@ app.whenReady().then(async()=>{
       submit:payload=>ipcRenderer.invoke('fixture-submit',payload),
       list:()=>ipcRenderer.invoke('fixture-list'),
       cancel:payload=>ipcRenderer.invoke('fixture-cancel',payload),
+      adopt:()=>ipcRenderer.invoke('fixture-adopt'),
       onProgress:callback=>{const listener=(_event,value)=>callback(value);ipcRenderer.on('fixture-progress',listener);return()=>ipcRenderer.removeListener('fixture-progress',listener);},
     });
   `);
@@ -38,9 +40,20 @@ app.whenReady().then(async()=>{
    status:'failed',submissionAttempted:false,prompt:'历史结果保留',
   }]));
   const jobs=createGenerationJobs(mediaDir,{libtvService:{
-   prepare:async(_account,{signal})=>{
+   prepare:async(_account,{signal,references,prompt,libtvSubmissionMode})=>{
+    const images=references.filter(ref=>ref.kind==='image');
+    assert.equal(images.length,adopted?7:6);
+    assert.equal(images.at(-1).assetId,'fixture-warehouse');
+    assert.match(prompt,adopted?/冷链重卡（参考@image6）、仓库（参考@image7）/:/冷链重卡、仓库（参考@image6）/);
+    if(!adopted)assert.doesNotMatch(prompt,/@image7/);
     if(phase==='account')throw Error('读取账号失败（TLS_TIMEOUT）');
     if(phase==='upload')throw Error('@audio1 上传参考素材失败（ECONNRESET）');
+    if(phase==='image'){
+     const number=images.findIndex(ref=>ref.assetId==='fixture-warehouse')+1;
+     throw Error('@image'+number+'「仓库」 上传参考素材失败（ECONNRESET）');
+    }
+    if(phase==='canvas')assert.equal(libtvSubmissionMode,'canvas');
+    if(phase==='paid')assert.match(prompt,/手动改稿：聚焦 @image7。/);
     if(phase==='cancel'){
      const send=(stage,details={})=>win.webContents.send('fixture-progress',{operationId:operation,stage,...details});
      send('checking');await pause(90,undefined,{signal});
@@ -58,11 +71,21 @@ app.whenReady().then(async()=>{
    },
   }});
   ipcMain.handle('fixture-submit',async(_event,payload)=>{
-   assert.equal(payload.references.length,8);
+   assert.equal(payload.references.length,9);
    operation=payload.libtvOperationId;const controller=new AbortController();activeController=controller;
-   try{return await jobs.submit({...payload,accountId:'fixture-owner',signal:controller.signal});}
+   try{
+    const prepared=await renewImageReferences(payload,{
+     resolveLocalReferences:async()=>null,
+     resolveAssetImage:async({assetId})=>{
+      if(assetId==='fixture-truck'&&!adopted)throw Object.assign(Error('空位'),{code:'ASSET_SLOT_EMPTY'});
+      return {id:assetId+'-adopted',url:'data:image/png;base64,iVBORw0KGgo='};
+     },
+    });
+    return await jobs.submit({...prepared,accountId:'fixture-owner',signal:controller.signal});
+   }
    finally{activeController=null;}
   });
+  ipcMain.handle('fixture-adopt',()=>{adopted=true;});
   ipcMain.handle('fixture-cancel',(_event,{operationId})=>{
    if(!activeController||operationId!==operation)return false;
    activeController.abort();return true;
@@ -81,9 +104,17 @@ app.whenReady().then(async()=>{
    return Boolean(button);
   },label);
   const cardCount=()=>run(()=>document.querySelectorAll('.generation-result-grid article').length);
+  const imageChips=()=>run(()=>[...document.querySelectorAll('.reference-alias')].map(el=>el.textContent.trim()).filter(value=>value.startsWith('@image')));
+  const submissionMode=value=>run(value=>{
+   const select=document.querySelector('[aria-label="LibTV 提交方式"]');
+   select.value=value;
+   select.dispatchEvent(new Event('change',{bubbles:true}));
+  },value);
   await win.loadURL(local+fixture);
   await wait(()=>document.querySelector('.generation-result-prompt')?.textContent==='历史结果保留');
   assert.equal(await cardCount(),1);
+  assert.deepEqual(await imageChips(),Array.from({length:6},(_,index)=>'@image'+(index+1)));
+  assert.match(await run(()=>document.querySelector('textarea[aria-label="提示词"]').value),/冷链重卡、仓库（参考@image6）/);
   await wait(()=>document.querySelector('[aria-label="LibTV 项目"]')?.value==='fixture-canvas');
   assert.deepEqual(await run(()=>[libTV201Fixture.projects,libTV201Fixture.schemas]),[1,1]);
   await run(()=>{window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('focus'));});
@@ -128,18 +159,42 @@ app.whenReady().then(async()=>{
   assert.ok(operation);
   assert.equal(await cardCount(),1);
   assert.equal(mockPaid,0);
+  phase='image';
+  await click('生成视频');
+  await wait(()=>document.querySelector('.generation-composer [role=alert]')?.textContent.includes('@image6「仓库」'));
+  assert.equal(await cardCount(),1);
+  await run(()=>{
+   const editor=document.querySelector('textarea[aria-label="提示词"]');
+   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,editor.value+'\n手动改稿：聚焦 @image6。');
+   editor.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+  await click('保存分镜');
+  await wait(()=>libTV201Fixture.savedPrompt.includes('手动改稿：聚焦 @image7。'));
+  await run(()=>libTV201Fixture.remount());
+  await wait(()=>document.querySelector('textarea[aria-label="提示词"]').value.includes('手动改稿：聚焦 @image6。'));
+  phase='canvas';
+  await submissionMode('canvas');
+  await click('上传到 LibTV 画布');
+  await wait(()=>document.querySelector('.generation-result-grid').textContent.includes('待在 LibTV 生成'));
+  assert.equal(mockPaid,0);
+  assert.equal(jobs.list().find(job=>job.remoteStatus==='awaiting-canvas')?.libtvRunStarted,false);
+  await submissionMode('auto');
+  await run(()=>libTV201Fixture.adopt());
+  await wait(()=>document.querySelector('textarea[aria-label="提示词"]').value.includes('冷链重卡（参考@image6）、仓库（参考@image7）'));
+  assert.deepEqual(await imageChips(),Array.from({length:7},(_,index)=>'@image'+(index+1)));
+  assert.match(await run(()=>document.querySelector('textarea[aria-label="提示词"]').value),/手动改稿：聚焦 @image7。/);
   win.setContentSize(1920,900);
   phase='paid';
   await click('生成视频');
   await wait(()=>document.querySelectorAll('.generation-result-grid .status-failed').length===2);
-  assert.equal(await cardCount(),2);
+  assert.equal(await cardCount(),3);
   assert.equal(await run(()=>document.querySelector('.generation-composer [role=alert]')),null);
   assert.equal(mockPaid,1);
-  const paid=jobs.list().find(job=>job.id!=='historical');
+  const paid=jobs.list().find(job=>job.submissionAttempted===true);
   assert.equal(paid.libtvNodeId,'fixture-node');
   assert.equal(paid.submissionAttempted,true);
   assert.match(paid.error,/隔离上游已提交任务失败/);
-  console.log(JSON.stringify({widths:[1280,1600,1920],cacheOnFocusAndRemount:true,silentRefreshPreservesConfiguration:true,realtimeProgressAndCancellation:true,preflightAlerts:['TLS_TIMEOUT','ECONNRESET'],historicalCardsPreserved:1,newPreflightCards:0,newPaidFailureCards:1,mockPaid,paidCalls:0}));
+  console.log(JSON.stringify({widths:[1280,1600,1920],cacheOnFocusAndRemount:true,silentRefreshPreservesConfiguration:true,realtimeProgressAndCancellation:true,compactImages:[6,7],imageErrorAlias:'@image6',manualEditPreserved:true,manualCanvasVerified:true,preflightAlerts:['TLS_TIMEOUT','ECONNRESET'],historicalCardsPreserved:1,newPreflightCards:0,newPaidFailureCards:1,mockPaid,paidCalls:0}));
  }catch(error){
   console.error(error,await win?.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=alert],.collab-error')).map(el=>el.textContent)"));
   exit=1;
@@ -149,6 +204,7 @@ app.whenReady().then(async()=>{
   ipcMain.removeHandler('fixture-submit');
   ipcMain.removeHandler('fixture-list');
   ipcMain.removeHandler('fixture-cancel');
+  ipcMain.removeHandler('fixture-adopt');
   await server?.close();
   assert.equal(path.dirname(fs.realpathSync(profile)),fs.realpathSync(os.tmpdir()));
   await fs.promises.rm(profile,{recursive:true,force:true,maxRetries:8,retryDelay:200}).catch(()=>{});
