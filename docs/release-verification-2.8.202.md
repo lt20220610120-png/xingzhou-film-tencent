@@ -19,4 +19,11 @@
 ## 云端部署
 
 - 先备份运行目录、私有 Skill、服务与代理配置、PostgreSQL 全库及角色。备份位于 `/opt/xingzhou-backups/asset-reference-2.8.202-20261123T104802Z-cxpwjae9`，数据库归档 61,214,165 字节，恢复目录检验通过，`rollback-asset-reference.sh` 通过语法校验。
-- 新增布尔字段默认 `false`，只部署四个运行模块。重启后 HTTPS `/healthz` 正常、未登录网关返回 401。未写入真实项目数据。
+- 新增布尔字段默认 `false`，部署四个运行模块。重启时第一条健康探测收到 HTTP 502，服务恢复后 HTTPS `/healthz` 正常、未登录网关返回 401。未写入真实项目数据。
+
+## 正式发布
+
+- 实现 `41fb46f`，GitHub Release 455295736，最终上传工作流 45161399273。安装包 95,247,555 字节，SHA-256 `361541fe1d82050d2df1946fa9052c6639924972851d22b8f19ac1f37c8e9cdf`。
+- 隔离 Windows 的正式载荷启动，12 个关键模块与源码逐字节核对。真实 Electron 读回五类旧加密凭据，保留设备身份，新会话和重启读取通过。
+- 三份公开更新清单签名、GitHub 安装包大小与摘要、官网 HTTP 206 和范围字节均一致。隔离 Electron 从 2.8.201 正式载荷检测 2.8.202，模拟下载中断后完成官网续传、整包校验与安装交接。本机和官网保留 2.8.198–2.8.202 五版。
+- [官网下载](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.202.exe) · [GitHub 下载](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.202/Xingzhou-Film-Tencent-Setup-2.8.202.exe)

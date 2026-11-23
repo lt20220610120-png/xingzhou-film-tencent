@@ -4,10 +4,11 @@ Codex 默认直接在 `D:/AI/Qwen3-TTS/xingzhou-release` 开发。Hermes 只在�
 
 ## 当前进展
 
-2.8.202 开发中。已验证资产标记本机保存与协作 PostgreSQL 的并发保护，LibTV 退避回归通过。分镜编号与补图验证、完整云端发布和正式打包进行中。
+2.8.202 已发布。云端完整备份后部署可兼容旧数据的资产偏好字段。分镜参考图连续编号、本机及云协作资产偏好、LibTV 退避、正式载荷及 2.8.201 软件内更新均已验证。[验收](release-verification-2.8.202.md)
 
 ## 最近已发布版本
 
+- **2.8.202，2026-11-23。** 分镜有效参考图连续编号，保留原资产座位与正文锚点。美术与资产可标记无需参考图，采用后解除，付费生图前核对最新状态。LibTV 准备跨短抖动。实现 `41fb46f`，Release 455295736。[验收](release-verification-2.8.202.md)
 - **2.8.201，2026-11-23。** LibTV 真直连及三类诊断，后台读取复用，两路素材准备与实时进度。隔离 Electron、正式 NSIS 与 200 → 201 更新验证通过。实现 `a70c61c`，Release 455216856。[验收](archive/verification/release-verification-2.8.201.md)
 - **2.8.200，2026-11-23。** LibTV 本机网络模式、SOCKS5、连接诊断和准备阶段反馈通过隔离验证。正式 NSIS、三份签名清单与 199 → 200 更新下载通过。实现 `71322bc`，Release 455106129。[验收](archive/verification/release-verification-2.8.200.md)
 - **2.8.199，2026-11-23。** LibTV 多素材恢复上传和可读诊断，分镜增删保位、切场回顶、视频池一次性定位。真实 Electron、正式 NSIS、三份签名清单及 198 → 199 更新下载均通过。实现 `5885ede`，Release 454973543。[验收](archive/verification/release-verification-2.8.199.md)
