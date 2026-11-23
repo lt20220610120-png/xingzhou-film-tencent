@@ -32,7 +32,7 @@ export default function ProjectResourcePicker({api,projectId,accountId,canEdit=f
   setRemoved(current=>[...current,key]);setPicked(current=>current.filter(ref=>generationReferenceKey(ref)!==key));setDeleting(null);
   if(result?.cleanupWarning)setError(result.cleanupWarning);
  });
- return <><Dialog open className="project-resource-picker" title="选择项目参考素材" onClose={()=>{if(!busy&&!deleting)onClose();}}>
+ return <><Dialog open restoreFocusWithoutScroll className="project-resource-picker" title="选择项目参考素材" onClose={()=>{if(!busy&&!deleting)onClose();}}>
   <div className="resource-picker-categories" role="group" aria-label="素材分类">{categories.map(([k,n])=><button type="button" key={k} aria-pressed={tab===k} onClick={()=>setTab(k)}>{n}</button>)}</div>
   <div className="resource-picker-toolbar"><label className="resource-picker-search"><Search size={17} aria-hidden="true"/><input type="search" aria-label="搜索资源名称" placeholder="搜索资源名称" value={query} onChange={e=>setQuery(e.target.value)}/></label><button type="button" className="resource-picker-refresh" aria-label="刷新素材" title="刷新素材" disabled={busy} onClick={()=>run(onRefresh)}><RefreshCw size={17}/></button><button type="button" className="resource-picker-upload" disabled={busy} onClick={upload}><Upload size={17}/>{busy?'处理中…':'上传本地素材'}</button></div>
   <div className={`resource-picker-content${tab==='audio'?' resource-picker-audio':' resource-picker-grid'}`} aria-label="可选参考素材">

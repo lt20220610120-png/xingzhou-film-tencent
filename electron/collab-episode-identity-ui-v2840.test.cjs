@@ -36,7 +36,7 @@ test('处理编号使用当前快照，保存后应用项目并手动刷新；�
 }));
 test('全局面板在所有分区之前挂载，不另弹主稿确认框',()=>{
  const ui=fs.readFileSync(path.join(__dirname,'../src/v06/CollabWorkspace.jsx'),'utf8');
- assert.ok(/<main className="collab-stage">\s*<EpisodeIdentityPanel/.test(ui),'全部分区之前需要挂载冲突入口');
+ assert.match(ui,/<main\b[^\r\n]*\bcollab-stage\b[^\r\n]*>\s*<EpisodeIdentityPanel\b/,'全部分区之前需要挂载冲突入口');
  const file=path.join(__dirname,'../src/v06/EpisodeIdentityPanel.jsx');
  assert.ok(fs.existsSync(file),'需要可操作的编号核对面板');
  assert.doesNotMatch(fs.readFileSync(file,'utf8'),/window\.confirm/);

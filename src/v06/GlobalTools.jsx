@@ -41,7 +41,7 @@ export function BrandLogo({ compact = false }) {
 /* ================================================================
  * Dialog - 通用对话框
  * ================================================================ */
-export function Dialog({ open, title, children, onClose,className='' }) {
+export function Dialog({ open, title, children, onClose,className='',restoreFocusWithoutScroll=false }) {
   const workspaceActive=useWorkspaceActive();
   const modalRef = React.useRef(null);
   const closeRef=React.useRef(onClose);closeRef.current=onClose;
@@ -59,8 +59,8 @@ export function Dialog({ open, title, children, onClose,className='' }) {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
-  }, [open,workspaceActive]);
+    return () => { document.removeEventListener('keydown', onKey); previous?.focus({preventScroll:restoreFocusWithoutScroll}); };
+  }, [open,workspaceActive,restoreFocusWithoutScroll]);
   if (!open) return null;
   return createPortal(<div className="veil" hidden={!workspaceActive} style={workspaceActive?undefined:{display:'none'}} inert={!workspaceActive} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div ref={modalRef} className={`modal form-dialog ${className}`} role="dialog" aria-modal="true" aria-label={title}>

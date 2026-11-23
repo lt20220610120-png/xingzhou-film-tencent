@@ -40,6 +40,24 @@ test('restart does not mistake a newly created node placeholder for the paid res
 
 test('a scope change during provider preparation prevents the paid run itself',async()=>{const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-final-gate-'));let permitted=true,runs=0;const jobs=createGenerationJobs(dir,{beforeDispatch:async()=>{if(!permitted)throw Error('operator narrowed scope');},libtvService:{prepare:async()=>{permitted=false;return{jobId:'node',libtvNodeId:'node',libtvProjectId:'p'}},run:async()=>{runs++;return{};}}});await jobs.submit({autoDownload:true,provider:'libtv',kind:'video',endpoint:'https://www.liblib.tv',model:'m',prompt:'test',accountId:'user'});await new Promise(r=>setImmediate(r));assert.equal(runs,0);assert.equal(jobs.list()[0].status,'failed');assert.equal(jobs.list()[0].submissionAttempted,false);fs.rmSync(dir,{recursive:true,force:true});});
 
+test('a paid LibTV network failure only queries the original node during recovery',async t=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-run-recovery-'));
+ t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+ let prepares=0,runs=0,reads=0;
+ const service={
+  prepare:async()=>{prepares++;return {jobId:'original',libtvNodeId:'original',libtvProjectId:'canvas'};},
+  run:async()=>{runs++;throw Object.assign(Error('模拟提交连接重置'),{code:'LIBTV_NETWORK',networkCode:'ECONNRESET'});},
+  query:async(_account,job)=>{reads++;assert.equal(job.libtvNodeId,'original');return {data:{url:['https://cdn.example.invalid/result.mp4']}};},
+ };
+ const jobs=createGenerationJobs(directory,{libtvService:service});
+ const job=await jobs.submit({provider:'libtv',kind:'video',endpoint:'https://www.liblib.tv',model:'video',prompt:'隔离测试',accountId:'fixture'});
+ await assert.rejects(jobs.waitForCompletion(job.id),/原画布核对，不会自动重新生成/);
+ assert.equal(jobs.list()[0].status,'submitted');
+ const restarted=createGenerationJobs(directory,{libtvService:service});
+ assert.equal((await restarted.refresh({id:job.id,accountId:'fixture'})).status,'success');
+ assert.deepEqual({prepares,runs,reads},{prepares:1,runs:1,reads:1});
+});
+
 test('canvas-only submissions never run a node and recover its manually generated result after restart',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-libtv-draft-'));
  let runs=0,state='waiting',downloads=0;

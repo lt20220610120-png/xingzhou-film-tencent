@@ -1544,6 +1544,11 @@ export function CollabWorkspace({ state, api, account }) {
   currentProjectIdRef.current = project?.id || null;
   const [assets, setAssets] = useState([]);
   const [section, setSection] = useState('group');
+  const stageRef = useRef(null);
+  const [storyboardTarget, setStoryboardTarget] = useState(null);
+  const clearStoryboardTarget = useCallback(target => {
+    setStoryboardTarget(current => current === target ? null : current);
+  }, []);
   const currentSectionRef = useRef(section);
   currentSectionRef.current = section;
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1798,6 +1803,12 @@ export function CollabWorkspace({ state, api, account }) {
   const visibleSections = COLLAB_SECTIONS.filter(([key]) => sectionsForRole(myRole).includes(key));
   const canEditArt = myRole === 'producer' || myRole === 'artist' || myRole === 'artist_collaborator';
   const canEditBoard = myRole === 'producer' || myRole === 'collaborator' || myRole === 'artist_collaborator';
+  const openStoryboard = ({episode,scene,shotId}) => {
+    setStoryboardTarget({accountId:account?.id,projectId:project.id,episodeNumber:episode,sceneId:scene,shotId});
+    setSection('storyboard');
+  };
+  const scopedStoryboardTarget = storyboardTarget?.projectId === project.id &&
+    storyboardTarget?.accountId === account?.id ? storyboardTarget : null;
 
   return (
     <div className="collab-shell">
@@ -1810,7 +1821,7 @@ export function CollabWorkspace({ state, api, account }) {
         {visibleSections.map(([key, label]) => {
           const Icon = SECTION_ICONS[key];
           return (
-            <button key={key} className={section === key ? 'active' : ''} onClick={() => setSection(key)}>
+            <button key={key} className={section === key ? 'active' : ''} onClick={() => {setStoryboardTarget(null);setSection(key);}}>
               <Icon size={17} /><span>{label}</span>
             </button>
           );
@@ -1818,7 +1829,7 @@ export function CollabWorkspace({ state, api, account }) {
         {project.storageMode !== 'local' && section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>清单本地保存 · 关联自动同步</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : project.storageMode==='local'?'刷新本机资料':'刷新项目资料'}</button>}
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
-      <main className="collab-stage">
+      <main ref={stageRef} className={section === 'storyboard' ? 'collab-stage collab-stage--storyboard' : 'collab-stage'}>
         <EpisodeIdentityPanel key={'identity:'+project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
         <PromptPublicationProgress key={'publication:'+account?.id+':'+project.id} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
         <div className="collab-storage-status" role="status">{project.storageMode==='local'?<><Save size={14}/>本机保存</>:project.localPreparing?<><RefreshCw size={14}/>正在准备本机项目副本</>:<><Users size={14}/>云端协作</>}{project.localPreparationError&&<span>{project.localPreparationError}</span>}</div>
@@ -1827,8 +1838,8 @@ export function CollabWorkspace({ state, api, account }) {
         {section === 'art' && <ArtSection key={'art:'+account?.id+':'+project.id} project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} onProjectChange={applyProject} accountId={account?.id} onOpenReview={()=>setSection('art-review')} />}
         {section === 'voices' && <ProjectVoices project={project} assets={assets} api={api} state={state} accountId={account?.id} canEdit={canEditArt}/> }
         {section === 'assets' && <AssetsSection project={project} assets={assets} api={api} state={state} refresh={refreshProject} canEdit={canEditArt} draftStore={draftStore} accountId={account?.id} onProjectChange={applyProject} />}
-        {section === 'storyboard' && <StoryboardSection onOpenReview={sectionsForRole(myRole).includes('art-review')?entry=>{const navScope={accountId:account?.id,projectId:project.id,section:'art-review'},nav=readCollabNavigation(navScope);rememberCollabNavigation(navScope,{episodeNumber:entry.episode,scenes:{...nav.scenes,[entry.episode]:entry.sceneId},promptId:entry.id});setSection('art-review');}:undefined} project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
-        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} canDelete={canEditBoard} accountId={account?.id} onOpenStoryboard={row=>{rememberCollabNavigation({accountId:account?.id,projectId:project.id,section:'storyboard'},{episodeNumber:row.episode,sceneId:row.scene,shotId:row.shotId});setSection('storyboard');}} />}
+        {section === 'storyboard' && <StoryboardSection key={JSON.stringify([account?.id,project.id])} stageRef={stageRef} navigationTarget={scopedStoryboardTarget} onNavigationHandled={clearStoryboardTarget} onOpenReview={sectionsForRole(myRole).includes('art-review')?entry=>{const navScope={accountId:account?.id,projectId:project.id,section:'art-review'},nav=readCollabNavigation(navScope);rememberCollabNavigation(navScope,{episodeNumber:entry.episode,scenes:{...nav.scenes,[entry.episode]:entry.sceneId},promptId:entry.id});setStoryboardTarget(null);setSection('art-review');}:undefined} project={project} assets={assets} api={api} state={state} accountId={account?.id} refresh={refreshProject} canEdit={canEditBoard} onProjectChange={applyProject} isProducer={myRole === 'producer'} />}
+        {section === 'video-pool' && <ProjectVideoPool project={project} api={api} state={state} canDelete={canEditBoard} accountId={account?.id} onOpenStoryboard={openStoryboard} />}
         {section === 'invite' && myRole === 'producer' && <InviteSection project={project} api={api} refresh={refreshProject}
           directorCloudProjectId={state.directorProjects?.find(source => source.id === project.director_project_id)?.cloudProjectId} />}
         {section === 'stats' && myRole === 'producer' && <StatsSection project={project} api={api} />}

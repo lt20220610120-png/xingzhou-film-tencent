@@ -5,7 +5,8 @@ const text = '第一集\n1-1 客厅 日 内\n甲：隔离测试。';
 const account = { id: 'wave-three-isolated', username: 'qa', roles: ['creator', 'director'], isAdmin: true, activeRole: 'director' };
 const ep = { id: 'qa-episode', number: 1, episodeNumber: 1, title: '第1集', content: text, script: text, prompts: [{ id: 'qa-prompt', label: '1-1-1', sceneLabel: '1-1', content: '1-1-1\n测试场面' }], scenes: [], storyboards: [] };
 const director = { id: 'qa-director', name: '隔离导演剧本', masterScript: text, episodes: [ep] };
-const project = { id: 'qa-project', name: '隔离协作项目', owner_name: 'qa', myRole: 'producer', storageMode: 'cloud', episodes: [ep], updated_at: '2026-11-23T00:00:00Z' };
+const storyboard = new URLSearchParams(location.search).has('storyboard-scroll') ? await import('./storyboard-scroll.js') : null;
+const project = { id: 'qa-project', name: '隔离协作项目', owner_name: 'qa', myRole: 'producer', storageMode: 'cloud', episodes: storyboard?.episodes || [ep], updated_at: '2026-11-23T00:00:00Z' };
 const profiles = Array.from({length: 30}, (_, i) => ({ id: 'mock-'+i, name: '隔离模拟模型 '+i, model: 'mock-'+i, endpoint: 'https://example.invalid/v1', apiKey: 'isolated' }));
 const saved = { ...createInitialState(), apiProfiles: profiles, activeApiId: profiles[0].id, directorProjects: [director], skills: [{id:'qa-skill', name:'隔离规则', content:'测试'}] };
 const jobs = Array.from({length: 120},(_,i)=>({id:'job-'+i, kind:i%2?'image':'video', status:'success', prompt:'隔离生成历史 '+i}));
@@ -20,7 +21,7 @@ const answers = {
   loadState: saved, loadDirectorProjects: saved.directorProjects,
   directorCollabListProjects: [], directorQuickListRuns: [], productionList: [],
   collabListProjects: [project], collabIsProducer: true, collabGetProject: project,
-  collabListAssets: [], collabListMedia: [], collabListTasks: [], collabListMembers: [], collabListMessages: [],
+  collabListAssets: [], collabListMedia: storyboard?.media || [], collabListTasks: [], collabListMembers: [], collabListMessages: [],
   collabGetPromptBinding: {versions:[], assets:[], episodes:[]}, promptArtLoad: null, promptArtStatus: null,
   adminListUsers: [], adminListInvites: [], adminWorkflowList: [],
   licenseAdmin: {grants:[], cards:[], exemptions:[], orders:[], audit:[]},

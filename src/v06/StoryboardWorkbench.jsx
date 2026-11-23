@@ -36,7 +36,7 @@ function GenerationWorkbenchTools({scopeKey,settings,progress,children}){
  return <section className="storyboard-generation-tools" aria-label="生成设置"><button type="button" className="storyboard-tools-toggle" aria-expanded={open} aria-controls="storyboard-generation-tools-content" onClick={toggle}><span className="storyboard-tools-title"><i><SlidersHorizontal size={17}/></i>生成设置</span><span className="storyboard-tools-summary">{settings?.model||'选择生成接口'}{settings?.model&&' · '+settings.duration+' 秒默认'}</span>{progress&&<span className="storyboard-tools-progress">{progress.running?'批量处理中':'批量进度'} {progress.percent}%</span>}<ChevronDown size={17} className={open?'expanded':''}/></button><div id="storyboard-generation-tools-content" className="storyboard-tools-content" hidden={!open}>{children}</div></section>;
 }
 
-export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId,defaults,bindingLoading=false,bindingReadError='',onOpenReview}) {
+export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId,defaults,bindingLoading=false,bindingReadError='',onOpenReview,captureReferenceScroll}) {
  const materialEntry=promptBinding?.snapshot?.entries?.find(e=>e.id===(shot.sourcePromptId||shot.id)||e.label===shot.label&&e.prompt===(shot.sourceContent||shot.content));
  const material=materialEntry&&promptMaterialRow(promptBinding,materialEntry);
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
@@ -54,6 +54,11 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(cleanStoryboardReferenceValue(stored.value,project.id),defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null);
  const current=useRef(draft);current.current=draft;
+ const restoreReferenceScroll=useRef(null);
+ useLayoutEffect(()=>{
+  restoreReferenceScroll.current?.();
+  restoreReferenceScroll.current=null;
+ },[draft]);
  useEffect(()=>{const old=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(current.current,shot,defaults),shot,project),value=applyStoryboardDefaults(old.value,defaults,shot.id);let next=value===old.value?old:{...old,value,dirty:true};if(!next.dirty)next=cloudDraft();else if(canRefreshStoryboardBinding(next,shot))next=cleanDraft(next);current.current=next;setDraft(next);if(value!==old.value||next.value.storyboardDefaultsRevision&&next.dirty)queueDraft(storageKey,next);},[shot,assets,media,scene,epNumber,promptBinding,defaults]);
  const change=value=>{
   value=editable(cleanStoryboardReferenceValue(value,project.id));
@@ -63,6 +68,10 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
    value={...value,autoReferenceExclusions:[...new Set([...(value.autoReferenceExclusions||[]),...removed.autoReferenceExclusions])]};
   }
   value=rememberStoryboardRemoval(previous,value);
+  const before=previous.references||[], after=value.references||[];
+  if(before.length!==after.length||before.some((ref,index)=>generationReferenceKey(ref)!==generationReferenceKey(after[index]))){
+   restoreReferenceScroll.current??=captureReferenceScroll?.();
+  }
   const next={...current.current,value,dirty:true};current.current=next;setDraft(next);queueDraft(storageKey,next);
  };
  const referenceCandidates=useMemo(()=>draft.value.referenceBindingMode?[]:projectReferenceCandidates(assets,media,project.id,epNumber,scene,{assetImageSlots:true}),[assets,media,project.id,epNumber,scene,draft.value.referenceBindingMode]);
@@ -116,7 +125,7 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  }}></GenerationComposer>{error&&<p className="collab-error">{error}</p>}{!!results.length&&<GenerationResults square tasks={results} api={api} onRefresh={async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await loadMedia();}} onDeleteMany={canEdit?async rows=>{const result=await api.projectVideoDelete({projectId:project.id,ids:rows.map(videoExportId)});await loadMedia();window.dispatchEvent(new Event('xz-video-pool-refresh'));return result;}:undefined} onReuse={({storyboardSourceReferences,...t})=>change({...draft.value,...t,prompt:t.originalPrompt||t.prompt,references:storyboardSourceReferences||t.references||[]})}/>}</article>{picker&&<ResourcePicker api={api} projectId={project.id} initialTab={picker} onAssetSlotEmpty={refreshAssets} accountId={accountId} canEdit={canEdit} onDelete={async row=>{const result=await api.collabDeleteMedia({projectId:project.id,mediaId:row.id,purpose:'reference-upload',accountId});const key=generationReferenceKey(row),removed=removeGenerationReference(current.current.value,key);change(removed);await loadMedia();return result;}} voiceCards={(promptBinding?.currentSnapshot||promptBinding?.snapshot)?.voiceCards||[]} assets={assets} media={media} selected={draft.value.references||[]} onClose={()=>setPicker(null)} onSelect={references=>{change({...draft.value,references});setPicker(null);}} onUpload={chooseUpload} onRefresh={async()=>{notifyBindingSaved(project.id,accountId,null);await refresh();await loadMedia();}}/>}</>;
 }
 
-export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange,accountId,onOpenReview}) {
+export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,onProjectChange,accountId,onOpenReview,stageRef,navigationTarget,onNavigationHandled}) {
  const {data:promptBinding,loading:bindingLoading,error:bindingReadError}=useProjectPromptBinding({api,project,assets,accountId,localSources:state.directorProjects});
  const editionId=project.episodes?.some(e=>e.storyboardPrompts)?'published':project.episodes?.find(e=>e.promptEditionId)?.promptEditionId||'legacy',defaultsScope=JSON.stringify([accountId,project.id,editionId]);
  const scope={accountId,projectId:project.id,editionId};
@@ -125,14 +134,21 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
  const legacyDefaults=defaultState.scope===defaultsScope?defaultState.value:readStoryboardDefaults(scope);
  useEffect(()=>{setDefaultState({scope:defaultsScope,value:readStoryboardDefaults(scope)});setDefaultForm(readStoryboardDefaults(scope)?.settings||{});setDefaultsError('');},[defaultsScope]);
  const applyDefaults=async(settings,target)=>{if(applying)return;setApplying(true);setDefaultsError('');setTimingNotice('');try{const saved=await api.collabPatchStoryboard({projectId:project.id,operation:'settings',scope:target,episodeId:episode?.id,sceneId:currentScene,settings,revision:crypto.randomUUID()});onProjectChange(saved);setDefaultForm(settings);}catch(e){setDefaultsError(e.message);}finally{setApplying(false);}};
- const [episodeId,setEpisodeId]=useState(null),[scene,setScene]=useState(''),[media,setMedia]=useState([]),[tasks,setTasks]=useState([]),[error,setError]=useState(''),[creating,setCreating]=useState(false);
- const leftColumn=useRef(null);
+ const episodes=useMemo(()=>normalizeStoryboardEpisodes(project.episodes).map(ep=>({...ep,prompts:storyboardShots(ep)})).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传'),[project.episodes]);
+ const navScope={accountId,projectId:project.id,section:'storyboard'};
+ const [selection,setSelection]=useState(()=>{
+  const nav=navigationTarget||readCollabNavigation(navScope);
+  const episode=episodes.find((ep,index)=>inferDirectorEpisodeNumber(ep,index+1)===Number(nav.episodeNumber));
+  return {episodeId:episode?.id||null,scene:episode?nav.sceneId||'':'',target:navigationTarget||null};
+ });
+ const {episodeId,scene,target}=selection;
+ const [media,setMedia]=useState([]),[tasks,setTasks]=useState([]),[error,setError]=useState(''),[creating,setCreating]=useState(false);
+ const leftColumn=useRef(null),scriptArea=useRef(null),shotStack=useRef(null),scrollReserve=useRef(null);
  useLayoutEffect(()=>{let frame;const fit=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{const node=leftColumn.current;if(node)node.style.setProperty('--storyboard-left-height',Math.max(300,innerHeight-Math.max(0,node.getBoundingClientRect().top)-16)+'px');});};fit();window.addEventListener('resize',fit);window.addEventListener('scroll',fit,true);return()=>{cancelAnimationFrame(frame);window.removeEventListener('resize',fit);window.removeEventListener('scroll',fit,true);};},[project.id,episodeId,defaultState]);
 
  const [deleteTarget,setDeleteTarget]=useState(null),[deleting,setDeleting]=useState(false);
  const createPending=useRef(null);
  const createLock=useRef(false);
- const episodes=useMemo(()=>normalizeStoryboardEpisodes(project.episodes).map(ep=>({...ep,prompts:storyboardShots(ep)})).filter(e=>e.kind!=='setting'&&e.title!=='设定和小传'),[project.episodes]);
  const episode=episodes.find(e=>e.id===episodeId);
  const epNumber=episode?inferDirectorEpisodeNumber(episode,episodes.indexOf(episode)+1):0;
  const parsed=episode?parseDirectorScenesReadonly(episode.content||'',epNumber):[];
@@ -152,7 +168,37 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   }catch(e){setDefaultsError(e.message);}finally{setApplying(false);}
  };
  const prompts=(episode?.prompts||[]).filter(p=>p.label===currentScene||p.label?.startsWith(currentScene+'-'));
- const selectEpisode=id=>{setEpisodeId(id);setScene('');setError('');};
+ const navigate=(id,nextScene='')=>{
+  if(target)onNavigationHandled?.(target);
+  setSelection({episodeId:id,scene:nextScene,target:null});
+  setError('');
+ };
+ useLayoutEffect(()=>{
+  if(scrollReserve.current)scrollReserve.current.style.height='';
+  if(stageRef.current)stageRef.current.scrollTop=0;
+  if(scriptArea.current)scriptArea.current.scrollTop=0;
+ },[episodeId,currentScene,stageRef]);
+ const captureReferenceScroll=()=>{
+  const stage=stageRef.current,reserve=scrollReserve.current;
+  if(!stage||!reserve)return;
+  const top=stage.scrollTop;
+  return ()=>{
+   // Preserve the old bottom only if this edit shortened the scroll range.
+   const shortfall=Math.max(0,Math.ceil(top+stage.clientHeight-stage.scrollHeight+reserve.offsetHeight));
+   if(shortfall!==reserve.offsetHeight)reserve.style.height=shortfall?shortfall+'px':'';
+   stage.scrollTop=top;
+  };
+ };
+ useEffect(()=>{
+  const stage=stageRef.current;
+  if(!stage)return;
+  const releaseReserve=()=>{
+   const reserve=scrollReserve.current,height=reserve?.offsetHeight||0;
+   if(height&&Math.ceil(stage.scrollTop)<=stage.scrollHeight-stage.clientHeight-height)reserve.style.height='';
+  };
+  stage.addEventListener('scroll',releaseReserve,{passive:true});
+  return()=>stage.removeEventListener('scroll',releaseReserve);
+ },[stageRef]);
  const updateMedia=useWorkspacePolling(async current=>{
   try{
    const [m,t]=await Promise.all([api.collabListMedia({projectId:project.id}),api.generationList({includeArchived:true})]);
@@ -162,10 +208,22 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   }catch(e){if(current())setError(e.message||'素材读取失败，请重试');}
  },{scope:JSON.stringify([accountId,project.id]),delay:8000});
  const loadMedia=()=>updateMedia({afterCurrent:true});
- useEffect(()=>{const nav=readCollabNavigation({accountId,projectId:project.id,section:'storyboard'}),target=episodes.find((e,i)=>inferDirectorEpisodeNumber(e,i+1)===Number(nav.episodeNumber));setEpisodeId(target?.id||null);setScene(target?nav.sceneId||'':'');},[accountId,project.id]);
- useEffect(()=>{if(episode)rememberCollabNavigation({accountId,projectId:project.id,section:'storyboard'},{episodeNumber:epNumber,sceneId:currentScene});},[accountId,project.id,epNumber,currentScene,episode?.id]);
- const openedShot=useRef('');
- useEffect(()=>{if(bindingLoading||!episode)return;const nav=readCollabNavigation({accountId,projectId:project.id,section:'storyboard'});if(!nav.shotId||openedShot.current===nav.shotId)return;const frame=requestAnimationFrame(()=>{const el=[...document.querySelectorAll('.collab-shot-card')].find(e=>e.dataset.shotId===nav.shotId);if(el){openedShot.current=nav.shotId;el.scrollIntoView({block:'start'});}});return()=>cancelAnimationFrame(frame);},[bindingLoading,episode?.id,currentScene,accountId,project.id]);
+ useEffect(()=>{if(episode)rememberCollabNavigation(navScope,{episodeNumber:epNumber,sceneId:currentScene,shotId:null});},[accountId,project.id,epNumber,currentScene,episode?.id]);
+ useLayoutEffect(()=>{
+  if(!target)return;
+  if(target!==navigationTarget){
+   setSelection(current=>({...current,target:null}));
+   return;
+  }
+  if(bindingLoading)return;
+  const stage=stageRef.current;
+  if(stage&&Number(target.episodeNumber)===epNumber&&target.sceneId===currentScene){
+   const shot=[...(shotStack.current?.querySelectorAll('.collab-shot-card')||[])].find(node=>node.dataset.shotId===target.shotId);
+   if(shot)stage.scrollTop+=shot.getBoundingClientRect().top-stage.getBoundingClientRect().top-stage.clientTop;
+  }
+  setSelection(current=>({...current,target:null}));
+  onNavigationHandled?.(target);
+ },[target,navigationTarget,bindingLoading,epNumber,currentScene,stageRef,onNavigationHandled]);
  const create=async()=>{
   if(createLock.current||!canEdit||!episode)return;
   createLock.current=true;
@@ -180,29 +238,29 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
  if(!episode)return <section className="collab-episode-overview">
   <header className="collab-storyboard-heading"><div><Clapperboard size={21}/><h2>分镜工作台</h2></div><span>共 {episodes.length} 集 · 选择分集继续创作</span></header>
   {error&&<p role="alert" className="collab-error">{error}</p>}
-  <div className="collab-episode-grid">{episodes.map(ep=><button className="collab-episode-card" key={ep.id} onClick={()=>selectEpisode(ep.id)}><b>{ep.title}</b><small>{ep.content?.slice(0,70)}</small><span>{ep.prompts?.length||0} 条分镜</span></button>)}</div>
+  <div className="collab-episode-grid">{episodes.map(ep=><button className="collab-episode-card" key={ep.id} onClick={()=>navigate(ep.id)}><b>{ep.title}</b><small>{ep.content?.slice(0,70)}</small><span>{ep.prompts?.length||0} 条分镜</span></button>)}</div>
   {!episodes.length&&<p className="generation-empty">当前项目尚无分集，请在导演工作台完善项目后，点击左下角刷新云端数据。</p>}
  </section>;
  return <><GenerationWorkbenchTools scopeKey={JSON.stringify([accountId,project.id])} settings={resolvedSettings} progress={batchStatus}><GenerationComposer settingsOnly onSettingsResolved={setResolvedSettings} api={api} state={state} value={defaultForm} onChange={setDefaultForm} disabled={!canEdit||applying} onApplySettings={settings=>applyDefaults(settings,'project')} onApplySceneSettings={settings=>applyDefaults(settings,'scene')} onApplyEpisodeSettings={settings=>applyDefaults(settings,'episode')}/>{defaultsError&&<p className="collab-error" role="alert">{defaultsError}</p>}{timingNotice&&<p className="storyboard-timing-notice" role="status">{timingNotice}</p>}<StoryboardBatchPanel onStatusChange={setBatchStatus} onRecommended={applyRecommended} settingsBusy={applying} api={api} project={project} accountId={accountId} episodeId={episode.id} sceneId={currentScene} settings={resolvedSettings} assets={assets} media={media} binding={promptBinding} canEdit={canEdit} onProjectChange={onProjectChange}/></GenerationWorkbenchTools><div className="collab-storyboard">
   <aside ref={leftColumn} className="collab-sb-left">
    <nav className="collab-sb-navigation" aria-label="分镜导航">
-    <button className="collab-sb-back" onClick={()=>selectEpisode(null)}><ArrowLeft size={16}/>返回分集</button>
+    <button className="collab-sb-back" onClick={()=>navigate(null)}><ArrowLeft size={16}/>返回分集</button>
     <div className="collab-sb-ep-switch">
-     <label>集数<div className="storyboard-scope-row"><select aria-label="选择集数" value={episodeId} onChange={e=>selectEpisode(e.target.value)}>{episodes.map(ep=><option key={ep.id} value={ep.id}>{ep.title}</option>)}</select><span>{labels.length}场景</span></div></label>
-     <label>场景<div className="storyboard-scope-row"><select aria-label="选择场景" value={currentScene} onChange={e=>setScene(e.target.value)}>{labels.map(label=><option key={label} value={label}>{label}</option>)}</select><span>{prompts.length}分镜</span></div></label>
+     <label>集数<div className="storyboard-scope-row"><select aria-label="选择集数" value={episodeId} onChange={e=>navigate(e.target.value)}>{episodes.map(ep=><option key={ep.id} value={ep.id}>{ep.title}</option>)}</select><span>{labels.length}场景</span></div></label>
+     <label>场景<div className="storyboard-scope-row"><select aria-label="选择场景" value={currentScene} onChange={e=>navigate(episodeId,e.target.value)}>{labels.map(label=><option key={label} value={label}>{label}</option>)}</select><span>{prompts.length}分镜</span></div></label>
     </div>
    </nav>
-   <textarea aria-label="当前场景剧本" className="collab-sb-script" readOnly value={parsed.find(s=>s.label===currentScene)?.content||episode.content||''}/>
+   <textarea ref={scriptArea} aria-label="当前场景剧本" className="collab-sb-script" readOnly value={parsed.find(s=>s.label===currentScene)?.content||episode.content||''}/>
   </aside>
-  <section className="collab-sb-mid collab-sb-prompt-stack">
+  <section ref={shotStack} className="collab-sb-mid collab-sb-prompt-stack">
 
    {error&&<p role="alert" className="collab-error">{error}</p>}{bindingReadError&&<p role="alert" className="collab-error">关联刷新未完成：{bindingReadError}</p>}
-   {bindingLoading&&!promptBinding&&!episode.storyboardPrompts?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${p.storyboardPublicationId||'legacy'}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} onOpenReview={onOpenReview} promptBinding={promptBinding} bindingLoading={bindingLoading} bindingReadError={bindingReadError} accountId={accountId} defaults={defaults} onDelete={setDeleteTarget} onProjectChange={onProjectChange}/>)}
+   {bindingLoading&&!promptBinding&&!episode.storyboardPrompts?<p role="status">正在读取提示词关联素材…</p>:prompts.map(p=><Shot key={`${project.id}:${p.storyboardPublicationId||'legacy'}:${p.id}`} shot={p} episode={episode} epNumber={epNumber} scene={currentScene} project={project} assets={assets} media={media} api={api} state={state} canEdit={canEdit} refresh={refresh} loadMedia={loadMedia} tasks={tasks} onOpenReview={onOpenReview} promptBinding={promptBinding} bindingLoading={bindingLoading} bindingReadError={bindingReadError} accountId={accountId} defaults={defaults} onDelete={setDeleteTarget} onProjectChange={onProjectChange} captureReferenceScroll={captureReferenceScroll}/>)}
    {<button className="collab-create-storyboard" onClick={create} disabled={!canEdit||creating}><Plus size={20}/>{creating?'创建中…':'创建分镜'}</button>}
   </section>
   <DeleteConfirm open={Boolean(deleteTarget)} title="删除分镜" name={deleteTarget?.label} detail={deleting?'正在删除…':'确认删除这条分镜？生成的视频与素材会保留，导演工作台原提示词不会删除。'} onCancel={()=>!deleting&&setDeleteTarget(null)} onConfirm={async()=>{
    if(deleting)return;setDeleting(true);setError('');
    try{const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',editPolicy:'direct',storyboardPublicationId:deleteTarget.storyboardPublicationId,operation:'delete',shotId:deleteTarget.id,base:{content:deleteTarget.content,generationConfig:deleteTarget.generationConfig}});onProjectChange(saved);localStorage.removeItem(`xz-shot-draft:${project.id}:${deleteTarget.id}`);setDeleteTarget(null);}catch(e){setError(e.message);setDeleteTarget(null);}finally{setDeleting(false);}
   }}/>
- </div></>;
+ </div><div ref={scrollReserve} aria-hidden="true"/></>;
 }
