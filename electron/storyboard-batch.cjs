@@ -13,6 +13,7 @@ function createStoryboardBatchQueue({directory,owner,loadJobs,guard,submit,compl
  function jobIndex(){
   const byItem=new Map(),byId=new Map();
   for(const job of loadJobs()){
+   if(job.preflightOnly)continue;
    byId.set(job.id,job);
    if(job.storyboardBatchRunId&&job.storyboardBatchItemId){
     const id=job.storyboardBatchRunId+':'+job.storyboardBatchItemId;

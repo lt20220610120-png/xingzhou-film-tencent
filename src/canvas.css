@@ -82,3 +82,9 @@
 .media-api-settings .media-api-form>.media-api-hint{grid-column:1/-1;margin:0}.media-api-feedback{padding:11px 14px;border:1px solid #cbe6d8;border-radius:10px;background:#f1fbf5;color:#367452;font-size:12px;line-height:1.7}.media-api-feedback.error{border-color:#ecd1d4;background:#fff4f4;color:#ac4d59}
 @media(max-width:600px){.media-feituo-connection{padding:14px}.media-feituo-connection header{flex-wrap:wrap}.media-api-settings .media-api-group>header{align-items:flex-start;flex-direction:column;gap:4px}}
 .libtv-connection{display:flex;flex-direction:column;gap:18px;min-width:0}.libtv-connection>p{margin:0;line-height:1.75}.libtv-connection-status{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:16px;background:#f3effb;border:1px solid #dfd6f4;border-radius:12px}.libtv-connection-actions{display:flex;flex-wrap:wrap;gap:10px}.libtv-connection label,.libtv-generation-params label{display:flex;flex-direction:column;gap:8px;min-width:0}.libtv-connection select,.libtv-generation-params select,.libtv-generation-params input{width:100%;min-width:0}.libtv-connection small,.libtv-generation-params>small{line-height:1.7;color:#566174}.libtv-generation-params{display:grid;gap:12px;min-width:0;padding:12px 0}.libtv-generation-params>small{display:block}.libtv-connection .collab-error{overflow-wrap:anywhere}
+.libtv-network-settings{display:grid;gap:10px;min-width:0}
+.libtv-network-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:10px}
+.libtv-network-fields input{width:100%;min-width:0;box-sizing:border-box}
+.libtv-network-report{padding:12px;border:1px solid var(--control-border);border-radius:var(--control-radius);overflow-wrap:anywhere}
+.libtv-network-report ul{margin:7px 0;padding-left:18px}
+.libtv-network-settings .collab-error{margin:0}

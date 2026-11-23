@@ -39,3 +39,48 @@ test('Fnko paid dispatch obeys the final batch stop/account guard',async t=>{con
 test('batch queues every item once, skips existing work, and reconciles durable original job progress',async t=>{const f=await fixture(t);f.jobs.push({id:'old',projectId:'p',shotId:'s2',kind:'video',status:'success'});const run=f.q.start({projectId:'p',accountId:'a',items:items()});await f.q.idle();assert.deepEqual(f.sent,['s1','s3']);assert.throws(()=>f.q.start({projectId:'p',accountId:'b',items:items()}),/账号/);f.jobs.find(j=>j.shotId==='s1').status='success';f.jobs.find(j=>j.shotId==='s3').status='downloading';let view=f.q.list({projectId:'p',accountId:'a'})[0];assert.equal(view.counts.success,1);assert.equal(view.counts.skipped,1);assert.equal(view.counts.downloading,1);assert.equal(view.percent,67);assert.equal(view.id,run.id);assert(!JSON.stringify(view).includes('原词'));});
 test('stop cancels unsent work while retaining in-flight task and prevents duplicate starts',async t=>{let release;const f=await fixture(t,{submit:async()=>await new Promise(r=>release=r)});const r=f.q.start({projectId:'p',accountId:'a',items:items()});await tick();assert.throws(()=>f.q.start({projectId:'p',accountId:'a',items:items()}),/队列/);f.q.stop({id:r.id,accountId:'a'});release({id:'original',status:'submitted'});await f.q.idle();const view=f.q.list({projectId:'p',accountId:'a'})[0];assert.equal(view.counts.stopped,2);assert.equal(view.items[0].jobId,'original');});
 test('preflight failure is isolated; account change stops remaining sends; restart never repeats an uncertain send',async t=>{let f;f=await fixture(t,{submit:async(item)=>{if(item.shotId==='s1')throw Error('素材不足');f.switchAccount();return {id:'original',status:'submitted'};}});f.q.start({projectId:'p',accountId:'a',items:items()});await f.q.idle();assert.deepEqual(f.q.list({projectId:'p',accountId:'a'}),[]);const data=JSON.parse(fs.readFileSync(path.join(f.dir,'batches.json'),'utf8'));assert.equal(data[0].items[0].status,'failed');assert.equal(data[0].items[2].status,'stopped');const saved=data[0];saved.items[1].status='preparing';fs.writeFileSync(path.join(f.dir,'batches.json'),JSON.stringify(data));const again=require('./storyboard-batch.cjs').createStoryboardBatchQueue({directory:f.dir,owner:()=>'a',loadJobs:()=>[],guard:async()=>{},submit:async()=>{throw Error('MUST NOT SEND')}});assert.equal(again.list({projectId:'p',accountId:'a'})[0].items[1].status,'uncertain');});
+
+test('LibTV batch separates preparation failures from paid failures across restart',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-batch-libtv-'));
+ t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const {createGenerationJobs}=require('./generation-jobs.cjs');
+ const {createStoryboardBatchQueue}=require('./storyboard-batch.cjs');
+ const firstPreparation=Promise.withResolvers(),continuePreparation=Promise.withResolvers();
+ let paidRuns=0;
+ const jobs=createGenerationJobs(dir,{libtvService:{
+  prepare:async(_account,input)=>{
+   if(input.shotId==='s1'){
+    firstPreparation.resolve();
+    await continuePreparation.promise;
+    throw Error('读取模型列表失败（TLS_TIMEOUT）');
+   }
+   return {jobId:'original',libtvNodeId:'original',libtvProjectId:'canvas'};
+  },
+  run:async(_account,_task,{beforeRun})=>{
+   beforeRun();
+   paidRuns++;
+   return {data:{taskInfo:{status:3,failedReason:'上游拒绝已提交的生成'}}};
+  },
+ }});
+ const options={directory:dir,owner:()=>'a',loadJobs:()=>jobs.list({includeArchived:true,includePreparing:true}),guard:async()=>{},
+  submit:(item,run,signal)=>jobs.submit({provider:'libtv',kind:'video',endpoint:'https://www.liblib.tv',model:'fixture',prompt:'原词',accountId:'a',
+   projectId:run.projectId,storyboardBatchRunId:run.id,storyboardBatchItemId:item.id,shotId:item.shotId,signal}),
+ };
+ const queue=createStoryboardBatchQueue(options);
+ queue.start({projectId:'p',accountId:'a',items:items().slice(0,2)});
+ await firstPreparation.promise;
+ const [preparing]=queue.list({projectId:'p',accountId:'a'});
+ continuePreparation.resolve();
+ await queue.idle();
+ assert.equal(preparing.items[0].status,'preparing');
+ assert.equal(preparing.items[0].jobId,undefined);
+ await tick();
+ const [view]=createStoryboardBatchQueue(options).list({projectId:'p',accountId:'a'});
+ assert.equal(view.counts.failed,2);
+ assert.equal(view.sent,1);
+ assert.match(view.items[0].error,/未提交生成.*读取模型列表失败（TLS_TIMEOUT）/);
+ assert.equal(view.items[0].jobId,undefined);
+ assert.match(view.items[1].error,/上游拒绝已提交的生成/);
+ assert.deepEqual(jobs.list().map(row=>[row.libtvNodeId,row.status]),[['original','failed']]);
+ assert.equal(paidRuns,1);
+});

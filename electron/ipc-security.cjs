@@ -7,6 +7,7 @@ onlineChannels.add('project-video-delete');
 onlineChannels.add('project-video-share');
 onlineChannels.add('muse-local-connect');
 onlineChannels.add('codex-local-catalog');
+onlineChannels.add('libtv-test-connection');
 for(const c of ['like-status','like-pairing','like-bind','like-open-project'])onlineChannels.add(c);
 for(const channel of ['project-video-export','production-connect','production-chat','production-audit','production-work','production-archive','production-post'])onlineChannels.add(channel);
 const stringChannels = new Set(['app-access-stage','open-external', 'check-update', 'media-import-file', 'media-import-files']);

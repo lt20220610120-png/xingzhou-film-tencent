@@ -60,7 +60,15 @@ const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.jso
 const defaultDataDir = () => path.join(app.getPath('documents'), '行舟影视资料');
 let licenseClient;
 let accessService, geminiWebService,chatgptWebService,libtvService;
-const getLibTV=()=>libtvService||(libtvService=require('./libtv-service.cjs').createLibTVService({root:path.join(app.getPath('userData'),'libtv'),safeStorage,openExternal:url=>shell.openExternal(url),fetchFn:(url,options)=>net.fetch(url,options)}));
+async function fetchLibTVInstaller(url,options,settings){
+ if(settings.mode==='system')return net.fetch(url,options);
+ const downloader=session.fromPartition('xz-libtv-connector-download',{cache:false});
+ const proxy=settings.mode==='direct'?{mode:'direct'}:{mode:'fixed_servers',proxyRules:settings.proxyUrl};
+ await downloader.setProxy(proxy);
+ options.signal?.throwIfAborted();
+ return downloader.fetch(url,options);
+}
+const getLibTV=()=>libtvService||(libtvService=require('./libtv-service.cjs').createLibTVService({root:path.join(app.getPath('userData'),'libtv'),safeStorage,openExternal:url=>shell.openExternal(url),fetchFn:fetchLibTVInstaller}));
 let likeConnector;
 const getLike=()=>likeConnector||(likeConnector=require('./like-connector.cjs').createLikeConnector({root:path.join(app.getPath('userData'),'like-connector'),safeStorage,getOwner:()=>readCloudSession()?.account?.id,allowedRoots:()=>[getDataDir()]}));
 for(const[channel,action]of Object.entries({'like-status':s=>s.status(),'like-pairing':s=>s.pairing(),'like-bind':(s,p)=>s.bind(p)}))ipcMain.handle(channel,async(_,p)=>{const service=getLike();await service.start();return action(service,p||{});});
@@ -69,6 +77,10 @@ ipcMain.handle('like-extension-folder',async()=>{const folder=require('./like-ex
 
 
 const libtvAccountId=async(projectId)=>{const account=await projectAccount(projectId,{providerMetadata:!projectId});if(!account?.id||account.banned)throw Error('请先登录有效的行舟账号');return String(account.id);};
+ipcMain.handle('libtv-network-settings',()=>getLibTV().networkSettings());
+ipcMain.handle('libtv-save-network-settings',(_,input)=>getLibTV().saveNetworkSettings(input));
+ipcMain.handle('libtv-test-connection',event=>getLibTV().testConnection(String(readCloudSession()?.account?.id||''),{signal:event.securitySignal}));
+ipcMain.handle('libtv-cancel-connection-test',()=>libtvService?.cancelConnectionTest());
 for(const [channel,action] of Object.entries({'libtv-projects':(s,id)=>s.projects(id),'libtv-create-project':(s,id,p)=>s.createProject(id,p.name),'libtv-use-project':(s,id,p)=>s.useProject(id,p.projectId,p.name),'libtv-status':(s,id)=>s.status(id),'libtv-login':(s,id)=>s.startLogin(id),'libtv-cancel-login':(s,id)=>s.cancelLogin(id),'libtv-logout':(s,id)=>s.logout(id),'libtv-models':(s,id)=>s.models(id),'libtv-model-schema':(s,id,p)=>s.schema(id,p.model,p.kind),'libtv-accounts':(s,id)=>s.accounts(id),'libtv-use-account':(s,id,p)=>s.useAccount(id,p.accountId)}))ipcMain.handle(channel,async(_,p)=>action(getLibTV(),await libtvAccountId(),p||{}));
 const getChatGPTWeb=()=>chatgptWebService||(chatgptWebService=createChatGPTWebService({profileDir:path.join(app.getPath('userData'),'chatgpt-browser')}));
 const chatgptRun=(config,options)=>getChatGPTWeb().request(config,options);
@@ -375,6 +387,7 @@ const localProjectChannels = new Set(['media-generate-image','media-generate-vid
 async function localIpcAccount(channel, payload = {}) {
   const cached = readCloudSession()?.account;
   if (!cached?.id || cached.banned || !collabService) return null;
+  if(channel==='libtv-test-connection')return cached;
   if (localProviderMetadata.has(channel)) return await collabService.hasLocalProjects() ? cached : null;
   if (channel === 'generation-refresh') {
     const job = jobs().list({includeArchived:true}).find(row => row.id === payload.id);
@@ -692,7 +705,7 @@ function currentStoryboardBatch(){
  const root=path.join(mediaDir(),'storyboard-batch-queue');
  if(storyboardBatchHost&&storyboardBatchRoot===root)return storyboardBatchHost;
  storyboardBatchHost?.stopAll();storyboardBatchRoot=root;
- storyboardBatchHost=require('./storyboard-batch-host.cjs').createStoryboardBatchHost({directory:root,owner:()=>String(readCloudSession()?.account?.id||''),license:()=>licenseClient.requireActive(),getProject:p=>collabService.getProject(p),listMedia:p=>collabService.listMedia(p),listJobs:()=>jobs().list({includeArchived:true}),getState:providerSettings,schema:(id,model)=>getLibTV().schema(id,model,'video'),patchShot:p=>collabService.patchStoryboard(p),submit:(p,signal)=>submitGeneration({securitySignal:signal},p)});
+ storyboardBatchHost=require('./storyboard-batch-host.cjs').createStoryboardBatchHost({directory:root,owner:()=>String(readCloudSession()?.account?.id||''),license:()=>licenseClient.requireActive(),getProject:p=>collabService.getProject(p),listMedia:p=>collabService.listMedia(p),listJobs:()=>jobs().list({includeArchived:true,includePreparing:true}),getState:providerSettings,schema:(id,model)=>getLibTV().schema(id,model,'video'),patchShot:p=>collabService.patchStoryboard(p),submit:(p,signal)=>submitGeneration({securitySignal:signal},p)});
  return storyboardBatchHost;
 }
 for(const action of ['start','list','stop','resume'])ipcMain.handle('storyboard-batch-'+action,async(_,p)=>{if(p.accountId!==String(readCloudSession()?.account?.id||''))throw Error('账号已变化');if(directoryMigration)throw Error('资料目录正在迁移');if(action==='start'||action==='resume')await licenseClient.requireActive();if(action==='list'){await collabService.getProject({projectId:p.projectId});return currentStoryboardBatch().list(p);}return currentStoryboardBatch()[action](p);});

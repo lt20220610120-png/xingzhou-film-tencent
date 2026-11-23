@@ -1,173 +1,151 @@
-// The CLI uses Node fetch. Chromium's effective proxy rules determine each
-// tunnel route, and a TLS stream is relayed only after CONNECT succeeds.
-const http=require('node:http'),net=require('node:net'),tls=require('node:tls'),crypto=require('node:crypto');
-const {Duplex}=require('node:stream');
+// All CLI HTTPS traffic uses one authenticated loopback tunnel per command.
+// Resolve PAC rules for the hostname the CLI actually requests. Opening a
+// second connection just to probe TLS adds load and can destabilize proxies.
+const http=require('node:http');
+const crypto=require('node:crypto');
 const {failure,codeOf}=require('./libtv-network-error.cjs');
-const API_HOSTS=['api2.liblib.art','api.liblib.tv','passport.liblib.art','bridge.liblib.art'];
+const {connectLibTVRoute,networkError,untilAbort}=require('./libtv-proxy-transport.cjs');
+
 const officialHost=host=>/^canva\.xingliu\.art$/i.test(host)||/^(?:[a-z0-9-]+\.)*liblib\.(?:art|tv|cloud|ai)$/i.test(host);
-// OSS bucket names are globally unique. Allow public endpoints of the exact
-// buckets observed in the LibTV CLI; never route an arbitrary Alibaba bucket.
+// OSS bucket names are globally unique. Keep other buckets and private OSS endpoints outside the tunnel.
 const mediaHost=host=>/^(?:libtv-resource-prod|liblibai-(?:online|tmp-image))\.oss-(?:accelerate|[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*)\.aliyuncs\.com$/i.test(host)&&!/-internal(?:[-.]|$)/i.test(host);
 const acceptsHost=host=>officialHost(host)||mediaHost(host);
-const CONNECT_TIMEOUT=7000, PROBE_TIMEOUT=8500;
+const CONNECT_TIMEOUT=8500,PAC_TIMEOUT=4000,ROUTE_TTL=120000,ROUTE_LIMIT=64,IDLE_TIMEOUT=120000;
 const basic=secret=>'Basic '+Buffer.from('xz:'+secret).toString('base64');
 
-function proxyFromRules(rules){
+const schemes=new Set(['http','https','socks4','socks5']);
+const pacSchemes={PROXY:'http',HTTP:'http',HTTPS:'https',SOCKS:'socks4',SOCKS4:'socks4',SOCKS5:'socks5'};
+function parseProxy(value){
+ if(typeof value!=='string'||value.length>320)return null;
+ const text=value.trim().replace(/^socks(?:5h)?:\/\//i,'socks5://');
+ if(!/^[a-z0-9]+:\/\/[^\s\\/@?#]+\/?$/i.test(text))return null;
+ try{
+  const address=new URL(text),protocol=address.protocol.slice(0,-1);
+  if(!schemes.has(protocol)||!address.hostname||address.port==='0'||!/^([a-z\d.-]+|\[[a-f\d:.]+\])$/i.test(address.hostname))return null;
+  return {protocol,proxy:address.protocol+'//'+address.host};
+ }catch{return null;}
+}
+function normalizeLibTVNetworkOptions(input={}){
+ const {mode='system',proxyUrl}=input||{};
+ if(!['system','direct','custom'].includes(mode))throw Error('请选择有效的 LibTV 网络模式');
+ if(mode!=='custom')return {mode,proxyUrl:''};
+ const proxy=parseProxy(proxyUrl);
+ if(!proxy)throw Error('请输入有效的 HTTP、HTTPS 或 SOCKS5 代理地址，不含用户名或密码');
+ return {mode,proxyUrl:proxy.proxy};
+}
+function pacRoutes(rules){
+ const rows=[];
  for(const rule of String(rules||'DIRECT').split(';')){
-  const match=/^\s*(PROXY|HTTPS)\s+([^\s]+)\s*$/i.exec(rule);
-  if(match){try{const u=new URL((match[1].toUpperCase()==='HTTPS'?'https':'http')+'://'+match[2]);if(!u.username&&!u.password&&u.pathname==='/'&&u.hostname)return u.href;}catch{}}
-  if(/^\s*DIRECT\s*$/i.test(rule))return null;
+  if(/^\s*DIRECT\s*$/i.test(rule)){rows.push({mode:'direct',protocol:'direct'});continue;}
+  const match=/^\s*(PROXY|HTTP|HTTPS|SOCKS5?|SOCKS4)\s+(\S+)\s*$/i.exec(rule);
+  const proxy=match&&parseProxy(pacSchemes[match[1].toUpperCase()]+'://'+match[2]);
+  if(proxy)rows.push({mode:'system-proxy',...proxy});
  }
- return null;
+ if(!rows.some(row=>row.mode==='direct'))rows.push({mode:'direct',protocol:'direct'});
+ return rows.filter((row,index)=>rows.findIndex(candidate=>candidate.proxy===row.proxy)===index);
+}
+function proxyFromRules(rules){
+ return pacRoutes(rules)[0].proxy||null;
 }
 async function desktopProxy(url){
  try{const electron=require('electron');if(electron.session?.defaultSession)return await electron.session.defaultSession.resolveProxy(url);}catch{}
- const configured=process.env.HTTPS_PROXY||process.env.https_proxy||process.env.HTTP_PROXY||process.env.http_proxy;
- if(configured){try{const u=new URL(configured);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)return (u.protocol==='https:'?'HTTPS ':'PROXY ')+u.host;}catch{}}
- return 'DIRECT';
-}
-function openRoute(row){
- if(row.mode!=='system-proxy')return net.connect({host:row.host,port:443});
- const proxy=new URL(row.proxy),request=(proxy.protocol==='https:'?require('node:https'):http).request({
-  host:proxy.hostname,port:proxy.port||(proxy.protocol==='https:'?443:80),
-  method:'CONNECT',path:row.host+':443',headers:{Host:row.host+':443'},agent:false,
- });
- // A Duplex proxy socket lets CONNECT setup errors reject like ordinary sockets.
- let upstream;const pending=[];
- const stream=new Duplex({
-  read(){upstream?.resume();},
-  write(chunk,encoding,done){if(upstream)upstream.write(chunk,encoding,done);else pending.push([chunk,encoding,done]);},
-  final(done){if(upstream)upstream.end(done);else done();},
-  destroy(error,done){request.destroy();upstream?.destroy();done(error);},
- });
- request.on('connect',(response,socket,head)=>{
-  if(response.statusCode!==200){socket.destroy();stream.destroy(Object.assign(Error('Proxy CONNECT failed'),{code:'PROXY_HTTP_'+response.statusCode}));return;}
-  upstream=socket;socket.pause();
-  socket.on('data',chunk=>{if(!stream.push(chunk))socket.pause();});
-  socket.on('end',()=>stream.push(null));
-  socket.on('error',error=>stream.destroy(error));socket.on('close',()=>stream.destroy());
-  if(head.length)stream.push(head);
-  for(const [chunk,encoding,done]of pending)socket.write(chunk,encoding,done);
-  stream.emit('connect');
- });
- request.on('error',error=>stream.destroy(error));request.end();return stream;
-}
-function probeRoute(row,{signal}={}){
- return new Promise((resolve,reject)=>{
-  const socket=openRoute(row);let secure,settled=false;
-  const finish=error=>{
-   if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);
-   secure?.destroy();socket.destroy();error?reject(error):resolve();
-  };
-  const abort=()=>finish(signal.reason);
-  const timer=setTimeout(()=>finish(Object.assign(Error('TLS timeout'),{code:'TLS_TIMEOUT'})),PROBE_TIMEOUT);
-  socket.on('error',finish);
-  socket.once('connect',()=>{secure=tls.connect({socket,servername:row.host,rejectUnauthorized:true},()=>finish());secure.once('error',finish);});
-  if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
- });
-}
-function untilAbort(work,signal){
- if(!signal)return work;
- if(signal.aborted)return Promise.reject(signal.reason);
- return new Promise((resolve,reject)=>{
-  const abort=()=>reject(signal.reason);
-  signal.addEventListener('abort',abort,{once:true});
-  Promise.resolve(work).then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
- });
+ const configured=process.env.HTTPS_PROXY||process.env.https_proxy||process.env.HTTP_PROXY||process.env.http_proxy||process.env.ALL_PROXY||process.env.all_proxy;
+ const parsed=parseProxy(configured);
+ if(!parsed)return 'DIRECT';
+ const kind={http:'PROXY',https:'HTTPS',socks4:'SOCKS4',socks5:'SOCKS5'}[parsed.protocol];
+ return kind+' '+new URL(parsed.proxy).host;
 }
 
-function createLibTVNetwork({resolveProxy=desktopProxy,probe=probeRoute,connect=openRoute,connectTimeout=CONNECT_TIMEOUT}={}){
- const controller=new AbortController(),sockets=new Set(),commands=new Map();
- let server,starting,selected,pending,closed=false,revision=0;
+function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'system'}),connect,connectTimeout=CONNECT_TIMEOUT}={}){
+ const controller=new AbortController(),sockets=new Set(),commands=new Map(),routes=new Map();
+ let server,starting,closed=false;
  const track=socket=>{sockets.add(socket);socket.on('error',()=>{});socket.once('close',()=>sockets.delete(socket));return socket;};
- function candidates(host,rule){
-  const direct={host,mode:'direct'},primary=proxyFromRules(rule);
-  if(primary)return [{host,mode:'system-proxy',proxy:primary},direct];
-  const backup=String(rule||'').split(';').map(proxyFromRules).find(Boolean);
-  return backup?[direct,{host,mode:'system-proxy',proxy:backup}]:[direct];
+ function routePlan(host,settings){
+  if(settings.mode==='direct')return {rows:Promise.resolve([{mode:'direct',protocol:'direct'}])};
+  if(settings.mode==='custom')return {rows:Promise.resolve([{mode:'custom-proxy',...parseProxy(settings.proxyUrl)}])};
+  let plan=routes.get(host);
+  if(plan&&Date.now()-plan.created<ROUTE_TTL)return plan;
+  const budget=AbortSignal.any([controller.signal,AbortSignal.timeout(PAC_TIMEOUT)]);
+  const resolution=untilAbort(Promise.resolve().then(()=>resolveProxy('https://'+host)),budget);
+  plan={created:Date.now(),rows:resolution.then(pacRoutes,()=>pacRoutes('DIRECT'))};
+  routes.delete(host);routes.set(host,plan);
+  while(routes.size>ROUTE_LIMIT)routes.delete(routes.keys().next().value);
+  return plan;
  }
- async function selectRoute(host,rule){
-  const choices=candidates(host,rule),attempts=[];
-  for(const row of choices){
-   try{await probe(row,{signal:controller.signal});return {host,order:[row,...choices.filter(item=>item!==row)]};}
-   catch(error){if(controller.signal.aborted)throw error;attempts.push({mode:row.mode,code:codeOf(error)});}
+ const identify=(row,host,variant)=>({host,mode:row.mode,protocol:row.protocol,variant});
+ function prioritize(rows,plan,scope,host){
+  if(scope.allowFallback&&scope.retryRoute?.host===host&&rows.length>1){
+   const previous=scope.retryRoute;
+   const index=rows.findIndex((row,i)=>row.mode===previous.mode&&(!previous.protocol||row.protocol===previous.protocol)&&(previous.variant==null||i===previous.variant));
+   if(index>=0)return [...rows.filter((_,i)=>i!==index),rows[index]];
   }
-  const preferred=attempts.find(row=>failure(row.code).retryable)||attempts[0];
-  throw failure(preferred.code,{host,attempts});
+  if(plan.preferred&&rows.includes(plan.preferred))return [plan.preferred,...rows.filter(row=>row!==plan.preferred)];
+  return rows;
  }
- async function dynamicRoute(plan,host){
-  let work=plan.dynamicRoutes.get(host);
-  if(!work){
-   work=selectRouteForHost();
-   plan.dynamicRoutes.set(host,work);
-   work.catch(()=>{if(plan.dynamicRoutes.get(host)===work)plan.dynamicRoutes.delete(host);});
-  }
-  return work;
-
-  async function selectRouteForHost(){
-   return selectRoute(host,await resolveProxy('https://'+host));
-  }
- }
- function connectBeforeRelay(row,client){
-  return new Promise((resolve,reject)=>{
-   const upstream=track(connect(row));
-   const timeout=setTimeout(()=>finish(Object.assign(Error('CONNECT timeout'),{code:'CONNECT_TIMEOUT'})),connectTimeout);
-   const onError=error=>finish(error);
-   const onClose=()=>finish(Object.assign(Error('CONNECT closed'),{code:'ECONNRESET'}));
-   const onConnect=()=>finish(),onClientClose=()=>finish(Error('CLI tunnel closed'));
-   function finish(error){
-    clearTimeout(timeout);upstream.off('error',onError);upstream.off('close',onClose);upstream.off('connect',onConnect);client.off('close',onClientClose);
-    if(error){upstream.destroy();reject(error);}else resolve(upstream);
-   }
-   upstream.once('error',onError);upstream.once('close',onClose);upstream.once('connect',onConnect);client.once('close',onClientClose);
-  });
+ function recordFailure(scope,error){
+  scope.failure=error;
+  if(error.routeHint)scope.lastRoute=error.routeHint;
  }
  async function handleConnect(request,client,head){
   const deny=status=>{if(!client.destroyed)client.end('HTTP/1.1 '+status+'\r\nConnection: close\r\n\r\n');};
   const scope=commands.get(request.headers['proxy-authorization']);
-  if(!scope)return deny('407 Proxy Authentication Required');
-  const upload=scope.upload?scope:null;
+  if(!scope||scope.signal.aborted)return deny('407 Proxy Authentication Required');
   const match=/^([a-z0-9.-]+):443$/i.exec(request.url||'');
   if(!match||!acceptsHost(match[1])){
-   if(upload)upload.failure=failure('BLOCKED_HOST');
+   recordFailure(scope,failure('BLOCKED_HOST'));
    return deny('403 Forbidden');
   }
-  const host=match[1].toLowerCase();
+  const host=match[1].toLowerCase(),disconnect=new AbortController();
+  scope.clients.add(client);
+  client.once('close',()=>{scope.clients.delete(client);disconnect.abort();});
+  const signal=AbortSignal.any([scope.signal,disconnect.signal]);
+  let upstream;
   try{
-   const routePlan=scope.plan;
-   const known=routePlan.routes.find(row=>row.host===host)||await dynamicRoute(routePlan,host);
-   const choices=[...known.order];
-   if(upload?.retryRoute?.host===host&&choices.length===2&&choices[0].mode===upload.retryRoute.mode)choices.reverse();
+   const plan=routePlan(host,scope.settings);
+   const rows=await untilAbort(plan.rows,signal);
+   const ordered=prioritize(rows,plan,scope,host);
+   const candidates=scope.allowFallback?ordered:ordered.slice(0,1);
    const attempts=[];
-   let upstream,mode;
-   for(const row of choices){
-    if(closed||client.destroyed)return;
-    try{upstream=await connectBeforeRelay(row,client);mode=row.mode;break;}
-    catch(error){attempts.push({mode:row.mode,code:codeOf(error)});}
+   let route;
+   for(const row of candidates){
+    signal.throwIfAborted();
+    route=identify(row,host,rows.indexOf(row));
+    scope.lastRoute=route;
+    const budget=AbortSignal.timeout(connectTimeout);
+    try{
+     upstream=await connectLibTVRoute({...row,host},AbortSignal.any([signal,budget]),connect);
+     signal.throwIfAborted();
+     plan.preferred=row;
+     break;
+    }catch(error){
+     if(upstream){upstream.destroy();upstream=null;}
+     if(signal.aborted)throw error;
+     attempts.push({...route,code:budget.aborted?'CONNECT_TIMEOUT':codeOf(error)});
+    }
    }
    if(!upstream){
     const preferred=attempts.find(row=>failure(row.code).retryable)||attempts[0];
-    throw failure(preferred.code,{host,attempts});
+    throw failure(preferred.code,{host,mode:preferred.mode,protocol:preferred.protocol,routeHint:preferred,attempts});
    }
-   if(closed||client.destroyed){upstream.destroy();return;}
-   if(upload){upload.failure=null;upload.lastRoute={host,mode};}
-   // Once CONNECT succeeds, the CLI owns the TLS stream. Only the caller
-   // for an unpaid upload may launch a new command if this stream fails.
+   track(upstream);
+   scope.failure=null;scope.lastRoute=route;
+   // The TLS stream stays opaque. A sent CONNECT is never transparently replayed.
    const abandon=()=>{client.destroy();upstream.destroy();};
    const broken=error=>{
-    if(upload&&error)upload.failure=failure(codeOf(error),{host,mode,routeHint:{host,mode}});
+    if(error&&!signal.aborted)recordFailure(scope,failure(codeOf(error),{...route,routeHint:route}));
     abandon();
    };
    client.once('error',abandon);
    upstream.once('error',broken);
-   client.setTimeout(120000,()=>broken(Object.assign(Error('Idle timeout'),{code:'ETIMEDOUT'})));
+   client.setTimeout(IDLE_TIMEOUT,()=>broken(networkError('ETIMEDOUT')));
    client.once('close',()=>upstream.destroy());
    upstream.once('close',()=>client.destroy());
    client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
    if(head.length)upstream.write(head);
    client.pipe(upstream);upstream.pipe(client);
   }catch(error){
-   if(upload&&error?.code==='LIBTV_NETWORK')upload.failure=error;
+   if(signal.aborted){upstream?.destroy();return;}
+   recordFailure(scope,error?.code==='LIBTV_NETWORK'?error:failure(codeOf(error),{host}));
    deny('502 Bad Gateway');
   }
  }
@@ -175,61 +153,63 @@ function createLibTVNetwork({resolveProxy=desktopProxy,probe=probeRoute,connect=
   if(server?.listening)return;
   if(starting)return starting;
   starting=new Promise((resolve,reject)=>{
-   server=http.createServer((_q,response)=>{response.writeHead(405);response.end();});
+   server=http.createServer((_request,response)=>{response.writeHead(405);response.end();});
    server.on('connection',track);server.on('connect',handleConnect);server.once('error',reject);
    server.listen(0,'127.0.0.1',resolve);
   });
   try{await starting;}finally{starting=null;}
  }
- async function getPlan(){
+ async function environment({signal,retryRoute,allowFallback=true}={}){
   if(closed)throw Error('LibTV 网络连接已关闭');
-  const rules=await Promise.all(API_HOSTS.map(host=>resolveProxy('https://'+host))),signature=JSON.stringify(rules);
-  if(closed)throw Error('LibTV 网络连接已关闭');
-  if(selected?.signature===signature&&selected.revision===revision&&Date.now()-selected.time<60000)return selected;
-  if(pending?.signature===signature&&pending.revision===revision)return pending.work;
-  const next={signature,revision};
-  next.work=(async()=>{
-   const settled=await Promise.allSettled(API_HOSTS.map((host,index)=>selectRoute(host,rules[index])));
-   if(closed)throw Error('LibTV 网络连接已关闭');
-   const routes=settled.filter(row=>row.status==='fulfilled').map(row=>row.value);
-   if(!routes.length)throw settled.find(row=>row.status==='rejected').reason;
-   const plan={signature,revision:next.revision,time:Date.now(),routes,dynamicRoutes:new Map(),proxyConfigured:rules.some(rule=>String(rule||'').split(';').some(proxyFromRules))};
-   if(pending===next&&revision===plan.revision)selected=plan;
-   return plan;
-  })();
-  pending=next;
-  try{return await next.work;}finally{if(pending===next)pending=null;}
- }
- async function environment({upload=false,signal,retryRoute}={}){
-  signal?.throwIfAborted();
-  const plan=await untilAbort(getPlan(),signal);
-  const routes=plan.routes.map(({host,order})=>({host,mode:order[0].mode}));
-  // Uploads resolve OSS hosts independently, even when every API connection
-  // uses DIRECT. A command-specific token keeps diagnostics apart.
-  if(!upload&&!plan.proxyConfigured)return{env:{HTTP_PROXY:'',HTTPS_PROXY:'',ALL_PROXY:'',http_proxy:'',https_proxy:'',all_proxy:'',NODE_USE_ENV_PROXY:undefined},routes};
-  await untilAbort(start(),signal);
-  signal?.throwIfAborted();
+  const settings=normalizeLibTVNetworkOptions(getSettings());
+  const commandController=new AbortController();
+  const scopeSignal=AbortSignal.any([controller.signal,commandController.signal,...(signal?[signal]:[])]);
+  scopeSignal.throwIfAborted();
+  await untilAbort(start(),scopeSignal);
+  scopeSignal.throwIfAborted();
   const credential=crypto.randomBytes(24).toString('hex');
   const url='http://xz:'+credential+'@127.0.0.1:'+server.address().port;
+  // Clear ambient alternate-proxy variables. The CLI's browser callback stays local.
   const env={HTTP_PROXY:url,HTTPS_PROXY:url,ALL_PROXY:'',http_proxy:url,https_proxy:url,all_proxy:'',NO_PROXY:'localhost,127.0.0.1,::1',no_proxy:'localhost,127.0.0.1,::1',NODE_USE_ENV_PROXY:'1'};
-  const authorization=basic(credential),state={plan,upload,retryRoute};
+  const authorization=basic(credential),state={settings,signal:scopeSignal,clients:new Set(),allowFallback,retryRoute};
   commands.set(authorization,state);
-  const dispose=()=>commands.delete(authorization);
-  if(!upload)return{env,routes,dispose};
-  return {env,routes,dispose,diagnose:error=>{
-   if(error.code!=='LIBTV_NETWORK')return error;
+  const dispose=()=>{
+   scopeSignal.removeEventListener('abort',dispose);
+   commands.delete(authorization);
+   commandController.abort();
+   for(const client of state.clients)client.destroy();
+  };
+  scopeSignal.addEventListener('abort',dispose,{once:true});
+  const routeReport=()=>({
+   route:state.lastRoute?.protocol||null,source:state.lastRoute?.mode||null,
+   ...(state.failure?{code:state.failure.networkCode}:{}),
+  });
+  function diagnose(error){
+   if(error?.code!=='LIBTV_NETWORK')return error;
    if(state.failure?.networkCode==='BLOCKED_HOST'&&['FETCH_FAILED','PROXY_HTTP_403'].includes(error.networkCode))return state.failure;
    if(state.failure&&['FETCH_FAILED','PROXY_HTTP_502'].includes(error.networkCode))return state.failure;
-   if(error.retryable&&state.lastRoute&&(!error.host||error.host===state.lastRoute.host)&&error.networkCode!=='HTTP_429'){
-    return failure(error.networkCode,{...state.lastRoute,routeHint:state.lastRoute});
+   const route=state.lastRoute;
+   if(route&&(!error.host||error.host===route.host)){
+    const hint=error.retryable&&error.networkCode!=='HTTP_429'?route:null;
+    const detail=failure(error.networkCode,{...route,routeHint:hint});
+    recordFailure(state,detail);
+    return detail;
    }
+   recordFailure(state,error);
    return error;
-  }};
+  }
+  return {env,dispose,routeReport,diagnose};
  }
  async function close(){
-  closed=true;controller.abort();commands.clear();for(const socket of sockets)socket.destroy();
-  await starting?.catch(()=>{});if(server?.listening)await new Promise(resolve=>server.close(resolve));
+  closed=true;controller.abort();commands.clear();routes.clear();
+  for(const socket of sockets)socket.destroy();
+  await starting?.catch(()=>{});
+  if(server?.listening)await new Promise(resolve=>server.close(resolve));
  }
- return{environment,close,invalidate:()=>{revision++;}};
+ function invalidate(hint){
+  if(hint?.host)routes.delete(hint.host);
+  else routes.clear();
+ }
+ return {environment,close,invalidate};
 }
-module.exports={createLibTVNetwork,officialHost,acceptsHost,proxyFromRules,untilAbort};
+module.exports={createLibTVNetwork,officialHost,acceptsHost,proxyFromRules,untilAbort,normalizeLibTVNetworkOptions};

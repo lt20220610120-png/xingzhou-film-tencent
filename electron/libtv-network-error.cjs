@@ -18,9 +18,22 @@ const transientCodes=new Map(Object.entries({
  UND_ERR_SOCKET:'上传连接中断',
  ERR_SSL_UNEXPECTED_EOF_WHILE_READING:'TLS 连接提前断开',
  ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR:'TLS 握手暂时失败',
+ SOCKS_REPLY_1:'SOCKS5 代理暂时无法转发',
+ SOCKS_REPLY_3:'SOCKS5 代理无法到达网络',
+ SOCKS_REPLY_4:'SOCKS5 代理无法到达目标',
+ SOCKS_REPLY_5:'SOCKS5 目标连接被拒绝',
+ SOCKS_REPLY_6:'SOCKS5 连接超时',
 }));
 const permanentCodes=new Map(Object.entries({
- BLOCKED_HOST:'上传目标域名被安全规则拦截',
+ BLOCKED_HOST:'目标域名被安全规则拦截',
+ SOCKS_PROTOCOL:'SOCKS 端口协议不匹配',
+ SOCKS_AUTH_REQUIRED:'SOCKS5 代理要求认证',
+ SOCKS_REPLY_2:'SOCKS5 代理规则拒绝连接',
+ SOCKS_REPLY_7:'SOCKS5 代理不支持连接指令',
+ SOCKS_REPLY_8:'SOCKS5 代理不支持目标地址类型',
+ SOCKS4_REPLY_91:'SOCKS4 代理拒绝连接',
+ SOCKS4_REPLY_92:'SOCKS4 代理要求认证',
+ SOCKS4_REPLY_93:'SOCKS4 认证失败',
  ERR_TLS_CERT_ALTNAME_INVALID:'TLS 证书与目标域名不匹配',
  ERR_SSL_WRONG_VERSION_NUMBER:'代理或目标端 TLS 协议不兼容',
  ERR_SSL_UNSUPPORTED_PROTOCOL:'目标端 TLS 协议不受支持',
@@ -32,7 +45,10 @@ const permanentCodes=new Map(Object.entries({
  UNABLE_TO_GET_ISSUER_CERT_LOCALLY:'无法验证 TLS 证书链',
 }));
 const transientHTTP=new Set([408,429,500,502,503,504]);
-const routeLabels={'system-proxy':'系统代理',direct:'系统直连'};
+const routeLabels={'system-proxy':'系统代理','custom-proxy':'自定义代理',direct:'直连'};
+function routeLabel(mode,protocol){
+ return (routeLabels[mode]||'')+(protocol&&protocol!=='direct'?' '+protocol.toUpperCase():'');
+}
 
 function describe(code){
  if(transientCodes.has(code))return {label:transientCodes.get(code),retryable:true};
@@ -48,10 +64,10 @@ function describe(code){
  return {label:'网络连接异常，连接器未返回可识别错误码',retryable:false};
 }
 
-function failure(code='FETCH_FAILED',{host='',mode='',routeHint=null,attempts=[]}={}){
+function failure(code='FETCH_FAILED',{host='',mode='',protocol='',routeHint=null,attempts=[]}={}){
  const {label,retryable}=describe(code);
- const detail=attempts.length?'，'+attempts.map(row=>routeLabels[row.mode]+' '+describe(row.code).label).join(' / '):'';
- return Object.assign(Error('LibTV 网络连接失败'+(host?' · '+host:'')+'，'+(routeLabels[mode]?routeLabels[mode]+'：':'')+label+'（'+code+'）'+detail),{
+ const detail=attempts.length>1?'，'+attempts.map(row=>routeLabel(row.mode,row.protocol)+' '+describe(row.code).label).join(' / '):'';
+ return Object.assign(Error('LibTV 网络连接失败'+(host?' · '+host:'')+'，'+(routeLabels[mode]?routeLabel(mode,protocol)+'：':'')+label+'（'+code+'）'+detail),{
   code:'LIBTV_NETWORK',networkCode:code,retryable,...(host?{host}:{}),...(routeHint?{routeHint}:{}),
  });
 }
