@@ -1,6 +1,5 @@
-// All CLI HTTPS traffic uses one authenticated loopback tunnel per command.
-// Resolve PAC rules for the hostname the CLI actually requests. Opening a
-// second connection just to probe TLS adds load and can destabilize proxies.
+// System and custom modes route CLI traffic through an authenticated loopback
+// tunnel. Forced direct mode clears the child's proxy environment and skips it.
 const http=require('node:http');
 const crypto=require('node:crypto');
 const {failure,codeOf}=require('./libtv-network-error.cjs');
@@ -12,6 +11,13 @@ const mediaHost=host=>/^(?:libtv-resource-prod|liblibai-(?:online|tmp-image))\.o
 const acceptsHost=host=>officialHost(host)||mediaHost(host);
 const CONNECT_TIMEOUT=8500,PAC_TIMEOUT=4000,ROUTE_TTL=120000,ROUTE_LIMIT=64,IDLE_TIMEOUT=120000;
 const basic=secret=>'Basic '+Buffer.from('xz:'+secret).toString('base64');
+const noAmbientProxy=()=>Object.fromEntries(
+ [...new Set([...Object.keys(process.env).filter(key=>/^(?:(?:https?|all|no)_proxy|node_use_env_proxy)$/i.test(key)),
+  'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','NODE_USE_ENV_PROXY'])]
+  .map(key=>[key,undefined]),
+);
+const unverifiedTunnel=code=>code==='TUNNEL_CONNECT_FAILED'||/^PROXY_HTTP_/.test(code);
+const safeHost=host=>typeof host==='string'&&acceptsHost(host)?host.toLowerCase():'';
 
 const schemes=new Set(['http','https','socks4','socks5']);
 const pacSchemes={PROXY:'http',HTTP:'http',HTTPS:'https',SOCKS:'socks4',SOCKS4:'socks4',SOCKS5:'socks5'};
@@ -56,12 +62,28 @@ async function desktopProxy(url){
  return kind+' '+new URL(parsed.proxy).host;
 }
 
+function directEnvironment(){
+ const route={mode:'direct',protocol:'direct'};
+ let code;
+ return {
+  env:noAmbientProxy(),
+  dispose(){},
+  routeReport:()=>({route:'direct',source:'direct',...(code?{code}:{})}),
+  diagnose(error){
+   if(error?.code!=='LIBTV_NETWORK')return error;
+   // A proxy error read from stderr is not evidence of an actual proxy in
+   // direct mode. Without a confirmed response report connection failure.
+   code=unverifiedTunnel(error.networkCode)?'FETCH_FAILED':error.networkCode;
+   return failure(code,{...route,host:safeHost(error.host)});
+  },
+ };
+}
+
 function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'system'}),connect,connectTimeout=CONNECT_TIMEOUT}={}){
  const controller=new AbortController(),sockets=new Set(),commands=new Map(),routes=new Map();
  let server,starting,closed=false;
  const track=socket=>{sockets.add(socket);socket.on('error',()=>{});socket.once('close',()=>sockets.delete(socket));return socket;};
  function routePlan(host,settings){
-  if(settings.mode==='direct')return {rows:Promise.resolve([{mode:'direct',protocol:'direct'}])};
   if(settings.mode==='custom')return {rows:Promise.resolve([{mode:'custom-proxy',...parseProxy(settings.proxyUrl)}])};
   let plan=routes.get(host);
   if(plan&&Date.now()-plan.created<ROUTE_TTL)return plan;
@@ -128,6 +150,7 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
     throw failure(preferred.code,{host,mode:preferred.mode,protocol:preferred.protocol,routeHint:preferred,attempts});
    }
    track(upstream);
+   scope.tunnelFailures.delete(host);
    scope.failure=null;scope.lastRoute=route;
    // The TLS stream stays opaque. A sent CONNECT is never transparently replayed.
    const abandon=()=>{client.destroy();upstream.destroy();};
@@ -145,8 +168,13 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
    client.pipe(upstream);upstream.pipe(client);
   }catch(error){
    if(signal.aborted){upstream?.destroy();return;}
-   recordFailure(scope,error?.code==='LIBTV_NETWORK'?error:failure(codeOf(error),{host}));
-   deny('502 Bad Gateway');
+   const cause=error?.code==='LIBTV_NETWORK'?error:failure(codeOf(error),{host});
+   recordFailure(scope,cause);
+   scope.tunnelFailures.delete(host);
+   scope.tunnelFailures.set(host,cause);
+   // This is an internal CONNECT status, not the origin's HTTP 502 or a
+   // status returned by a configured upstream proxy.
+   deny('599 Tunnel Connection Failed');
   }
  }
  async function start(){
@@ -162,6 +190,8 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
  async function environment({signal,retryRoute,allowFallback=true}={}){
   if(closed)throw Error('LibTV 网络连接已关闭');
   const settings=normalizeLibTVNetworkOptions(getSettings());
+  signal?.throwIfAborted();
+  if(settings.mode==='direct')return directEnvironment();
   const commandController=new AbortController();
   const scopeSignal=AbortSignal.any([controller.signal,commandController.signal,...(signal?[signal]:[])]);
   scopeSignal.throwIfAborted();
@@ -170,8 +200,8 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
   const credential=crypto.randomBytes(24).toString('hex');
   const url='http://xz:'+credential+'@127.0.0.1:'+server.address().port;
   // Clear ambient alternate-proxy variables. The CLI's browser callback stays local.
-  const env={HTTP_PROXY:url,HTTPS_PROXY:url,ALL_PROXY:'',http_proxy:url,https_proxy:url,all_proxy:'',NO_PROXY:'localhost,127.0.0.1,::1',no_proxy:'localhost,127.0.0.1,::1',NODE_USE_ENV_PROXY:'1'};
-  const authorization=basic(credential),state={settings,signal:scopeSignal,clients:new Set(),allowFallback,retryRoute};
+  const env={...noAmbientProxy(),HTTP_PROXY:url,HTTPS_PROXY:url,http_proxy:url,https_proxy:url,NO_PROXY:'localhost,127.0.0.1,::1',no_proxy:'localhost,127.0.0.1,::1',NODE_USE_ENV_PROXY:'1'};
+  const authorization=basic(credential),state={settings,signal:scopeSignal,clients:new Set(),tunnelFailures:new Map(),allowFallback,retryRoute};
   commands.set(authorization,state);
   const dispose=()=>{
    scopeSignal.removeEventListener('abort',dispose);
@@ -186,17 +216,28 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
   });
   function diagnose(error){
    if(error?.code!=='LIBTV_NETWORK')return error;
-   if(state.failure?.networkCode==='BLOCKED_HOST'&&['FETCH_FAILED','PROXY_HTTP_403'].includes(error.networkCode))return state.failure;
-   if(state.failure&&['FETCH_FAILED','PROXY_HTTP_502'].includes(error.networkCode))return state.failure;
+   const host=safeHost(error.host);
+   const code=error.networkCode;
+   const latest=state.failure;
+   if(latest?.networkCode==='BLOCKED_HOST'&&['FETCH_FAILED','PROXY_HTTP_403'].includes(code))return latest;
+   if(code==='TUNNEL_CONNECT_FAILED'){
+    // Only the router can authenticate the upstream CONNECT outcome. A
+    //  successful CONNECT to a second host must not erase a failed first one.
+    const recorded=host?state.tunnelFailures.get(host):[...state.tunnelFailures.values()].at(-1);
+    if(recorded){recordFailure(state,recorded);return recorded;}
+   }
+   if(code==='FETCH_FAILED'&&latest&&(!host||host===latest.host))return latest;
+   const displayCode=unverifiedTunnel(code)?'TUNNEL_CONNECT_FAILED':code;
    const route=state.lastRoute;
-   if(route&&(!error.host||error.host===route.host)){
-    const hint=error.retryable&&error.networkCode!=='HTTP_429'?route:null;
-    const detail=failure(error.networkCode,{...route,routeHint:hint});
+   if(route&&(!host||host===route.host)){
+    const hint=error.retryable&&displayCode!=='HTTP_429'?route:null;
+    const detail=failure(displayCode,{...route,routeHint:hint});
     recordFailure(state,detail);
     return detail;
    }
-   recordFailure(state,error);
-   return error;
+   const detail=failure(displayCode,{host});
+   recordFailure(state,detail);
+   return detail;
   }
   return {env,dispose,routeReport,diagnose};
  }

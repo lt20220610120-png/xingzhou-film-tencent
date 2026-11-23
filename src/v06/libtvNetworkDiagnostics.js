@@ -18,6 +18,7 @@ const causes=new Map([
  ['EAI_AGAIN','域名暂时无法解析'],
  ['ETIMEDOUT','连接超时'],
  ['CONNECT_TIMEOUT','建立连接超时'],
+ ['TUNNEL_CONNECT_FAILED','本机转发未能建立连接'],
  ['TLS_TIMEOUT','TLS 握手超时'],
  ['UND_ERR_CONNECT_TIMEOUT','建立连接超时'],
  ['UND_ERR_HEADERS_TIMEOUT','等待响应头超时'],

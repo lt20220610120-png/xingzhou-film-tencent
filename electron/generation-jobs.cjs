@@ -136,7 +136,7 @@ function createGenerationJobs(dir,options={}) {
     async submit(input) {
       const {normalizeGenerationReferences}=await import('../core/generationReferences.js');input={...input,references:normalizeGenerationReferences(input.references)};
       await options.beforeSubmit?.();const dispatchGuard=async()=>{try{await options.beforeDispatch?.(input);}catch(e){e.beforeSubmission=true;throw e;}};
-      const { apiKey, endpoint, signal, accountId, ...snapshot } = input;
+      const { apiKey, endpoint, signal, accountId,onLibTVProgress,onLibTVCommitted, ...snapshot } = input;
       // Reuse carries generation settings, never a previous paid task's identity.
       for(const field of ['jobId','filePath','files','url','urls','mediaId','downloadReceiptId','costYuan','warning','error','checkedAt','nextPollAt','archived','archivedAt','clearedWhileActive','projectVideoDeleted','likeJobId','likeCanvasUrl','nodeId','taskId','libtvNodeId','libtvProjectId','libtvCanvasUrl','libtvInitialUrls','libtvRunStarted','libtvIdentity','remoteStatus'])delete snapshot[field];
       let persistedEndpoint=endpoint;if(input.kind==='video'){const address=new URL(endpoint);address.search='';address.hash='';persistedEndpoint=address.href.replace(/\/$/,'');}
@@ -162,6 +162,7 @@ function createGenerationJobs(dir,options={}) {
           signal?.throwIfAborted();
           let task={...job,...prepared,status:'submitted',libtvRunStarted:!canvasOnly};
           if(canvasOnly)return save({...task,remoteStatus:'awaiting-canvas',warning:'素材已上传，请在 LibTV 原画布点击生成',nextPollAt:Date.now()+30000});
+          onLibTVProgress?.({stage:'submitting'});
           if(options.beforeDispatch)await dispatchGuard();
           const dispatch=Promise.withResolvers();
           let launched=false;
@@ -169,6 +170,7 @@ function createGenerationJobs(dir,options={}) {
             signal?.throwIfAborted();
             task=save({...task,submissionAttempted:true});
             launched=true;
+            onLibTVCommitted?.();
             dispatch.resolve(task);
           };
           const work=(async()=>{

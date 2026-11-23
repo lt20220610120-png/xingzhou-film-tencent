@@ -5,6 +5,7 @@ const net = require('node:net');
 const {once} = require('node:events');
 const {createLibTVNetwork,normalizeLibTVNetworkOptions} = require('./libtv-network.cjs');
 const {connectLibTVRoute} = require('./libtv-proxy-transport.cjs');
+const {failure,codeFromCLI} = require('./libtv-network-error.cjs');
 
 const target = 'api.liblib.tv';
 const generic = {code:'LIBTV_NETWORK',networkCode:'FETCH_FAILED',retryable:true};
@@ -60,7 +61,7 @@ test('system HTTP loopback sends only one real CONNECT per command and recovers 
   const failed=await n.environment({allowFallback:false});
   const first=await openTunnel(failed);
   first.socket.destroy();
-  assert.equal(first.status,502);
+  assert.equal(first.status,599);
   assert.equal(failed.diagnose(generic).networkCode,'ECONNRESET');
   failed.dispose();
   const second=await n.environment();
@@ -154,20 +155,77 @@ test('a real HTTP proxy timeout can fall back before bytes, with no probes or co
   assert.deepEqual({peak,requests},{peak:1,requests:1});
 });
 
-test('explicit direct mode never looks up or connects to the failing system proxy',async t=>{
-  const echo=net.createServer(socket=>socket.pipe(socket)),port=await listen(echo,t);
-  let resolverCalls=0;
+test('explicit direct uses the spawned CLI without a loopback tunnel or ambient proxy',async t=>{
+  const {spawnCLI}=require('./libtv-service.cjs');
+  const os=require('node:os');
+  const origin=http.createServer((_request,response)=>response.end('fixture-origin'));
+  const originPort=await listen(origin,t);
+  const proxy=http.createServer((_request,response)=>{proxyCalls++;response.writeHead(502).end();});
+  const proxyPort=await listen(proxy,t);
+  let resolverCalls=0,proxyCalls=0;
   const n=createLibTVNetwork({
     getSettings:()=>({mode:'direct'}),
     resolveProxy:()=>{resolverCalls++;throw Error('fixture failed proxy');},
-    connect:row=>{assert.equal(row.mode,'direct');return net.connect(port,'127.0.0.1');},
+    connect:()=>assert.fail('the application must not intermediate direct traffic'),
   });
   t.after(()=>n.close());
-  const command=await n.environment();
-  await roundTrip(command);
-  assert.equal(resolverCalls,0);
-  assert.deepEqual(command.routeReport(),{route:'direct',source:'direct'});
-  command.dispose();
+  const before={HTTP_PROXY:process.env.HTTP_PROXY,NO_PROXY:process.env.NO_PROXY,NODE_USE_ENV_PROXY:process.env.NODE_USE_ENV_PROXY};
+  try{
+    process.env.HTTP_PROXY=`http://127.0.0.1:${proxyPort}`;
+    process.env.NO_PROXY='';
+    process.env.NODE_USE_ENV_PROXY='1';
+    const command=await n.environment();
+    assert.ok(command.env.HTTPS_PROXY===undefined,'direct mode has no internal proxy URL');
+    const program=`fetch("http://127.0.0.1:${originPort}").then(async r=>console.log(JSON.stringify({reply:await r.text(),proxy:process.env.HTTP_PROXY||null}))).catch(()=>process.exitCode=1)`;
+    const child=await spawnCLI(process.execPath,['-e',program],{configDir:os.tmpdir(),cwd:os.tmpdir(),children:new Set(),networkEnv:command.env});
+    assert.deepEqual(child,{reply:'fixture-origin',proxy:null});
+    assert.deepEqual({resolverCalls,proxyCalls},{resolverCalls:0,proxyCalls:0});
+    assert.deepEqual(command.routeReport(),{route:'direct',source:'direct'});
+    command.dispose();
+  }finally{
+    for(const [key,value] of Object.entries(before)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+  }
+});
+
+test('explicit direct keeps transport timeouts, resets and actual origin HTTP 502 separate',async t=>{
+  const n=createLibTVNetwork({getSettings:()=>({mode:'direct'})});
+  t.after(()=>n.close());
+  const route=await n.environment();
+  for(const code of ['UND_ERR_CONNECT_TIMEOUT','ECONNRESET','HTTP_502']){
+    const error=route.diagnose(failure(code,{host:target}));
+    assert.equal(error.networkCode,code);
+    assert.match(error.message,/直连/);
+    assert.doesNotMatch(error.message,/代理网关/);
+  }
+  assert.match(route.diagnose(failure('HTTP_502',{host:target})).message,/LibTV 服务端返回 HTTP 502/);
+  assert.doesNotMatch(route.diagnose(failure('PROXY_HTTP_502',{host:target})).message,/代理网关|PROXY_HTTP_502/);
+  assert.equal(codeFromCLI('request fail: 502 · gateway body: proxy CONNECT returned 502'),'HTTP_502');
+});
+
+test('system and custom modes only attribute a real proxy CONNECT 502 to the proxy',async t=>{
+  const upstream=http.createServer();
+  upstream.on('connect',(_request,socket)=>socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n'));
+  const port=await listen(upstream,t);
+  let mode='system';
+  const n=createLibTVNetwork({
+    getSettings:()=>({mode,proxyUrl:`http://localhost:${port}`}),
+    resolveProxy:()=>`PROXY localhost:${port}`,
+  });
+  t.after(()=>n.close());
+  for(const source of ['system-proxy','custom-proxy']){
+    const command=await n.environment({allowFallback:false});
+    const result=await openTunnel(command);
+    result.socket.destroy();
+    assert.equal(result.status,599,'本地隧道需要与实际代理 502 可区分');
+    const code=codeFromCLI(`Proxy response (${result.status}) !== 200 when HTTP Tunneling`);
+    const diagnosed=command.diagnose(failure(code));
+    assert.equal(diagnosed.networkCode,'PROXY_HTTP_502');
+    assert.match(diagnosed.message,/代理网关返回 HTTP 502/);
+    assert.deepEqual(command.routeReport(),{route:'http',source,code:'PROXY_HTTP_502'});
+    assert.equal(command.diagnose(failure('HTTP_502',{host:target})).networkCode,'HTTP_502','官方 502 不受隧道历史影响');
+    command.dispose();
+    mode='custom';
+  }
 });
 
 test('non-replayable commands never use another route after first CONNECT failure',async t=>{
@@ -185,7 +243,7 @@ test('non-replayable commands never use another route after first CONNECT failur
   const command=await n.environment({allowFallback:false});
   const result=await openTunnel(command);
   result.socket.destroy();
-  assert.equal(result.status,502);
+  assert.equal(result.status,599);
   assert.deepEqual(modes,['system-proxy']);
   command.dispose();
 });

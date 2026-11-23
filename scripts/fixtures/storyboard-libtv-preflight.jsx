@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Shot} from '../../src/v06/StoryboardWorkbench.jsx';
+import {invalidateLibTVReads} from '../../src/v06/libtvReads.js';
 import '../../src/styles.css';
 import '../../src/collab.css';
 import '../../src/generation.css';
@@ -21,29 +22,37 @@ const state={activeVideoApiId:'fixture-libtv',mediaProfiles:[{
  id:'fixture-libtv',provider:'libtv',kind:'video',name:'隔离 LibTV',
  endpoint:'https://www.liblib.tv',model:model.id,modelCatalog:[model],libtvOwnerKey:'fixture-owner',
 }]};
-const shot={id:'fixture-shot',label:'1-1-1',content:'隔离提示词 @audio1',generationConfig:{
+const shot={id:'fixture-shot',label:'1-1-1',content:'隔离提示词 @audio1 @audio2',generationConfig:{
  profileId:'fixture-libtv',model:model.id,duration:5,
  references:[
-  {id:'fixture-image',kind:'image',projectId:'fixture-project',name:'隔离参考图',url:'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E'},
-  {id:'fixture-audio',kind:'audio',projectId:'fixture-project',name:'隔离音色',url:'data:audio/wav;base64,UklGRg=='},
+  ...Array.from({length:6},(_,i)=>({id:'fixture-image-'+i,kind:'image',projectId:'fixture-project',name:'隔离参考图 '+i,url:'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E#'+i})),
+  ...Array.from({length:2},(_,i)=>({id:'fixture-audio-'+i,kind:'audio',projectId:'fixture-project',name:'隔离音色 '+i,url:'data:audio/wav;base64,UklGRg==#'+i})),
  ],
 }};
 const episode={id:'fixture-episode',storyboardPrompts:[shot]};
 const project={id:'fixture-project',storageMode:'local',episodes:[episode]};
 const assets=[],media=[];
+const fixture=window.libTV201Fixture={projects:0,schemas:0,failProjects:false,failSchema:false};
 const api={
- async libtvModelSchema(){return model;},
- async libtvProjects(){return {projects:[]};},
+ async libtvModelSchema(){fixture.schemas++;if(fixture.failSchema)throw Error("Error invoking remote method 'libtv-model-schema': Error: LibTV 读取模型失败（ECONNRESET）");return model;},
+ async libtvProjects(){fixture.projects++;if(fixture.failProjects)throw Error("Error invoking remote method 'libtv-projects': Error: LibTV 读取项目失败（TLS_TIMEOUT）");return {projects:[{id:'fixture-canvas',name:'已核验画布'}],selectedId:'fixture-canvas'};},
  async collabPatchStoryboard({updates}){return {storyboardReceipt:{shot:{...shot,...updates}}};},
  generationSubmit:input=>window.preflightFixture.submit(input),
+ onLibTVProgress:callback=>window.preflightFixture.onProgress(callback),
+ libtvCancelGeneration:input=>window.preflightFixture.cancel(input),
 };
+fixture.refreshProjects=()=>invalidateLibTVReads(api,{group:'projects',preserve:true});
+fixture.refreshSchema=()=>invalidateLibTVReads(api,{group:'schema',preserve:true});
+fixture.changeNetwork=()=>invalidateLibTVReads(api);
 
 function Fixture(){
  const [tasks,setTasks]=useState([]);
+ const [revision,setRevision]=useState(0);
+ fixture.remount=()=>setRevision(value=>value+1);
  const loadMedia=async()=>{setTasks(await window.preflightFixture.list());};
  useEffect(()=>{void loadMedia();},[]);
  return <main className="collab-stage collab-stage--storyboard"><Shot
-  shot={shot} episode={episode} epNumber={1} scene="1-1" project={project}
+  key={revision} shot={shot} episode={episode} epNumber={1} scene="1-1" project={project}
   api={api} state={state} assets={assets} media={media} tasks={tasks}
   canEdit loadMedia={loadMedia} onProjectChange={()=>{}} accountId="fixture-owner"
  /></main>;

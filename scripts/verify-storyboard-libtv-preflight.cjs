@@ -14,7 +14,7 @@ app.setPath('sessionData',profile);
 app.disableHardwareAcceleration();
 
 app.whenReady().then(async()=>{
- let server,win,exit=0,phase='account',mockPaid=0;
+ let server,win,exit=0,phase='account',mockPaid=0,operation=null,activeController=null;
  try{
   const {createServer}=await import('vite');
   server=await createServer({root,configFile:false,cacheDir:path.join(profile,'vite-cache'),logLevel:'error',
@@ -27,6 +27,8 @@ app.whenReady().then(async()=>{
     contextBridge.exposeInMainWorld('preflightFixture',{
       submit:payload=>ipcRenderer.invoke('fixture-submit',payload),
       list:()=>ipcRenderer.invoke('fixture-list'),
+      cancel:payload=>ipcRenderer.invoke('fixture-cancel',payload),
+      onProgress:callback=>{const listener=(_event,value)=>callback(value);ipcRenderer.on('fixture-progress',listener);return()=>ipcRenderer.removeListener('fixture-progress',listener);},
     });
   `);
   const mediaDir=path.join(profile,'isolated-jobs');
@@ -36,9 +38,17 @@ app.whenReady().then(async()=>{
    status:'failed',submissionAttempted:false,prompt:'历史结果保留',
   }]));
   const jobs=createGenerationJobs(mediaDir,{libtvService:{
-   prepare:async()=>{
+   prepare:async(_account,{signal})=>{
     if(phase==='account')throw Error('读取账号失败（TLS_TIMEOUT）');
     if(phase==='upload')throw Error('@audio1 上传参考素材失败（ECONNRESET）');
+    if(phase==='cancel'){
+     const send=(stage,details={})=>win.webContents.send('fixture-progress',{operationId:operation,stage,...details});
+     send('checking');await pause(90,undefined,{signal});
+     win.webContents.send('fixture-progress',{operationId:'unrelated',stage:'uploading',completed:7,total:9});
+     send('uploading',{completed:2,total:8});
+     try{await pause(10000,undefined,{signal});}
+     catch{throw Error('已取消准备，未提交生成');}
+    }
     return {jobId:'fixture-node',libtvNodeId:'fixture-node',libtvProjectId:'fixture-canvas'};
    },
    run:async(_account,_task,{beforeRun})=>{
@@ -47,7 +57,16 @@ app.whenReady().then(async()=>{
     return {data:{taskInfo:{status:3,failedReason:'隔离上游已提交任务失败'}}};
    },
   }});
-  ipcMain.handle('fixture-submit',(_event,payload)=>jobs.submit({...payload,accountId:'fixture-owner'}));
+  ipcMain.handle('fixture-submit',async(_event,payload)=>{
+   assert.equal(payload.references.length,8);
+   operation=payload.libtvOperationId;const controller=new AbortController();activeController=controller;
+   try{return await jobs.submit({...payload,accountId:'fixture-owner',signal:controller.signal});}
+   finally{activeController=null;}
+  });
+  ipcMain.handle('fixture-cancel',(_event,{operationId})=>{
+   if(!activeController||operationId!==operation)return false;
+   activeController.abort();return true;
+  });
   ipcMain.handle('fixture-list',()=>jobs.list());
   win=new BrowserWindow({show:false,width:1280,height:900,webPreferences:{preload,backgroundThrottling:false}});
   win.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},({url},done)=>done({cancel:!url.startsWith(local)}));
@@ -65,6 +84,32 @@ app.whenReady().then(async()=>{
   await win.loadURL(local+fixture);
   await wait(()=>document.querySelector('.generation-result-prompt')?.textContent==='历史结果保留');
   assert.equal(await cardCount(),1);
+  await wait(()=>document.querySelector('[aria-label="LibTV 项目"]')?.value==='fixture-canvas');
+  assert.deepEqual(await run(()=>[libTV201Fixture.projects,libTV201Fixture.schemas]),[1,1]);
+  await run(()=>{window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('focus'));});
+  await pause(120);
+  assert.deepEqual(await run(()=>[libTV201Fixture.projects,libTV201Fixture.schemas]),[1,1]);
+  await run(()=>libTV201Fixture.remount());await pause(180);
+  assert.equal(await run(()=>document.querySelector('[aria-label="LibTV 项目"]').value),'fixture-canvas');
+  assert.deepEqual(await run(()=>[libTV201Fixture.projects,libTV201Fixture.schemas]),[1,1]);
+  await run(()=>{libTV201Fixture.failProjects=true;libTV201Fixture.refreshProjects();});
+  await wait(()=>libTV201Fixture.projects===2);
+  await pause(100);
+  assert.equal(await run(()=>document.querySelector('[aria-label="LibTV 项目"]').value),'fixture-canvas');
+  assert.doesNotMatch(await run(()=>document.querySelector('.libtv-project-control').textContent),/Error invoking remote method/);
+  assert.equal(await run(()=>document.querySelector('.libtv-project-control [role=alert]')),null);
+  await run(()=>{libTV201Fixture.failProjects=false;document.querySelector('[aria-label="刷新 LibTV 项目"]').click();});
+  await wait(()=>libTV201Fixture.projects===3);
+  await pause(80);
+  assert.equal(await run(()=>document.querySelector('.libtv-project-control [data-libtv-read-status]')),null);
+  await run(()=>{libTV201Fixture.failSchema=true;libTV201Fixture.refreshSchema();});
+  await wait(()=>[...document.querySelectorAll('.generation-controls [role=status]')].some(el=>el.textContent.includes('模型参数暂未刷新')));
+  assert.ok(await run(()=>[...document.querySelectorAll('.generation-controls button')].some(el=>el.textContent.trim()==='生成视频'&&!el.disabled)));
+  assert.equal(await run(()=>document.querySelector('.generation-controls [role=alert]')),null);
+  await run(()=>{libTV201Fixture.failSchema=false;[...document.querySelectorAll('.generation-controls button')].find(el=>el.textContent.trim()==='重试').click();});
+  await wait(()=>![...document.querySelectorAll('.generation-controls [role=status]')].some(el=>el.textContent.includes('模型参数暂未刷新')));
+  await run(()=>libTV201Fixture.changeNetwork());
+  await wait(()=>libTV201Fixture.projects===4&&libTV201Fixture.schemas===4);
   const probes=[['account','TLS_TIMEOUT',1280],['upload','ECONNRESET',1600]];
   for(const [step,code,width] of probes){
    win.setContentSize(width,900);
@@ -75,6 +120,14 @@ app.whenReady().then(async()=>{
    assert.equal(jobs.list().length,1);
    assert.equal(mockPaid,0);
   }
+  phase='cancel';
+  await click('生成视频');
+  await wait(()=>document.querySelector('.generation-composer [aria-live="polite"]')?.textContent.includes('2 / 8'));
+  await click('取消准备');
+  await wait(()=>document.querySelector('.generation-composer [role=alert]')?.textContent.includes('已取消准备'));
+  assert.ok(operation);
+  assert.equal(await cardCount(),1);
+  assert.equal(mockPaid,0);
   win.setContentSize(1920,900);
   phase='paid';
   await click('生成视频');
@@ -86,7 +139,7 @@ app.whenReady().then(async()=>{
   assert.equal(paid.libtvNodeId,'fixture-node');
   assert.equal(paid.submissionAttempted,true);
   assert.match(paid.error,/隔离上游已提交任务失败/);
-  console.log(JSON.stringify({widths:[1280,1600,1920],preflightAlerts:['TLS_TIMEOUT','ECONNRESET'],historicalCardsPreserved:1,newPreflightCards:0,newPaidFailureCards:1,mockPaid,paidCalls:0}));
+  console.log(JSON.stringify({widths:[1280,1600,1920],cacheOnFocusAndRemount:true,silentRefreshPreservesConfiguration:true,realtimeProgressAndCancellation:true,preflightAlerts:['TLS_TIMEOUT','ECONNRESET'],historicalCardsPreserved:1,newPreflightCards:0,newPaidFailureCards:1,mockPaid,paidCalls:0}));
  }catch(error){
   console.error(error,await win?.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=alert],.collab-error')).map(el=>el.textContent)"));
   exit=1;
@@ -95,6 +148,7 @@ app.whenReady().then(async()=>{
   win?.destroy();
   ipcMain.removeHandler('fixture-submit');
   ipcMain.removeHandler('fixture-list');
+  ipcMain.removeHandler('fixture-cancel');
   await server?.close();
   assert.equal(path.dirname(fs.realpathSync(profile)),fs.realpathSync(os.tmpdir()));
   await fs.promises.rm(profile,{recursive:true,force:true,maxRetries:8,retryDelay:200}).catch(()=>{});

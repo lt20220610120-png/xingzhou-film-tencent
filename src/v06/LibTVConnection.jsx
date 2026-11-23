@@ -4,6 +4,8 @@ import LibTVProjectControl from './LibTVProjectControl.jsx';
 import React,{useEffect,useRef,useState} from 'react';
 import {saveLibTVProfiles} from '../../core/libtv.js';
 import {libTVNetworkReport,libTVNetworkReportLine} from './libtvNetworkDiagnostics.js';
+import {invalidateLibTVReads} from './libtvReads.js';
+import {libTVError} from './libtvError.js';
 
 function proxyAddress(value){
  const input=value.trim(),address=/^(https?|socks(?:4|5h?)?):\/\/([^/?#\\\s]+)\/?$/i.exec(input);
@@ -50,6 +52,7 @@ function LibTVNetworkSettings({api,disabled,onTestingChange,onAccountCheck}){
   setSaving(true);
   try{
    const value=await api.libtvSaveNetworkSettings({mode:nextMode,proxyUrl});
+   invalidateLibTVReads(api);
    if(alive.current){setSaved(value);setMode(value.mode);setProxy(value.proxyUrl||'');setNotice('已应用本机网络设置。');onAccountCheck('unchecked');}
   }catch{if(alive.current){if(nextMode!=='custom')setMode(saved.mode);setError('应用网络设置失败，请检查配置或等待当前任务结束。');}}
   finally{if(alive.current)setSaving(false);}
@@ -115,39 +118,39 @@ export function LibTVConnection({state,setState,onClose,api=window.xingzhou}){
  const reachable=accountCheck??status?.loggedIn;
  const recordAccountCheck=next=>{statusEpoch.current++;setAccountCheck(next);};
  const refresh=async(readModels=false,knownStatus)=>{
-  const expected=statusEpoch.current,info=knownStatus||await api.libtvStatus();if(!live.current||expected!==statusEpoch.current)return;setStatus(info);setAccountCheck(null);window.dispatchEvent(new Event('xingzhou-libtv-project-change'));
-  if(info.loggedIn){setAccounts(await api.libtvAccounts());if(readModels){const directory=await api.libtvModels();for(const [kind,key] of [['image','imageModels'],['video','videoModels']]){const old=(state.mediaProfiles||[]).find(p=>p.provider==='libtv'&&p.kind===kind&&p.libtvOwnerKey===info.ownerKey),selected=directory[key].find(m=>m.id===old?.model)||directory[key][0];if(selected){try{const full=await api.libtvModelSchema({model:selected.id,kind});directory[key]=directory[key].map(m=>m.id===selected.id?full:m);}catch(e){if(live.current)setError(e.message);}}}if(!live.current)return;setState(s=>saveLibTVProfiles(s,directory));setNotice(`已接入 ${directory.imageModels.length} 个图片模型、${directory.videoModels.length} 个视频模型，可在图视生成和协作分镜选择。`);}}
+  const expected=statusEpoch.current,info=knownStatus||await api.libtvStatus();if(!live.current||expected!==statusEpoch.current)return;setStatus(info);setAccountCheck(null);
+  if(info.loggedIn){setAccounts(await api.libtvAccounts());if(readModels){const directory=await api.libtvModels();for(const [kind,key] of [['image','imageModels'],['video','videoModels']]){const old=(state.mediaProfiles||[]).find(p=>p.provider==='libtv'&&p.kind===kind&&p.libtvOwnerKey===info.ownerKey),selected=directory[key].find(m=>m.id===old?.model)||directory[key][0];if(selected){try{const full=await api.libtvModelSchema({model:selected.id,kind});directory[key]=directory[key].map(m=>m.id===selected.id?full:m);}catch(e){if(live.current)setError(libTVError(e));}}}if(!live.current)return;setState(s=>saveLibTVProfiles(s,directory));setNotice(`已接入 ${directory.imageModels.length} 个图片模型、${directory.videoModels.length} 个视频模型，可在图视生成和协作分镜选择。`);}}
  };
- const action=async(name,fn)=>{setBusy(name);setError('');setAccountCheck(null);try{await fn();}catch(e){if(live.current)setError(e.message);}finally{if(live.current)setBusy('');}};
+ const action=async(name,fn)=>{setBusy(name);setError('');setAccountCheck(null);try{await fn();}catch(e){if(live.current)setError(libTVError(e));}finally{if(live.current)setBusy('');}};
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  useWorkspacePolling(async current=>{
   if(status)return;
   try{await refresh();}
-  catch(reason){if(current()){setStatus({loggedIn:false});setError(reason.message);}}
+  catch(reason){if(current())setStatus({loggedIn:false,message:libTVError(reason)});}
  },{repeat:false});
  useWorkspacePolling(async current=>{
   try{
    const info=await api.libtvStatus();
    if(!current())return;
    setStatus(info);
-   if(info.loggedIn)await action('读取模型',()=>refresh(true,info));
-  }catch(e){if(current())setError(e.message);}
+   if(info.loggedIn){invalidateLibTVReads(api);await action('读取模型',()=>refresh(true,info));}
+  }catch(e){if(current())setStatus(previous=>({...previous,message:libTVError(e)}));}
  },{enabled:Boolean(status?.pendingLogin)&&!locked,delay:2000,immediate:false});
  const selectModel=async(profile,id)=>action('读取模型参数',async()=>{const model=await api.libtvModelSchema({model:id,kind:profile.kind});setState(s=>({...s,mediaProfiles:s.mediaProfiles.map(p=>p.id===profile.id?{...p,model:id,capabilities:model,modelCatalog:p.modelCatalog.map(m=>m.id===id?model:m)}:p)}));});
  return <div className="libtv-connection">
   <div className="libtv-connection-status" role="status"><strong>{busy?busy+'…':status?.pendingLogin?'等待浏览器授权':reachable==='unchecked'?'LibTV 通道待测试':reachable?'LibTV 已连接':configured?'本机已授权 · 连接暂不可用':status?'LibTV 未连接':'检查授权状态…'}</strong>
-   <span>{status?.loggedIn&&reachable===true?`${status.userName} · ${status.accountName}`:accountCheck===null?status?.message:''}</span>
+   <span>{status?.loggedIn&&reachable===true?`${status.userName} · ${status.accountName}`:accountCheck===null&&status?.message?libTVError(status.message):''}</span>
   </div>
   <div className="libtv-connection-actions">
-   <button type="button" className="primary" disabled={locked||status?.pendingLogin||status?.running} onClick={()=>action('打开授权页面',async()=>setStatus(await api.libtvLogin()))}>{configured?'重新登录 / 更换账号':'连接 LibTV 账号'}</button>
+   <button type="button" className="primary" disabled={locked||status?.pendingLogin||status?.running} onClick={()=>action('打开授权页面',async()=>{setStatus(await api.libtvLogin());invalidateLibTVReads(api);})}>{configured?'重新登录 / 更换账号':'连接 LibTV 账号'}</button>
    <button type="button" className="secondary" disabled={locked} onClick={()=>action('刷新连接',()=>refresh(true))}>刷新连接与模型</button>
    {status?.pendingLogin?<button type="button" className="secondary" disabled={locked} onClick={()=>action('取消授权',async()=>setStatus(await api.libtvCancelLogin()))}>取消等待</button>
-    :configured&&<button type="button" className="secondary" disabled={locked||status.running} onClick={()=>action('断开连接',async()=>{setStatus(await api.libtvLogout());setAccounts([]);})}>断开本机连接</button>}
+    :configured&&<button type="button" className="secondary" disabled={locked||status.running} onClick={()=>action('断开连接',async()=>{setStatus(await api.libtvLogout());setAccounts([]);invalidateLibTVReads(api);})}>断开本机连接</button>}
   </div>
   <LibTVNetworkSettings api={api} disabled={Boolean(busy)||status?.running} onTestingChange={setNetworkTesting} onAccountCheck={recordAccountCheck}/>
-  {status?.loggedIn&&accounts.length>0&&<label>LibTV 个人 / 团队空间<select aria-label="LibTV 空间" disabled={locked||status.running} value={status.accountId} onChange={e=>action('切换空间',async()=>{setStatus(await api.libtvUseAccount({accountId:e.target.value}));await refresh(true);})}>{accounts.map(account=><option key={account.accountId} value={account.accountId}>{account.accountName}</option>)}</select></label>}
+  {status?.loggedIn&&accounts.length>0&&<label>LibTV 个人 / 团队空间<select aria-label="LibTV 空间" disabled={locked||status.running} value={status.accountId} onChange={e=>action('切换空间',async()=>{const next=await api.libtvUseAccount({accountId:e.target.value});setStatus(next);invalidateLibTVReads(api);await refresh(true,next);})}>{accounts.map(account=><option key={account.accountId} value={account.accountId}>{account.accountName}</option>)}</select></label>}
   {status?.loggedIn&&(state.mediaProfiles||[]).filter(profile=>profile.provider==='libtv'&&profile.libtvOwnerKey===status.ownerKey).map(profile=><label key={profile.id}>{profile.kind==='image'?'默认图片型号':'默认视频型号'}<select aria-label={profile.kind==='image'?'LibTV 默认图片型号':'LibTV 默认视频型号'} value={profile.model} disabled={locked} onChange={e=>selectModel(profile,e.target.value)}>{(profile.modelCatalog||[]).map(model=><option key={model.id} value={model.id}>{model.name}</option>)}</select></label>)}
-  {status?.loggedIn&&<LibTVProjectControl api={api} ownerKey={status.identity||status.ownerKey} disabled={locked||status.running}/>}
+  {status?.loggedIn&&<LibTVProjectControl api={api} ownerKey={status.ownerKey} disabled={locked||status.running}/>}
   <small>生成按 LibTV 官网规则消耗积分。</small>
   {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="collab-error">{error}</p>}
   <footer className="modal-actions"><button type="button" className="primary" onClick={onClose}>完成</button></footer>

@@ -1,5 +1,6 @@
 const transientCodes=new Map(Object.entries({
  FETCH_FAILED:'请求失败，连接器未返回错误码',
+ TUNNEL_CONNECT_FAILED:'本机转发未能建立连接，具体原因未确认',
  ECONNRESET:'连接被重置',
  ECONNABORTED:'网络连接中断',
  ECONNREFUSED:'连接被拒绝',
@@ -58,7 +59,7 @@ function describe(code){
   const number=Number(status[2]);
   const label=status[1]==='PROXY_HTTP'
    ? number===407?'代理需要认证':'代理网关返回 HTTP '+number
-   : number===429?'LibTV 请求暂时受限（HTTP 429）':'LibTV 返回 HTTP '+number;
+   : number===429?'LibTV 请求暂时受限（HTTP 429）':number>=500?'LibTV 服务端返回 HTTP '+number:'LibTV 返回 HTTP '+number;
   return {label,retryable:transientHTTP.has(number)};
  }
  return {label:'网络连接异常，连接器未返回可识别错误码',retryable:false};
@@ -78,12 +79,14 @@ function codeOf(error){
 }
 
 function codeFromCLI(text){
- const explicit=String(text).match(/\b[A-Z][A-Z0-9_]{3,}\b/g)?.find(code=>transientCodes.has(code)||permanentCodes.has(code)||/^PROXY_HTTP_[1-5]\d{2}$/.test(code));
- if(explicit)return explicit;
- const proxy=/\bproxy\b[^\r\n]*?(?:\bHTTP[ /\d.]*\s+|\(|:\s*)([45]\d{2})\b/i.exec(text)||/\bCONNECT\b[^\r\n]*?\b([45]\d{2})\b/i.exec(text);
- if(proxy)return 'PROXY_HTTP_'+proxy[1];
- const response=/\b(?:request fail(?:ed)?|status(?:Code)?|response (?:code|status)|HTTP\/\d(?:\.\d)?|HTTP)[:\s]+([45]\d{2})\b/i.exec(text);
+ // Undici distinguishes a rejected CONNECT from the subsequent origin response.
+ // A body can mention a proxy or gateway, so those words alone are not evidence.
+ const tunnel=/\bProxy response \(([45]\d{2})\)\s*!={1,2}\s*200 when HTTP Tunneling\b/i.exec(text);
+ if(tunnel)return tunnel[1]==='599'?'TUNNEL_CONNECT_FAILED':'PROXY_HTTP_'+tunnel[1];
+ const response=/\b(?:request fail(?:ed)?|status(?:Code)?|response (?:code|status)|HTTP\/\d(?:\.\d)?|HTTP)[:\s]+([45]\d{2})\b/i.exec(text)||/^\s*(502) Bad Gateway\s*$/im.exec(text);
  if(response)return 'HTTP_'+response[1];
+ const explicit=String(text).match(/\b[A-Z][A-Z0-9_]{3,}\b/g)?.find(code=>transientCodes.has(code)||permanentCodes.has(code)||/^(?:PROXY_HTTP|HTTP)_[45]\d{2}$/.test(code));
+ if(explicit)return explicit;
  if(/\b(?:certificate has expired|certificate is not trusted|self[- ]signed certificate|unable to verify the first certificate)\b/i.test(text))return 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
  if(/TLS.*(?:timed? ?out|timeout)/i.test(text))return 'TLS_TIMEOUT';
  if(/timed? ?out|timeout/i.test(text))return 'ETIMEDOUT';

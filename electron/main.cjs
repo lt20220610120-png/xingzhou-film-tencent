@@ -654,9 +654,10 @@ ipcMain.handle('generation-reference-list',()=>manageGenerationReferences('gener
 ipcMain.handle('generation-reference-cleanup',(_,p)=>manageGenerationReferences('generation-reference-cleanup',p));
 ipcMain.handle('generation-clear',async(_,p={})=>{const [state,director]=await Promise.all([readJsonAsync(dataFile(),{}),readJsonAsync(directorProjectsFile(),[])]);return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths)]});});
 ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
-async function submitGeneration(event,p){
+const libtvProgressOperations=require('./libtv-preparation-progress.cjs').createLibTVProgressOperations();
+async function submitGeneration(event,p,progress){
  if(p.storyboardEdit&&!p.storyboardBatchRunId&&storyboardBatchHost?.hasPending(p.projectId,p.shotId))throw Error('此分镜已在批量队列中');
- const {workflowBindingProof,adminWorkflow:ignoredAdminWorkflow,...request}=p;
+ const {workflowBindingProof,adminWorkflow:ignoredAdminWorkflow,libtvOperationId:ignoredOperationId,...request}=p;
  p=request;
  let input,accountId;try{
  if(p.storyboardEdit){
@@ -698,9 +699,21 @@ async function submitGeneration(event,p){
  if(p.bindingOrigin==='imported')await require('./imported-binding-media.cjs').verifiedImportedImages(input.references,mediaDir());
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
  }catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}
- return jobs().submit({...input,adminWorkflow:event.workflow===true,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal});
+ return jobs().submit({...input,adminWorkflow:event.workflow===true,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal,onLibTVProgress:progress?.report,onLibTVCommitted:progress?.commit});
 }
-ipcMain.handle('generation-submit',submitGeneration);
+ipcMain.handle('generation-submit',async(event,p)=>{
+ if(p?.provider!=='libtv'||p.libtvOperationId===undefined)return submitGeneration(event,p);
+ const operation=libtvProgressOperations.start(p.libtvOperationId,event.sender,event.securitySignal);
+ try{
+  operation.signal.throwIfAborted();
+  operation.report({stage:'checking'});
+  return await submitGeneration({securitySignal:operation.signal},p,operation);
+ }catch(error){
+  operation.signal.throwIfAborted();
+  throw error;
+ }finally{operation.finish();}
+});
+ipcMain.handle('libtv-cancel-generation',(event,p)=>libtvProgressOperations.cancel(p?.operationId,event.sender));
 function currentStoryboardBatch(){
  const root=path.join(mediaDir(),'storyboard-batch-queue');
  if(storyboardBatchHost&&storyboardBatchRoot===root)return storyboardBatchHost;

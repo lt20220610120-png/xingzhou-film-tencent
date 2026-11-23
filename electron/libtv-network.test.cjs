@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),net=require('node:net'),http=require('node:http');
+const {codeFromCLI,failure}=require('./libtv-network-error.cjs');
 const source=path.join(__dirname,'libtv-network.cjs'),network=fs.existsSync(source)?require(source):{};
 function create(options={}){assert.equal(typeof network.createLibTVNetwork,'function');return network.createLibTVNetwork({resolveProxy:async()=> 'DIRECT',probe:async()=>{},...options});}
 test('command setup creates no system-rule resolution or synthetic connections; actual command host is resolved and cached',async t=>{
@@ -95,6 +96,46 @@ function requestTunnel(environment,host){
  });
 }
 
+test('a local target timeout retains its cause after another host connects in the same CLI command',async t=>{
+ const {PassThrough}=require('node:stream');
+ const primary='api2.liblib.art',secondary='api.liblib.tv';
+ const n=create({connectTimeout:30,connect:row=>{
+  const stream=new PassThrough();
+  if(row.host===secondary)queueMicrotask(()=>stream.emit('connect'));
+  return stream;
+ }});
+ t.after(()=>n.close());
+ const command=await n.environment();
+ assert.equal(await requestTunnel(command,primary),599);
+ assert.equal(await requestTunnel(command,secondary),200);
+ const status=codeFromCLI('Proxy response (599) !== 200 when HTTP Tunneling');
+ const error=command.diagnose(failure(status));
+ assert.equal(error.networkCode,'CONNECT_TIMEOUT');
+ assert.equal(error.host,primary);
+ assert.match(error.message,/直连.*建立连接超时/);
+ assert.doesNotMatch(error.message,/代理网关|PROXY_HTTP_502/);
+ command.dispose();
+});
+
+test('a recovered CONNECT to the same host retires its earlier tunnel failure',async t=>{
+ const {PassThrough}=require('node:stream');
+ const host='api.liblib.tv';
+ let requests=0;
+ const n=create({connect:()=>{
+  const stream=new PassThrough(),attempt=++requests;
+  queueMicrotask(()=>{if(attempt===1)stream.destroy(Object.assign(Error('fixture reset'),{code:'ECONNRESET'}));else stream.emit('connect');});
+  return stream;
+ }});
+ t.after(()=>n.close());
+ const command=await n.environment();
+ assert.equal(await requestTunnel(command,host),599);
+ assert.equal(await requestTunnel(command,host),200);
+ const detail=command.diagnose(failure('TUNNEL_CONNECT_FAILED',{host}));
+ assert.equal(detail.networkCode,'TUNNEL_CONNECT_FAILED');
+ assert.doesNotMatch(detail.message,/连接被重置|代理网关/);
+ command.dispose();
+});
+
 test('a slow first CONNECT can use the direct route before the tunnel accepts CLI bytes',async t=>{
  const {PassThrough}=require('node:stream'),calls=[];
  const n=create({resolveProxy:async()=> 'PROXY 127.0.0.1:7897',probe:async()=>{},connectTimeout:30,connect:row=>{
@@ -119,7 +160,7 @@ test('upload diagnoses a blocked destination or least-successful CONNECT without
  const left=await n.environment({upload:true}),right=await n.environment({upload:true});
  const generic={code:'LIBTV_NETWORK',networkCode:'FETCH_FAILED',retryable:true};
  assert.equal(await requestTunnel(left,'forbidden-test-bucket.oss-cn-beijing.aliyuncs.com'),403);
- assert.equal(await requestTunnel(right,'libtv-resource-prod.oss-accelerate.aliyuncs.com'),502);
+ assert.equal(await requestTunnel(right,'libtv-resource-prod.oss-accelerate.aliyuncs.com'),599);
  const blocked=left.diagnose(generic),broken=right.diagnose(generic);
  assert.equal(blocked.retryable,false);
  assert.match(blocked.message,/域名.*拦截/);
