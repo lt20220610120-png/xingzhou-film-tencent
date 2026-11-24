@@ -16,3 +16,15 @@
 - 导演默认及独立估时模型、键盘提示、账号激活、分镜删除保位与场景回顶、连续参考图编号、资产无需参考图、LibTV 网络模式及预检进度隔离回归通过。真实文本及视频付费调用均为 0。
 - 隔离 PostgreSQL 16 验证 JSONB 持久化、协作者读取、通用参数同步、合法重置、并发防覆盖及权限拦截，临时集群已关闭。
 - 全量 3,339 项 Node、13 项发布 Python、12 项本地 Qwen 测试通过。Windows WorkBuddy 的进程清理夹具首次并行运行偶发失败，降低测试并发后全量通过。
+- Vite 构建与正式 NSIS 载荷启动通过，九个关键运行模块与冻结源码逐字节一致。隔离 Windows 正式载荷验证五类旧凭据及原设备身份恢复，新凭据重启后可读。
+
+## 云端部署
+
+- 备份 `/opt/xingzhou-backups/duration-estimate-2.8.204-20261124T045918Z-flc4gcfn` 包含运行目录、私有 Skill、服务与代理配置、PostgreSQL 全库与角色。数据库归档 62,156,857 字节，`pg_restore` 目录与回滚脚本语法检查通过。
+- 部署两份分镜设置及合并文件。服务重启期间首次探测返回 502，随后官网 HTTPS 健康检查通过，未认证网关保持 401。数据库结构未变，真实项目数据未写入。
+
+## 正式发布
+
+- 实现 `8f79de7`，GitHub Release 456326203，上传工作流 45330238741。安装包 95,288,373 字节，SHA-256 `7bafa5ff1d7e6a695bc9e1f1d95fe144a95b6d6f099822a93325f4bcabff098a`。
+- 三份公开清单签名、GitHub 资产大小与摘要、官网 HTTP 206 范围请求均通过。2.8.203 正式载荷的软件内更新验证通过，模拟断线后从官网续传、校验完整安装包并验证安装交接。本机和官网镜像均保留 2.8.200–2.8.204 五版。
+- [官网下载](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.204.exe) · [GitHub 下载](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.204/Xingzhou-Film-Tencent-Setup-2.8.204.exe)
