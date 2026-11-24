@@ -23,3 +23,10 @@
 - 上线前完整备份运行目录、私有 Skill、服务与代理配置、PostgreSQL 全库及角色。备份 `/opt/xingzhou-backups/duration-estimate-2.8.203-20261124T035919Z-auc0af4f`，数据库备份 62,156,857 字节。`pg_restore` 目录验证和 `rollback-duration-estimate.sh` 语法检查通过。
 - 部署三份运行文件，数据库结构未变。服务刚重启的首次探测返回 HTTP 502，随后 HTTPS `/healthz` 正常，未认证网关 401。未写入真实项目数据。
 - 最终兼容修订上线前再次执行全量备份。备份 `/opt/xingzhou-backups/duration-estimate-2.8.203-20261124T040524Z-ebt1tydz`，数据库归档 62,156,861 字节。隔离 PostgreSQL 通过，最终线上 HTTPS 健康检查及 401 校验通过。
+
+## 正式发布
+
+- 实现 `2ba0d2a`，GitHub Release 456295383，上传工作流 45324397897。安装包 95,286,829 字节，SHA-256 `af343925a15e39d3a713afe94100e8473232fd9633d861e3c67167070b2a7808`。
+- 正式 NSIS 载荷启动并验证运行规则、列表和旧项目。14 个关键模块与冻结源码逐字节一致。隔离 Windows 恢复五类旧凭据，保留原设备身份，新凭据重启验证通过。
+- 三份公开更新清单签名、GitHub 资产大小与摘要、官网范围请求 HTTP 206 均通过。2.8.202 正式载荷的软件内更新在模拟中断后从官网续传，整包校验及安装交接通过。官网和本机确认保留 2.8.199–2.8.203 五版。
+- [官网下载](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.203.exe) · [GitHub 下载](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.203/Xingzhou-Film-Tencent-Setup-2.8.203.exe)
