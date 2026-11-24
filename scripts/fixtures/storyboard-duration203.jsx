@@ -9,6 +9,7 @@ import '../../src/brand-theme.css';
 const fixture=window.storyboardDurationFixture;
 const api={
  collabPatchStoryboard:p=>fixture.patch(p),collabGetProject:()=>fixture.project(),collabListMedia:async()=>[],generationList:async()=>[],
+ generationSubmit:p=>fixture.submit(p),
  aiChat:p=>fixture.estimate(p),storyboardBatchStart:p=>fixture.start(p),storyboardBatchList:p=>fixture.list(p),
 };
 const assets=[];

@@ -14,6 +14,12 @@ export function storyboardDurationPolicy(model, caps, resolution) {
   ...(!durations.length&&integerSeconds(range?.min)&&integerSeconds(range?.max)&&range.min<=range.max?{durationRange:{min:range.min,max:range.max}}:{})};
 }
 
+export function storyboardDurationMode(value) {
+ if(value.durationMode==='recommended')return 'recommended';
+ if(value.durationMode==='uniform'||value.durationManuallyAdjusted===true)return 'uniform';
+ return value.durationAlignment==='ceil'?'recommended':'legacy';
+}
+
 export function alignStoryboardDuration(recommended, {supportedDurations,durationRange}={}, maximum=3600) {
  if(!Number.isFinite(recommended)||recommended<=0||recommended>maximum)return null;
  const options=supportedOptions(supportedDurations);
@@ -58,18 +64,23 @@ export function storyboardTimingForDraft(timing, value, baseContent=timing?.cont
 }
 
 export function storyboardDurationSelection({value,timing=value,policy={},fallback}) {
- const issue=storyboardEstimateIssue(timing);
- const maximum=timing?.durationEstimate?.maxDurationSeconds || 3600;
  const requested=Number(value.duration);
- if(value.durationMode!=='recommended'){
-  const manual=value.durationManuallyAdjusted===true;
-  const duration=manual&&requested>0?requested:fallback;
-  const unsupported=manual&&alignStoryboardDuration(duration,policy)!==duration;
-  return {duration,issue:issue||(duration>maximum?`执行时长超过 ${maximum} 秒档上限，请调整设置`:unsupported?'手调时长超出当前模型支持档位，请调整秒数或更换模型':'')};
+ const mode=storyboardDurationMode(value);
+ if(mode==='uniform'){
+  const label=value.durationManuallyAdjusted===true?'手调时长':'固定时长';
+  const valid=integerSeconds(requested)&&alignStoryboardDuration(requested,policy)===requested;
+  return {duration:Number.isFinite(requested)?requested:undefined,issue:valid?'':`${label}不符合当前模型支持的秒数，请调整秒数或更换模型`};
+ }
+ const issue=storyboardEstimateIssue(timing);
+ const estimate=savedDurationEstimate(timing);
+ if(mode==='legacy'){
+  const maximum=estimate?.maxDurationSeconds??3600;
+  return {duration:fallback,issue:issue||(fallback>maximum?`执行时长超过 ${maximum} 秒档上限，请调整设置`:'')};
  }
  const recommended=recommendedPromptDuration(timing)??(!timing?.durationEstimate?recommendedPromptDuration(value):null);
- const alignment=value.durationAlignment==='ceil'||Boolean(timing?.durationEstimate);
- const duration=alignment?alignStoryboardDuration(recommended,policy,storyboardRecommendationLimit(timing)):requested===recommended&&fallback===recommended?recommended:null;
+ const alignment=value.durationAlignment==='ceil'||Boolean(estimate);
+ const duration=alignment?alignStoryboardDuration(recommended,policy,storyboardRecommendationLimit(timing))
+  :requested===recommended&&fallback===recommended&&alignStoryboardDuration(recommended,policy)===recommended?recommended:null;
  const unavailable=!recommended?'本条缺少建议生成时长，请先核对导演提示词':`当前模型不支持建议时长 ${recommended} 秒，请更换模型或处理时长`;
  return {recommended,duration:duration??(requested>0?requested:fallback),aligned:duration!==null&&duration!==recommended,issue:issue||(duration===null?unavailable:'')};
 }

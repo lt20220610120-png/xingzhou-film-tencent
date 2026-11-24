@@ -19,3 +19,26 @@ test('batch with an explicit model duration policy aligns the persisted and gene
  await f.q.start(f.payload);await f.q.idle();
  assert.equal(f.saved[0].updates.generationConfig.duration,30);assert.equal(f.sent[0].duration,30);
 });
+
+test('batch sends a saved manual or fixed choice once even when the 15-second estimate is awaiting review',async t=>{
+ for(const manual of [false,true]){
+  const f=fixture(t),shot=f.project.episodes[0].storyboardPrompts[0],item=f.payload.items[0];
+  shot.durationEstimate={version:'2.0.0',status:'needs-review',maxDurationSeconds:15};
+  item.value={...item.value,storyboardDefaultsRevision:'active-settings',durationMode:'uniform',durationManuallyAdjusted:manual};
+  await f.q.start(f.payload);await f.q.idle();
+  assert.equal(f.saved[0].updates.generationConfig.storyboardDefaultsRevision,'active-settings');
+  assert.equal(f.saved[0].updates.generationConfig.durationMode,'uniform');
+  assert.equal(f.saved[0].updates.generationConfig.duration,30);
+  assert.equal(f.sent.length,1);assert.equal(f.sent[0].duration,30);
+ }
+});
+
+test('batch rejects illegal explicit seconds and stale omission of a saved recommended mode before dispatch',async t=>{
+ const f=fixture(t),shot=f.project.episodes[0].storyboardPrompts[0],item=f.payload.items[0];
+ item.value={...item.value,durationMode:'uniform',duration:20};
+ await assert.rejects(f.q.start(f.payload),/批量生成未启动.*当前模型/);
+ shot.generationConfig.durationMode='recommended';item.baseGenerationConfig=structuredClone(shot.generationConfig);
+ delete item.value.durationMode;
+ await assert.rejects(f.q.start(f.payload),/批量生成未启动/);
+ assert.equal(f.saved.length,0);assert.equal(f.sent.length,0);
+});

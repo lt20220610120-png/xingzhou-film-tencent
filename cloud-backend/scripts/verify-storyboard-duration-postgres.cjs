@@ -19,7 +19,7 @@ async function run() {
     const projectId=randomUUID(), episodeId='episode', storyId='shot';
     const references=[{id:'picture-fixture',assetId:'asset-fixture',assetImageSlot:true,kind:'image'}];
     const original={id:storyId,label:'1-1-1',content:'原稿',recommendedDurationSeconds:17,
-      generationConfig:{duration:12,durationManuallyAdjusted:true,references}};
+      generationConfig:{duration:12,durationMode:'uniform',durationManuallyAdjusted:true,model:'older-model',references}};
     const episodes=[{id:episodeId,episodeNumber:1,content:'1-1 房间',prompts:[original],storyboardPrompts:[original]}];
     await pool.query('insert into collab_projects(id,name,owner_id,episodes) values($1,$2,$3,$4)',[projectId,'隔离测试',owner.id,JSON.stringify(episodes)]);
     await pool.query("insert into collab_members(project_id,user_id,username,role) values($1,$2,'editor_fixture','collaborator'),($1,$3,'art_fixture','artist')",[projectId,collaborator.id,artist.id]);
@@ -37,8 +37,9 @@ async function run() {
     const settings={operation:'settings',scope:'episode',episodeId,revision:'recommended',durationMode:'recommended',supportedDurations:[5,10,20,30],
       settings:{profileId:'fixture',model:'mock',ratio:'16:9',resolution:'720p'}};
     const protectedRow=(await patch(owner,settings)).body.episodes[0].storyboardPrompts[0];
-    assert.equal(protectedRow.generationConfig.duration,12);
-    assert.equal(protectedRow.generationConfig.durationManuallyAdjusted,true);
+    const expectedProtected={...original.generationConfig,...settings.settings,libtvMode:'auto',libtvParams:{},storyboardDefaultsRevision:'recommended'};
+    assert.deepEqual(protectedRow.generationConfig,expectedProtected);
+    assert.deepEqual((await read(collaborator)).body.episodes[0].storyboardPrompts[0].generationConfig,expectedProtected);
     const reset=await patch(owner,{...settings,revision:'reset',includeManualDuration:true});
     assert.equal(reset.body.episodes[0].storyboardPrompts[0].generationConfig.duration,20);
     const edited=await patch(collaborator,{...target,updates:{content:'人工改稿'}});
@@ -52,7 +53,7 @@ async function run() {
     assert.deepEqual(stored.storyboardPrompts[0].generationConfig.references,references);
     assert.equal(stored.storyboardDefaultSettings.global.revision,'reset');
     console.log(JSON.stringify({jsonbRoundTrip:true,oldPromptPreserved:true,referenceSeatsPreserved:true,collaboratorReceipt:true,
-      unauthorizedWritesDenied:true,manualProtection:true,alignedReset:true,staleProofRejected:true,paidRequests:0}));
+      unauthorizedWritesDenied:true,manualProtection:true,protectedModelAndOutputSettingsSynced:true,alignedReset:true,staleProofRejected:true,paidRequests:0}));
   } finally { await pool.end(); }
 }
 

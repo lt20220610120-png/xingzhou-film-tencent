@@ -663,7 +663,15 @@ async function submitGeneration(event,p,progress){
  let input,accountId;try{
  if(p.storyboardEdit){
   const {validateStoryboardSubmission}=await import('../core/storyboardPublication.js');
-  const compiled=await validateStoryboardSubmission({getProject:payload=>collabService.getProject(payload),value:p,accountId:String(readCloudSession()?.account?.id||'')});
+  const compiled=await validateStoryboardSubmission({getProject:payload=>collabService.getProject(payload),value:p,accountId:String(readCloudSession()?.account?.id||''),resolveDurationPolicy:async(value,saved)=>{
+   const {storyboardGenerationModel}=await import('../core/storyboardBatch.js');
+   const {model,resolution,durationPolicy}=await storyboardGenerationModel({state:await providerSettings(),value:{...value,resolution:value.resolution??saved.resolution},getLibTVModel:async model=>{
+    accountId=await libtvAccountId(value.projectId);
+    return getLibTV().schema(accountId,model,'video',event.securitySignal);
+   }});
+   if(model.id!==value.model||value.resolution&&resolution!==value.resolution)throw Error('当前模型或分辨率已变化，请刷新核对时长');
+   return durationPolicy;
+  }});
   p={...p,references:compiled.references};
  }else if(p.referenceBindingMode){
   if(p.referenceBindingMode==='storyboard')throw Error('分镜提交缺少项目身份');
@@ -683,7 +691,7 @@ async function submitGeneration(event,p,progress){
  }
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
  const {selectAudioReferences,assertMinimumReferenceImages}=await import('../core/audioReferenceSelection.js');
- input=await renewImageReferences(p.kind==='video'&&!p.storyboardEdit?selectAudioReferences(p,p.modelCapabilities||{}):p);accountId=p.provider==='libtv'?await libtvAccountId(p.projectId):undefined;
+ input=await renewImageReferences(p.kind==='video'&&!p.storyboardEdit?selectAudioReferences(p,p.modelCapabilities||{}):p);if(p.provider==='libtv')accountId??=await libtvAccountId(p.projectId);
  if(p.workflowRunId&&!event.workflow){try{input=await productionHost.selectReferences({runId:p.workflowRunId,input});}catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}}
  if(input.kind==='video'){
   input=selectAudioReferences(input,input.modelCapabilities||{});

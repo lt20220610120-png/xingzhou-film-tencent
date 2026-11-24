@@ -8,10 +8,17 @@ export function saveStoryboardDefaults(scope,settings,storage=globalThis.localSt
 }
 export function applyStoryboardDefaults(value,defaults,shotId){
  if(!defaults||value.storyboardDefaultsRevision===defaults.revision)return value;
+ const recommended=defaults.durationMode==='recommended';
  const reset=defaults.durationManualResetShotIds?.includes(shotId);
- if(defaults.durationMode==='recommended'&&(defaults.recommendedDurationReport?.manual?.includes(shotId)||value.durationManuallyAdjusted===true&&!reset))return {...value,storyboardDefaultsRevision:defaults.revision};
- const next={...value,libtvMode:'auto',libtvParams:{},...(value.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{}),...defaults.settings,durationMode:defaults.durationMode==='recommended'?'recommended':'uniform',storyboardDefaultsRevision:defaults.revision};
- if(next.durationMode==='recommended'){
+ const keepManual=recommended&&(defaults.recommendedDurationReport?.manual?.includes(shotId)||value.durationManuallyAdjusted===true&&!reset);
+ if(keepManual&&defaults.manualDurationProtection!=='duration-only')return {...value,storyboardDefaultsRevision:defaults.revision};
+ const libtvDefaults={libtvMode:'auto',libtvParams:{},...(value.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{})};
+ if(keepManual){
+  const {duration,durationAlignment,...settings}=defaults.settings;
+  return {...value,...libtvDefaults,...settings,storyboardDefaultsRevision:defaults.revision};
+ }
+ const next={...value,...libtvDefaults,...defaults.settings,durationMode:recommended?'recommended':'uniform',storyboardDefaultsRevision:defaults.revision};
+ if(recommended){
   if(reset)delete next.durationManuallyAdjusted;
   if(defaults.settings.durationAlignment!=='ceil')delete next.durationAlignment;
   next.duration=value.duration;

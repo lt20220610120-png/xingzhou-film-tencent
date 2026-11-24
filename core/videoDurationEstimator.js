@@ -14,8 +14,10 @@ const fail=()=>{throw new Error('估时回包未通过编号、字段或算术�
 
 function exactJson(raw) {
   if (typeof raw!=='string' || raw.length>1024*1024) fail();
-  const parsed=JSON.parse(raw);
-  const tokens=raw.match(/"(?:\\[\s\S]|[^"\\])*"|[{}\[\]:]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?|true|false|null/gi)||[];
+  const fence=/^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```\s*$/i.exec(raw);
+  const body=fence?fence[1]:raw;
+  const parsed=JSON.parse(body);
+  const tokens=body.match(/"(?:\\[\s\S]|[^"\\])*"|[{}\[\]:]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?|true|false|null/gi)||[];
   const scopes=[];
   for(let i=0;i<tokens.length;i++){
     const token=tokens[i];
@@ -43,7 +45,7 @@ export function parseVideoDurationResponse(raw,ids,maxDurationSeconds) {
   if (!ids.length || order.size!==ids.length || !validVideoDurationLimit(maxDurationSeconds)) fail();
   const doc=exactJson(raw);
   if (!exactFields(doc,['max_duration_seconds','limit_defaulted','schema_version','results','errors'])
-    || Object.keys(doc)[0]!=='max_duration_seconds' || doc.max_duration_seconds!==maxDurationSeconds || doc.limit_defaulted!==false || doc.schema_version!=='1.0'
+    || doc.max_duration_seconds!==maxDurationSeconds || doc.limit_defaulted!==false || doc.schema_version!=='1.0'
     || !Array.isArray(doc.results) || !Array.isArray(doc.errors) || doc.results.length+doc.errors.length!==ids.length) fail();
   const estimates=new Map();
   function section(rows,decode){

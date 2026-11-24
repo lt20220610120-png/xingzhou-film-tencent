@@ -49,22 +49,69 @@ test('pending, dirty and overloaded estimates cannot supply executable durations
 });
 
 test('recommended defaults preserve manual seconds, including stale saves, until a confirmed reset', () => {
-  const original = project(shot('1',estimate(17),{duration:12,durationMode:'uniform',durationManuallyAdjusted:true}));
-  const [protectedEpisode] = patchShot(original,apply());
+  const previousConfig={duration:12,durationMode:'uniform',durationManuallyAdjusted:true,recommendedDurationSeconds:17,
+    profileId:'old-profile',model:'old-model',ratio:'9:16',resolution:'480p',libtvMode:'custom',libtvParams:{seed:7},libtvSubmissionMode:'canvas',
+    references:[{id:'keep'}]};
+  const original = project(shot('1',estimate(17),previousConfig));
+  const settings={profileId:'profile',model:'video',ratio:'16:9',resolution:'720p',libtvSubmissionMode:'auto'};
+  const [protectedEpisode] = patchShot(original,apply({settings}));
   const saved = protectedEpisode.storyboardPrompts[0];
-  assert.equal(saved.generationConfig.duration,12);
-  assert.equal(saved.generationConfig.durationMode,'uniform');
-  assert.equal(saved.generationConfig.durationManuallyAdjusted,true);
-  assert.equal(saved.generationConfig.storyboardDefaultsRevision,'new-settings');
+  const expected={...previousConfig,...settings,libtvMode:'auto',libtvParams:{},storyboardDefaultsRevision:'new-settings'};
+  assert.deepEqual(saved.generationConfig,expected);
   assert.deepEqual(protectedEpisode.storyboardDefaultSettings.global.recommendedDurationReport.manual,['1']);
   assert.equal(settingsFor(protectedEpisode,saved.label,saved.id).settings.duration,undefined);
-  const [stale] = patchShot([protectedEpisode],edit('1',{generationConfig:{duration:5,storyboardDefaultsRevision:'old'}}));
-  assert.equal(stale.storyboardPrompts[0].generationConfig.duration,12);
-  assert.equal(stale.storyboardPrompts[0].generationConfig.durationManuallyAdjusted,true);
+  const staleUpdate=edit('1',{generationConfig:{...previousConfig,duration:5,storyboardDefaultsRevision:'old'}},{generationConfig:previousConfig});
+  const [stale] = patchShot([protectedEpisode],staleUpdate);
+  assert.deepEqual(stale.storyboardPrompts[0].generationConfig,expected);
+  assert.throws(()=>patchShot([protectedEpisode],{...staleUpdate,requireExactBase:true}),{status:409});
   const [reset] = patchShot([protectedEpisode],apply({revision:'confirmed',includeManualDuration:true,recommendedDurations:{'1':20}}));
   assert.equal(reset.storyboardPrompts[0].generationConfig.duration,20);
+  assert.equal(reset.storyboardPrompts[0].generationConfig.durationMode,'recommended');
   assert.equal(reset.storyboardPrompts[0].generationConfig.durationManuallyAdjusted,undefined);
   assert.deepEqual(reset.storyboardDefaultSettings.global.durationManualResetShotIds,['1']);
+});
+
+test('protected manual settings rebase dirty renderer drafts but preserve legacy revisions and concurrent edits', async () => {
+  const {applyStoryboardDefaults,rebaseStoryboardDefaultsDraft}=await import('../../core/storyboardDefaults.js');
+  const before=shot('1',pending,{duration:20,durationMode:'uniform',durationManuallyAdjusted:true,model:'old',libtvSubmissionMode:'canvas'});
+  const draft={base:{content:before.content,generationConfig:before.generationConfig},value:{...before.generationConfig,prompt:'未保存改稿'},dirty:true};
+  const [episode]=patchShot(project(before),apply());
+  const saved=episode.storyboardPrompts[0];
+  const defaults=episode.storyboardDefaultSettings.global;
+  assert.equal(applyStoryboardDefaults(draft.value,defaults,'1').model,'video');
+  assert.equal(applyStoryboardDefaults(draft.value,defaults,'1').prompt,'未保存改稿');
+  assert.deepEqual(rebaseStoryboardDefaultsDraft(draft,saved,defaults).base.generationConfig,saved.generationConfig);
+  assert.equal(rebaseStoryboardDefaultsDraft(draft,{...saved,generationConfig:{...saved.generationConfig,ratio:'2:1'}},defaults),draft);
+  const legacy={...defaults};
+  delete legacy.manualDurationProtection;
+  assert.deepEqual(applyStoryboardDefaults(before.generationConfig,legacy,'1'),{...before.generationConfig,storyboardDefaultsRevision:defaults.revision});
+  assert.deepEqual(settingsFor({...episode,storyboardDefaultSettings:{global:legacy}},saved.label,saved.id).settings,{});
+});
+
+test('explicit reset preserves a protected duration when the new model cannot fit the estimate', () => {
+  const original=project(shot('1',estimate(17),{duration:12,durationMode:'uniform',durationManuallyAdjusted:true,model:'old'}));
+  const [reset]=patchShot(original,apply({supportedDurations:[5,10],includeManualDuration:true}));
+  const settings=reset.storyboardPrompts[0].generationConfig;
+  assert.equal(settings.duration,12);
+  assert.equal(settings.durationMode,'uniform');
+  assert.equal(settings.durationManuallyAdjusted,true);
+  assert.equal(settings.model,'video');
+  assert.deepEqual(reset.storyboardDefaultSettings.global.recommendedDurationReport.unsupported,['1']);
+  assert.equal(reset.storyboardDefaultSettings.global.durationManualResetShotIds,undefined);
+});
+
+test('a fixed settings apply records explicit uniform mode without replacing the estimate', () => {
+  const original=project(shot('1',pending,{duration:12,durationMode:'recommended',durationAlignment:'ceil'}));
+  const payload=apply({durationMode:'uniform'});
+  payload.settings.duration=10;
+  for(const durationMode of ['uniform',undefined]){
+    const [fixed]=patchShot(original,{...payload,durationMode});
+    const row=fixed.storyboardPrompts[0];
+    assert.equal(row.generationConfig.duration,10);
+    assert.equal(row.generationConfig.durationMode,'uniform');
+    assert.equal(row.generationConfig.durationAlignment,undefined);
+    assert.deepEqual(row.durationEstimate,pending);
+  }
 });
 
 test('editing marks only altered working text stale and re-estimation proves both body and prior timing', () => {

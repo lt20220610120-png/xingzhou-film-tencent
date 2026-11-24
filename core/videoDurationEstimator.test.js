@@ -36,12 +36,30 @@ test('the 15/30 execution values remain capped and overloaded values retain the 
  assert.deepEqual([0,35,20,15,1,undefined].map(normalizeVideoDurationLimit),[30,30,30,15,15,30]);
 });
 
-test('strict protocol rejects duplicate keys, decimals beyond cents, missing IDs, arithmetic mismatch and hidden excess',()=>{
+test('a complete JSON fence and reordered keys produce the same estimate',async()=>{
+ const row=result('a',11,11);
+ const reverseKeys=value=>Array.isArray(value)?value.map(reverseKeys):value&&typeof value==='object'
+  ?Object.fromEntries(Object.entries(value).reverse().map(([key,nested])=>[key,reverseKeys(nested)])):value;
+ const valid=response(30,[row]);
+ const reordered=JSON.stringify(reverseKeys(JSON.parse(valid)));
+ const expected=parseVideoDurationResponse(valid,['a'],30);
+ for(const raw of [reordered,`\n\`\`\`json\n${valid}\n\`\`\`\n`,`\`\`\`JSON\r\n${reordered}\r\n\`\`\``,`\`\`\`\n${reordered}\n\`\`\``]){
+  assert.deepEqual(parseVideoDurationResponse(raw,['a'],30),expected);
+ }
+ assert.deepEqual(await estimateVideoDurations({segments:[{id:'a',script:'进门',prompt:'向前走'}],maxDurationSeconds:30,
+  request:async()=>`\`\`\`json\n${reordered}\n\`\`\``}),expected);
+});
+
+test('strict protocol rejects chatter, duplicate keys, incomplete data, invalid numbers and incorrect capacity',()=>{
  const row=result('a',11,11);
  const valid=response(30,[row]);
+ const fenced=`\`\`\`json\n${valid}\n\`\`\``;
  const invalid=[valid.replace('"schema_version":"1.0"','"schema_version":"1.0","schema_version":"1.0"'),valid.replace('9.04','9.041'),
+  fenced.replace('"natural_seconds":11','"natural_seconds":11,"natural_seconds":11'),valid.replace('"natural_seconds":11','"natural_seconds":11.0'),
   response(30,[{...row,segment_id:'b'}]),response(30,[row],[{...semanticFailure,segment_id:'a'}]),
-  response(30,[result('a',12,12)]),response(30,[result('a',11,31)]),'```json\n'+valid+'\n```',valid.replace('"reason"','"unknown"')];
+  response(30,[result('a',12,12)]),response(30,[result('a',11,31)]),response(30,[{...row,capacity_status:'略偏紧'}]),
+  response(30,[{...row,reason:undefined}]),valid.replace('"reason"','"unknown"'),
+  `估时结果如下\n${fenced}`,`${fenced}\n已完成`,`${fenced}\n${fenced}`,fenced.replace('json','javascript')];
  for(const raw of invalid)assert.throws(()=>parseVideoDurationResponse(raw,['a'],30));
  assert.throws(()=>parseVideoDurationResponse(response(30,[row]),['a','b'],30));
  assert.throws(()=>parseVideoDurationResponse(response(30,[result('a',1,1,{speech:0.1,action:0,buffer:0.8})]),['a'],30));

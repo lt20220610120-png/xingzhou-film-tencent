@@ -59,7 +59,8 @@ export function libtvGenerationParams(model,input){
  const definitions=libtvParameters(model,mode);
  for(const key of Object.keys(custom))if(!definitions.some(p=>p.key===key||p.cliKey===key))throw Error('当前模式未声明参数 '+key);
  for(const property of definitions){
-  let value=custom[property.key]??custom[property.cliKey]??input[property.key]??input[property.cliKey]??property.default;
+  const storyboardDuration=(input.storyboardEdit||input.referenceBindingMode==='storyboard')&&(property.key==='duration'||property.cliKey==='duration');
+  const value=storyboardDuration?input.duration:custom[property.key]??custom[property.cliKey]??input[property.key]??input[property.cliKey]??property.default;
   if(value==null||value==='')continue;
   if(property.options.length&&!property.options.includes(value))throw Error(property.key+' 不在模型允许值中');
   if(property.min!=null&&(Number(value)<property.min||Number(value)>property.max||!Number.isFinite(Number(value))))throw Error(property.key+' 超出模型范围');

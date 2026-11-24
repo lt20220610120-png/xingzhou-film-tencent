@@ -32,6 +32,24 @@ test('estimated overload blocks generation even if old duration or top default e
  assert.equal(storyboardEstimateIssue({recommendedDurationSeconds:15,durationStatus:'estimated'}),'');
 });
 
+test('manual and fixed choices use exact current model durations independently of estimate warnings',()=>{
+ const policy=storyboardDurationPolicy({durations:[10,20,30],durationByResolution:{'1080p':[15,20]}},{},'1080p');
+ const timing={durationEstimate:{version:'2.0.0',status:'pending',maxDurationSeconds:15,error:{code:'TIMEOUT',message:'估时超时'}}};
+ const select=value=>storyboardDurationSelection({value,timing,policy,fallback:15});
+ assert.deepEqual(select({durationMode:'uniform',duration:20}),{duration:20,issue:''});
+ assert.deepEqual(select({durationManuallyAdjusted:true,duration:20}),{duration:20,issue:''});
+ assert.match(select({durationMode:'recommended',durationManuallyAdjusted:true,duration:20}).issue,/待估时/);
+ assert.match(select({duration:20}).issue,/待估时/);
+ assert.match(select({durationMode:'uniform',duration:30}).issue,/当前模型/);
+ assert.equal(select({durationMode:'uniform',duration:30}).duration,30);
+ assert.match(select({durationMode:'uniform',duration:0}).issue,/当前模型/);
+ assert.match(select({durationMode:'uniform'}).issue,/当前模型/);
+ const range={durationRange:{min:4,max:25}};
+ const fixed=duration=>storyboardDurationSelection({value:{durationMode:'uniform',duration},timing,policy:range,fallback:5});
+ assert.equal(fixed(20).issue,'');
+ for(const seconds of [3,20.5,26])assert.match(fixed(seconds).issue,/当前模型/);
+});
+
 test('draft body edits invalidate an estimate but implicit reattachment and unchanged text keep timing',()=>{
  const estimate={version:'2.0.0',status:'estimated',recommendedSeconds:10,maxDurationSeconds:30};
  const shot={content:'他走来。',durationEstimate:estimate};

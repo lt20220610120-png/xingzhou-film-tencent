@@ -13,16 +13,17 @@ function estimateDetails(estimate) {
   </div>;
 }
 
-export function DurationEstimateBadge({value,onReestimate,disabled=false,busy=false}) {
+export function DurationEstimateBadge({value,onReestimate,disabled=false,busy=false,storyboard=false}) {
   const estimate=savedDurationEstimate(value);
   const stale=(estimate?.status??value?.durationStatus)==='needs-review';
   const pending=estimate?.status==='pending';
+  const reestimate=label=>onReestimate&&<button type="button" className="ghost duration-estimate-action" onClick={onReestimate} disabled={disabled||busy}>{busy?'估时中…':label}</button>;
   if(pending||stale){
     const label=stale?'待复核':'待估时';
     const reason=stale?'提示词正文已修改，请重新核对时长。':estimate.error?.message;
     return <span className="duration-estimate-badges">
       <HoverInfo className="duration-estimate-tag duration-estimate-review" label={`${label}，查看原因`} content={reason}>{label}</HoverInfo>
-      {onReestimate&&<button type="button" className="ghost duration-estimate-action" onClick={onReestimate} disabled={disabled||busy}>{busy?'估时中…':stale?'重估时长':'补估'}</button>}
+      {reestimate(stale||storyboard?'重估时长':'补估')}
     </span>;
   }
   if(!estimate){
@@ -35,7 +36,10 @@ export function DurationEstimateBadge({value,onReestimate,disabled=false,busy=fa
   }
   if(estimate.needsResegment){
     const label=`超载需重分 · 自然 ${estimate.naturalSeconds} 秒`;
-    return <HoverInfo className="duration-estimate-tag duration-estimate-overload" label={`${label}，查看估时依据`} content={estimateDetails(estimate)}>{label}</HoverInfo>;
+    return <span className="duration-estimate-badges">
+      <HoverInfo className="duration-estimate-tag duration-estimate-overload" label={`${label}，查看估时依据`} content={estimateDetails(estimate)}>{label}</HoverInfo>
+      {storyboard&&reestimate('重估时长')}
+    </span>;
   }
   const label=`建议生成时长 ${estimate.recommendedSeconds} 秒`;
   return <span className="duration-estimate-badges">

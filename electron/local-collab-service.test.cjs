@@ -129,13 +129,15 @@ test('local storyboard saves precise timing and protects manual duration after s
   const target={projectId,episodeId:'e1',shotId:'s1',editPolicy:'direct'};
   const durationEstimate={version:'2.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:17,recommendedSeconds:17,
     needsResegment:false,capacityStatus:'正常',breakdown:{speechSeconds:7,nonparallelActionSeconds:8.8,pauseBufferSeconds:0.9},reason:'台词发声后独立动作，留出收尾。'};
-  await service.patchStoryboard({...target,base:{content:'原稿'},updates:{durationEstimate,generationConfig:{duration:12,durationManuallyAdjusted:true}}});
+  await service.patchStoryboard({...target,base:{content:'原稿'},updates:{durationEstimate,generationConfig:{duration:12,durationMode:'uniform',durationManuallyAdjusted:true,model:'old'}}});
   const reopened=f.setup(), ready=await reopened.getProject({projectId});
   assert.deepEqual(ready.episodes[0].storyboardPrompts[0].durationEstimate,durationEstimate);
   const settings={projectId,operation:'settings',scope:'episode',episodeId:'e1',revision:'r',durationMode:'recommended',
     supportedDurations:[5,15,20,30],settings:{profileId:'p',model:'v',ratio:'16:9',resolution:'720p'}};
   const kept=await reopened.patchStoryboard(settings);
-  assert.equal(kept.episodes[0].storyboardPrompts[0].generationConfig.duration,12);
+  const retained={duration:12,durationMode:'uniform',durationManuallyAdjusted:true,...settings.settings,libtvMode:'auto',libtvParams:{},storyboardDefaultsRevision:'r'};
+  assert.deepEqual(kept.episodes[0].storyboardPrompts[0].generationConfig,retained);
+  assert.deepEqual((await f.setup().getProject({projectId})).episodes[0].storyboardPrompts[0].generationConfig,retained);
   const updated=await reopened.patchStoryboard({...settings,revision:'reset',includeManualDuration:true});
   assert.equal(updated.episodes[0].storyboardPrompts[0].generationConfig.duration,20);
   assert.equal(updated.episodes[0].storyboardPrompts[0].generationConfig.durationManuallyAdjusted,undefined);

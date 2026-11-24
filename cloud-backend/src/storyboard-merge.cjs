@@ -2,7 +2,7 @@ const {normalizeStoryboardEpisodes}=require('./storyboard-identity.cjs');
 const {episodeNumber,unitHeaders}=require('./collab-episodes.cjs');
 const {isDeepStrictEqual}=require('node:util');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-const {applySettings,settingsFor}=require('./storyboard-settings.cjs');
+const {applySettings,settingsFor,generationDefaults}=require('./storyboard-settings.cjs');
 const {recommendedStoryboardTiming,promptTimingMetadata,validatedDurationEstimate,markStoryboardTimingStale}=require('./prompt-duration.cjs');
 const imageAlias='@(?:image|图片|图)[1-9]\\d*(?![\\w]|\\.[A-Za-z0-9])';
 const referenceGroup='[ \\t]*参考[ \\t]*(?:@|'+imageAlias+'(?:[ \\t]*'+imageAlias+')*)[ \\t]*';
@@ -36,8 +36,10 @@ function saveGenerationConfig(shot,update,defaults){
  if(!defaults||update.storyboardDefaultsRevision===defaults.revision){
   return previous.durationManuallyAdjusted===true?{...update,durationManuallyAdjusted:true}:update;
  }
- const next={...update,...defaults.settings,storyboardDefaultsRevision:defaults.revision};
- if(defaults.durationMode==='recommended'&&previous.durationManuallyAdjusted===true){
+ const keepManual=defaults.durationMode==='recommended'&&previous.durationManuallyAdjusted===true;
+ const settings=keepManual&&defaults.manualDurationProtection==='duration-only'?generationDefaults(previous,defaults.settings):defaults.settings;
+ const next={...update,...settings,storyboardDefaultsRevision:defaults.revision};
+ if(keepManual){
   for(const key of ['duration','durationMode','recommendedDurationSeconds','durationAlignment']){
    if(Object.hasOwn(previous,key))next[key]=previous[key];else delete next[key];
   }

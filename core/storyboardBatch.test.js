@@ -8,6 +8,13 @@ test('recommended mode retains each shot duration instead of top uniform duratio
  const rows=mod.storyboardBatchItems({project:p,scope:'episode',episodeId:'e1',settings:{duration:30},accountId:'owner'});
  assert.deepEqual(rows.map(r=>r.value.duration),[12,17]);assert.ok(rows.every(r=>r.value.durationMode==='recommended'));
 });
+
+test('batch retains an explicitly applied fixed duration independently of the current toolbar seconds',()=>{
+ const p=structuredClone(project);
+ p.episodes[0].storyboardDefaultSettings={global:{revision:'fixed',durationMode:'uniform',settings:{profileId:'v',model:'movie',duration:20}}};
+ const rows=mod.storyboardBatchItems({project:p,scope:'episode',episodeId:'e1',settings:{duration:30},accountId:'owner'});
+ assert.ok(rows.every(({value})=>value.duration===20&&value.durationMode==='uniform'&&value.storyboardDefaultsRevision==='fixed'));
+});
 test('recommended generation never rounds unsupported duration or fills missing recommendation',async()=>{
  const state={mediaProfiles:[{id:'v',kind:'video',endpoint:'https://fixture/v1',apiKey:'fixture',model:'movie',capabilities:{ratios:['16:9'],durations:[5,12,30],resolutions:['720p']}}]};
  const value={profileId:'v',model:'movie',prompt:'测试',references:[],durationMode:'recommended',recommendedDurationSeconds:17,duration:17};

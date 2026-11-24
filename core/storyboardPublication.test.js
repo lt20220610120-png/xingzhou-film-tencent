@@ -55,6 +55,27 @@ test('main submission checks the latest tagged estimate before preparing or send
  shot.durationEstimate={version:'2.0.0',status:'pending',maxDurationSeconds:30,error:{code:'TIMEOUT',message:'估时超时'}};
  await assert.rejects(validate(),/待估时/);
 });
+
+test('main submission authorizes saved manual/fixed seconds against the model and rejects unsaved mode changes',async()=>{
+ const rows=patchShot(initial(),publication()),shot=storyboardShots(rows[0])[0];
+ const value={projectId:'p',shotId:'source',storyboardPublicationId:'pub1',originalPrompt:shot.content,duration:20,resolution:'1080p',modelCapabilities:{durations:[15,20,30]}};
+ const validate=()=>validateStoryboardSubmission({getProject:async()=>({id:'p',myRole:'producer',episodes:rows}),value,accountId:'u',resolveDurationPolicy:async()=>({supportedDurations:[15,20]})});
+ shot.durationEstimate={version:'2.0.0',status:'pending',maxDurationSeconds:15,error:{code:'TIMEOUT',message:'估时超时'}};
+ shot.generationConfig={durationMode:'uniform',duration:20};
+ await validate();
+ shot.generationConfig.durationManuallyAdjusted=true;
+ await validate();
+ value.duration=15;
+ await assert.rejects(validate(),/已保存.*时长/);
+ value.duration=30;shot.generationConfig.duration=30;
+ await assert.rejects(validate(),/当前模型/);
+ value.duration=20;shot.generationConfig={durationMode:'recommended',durationAlignment:'ceil',duration:20};
+ value.durationMode='uniform';
+ await assert.rejects(validate(),/待估时/);
+ shot.generationConfig={durationMode:'uniform',duration:20};
+ value.originalPrompt='保存后的别的正文';
+ await assert.rejects(validate(),/正文已变化/);
+});
 test('published manual text and references are preserved without any comparison warning',()=>{
  const shot=storyboardShots(patchShot(initial(),publication())[0]),value={prompt:'手改正文',references:[{id:'manual',kind:'audio'}],referenceBindingMode:'confirmed',bindingCompiledPrompt:'原文'};
  const result=storyboardPromptValue({error:'新导演稿读取失败'},shot[0],value,'u');assert.equal(result.prompt,value.prompt);assert.deepEqual(result.references,value.references);assert.equal(result.bindingIssue,'');validateCompiledBinding(result,['image','audio']);

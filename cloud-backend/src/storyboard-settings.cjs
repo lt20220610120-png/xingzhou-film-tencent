@@ -6,10 +6,12 @@ const plain=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const validSeconds=value=>Number.isFinite(value)&&value>0&&value<=3600;
 const validModelSeconds=value=>validSeconds(value)&&Number.isInteger(value);
 const maxRecommendedSeconds=timing=>timing?.durationEstimate?.maxDurationSeconds??(timing?.maxDurationSeconds>0&&timing.maxDurationSeconds<=15?15:30);
+const commonSettings=({duration,durationAlignment,...settings})=>settings;
+const generationDefaults=(config,settings)=>({libtvMode:'auto',libtvParams:{},...(config?.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{}),...settings});
 function settingsFor(ep,label,shotId){
  const all=ep.storyboardDefaultSettings||{},scene=String(label||'').split('-').slice(0,2).join('-'),record=all.scenes?.[scene]||all.global;
  if(!record||shotId===undefined)return record;
- if(record.recommendedDurationReport?.manual?.includes(shotId))return {...record,settings:{}};
+ if(record.recommendedDurationReport?.manual?.includes(shotId))return {...record,settings:record.manualDurationProtection==='duration-only'?commonSettings(record.settings):{}};
  const settings={...record.settings,durationMode:record.durationMode==='recommended'?'recommended':'uniform'};
  if(settings.durationMode==='recommended'){
   delete settings.duration;
@@ -63,6 +65,7 @@ function applySettings(episodes,payload){
  if(scope!=='project'&&!ids.size)fail('分集或场景已变更，请刷新',409);
  if(recommended&&[...Object.keys(map),...Object.keys(sources)].some(id=>!ids.has(id)))fail('建议时长包含范围外分镜');
  const settings={...Object.fromEntries(keys.filter(k=>value[k]!==undefined&&(!recommended||k!=='duration')).map(k=>[k,structuredClone(value[k])])),...(modern?{durationAlignment:'ceil'}:{})};
+ const manualSettings=commonSettings(settings);
  for(const ep of selected){
   const shots=ep.storyboardPrompts||ep.prompts||[],approved={},known={},timings=new Map(),report={applied:[],missing:[],unsupported:[],aligned:[],manual:[],blocked:[]},reset=[];
   if(recommended)for(const shot of shots.filter(inScope)){
@@ -86,13 +89,14 @@ function applySettings(episodes,payload){
    if(actual!==seconds)report.aligned.push({shotId:shot.id,recommendedSeconds:seconds,seconds:actual});
    if(manual)reset.push(shot.id);
   }
-  const record={revision:payload.revision,settings,durationMode:mode,...(recommended?{recommendedDurations:approved,recommendedDurationSecondsByShot:known,recommendedDurationReport:report,...(reset.length?{durationManualResetShotIds:reset}:{})}:{})};
+  const record={revision:payload.revision,settings,durationMode:mode,...(recommended?{manualDurationProtection:'duration-only',recommendedDurations:approved,recommendedDurationSecondsByShot:known,recommendedDurationReport:report,...(reset.length?{durationManualResetShotIds:reset}:{})}:{})};
   const old=ep.storyboardDefaultSettings||{};
   ep.storyboardDefaultSettings=scope!=='scene'?{global:record,scenes:{}}:{...old,scenes:{...old.scenes,[payload.sceneId]:record}};
   ep.storyboardPrompts=structuredClone(shots).map(shot=>{
    if(!inScope(shot))return shot;
-   if(report.manual.includes(shot.id))return {...shot,generationConfig:{...shot.generationConfig,storyboardDefaultsRevision:record.revision}};
-   const generationConfig={...shot.generationConfig,libtvMode:'auto',libtvParams:{},...(shot.generationConfig?.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{}),...settings,durationMode:mode,storyboardDefaultsRevision:record.revision};
+   const keepManual=report.manual.includes(shot.id);
+   const generationConfig={...shot.generationConfig,...generationDefaults(shot.generationConfig,keepManual?manualSettings:settings),...(keepManual?{}:{durationMode:mode}),storyboardDefaultsRevision:record.revision};
+   if(keepManual)return {...shot,generationConfig};
    if(recommended){generationConfig.recommendedDurationSeconds=known[shot.id]??null;if(Object.hasOwn(approved,shot.id))generationConfig.duration=approved[shot.id];}
    else delete generationConfig.recommendedDurationSeconds;
    if(!modern)delete generationConfig.durationAlignment;
@@ -106,4 +110,4 @@ function applySettings(episodes,payload){
  }
  return episodes;
 }
-module.exports={applySettings,settingsFor,timingForShot,alignedSeconds};
+module.exports={applySettings,settingsFor,timingForShot,alignedSeconds,generationDefaults};

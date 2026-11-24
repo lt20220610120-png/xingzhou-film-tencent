@@ -14,7 +14,7 @@ import {validateCompiledBinding} from './promptArtBinding.js';
 import {bindReferencePrompt} from './generationReferences.js';
 import {assertMinimumReferenceImages,selectAudioReferences} from './audioReferenceSelection.js';
 import {libtvGenerationParams} from './libtv.js';
-import {storyboardDurationPolicy,storyboardDurationSelection,storyboardTimingForDraft} from './storyboardTiming.js';
+import {storyboardDurationMode,storyboardDurationPolicy,storyboardDurationSelection,storyboardTimingForDraft} from './storyboardTiming.js';
 export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={},assets=[],media=[],binding,accountId,readDraft=()=>null}){
  if(!['scene','episode','project'].includes(scope))throw Error('请选择生成范围');
  const top=Object.fromEntries(storyboardSettingKeys.filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]]));
@@ -29,23 +29,28 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
    value=applyStoryboardDefaults(value,ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,shot.id);
    if(!draft||canRefreshStoryboardBinding(draft,shot)){const linked=storyboardPromptValue(binding,shot,value,accountId);if(linked&&!(linked.referenceBindingMode==='pending'&&!linked.references?.length&&value.references?.length))value=linked;}
    value=cleanStoryboardReferenceValue(value,project.id);
-   const selectedSettings={...top};if(value.durationMode==='recommended'||value.durationManuallyAdjusted===true)delete selectedSettings.duration;
+   const selectedSettings={...top};if(storyboardDurationMode(value)!=='legacy')delete selectedSettings.duration;
    value={...value,...selectedSettings,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''};
    if(value.durationMode==='recommended'&&value.recommendedDurationSeconds==null){const timing=recommendedStoryboardTiming(binding,shot);if(timing?.recommendedDurationSeconds!=null)value={...value,recommendedDurationSeconds:timing.recommendedDurationSeconds};}
    return [{shotId:shot.id,episodeId:ep.id,episode,scene,label:shot.label,publicationId:shot.storyboardPublicationId||'',baseContent:draft?.base?.content??shot.content??'',baseGenerationConfig:structuredClone(draft?.base?.generationConfig??shot.generationConfig??{}),value}];
   });
  });
 }
-export async function storyboardGenerationInput({state,value,getLibTVModel,shot}){
+export async function storyboardGenerationModel({state,value,getLibTVModel}){
  const profiles=generationMediaProfiles(state,'video'),profile=value.profileId?profiles.find(p=>p.id===value.profileId):activeMediaProfile(state,'video');if(!profile)throw Error('请配置生成接口');
  const available=profileModels(profile,'video');let model=available.find(m=>m.id===value.model)||available.find(m=>m.id===profile.model)||available[0];if(!model?.id)throw Error('请选择生成模型');
  const libtv=profile.provider==='libtv';if(libtv){if(!getLibTVModel)throw Error('请重新载入LibTV模型');model=await getLibTVModel(model.id);}
- if(!libtv&&profile.provider!=='likeai'&&!profile.apiKey&&!(profile.videoProtocol==='custom'&&profile.videoAdapter?.authMode==='none'))throw Error('请填写接口密钥');
  const caps={...videoModelCapabilities(model.id,{}),...model},resolutions=caps.resolutions?.length?caps.resolutions:['固定'];
  const resolution=model.resolutions?.length?(resolutions.includes(value.resolution)?value.resolution:resolutions[0]):value.resolution||'720p';
- const durations=caps.durationByResolution?.[resolution]||caps.durations||[],fallback=(model.durationByResolution?.[resolution]?.length||model.durations?.length)?(durations.includes(value.duration)?value.duration:effectiveVideoProtocol(profile)==='autodl'&&durations.includes(5)?5:durations[0]):Number(value.duration)||(effectiveVideoProtocol(profile).startsWith('videos-')?4:5);
- const timing=shot?storyboardTimingForDraft({...shot,...recommendedStoryboardTiming(null,shot)},value,shot.content):value;
  const durationPolicy=storyboardDurationPolicy(model,caps,resolution);
+ const durations=durationPolicy.supportedDurations,fallback=durations?(durations.includes(value.duration)?value.duration:effectiveVideoProtocol(profile)==='autodl'&&durations.includes(5)?5:durations[0]):Number(value.duration)||(effectiveVideoProtocol(profile).startsWith('videos-')?4:5);
+ return {profile,model,libtv,caps,resolution,durationPolicy,fallback};
+}
+
+export async function storyboardGenerationInput({state,value,getLibTVModel,shot}){
+ const {profile,model,libtv,caps,resolution,durationPolicy,fallback}=await storyboardGenerationModel({state,value,getLibTVModel});
+ if(!libtv&&profile.provider!=='likeai'&&!profile.apiKey&&!(profile.videoProtocol==='custom'&&profile.videoAdapter?.authMode==='none'))throw Error('请填写接口密钥');
+ const timing=shot?storyboardTimingForDraft({...shot,...recommendedStoryboardTiming(null,shot)},value,shot.content):value;
  const {duration,issue}=storyboardDurationSelection({value,timing,policy:durationPolicy,fallback});
  if(issue)throw Error(issue);
  const ratios=caps.ratios?.length?caps.ratios:['16:9'],ratio=ratios.includes(value.ratio)?value.ratio:ratios[0];
