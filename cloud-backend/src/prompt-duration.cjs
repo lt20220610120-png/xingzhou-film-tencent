@@ -1,6 +1,42 @@
 // Pure timing rules mirrored from core/promptDisplay.js; parity checked by recommendedDuration146 tests.
 const validDuration=value=>Number.isFinite(value)&&value>0&&value<=3600;
+const estimateVersion='2.0.0';
+const limitFor=value=>Number.isFinite(Number(value))&&Number(value)>0&&Number(value)<=15?15:30;
+const singleLine=(value,max)=>typeof value==='string'&&value.length<=max&&Boolean(value.trim())&&!/[\r\n]/.test(value);
+const breakdownFields=['speechSeconds','nonparallelActionSeconds','pauseBufferSeconds'];
+
+function validatedDurationEstimate(value){
+ if(!value||value.version!==estimateVersion||![15,30].includes(value.maxDurationSeconds)||!['pending','needs-review','estimated'].includes(value.status))return null;
+ const {version,status,maxDurationSeconds}=value;
+ const base={version,status,maxDurationSeconds};
+ if(status==='pending'||status==='needs-review'&&value.naturalSeconds===undefined){
+  const {code,message}=value.error||{};
+  return singleLine(code,64)&&singleLine(message,600)?{...base,error:{code,message}}:status==='needs-review'?base:null;
+ }
+ if(!Number.isInteger(value.naturalSeconds)||value.naturalSeconds<2||value.naturalSeconds>86400||!singleLine(value.reason,1200))return null;
+ const {naturalSeconds,recommendedSeconds,needsResegment,capacityStatus,reason}=value;
+ const cents=breakdownFields.map(key=>{
+  const number=value.breakdown?.[key],rounded=Math.round(number*100);
+  return Number.isFinite(number)&&number>=0&&number<=86400&&rounded/100===number?rounded:NaN;
+ });
+ const total=cents.reduce((sum,part)=>sum+part,0),natural=Math.ceil(total/100);
+ const overload=natural>(maxDurationSeconds===15?18:35);
+ if(naturalSeconds!==natural||cents[0]>0&&naturalSeconds<4||cents[2]<50
+  ||needsResegment!==overload||recommendedSeconds!==(overload?natural:Math.min(natural,maxDurationSeconds))
+  ||capacityStatus!==(overload?'超载需重分':natural>maxDurationSeconds?'略偏紧':'正常')
+  ||overload&&!reason.includes('需重新划分片段并重新生成提示词'))return null;
+ const breakdown=Object.fromEntries(breakdownFields.map(key=>[key,value.breakdown[key]]));
+ return {...base,naturalSeconds,capacityStatus,recommendedSeconds,needsResegment,breakdown,reason};
+}
+
+function ownEstimate(value){
+ if(!value||!Object.hasOwn(value,'durationEstimate'))return null;
+ return validatedDurationEstimate(value.durationEstimate)||{version:estimateVersion,status:'pending',maxDurationSeconds:limitFor(value.durationEstimate?.maxDurationSeconds??value.maxDurationSeconds),error:{code:'INVALID_SAVED_ESTIMATE',message:'已保存的估时资料不完整，请重新估时。'}};
+}
+
 function recommendedPromptDuration(value){
+ const estimate=ownEstimate(value);
+ if(estimate)return estimate.status==='estimated'&&!estimate.needsResegment?estimate.recommendedSeconds:null;
  if(validDuration(value?.recommendedDurationSeconds))return value.recommendedDurationSeconds;
  if(validDuration(value?.generationConfig?.recommendedDurationSeconds))return value.generationConfig.recommendedDurationSeconds;
  const texts=[value?.content,value?.prompt,value?.sourceContent].filter(text=>typeof text==='string'&&text.trim()).slice(0,1),found=new Set();
@@ -12,23 +48,44 @@ function recommendedPromptDuration(value){
  return found.size===1?[...found][0]:null;
 }
 function promptTimingMetadata(value){
- const recommendedDurationSeconds=recommendedPromptDuration(value);if(recommendedDurationSeconds===null)return {};
- const timing={recommendedDurationSeconds};
+ const estimate=ownEstimate(value),recommendedDurationSeconds=recommendedPromptDuration(value);
+ if(recommendedDurationSeconds===null&&!estimate)return {};
+ const timing=recommendedDurationSeconds===null?{}:{recommendedDurationSeconds};
  for(const key of ['maxDurationSeconds','estimatedSeconds','naturalEstimatedSeconds','editorialEstimatedSeconds','sceneEstimatedSeconds'])if(Number.isFinite(value?.[key])&&value[key]>=0&&value[key]<=86400)timing[key]=value[key];
  if(['estimated','needs-review'].includes(value?.durationStatus))timing.durationStatus=value.durationStatus;
  if(['auto','manual'].includes(value?.segmentationMode))timing.segmentationMode=value.segmentationMode;
  if(Number.isInteger(value?.timingRulesVersion)&&value.timingRulesVersion>0)timing.timingRulesVersion=value.timingRulesVersion;
  if(value?.durationCompression&&typeof value.durationCompression==='object'&&!Array.isArray(value.durationCompression))timing.durationCompression=structuredClone(value.durationCompression);
+ if(estimate){
+  timing.durationEstimate=estimate;
+  timing.timingRulesVersion=2;
+  timing.durationStatus=estimate.status;
+  if(typeof value.durationSourceScript==='string'&&value.durationSourceScript.length<=250000)timing.durationSourceScript=value.durationSourceScript;
+ }
  return timing;
 }
 function recommendedStoryboardTiming(binding,shot){
  const sourcePromptId=String(shot?.sourcePromptId||shot?.id||''),sourceContent=shot?.sourceContent??shot?.generationConfig?.bindingSourcePrompt??shot?.content??shot?.prompt;
- const direct=promptTimingMetadata(shot);if(direct.recommendedDurationSeconds)return {...direct,sourcePromptId,sourceContent};
- if(!sourcePromptId||typeof sourceContent!=='string'||!sourceContent.trim())return null;
+ const direct=promptTimingMetadata(shot),directTiming=direct.durationEstimate||direct.recommendedDurationSeconds?{...direct,sourcePromptId,sourceContent}:null;
+ if(direct.durationEstimate||!sourcePromptId||typeof sourceContent!=='string'||!sourceContent.trim())return directTiming;
  const snapshots=[binding?.currentSnapshot,binding?.snapshot,binding?.saved?.snapshot].filter(Boolean),entries=snapshots.flatMap(snapshot=>[...(snapshot.entries||[]),...(snapshot.promptEditions||[]).flatMap(edition=>edition.entries||[])]);
- const matching=entries.filter(entry=>String(entry.id)===sourcePromptId&&(entry.prompt??entry.content)===sourceContent),timings=matching.map(promptTimingMetadata).filter(timing=>timing.recommendedDurationSeconds);
+ const matching=entries.filter(entry=>String(entry.id)===sourcePromptId&&(entry.prompt??entry.content)===sourceContent),all=matching.map(promptTimingMetadata),current=all.find(timing=>timing.durationEstimate);
+ if(current)return {...current,sourcePromptId,sourceContent};
+ if(directTiming)return directTiming;
+ const timings=all.filter(timing=>timing.recommendedDurationSeconds);
  if(!timings.length||new Set(timings.map(timing=>timing.recommendedDurationSeconds)).size!==1)return null;
  return {...timings[0],sourcePromptId,sourceContent};
 }
 
-module.exports={recommendedPromptDuration,promptTimingMetadata,recommendedStoryboardTiming};
+function markStoryboardTimingStale(value){
+ const estimate=ownEstimate(value);
+ if(estimate){
+  if(estimate.status==='pending')return value;
+  const stale={...value,durationEstimate:{...estimate,status:'needs-review'},durationStatus:'needs-review'};
+  delete stale.recommendedDurationSeconds;
+  return stale;
+ }
+ return recommendedPromptDuration(value)!==null?{...value,durationStatus:'needs-review'}:value;
+}
+
+module.exports={recommendedPromptDuration,promptTimingMetadata,recommendedStoryboardTiming,validatedDurationEstimate,markStoryboardTimingStale};

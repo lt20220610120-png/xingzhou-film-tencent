@@ -1,13 +1,52 @@
 const {normalizeStoryboardEpisodes}=require('./storyboard-identity.cjs');
 const {episodeNumber,unitHeaders}=require('./collab-episodes.cjs');
+const {isDeepStrictEqual}=require('node:util');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const {applySettings,settingsFor}=require('./storyboard-settings.cjs');
-const {recommendedStoryboardTiming,promptTimingMetadata}=require('./prompt-duration.cjs');
+const {recommendedStoryboardTiming,promptTimingMetadata,validatedDurationEstimate,markStoryboardTimingStale}=require('./prompt-duration.cjs');
+const imageAlias='@(?:image|图片|图)[1-9]\\d*(?![\\w]|\\.[A-Za-z0-9])';
+const referenceGroup='[ \\t]*参考[ \\t]*(?:@|'+imageAlias+'(?:[ \\t]*'+imageAlias+')*)[ \\t]*';
+const imageBindings=new RegExp('（'+referenceGroup+'）|\\('+referenceGroup+'\\)|(?<![\\w.+-])[ \\t]?(?:'+imageAlias+')+','g');
+function sameImageBoundStoryboardText(before,after,prior,next){
+ const source=next?.bindingSourcePrompt??prior?.bindingSourcePrompt;
+ if(typeof source!=='string'||!source.trim()||typeof before!=='string'||typeof after!=='string')return false;
+ if(before===prior?.bindingCompiledPrompt&&prior.bindingSourcePrompt!==source)return false;
+ const isBound=(body,config)=>body===source||config?.bindingSourcePrompt===source&&config.bindingCompiledPrompt===body;
+ if(!isBound(before,prior)||!isBound(after,next))return false;
+ const shared=source.replace(imageBindings,'');
+ return before.replace(imageBindings,'')===shared&&after.replace(imageBindings,'')===shared;
+}
+
 function restoreShotTiming(shot,sources){
- const timing=recommendedStoryboardTiming({snapshot:{entries:(sources||[]).map(source=>({...source,prompt:source.content}))}},shot);
- if(!timing)return shot;
+ if(shot.durationEstimateSource==='storyboard')return shot;
  const edited=shot.sourceContent&&shot.content!==(shot.generationConfig?.bindingCompiledPrompt||shot.sourceContent);
- return {...shot,...promptTimingMetadata(timing),...(edited?{durationStatus:'needs-review'}:{})};
+ const binding={snapshot:{entries:[...(sources||[])].reverse().map(source=>({...source,prompt:source.content}))}};
+ const direct=recommendedStoryboardTiming(binding,shot);
+ const current=!edited&&binding.snapshot.entries.find(source=>String(source.id)===direct?.sourcePromptId&&source.content===direct.sourceContent&&validatedDurationEstimate(source.durationEstimate));
+ const timing=current||direct;
+ if(!timing)return shot;
+ const metadata=promptTimingMetadata(timing),updated={...shot,...metadata};
+ if(metadata.durationEstimate&&metadata.recommendedDurationSeconds===undefined)delete updated.recommendedDurationSeconds;
+ return edited?markStoryboardTimingStale(updated):updated;
+}
+
+function saveGenerationConfig(shot,update,defaults){
+ if(!update||typeof update!=='object'||Array.isArray(update))return update;
+ const previous=shot.generationConfig||{};
+ if(!defaults||update.storyboardDefaultsRevision===defaults.revision){
+  return previous.durationManuallyAdjusted===true?{...update,durationManuallyAdjusted:true}:update;
+ }
+ const next={...update,...defaults.settings,storyboardDefaultsRevision:defaults.revision};
+ if(defaults.durationMode==='recommended'&&previous.durationManuallyAdjusted===true){
+  for(const key of ['duration','durationMode','recommendedDurationSeconds','durationAlignment']){
+   if(Object.hasOwn(previous,key))next[key]=previous[key];else delete next[key];
+  }
+  next.durationManuallyAdjusted=true;
+ }else{
+  delete next.durationManuallyAdjusted;
+  if(defaults.durationMode!=='recommended')delete next.durationAlignment;
+ }
+ return next;
 }
 function mergeDirectorEpisodes(current=[],incoming=[]) {
  const originals=(Array.isArray(current)?current:[]).filter(ep=>ep&&typeof ep==='object');
@@ -125,12 +164,27 @@ function patchShot(episodes,payload) {
   ep.prompts=ep.prompts.filter(p=>p.id!==shot.id);
  }else{
   const shot=ep.prompts.find(p=>p.id===payload.shotId);if(!shot)throw Object.assign(new Error('分镜已变更'),{status:409});
-  for(const key of ['content','generationConfig'])if(key in (payload.updates||{})){
+  const updates=payload.updates||{},previousContent=shot.content,previousConfig=shot.generationConfig,hasEstimate=Object.hasOwn(updates,'durationEstimate');
+  let estimate;
+  if(hasEstimate){
+   estimate=validatedDurationEstimate(updates.durationEstimate);
+   if(payload.editPolicy!=='direct'||!estimate||estimate.status==='needs-review'||(Object.hasOwn(updates,'content')&&(typeof updates.content!=='string'||!updates.content.trim())))throw Object.assign(Error('估时结果无效，请再次核对'),{status:400});
+   if(!isDeepStrictEqual(shot.durationEstimate??null,payload.base?.durationEstimate??null)||shot.content!==payload.base?.content){
+    if(!isDeepStrictEqual(shot.durationEstimate,estimate)||shot.content!==(updates.content??payload.base?.content))throw Object.assign(Error('分镜正文或估时已被其他协作者修改，请刷新后重估'),{status:409});
+   }
+  }
+  for(const key of ['content','generationConfig'])if(key in updates){
    if((payload.requireExactBase===true||payload.editPolicy!=='direct')&&!equal(shot[key]??null,payload.base?.[key]??null)&&!equal(shot[key],payload.updates[key]))throw Object.assign(new Error('这条分镜已被其他协作者修改，草稿已保留；请刷新并核对云端内容后保存'),{status:409});
    const defaults=key==='generationConfig'&&payload.editPolicy==='direct'?settingsFor(ep,shot.label,shot.id):null;
-   shot[key]=defaults&&payload.updates[key]?.storyboardDefaultsRevision!==defaults.revision?{...payload.updates[key],...defaults.settings,storyboardDefaultsRevision:defaults.revision}:payload.updates[key];
+   shot[key]=key==='generationConfig'?saveGenerationConfig(shot,updates[key],defaults):updates[key];
   }
-  if(Object.hasOwn(payload.updates||{},'content')&&shot.recommendedDurationSeconds)shot.durationStatus='needs-review';
+  if(estimate){
+   delete shot.recommendedDurationSeconds;
+   Object.assign(shot,promptTimingMetadata({durationEstimate:estimate}),{durationEstimateSource:'storyboard',durationStatus:estimate.status});
+  }else if(Object.hasOwn(updates,'content')&&previousContent!==shot.content&&!sameImageBoundStoryboardText(previousContent,shot.content,previousConfig,shot.generationConfig)){
+   Object.assign(shot,markStoryboardTimingStale({...shot,content:previousContent}),{content:updates.content});
+   if(shot.durationEstimate?.status==='needs-review')delete shot.recommendedDurationSeconds;
+  }
   shot.edited_at=new Date().toISOString();
   delete shot.sourceConflict;
  }

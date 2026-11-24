@@ -1,4 +1,4 @@
-import {sameDirectorEdition} from '../../core/directorPromptEditions.js';
+import {directorEditionKey,sameDirectorEdition} from '../../core/directorPromptEditions.js';
 import {createDirectorCheckpointReader} from '../../core/directorRunView.js';
 import {storageWorkBusy} from '../../core/storageWork.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +14,8 @@ import {createDirectorManualController,commitManualSceneRun} from '../../core/di
 import {directorJobs} from '../../core/backgroundJobs.js';
 import {beginDirectorSceneGeneration} from '../../core/directorGenerationSession.js';
 import {sameJson} from '../../core/threeWayMerge.js';
+import {estimateVideoDurations,normalizeVideoDurationLimit} from '../../core/videoDurationEstimator.js';
+import {applyDirectorDurationResult,directorDurationTargets} from '../../core/directorDurationWorkflow.js';
 
 function browserCheckpoints(accountRef) {
   const key=()=>`xz-director-quick-runs:${accountRef.current || 'signed-out'}`;
@@ -34,6 +36,8 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     return {publish:()=>{revision++;for(const listener of listeners)listener();},getRevision:()=>revision,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);}};
   },[]);
   const controllerRef=useRef(null);
+  const durationTasks=useRef(new Map());
+  const estimateRunner=useRef(null);
   const manualControllerRef=useRef(null);
   const batchControllerRef=useRef(null),cloudSyncRef=useRef(null),cloudScheduledRef=useRef(new Map());
   if(!controllerRef.current){
@@ -55,6 +59,21 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       if(result?.ok===false)throw Object.assign(new Error(result.error||'生成失败'),{partialText:result.partialText||'',code:result.code||'FAILED'});
       return result?.output ?? result;
     };
+    const estimate=async({segments,maxDurationSeconds,snapshot,taskId,signal})=>{
+      const profileId=snapshot.estimateProfileId||snapshot.profileId;
+      return estimateVideoDurations({segments,maxDurationSeconds,signal,request:async({messages,maxOutputTokens,signal:requestSignal})=>{
+        const profile=stateRef.current.apiProfiles?.find(row=>row.id===profileId);
+        if(!profile)throw new Error('估时模型已移除，请重新选择');
+        if(accountRef.current!==snapshot.accountId||directorySwitchRef.current)throw new Error('账号或资料位置已变化');
+        assertMessageCapacity(messages,profile,{maxOutputTokens});
+        const cancel=()=>{void Promise.resolve(api.cancelAiTask?.({taskId})).catch(()=>{});};
+        requestSignal?.throwIfAborted();
+        requestSignal?.addEventListener('abort',cancel,{once:true});
+        try{return unwrap(await api.aiChat({...profile,profileId,messages,taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}));}
+        finally{requestSignal?.removeEventListener('abort',cancel);}
+      }});
+    };
+    estimateRunner.current=estimate;
     const commit=async(run,partial=false)=>{
       if(accountRef.current!==run.snapshot.accountId)return {applied:false,conflict:'账号已切换'};
       let result;
@@ -70,7 +89,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       return {applied:true};
     };
     const beginRun=async run=>{let result;setState(current=>{result=beginDirectorSceneGeneration({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};};
-    controllerRef.current=createQuickGenerationController({beginRun,
+    controllerRef.current=createQuickGenerationController({beginRun,estimateScene:estimate,
       getContext,checkpoints,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
       groundedTiming:true,editorialPlanning:true,maxQualityAttempts:3,
       executeText:async({messages,taskId,snapshot,maxOutputTokens=16384})=>{
@@ -86,7 +105,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       },
       commitProgress:run=>commit(run,true),commitRun:run=>commit(run),
     });
-    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,beginRun,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
+    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,beginRun,estimateScene:estimate,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
       executeSkill:async({input,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,assistantRole:'行舟影视导演提示词助手',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
       reviewSkill:async({input,beforeUserMessages,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,beforeUserMessages,assistantRole:'行舟影视导演提示词复核Agent',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
       commitRun:async run=>{if(accountRef.current!==run.snapshot.accountId)return{applied:false,conflict:'账号已切换'};let result;setState(current=>{result=commitManualSceneRun({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};},
@@ -112,7 +131,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     if(!initialized||!accountId)return;
     let live=true;
     Promise.all([controller.restore(),manualController.restore(),batchController.restore()]).catch(e=>{if(live)setRestoreError(e.message);});
-    return()=>{live=false;cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
+    return()=>{live=false;for(const active of durationTasks.current.values())active.abort();durationTasks.current.clear();cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
   },[accountId,initialized]);
   // Editing is local. Only an explicit upload publishes a captured version.
   useEffect(()=>{controller.activate();manualController.activate();batchController.activate();cloudSync.activate();return()=>{batchController.dispose();controller.dispose();manualController.dispose();cloudSync.dispose();};},[]);
@@ -127,18 +146,48 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     }
     return {runs,batches};
   };
-  const assertNoSingleWork=projectId=>{const prefix=JSON.stringify([accountRef.current,projectId]).slice(0,-1)+',';if(directorJobs.entries().some(([key,job])=>key.startsWith(prefix)&&job.status==='running')||[...controller.entries({summary:true}),...manualController.entries({summary:true})].some(r=>r.snapshot.accountId===accountRef.current&&r.snapshot.projectId===projectId&&isQuickRunActive(r)))throw new Error('本项目有场景正在生成，请等待完成或停止后继续整本任务');};
-  const freshSceneRequest=request=>{flushEditing();const current=stateRef.current,project=current.directorProjects?.find(p=>p.id===request.project.id),episode=project?.episodes?.find(e=>e.id===request.episode.id);if(!project||!episode)throw Error('项目或分集已变化');return{...request,accountId:accountRef.current,project,episode,inputText:directorSceneInput(project,episode,request.sceneLabel),skill:current.skills?.find(s=>s.id===request.skill?.id),profile:current.apiProfiles?.find(p=>p.id===request.profile?.id)};};
+  const assertNoSingleWork=projectId=>{const prefix=JSON.stringify([accountRef.current,projectId]).slice(0,-1)+',';if(durationTasks.current.has(projectId)||directorJobs.entries().some(([key,job])=>key.startsWith(prefix)&&job.status==='running')||[...controller.entries({summary:true}),...manualController.entries({summary:true})].some(r=>r.snapshot.accountId===accountRef.current&&r.snapshot.projectId===projectId&&isQuickRunActive(r)))throw new Error('本项目有场景正在生成或估时，请稍后继续');};
+  const freshSceneRequest=request=>{flushEditing();const current=stateRef.current,project=current.directorProjects?.find(p=>p.id===request.project.id),episode=project?.episodes?.find(e=>e.id===request.episode.id);if(!project||!episode)throw Error('项目或分集已变化');return{...request,maxDurationSeconds:normalizeVideoDurationLimit(request.maxDurationSeconds),accountId:accountRef.current,project,episode,inputText:directorSceneInput(project,episode,request.sceneLabel),skill:current.skills?.find(s=>s.id===request.skill?.id),profile:current.apiProfiles?.find(p=>p.id===request.profile?.id)};};
+  const estimateSaved=async ({projectId,profileId,estimateProfileId,...scope})=>{
+    flushEditing();assertNoSingleWork(projectId);
+    if(durationTasks.current.has(projectId)||directorySwitchRef.current||summaries().batches.some(batch=>batch.snapshot.projectId===projectId&&isDirectorBatchActive(batch)))throw Error('本项目正在生成或估时，请稍后重试');
+    const account=accountRef.current,directory=directoryEpochRef.current;
+    const project=stateRef.current.directorProjects?.find(p=>p.id===projectId);
+    const writable=current=>current&&!current.cloudLocked&&!current.cloudConflict&&!current.cloudLiveNeedsRepair&&current.canWrite!==false&&current.permissions?.canWrite!==false&&current.permissions?.canGenerate!==false;
+    if(!writable(project))throw Error('当前项目锁定或无权估时');
+    if(!stateRef.current.apiProfiles?.some(row=>row.id===(estimateProfileId||profileId)))throw Error('请选择估时模型');
+    const targets=directorDurationTargets(project,scope);
+    if(!targets.length)return {total:0};
+    const latestProject=()=>stateRef.current.directorProjects?.find(p=>p.id===projectId);
+    const current=()=>accountRef.current===account&&directoryEpochRef.current===directory&&!worker.signal.aborted&&writable(latestProject())&&sameDirectorEdition(latestProject(),{projectId,promptEditionId:directorEditionKey(project)});
+    const worker=new AbortController();durationTasks.current.set(projectId,worker);progress.publish();
+    try{
+      for(const target of targets){
+        if(!current())break;
+        const live=latestProject().episodes.find(episode=>episode.id===target.episodeId);
+        const prompts=target.prompts.filter(frozen=>live?.prompts?.some(row=>row.id===frozen.id&&row.content===frozen.content));
+        if(!prompts.length)continue;
+        const estimates=await estimateRunner.current({segments:prompts.map(p=>({id:p.label,prompt:p.content,script:p.script})),maxDurationSeconds:target.limit,
+          snapshot:{accountId:account,profileId,estimateProfileId},taskId:`director-duration-manual-${crypto.randomUUID()}`,signal:worker.signal});
+        if(!current())break;
+        setState(state=>({...state,directorProjects:state.directorProjects.map(row=>row.id===projectId&&writable(row)&&sameDirectorEdition(row,{projectId,promptEditionId:directorEditionKey(project)})?applyDirectorDurationResult(row,target,estimates):row)}));
+        persistence.enqueue(stateRef.current);await persistence.flush();
+      }
+      return {total:targets.length};
+    }catch(error){if(!worker.signal.aborted)throw error;return {cancelled:true};}
+    finally{if(durationTasks.current.get(projectId)===worker)durationTasks.current.delete(projectId);progress.publish();}
+  };
   return {
-    startManualScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):manualController.start(freshSceneRequest(request)),
-    startScene:request=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后生成')):controller.start(freshSceneRequest(request)),resume:(runId,options)=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):controller.resume(runId,options),stop:runId=>controller.stop(runId),
+    startManualScene:request=>directorySwitchRef.current||durationTasks.current.has(request.project.id)?Promise.reject(new Error('资料位置正在切换或项目正在估时，请稍后生成')):manualController.start(freshSceneRequest(request)),
+    startScene:request=>directorySwitchRef.current||durationTasks.current.has(request.project.id)?Promise.reject(new Error('资料位置正在切换或项目正在估时，请稍后生成')):controller.start(freshSceneRequest(request)),resume:(runId,options)=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):controller.resume(runId,options),stop:runId=>controller.stop(runId),
     get runs(){return summaries().runs;},restoreError,subscribe:progress.subscribe,getRevision:progress.getRevision,
     saveLocal:async()=>{persistence.enqueue(stateRef.current);await persistence.flush();},
     getManualSceneRun:id=>manualController.get(id),
     resumeManualScene:id=>directorySwitchRef.current?Promise.reject(new Error('资料位置正在切换，请稍后继续')):manualController.resume(id),
     stopManualScene:id=>manualController.stop(id),
     getSceneManualRuns:(projectId,episodeId,sceneLabel)=>manualController.entries({projectId,episodeId,sceneLabel,accountId}).filter(run=>sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),run.snapshot)),
-    previewBatch:request=>createDirectorBatchPlan({...request,accountId}),
+    previewBatch:request=>createDirectorBatchPlan({...request,maxDurationSeconds:normalizeVideoDurationLimit(request.maxDurationSeconds),accountId}),
+    estimateSaved,isProjectEstimating:projectId=>durationTasks.current.has(projectId),cancelEstimate:projectId=>durationTasks.current.get(projectId)?.abort(),
     startBatch:async plan=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');assertNoSingleWork(plan.snapshot.projectId);return batchController.start(plan);},
     resumeBatch:async id=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');const batch=batchController.get(id);if(!batch)throw new Error('找不到整本任务');if(!isDirectorBatchActive(batch))assertNoSingleWork(batch.snapshot.projectId);return batchController.resume(id);},
     pauseBatch:id=>batchController.pause(id),cancelBatch:id=>batchController.cancel(id),
@@ -163,10 +212,10 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       if(!result?.acknowledged)throw new Error('上传未确认，本地版本已保留，请刷新后核对');
     },
     getSceneRun:(projectId,episodeId,sceneLabel)=>{const project=stateRef.current.directorProjects?.find(p=>p.id===projectId),activeId=project?.episodes?.find(e=>e.id===episodeId)?.activeSceneGenerationRuns?.[sceneLabel]?.runId;const row=summaries().runs.filter(run=>run.kind!=='manual-scene'&&(!activeId||run.id===activeId)&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel&&sameDirectorEdition(project,run.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?controller.get(row.id):null;},
-    pauseAndFlush:async()=>{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
-    prepareDirectorySwitch:async()=>{if(storageWorkBusy()||directorJobs.entries().some(([,j])=>j.status==='running')||[...(stateRef.current.fruitProjects||[]),...(stateRef.current.scriptProjects||[])].some(p=>(p.creator?.records||[]).some(r=>r.status==='running')))throw new Error('仍有创作任务正在运行，请任务完成后再切换资料目录');directorySwitchRef.current=true;directoryEpochRef.current++;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
+    pauseAndFlush:async()=>{for(const active of durationTasks.current.values())active.abort();await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
+    prepareDirectorySwitch:async()=>{if(storageWorkBusy()||durationTasks.current.size||directorJobs.entries().some(([,j])=>j.status==='running')||[...(stateRef.current.fruitProjects||[]),...(stateRef.current.scriptProjects||[])].some(p=>(p.creator?.records||[]).some(r=>r.status==='running')))throw new Error('仍有创作任务正在运行，请任务完成后再切换资料目录');directorySwitchRef.current=true;directoryEpochRef.current++;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
     finishDirectorySwitch:()=>{directoryEpochRef.current++;try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();window.dispatchEvent(new Event('xz-storage-changed'));}finally{directorySwitchRef.current=false;}},
-    get active(){const current=summaries();return current.runs.some(isQuickRunActive)||current.batches.some(isDirectorBatchActive);},
+    get active(){const current=summaries();return durationTasks.current.size>0||current.runs.some(isQuickRunActive)||current.batches.some(isDirectorBatchActive);},
   };
   },[accountId,restoreError,progress,controller,manualController,batchController,cloudSync,persistence,stateRef,setState]);
 }

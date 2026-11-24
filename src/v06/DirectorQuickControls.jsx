@@ -60,8 +60,8 @@ export function DirectorQuickControls({settings,onSettingsChange,disabled=false}
     <label>分段方式<select aria-label="分段方式" disabled={disabled} value={settings.segmentationMode} onChange={e=>onSettingsChange({...settings,segmentationMode:e.target.value})}>
       <option value="manual">人工分段</option><option value="auto">自动分段</option>
     </select></label>
-    <label>最高时长<select aria-label="最高视频时长" disabled={!isAuto||disabled} value={settings.maxDurationSeconds} onChange={e=>onSettingsChange({...settings,maxDurationSeconds:Number(e.target.value)})}>
-      {Array.from({length:36},(_,i)=>i).map(n=><option key={n} value={n}>{n===0?'0 · 自动（≤35秒）':`${n} 秒`}</option>)}
+    <label>最高时长<select aria-label="最高视频时长" disabled={disabled} value={settings.maxDurationSeconds} onChange={e=>onSettingsChange({...settings,maxDurationSeconds:Number(e.target.value)})}>
+      {[15,30].map(n=><option key={n} value={n}>{n} 秒</option>)}
     </select></label>
     {isAuto&&<DirectorPaceRail disabled={disabled} value={settings.pace ?? DEFAULT_DIRECTOR_PACE} onChange={pace=>onSettingsChange({...settings,pace})}/>}
   </div>;
@@ -69,7 +69,7 @@ export function DirectorQuickControls({settings,onSettingsChange,disabled=false}
 
 export function DirectorQuickProgress({run,sceneText='',maxDurationSeconds=30,pace=DEFAULT_DIRECTOR_PACE,calibration,applied,onApply,onStop,onResume,sourceView,onSourceViewChange,stale,error}) {
   const active=isQuickRunActive(run);
-  const descriptions={planning:'分析整场与时长','validating-plan':'核对分段计划',generating:'整场导演预演与提示词生成',auditing:'核对衔接与完整性','ready-to-commit':'保存生成结果',completed:'本轮已完成',paused:'已暂停，可继续',failed:'生成中断，草稿已保留','needs-review':'内容需要核对，草稿已保留',stale:'原文或设置已变化，请重新生成'};
+  const descriptions={planning:'分析整场与时长','validating-plan':'核对分段计划',generating:'整场导演预演与提示词生成',auditing:'核对衔接与完整性',estimating:'精准估时中','ready-to-commit':'保存生成结果',completed:'本轮已完成',paused:'已暂停，可继续',failed:'生成中断，草稿已保留','needs-review':'内容需要核对，草稿已保留',stale:'原文或设置已变化，请重新生成'};
   const liveEstimate = useMemo(() => {
     const trimmed = String(sceneText || '').trim();
     if (!trimmed) return null;
@@ -104,7 +104,7 @@ export function DirectorQuickProgress({run,sceneText='',maxDurationSeconds=30,pa
     {!!run?.auditWarnings?.length&&<details className="quick-run-warning"><summary>提示词已展示，有 {run.auditWarnings.length} 项核对提醒</summary>{run.auditWarnings.map((item,i)=><p key={i}>{item.segmentIndex?`第 ${item.segmentIndex} 条：`:''}{item.message}</p>)}</details>}
     {(stale||run?.phase==='stale')&&<p className="quick-run-warning">原文或节奏/上限设定已变化，点击“生成”按当前节奏重新划分（上方显示实时预计秒数）。</p>}
     {(error||run?.errors?.[0]?.message)&&<p role="alert" className="quick-run-warning">{error||run.errors[0].message}</p>}
-    {run?.plan&&sourceView==='plan'&&<div className="quick-plan-timing">{run.plan.segments.map(s=><span key={s.id}>（{s.index}）建议 {s.recommendedDurationSeconds} 秒{s.durationCompression&&Number.isFinite(s.naturalEstimatedSeconds)&&` · 自然预计 ${Math.round(s.naturalEstimatedSeconds*10)/10} 秒，紧凑节奏`}</span>)}</div>}
+    {run?.plan&&sourceView==='plan'&&<div className="quick-plan-timing">{run.plan.segments.map(s=><span key={s.id}>（{s.index}）划分参考 {s.recommendedDurationSeconds} 秒</span>)}</div>}
     {run&&run.phase!=='completed'&&Object.values(run.segmentDrafts||{}).some(d=>d.prompt?.content)&&<details className="quick-draft-preview"><summary>查看本轮草稿与核对内容</summary>{Object.entries(run.segmentDrafts).map(([id,d])=>d.prompt?.content&&<FormattedText key={id} text={d.prompt.content}/>)}</details>}
     {!!run?.previousDrafts?.length&&<details className="quick-draft-preview"><summary>查看更新前保留的草稿</summary>{run.previousDrafts.map((d,i)=><FormattedText key={i} text={d.prompt.content}/>)}</details>}
   </div>;

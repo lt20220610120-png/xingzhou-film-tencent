@@ -5,3 +5,17 @@ test('host saves correct prompt/settings and submits only the selected current p
 test('stale confirmation bases cannot overwrite collaborator edits, changed reference config or wrong scope',async t=>{for(const change of ['content','config','scope']){const f=fixture(t);if(change==='content')f.project.episodes[0].storyboardPrompts[0].content='协作者新稿';if(change==='config')f.project.episodes[0].storyboardPrompts[0].generationConfig.ratio='9:16';if(change==='scope')f.payload.sceneId='1-2';await assert.rejects(f.q.start(f.payload),/修改|范围/);assert.equal(f.saved.length,0);assert.equal(f.sent.length,0);}});
 test('locked project and wrong account never create batch work',async t=>{const f=fixture(t);f.project.locked=true;await assert.rejects(f.q.start(f.payload),/锁定/);f.project.locked=false;f.switchAccount();await assert.rejects(f.q.start(f.payload),/账号/);assert.equal(f.sent.length,0);});
 test('already completed shot is skipped without touching its newer unsaved draft',async t=>{const f=fixture(t);f.jobs.push({id:'old',projectId:'p',shotId:'s',kind:'video',status:'success'});f.payload.items[0].baseContent='旧基线';f.payload.items[0].value.prompt='尚未保存的新稿';const run=await f.q.start(f.payload);await f.q.idle();assert.equal(f.sent.length,0);assert.equal(f.saved.length,0);assert.equal(f.q.list({projectId:'p',accountId:'a'})[0].counts.skipped,1);});
+test('batch scope rejects awaiting estimates before saving or sending work',async t=>{
+ const f=fixture(t),shot=f.project.episodes[0].storyboardPrompts[0];
+ shot.durationEstimate={version:'2.0.0',status:'pending',maxDurationSeconds:30,error:{code:'TIMEOUT',message:'估时超时'}};
+ f.payload.items[0].value.prompt=shot.content;
+ await assert.rejects(f.q.start(f.payload),/批量生成未启动.*待估时/);
+ assert.equal(f.saved.length,0);assert.equal(f.sent.length,0);
+});
+test('batch with an explicit model duration policy aligns the persisted and generated execution seconds',async t=>{
+ const f=fixture(t),shot=f.project.episodes[0].storyboardPrompts[0],item=f.payload.items[0];
+ shot.durationEstimate={version:'2.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:17,recommendedSeconds:17,needsResegment:false,capacityStatus:'正常',breakdown:{speechSeconds:12,nonparallelActionSeconds:4,pauseBufferSeconds:1},reason:'原话与动作合计。'};
+ item.value={...item.value,prompt:shot.content,durationMode:'recommended',durationAlignment:'ceil',recommendedDurationSeconds:17,duration:17};
+ await f.q.start(f.payload);await f.q.idle();
+ assert.equal(f.saved[0].updates.generationConfig.duration,30);assert.equal(f.sent[0].duration,30);
+});

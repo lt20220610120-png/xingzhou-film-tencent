@@ -1,5 +1,7 @@
 import {compileEntryBinding} from './promptArtBinding.js';
 import {promptTimingMetadata} from './promptDisplay.js';
+import {alignStoryboardDuration,savedStoryboardTiming,storyboardEstimateIssue,storyboardRecommendationLimit} from './storyboardTiming.js';
+import {savedDurationEstimate} from './videoDurationMetadata.js';
 
 export const storyboardShots=episode=>episode.storyboardPrompts||episode.prompts||[];
 export function storyboardPublicationPayload(snapshot,decisions,entries){
@@ -16,5 +18,21 @@ export async function validateStoryboardSubmission({getProject,value,accountId})
  const shot=episode&&storyboardShots(episode).find(s=>s.id===value.shotId);
  if(!shot)throw Error('分镜不存在，请刷新项目');
  if((shot.storyboardPublicationId||'')!==(value.storyboardPublicationId||''))throw Error('清单已发布新版本，请刷新项目');
+ const timing=savedStoryboardTiming(episode,shot),estimate=savedDurationEstimate(timing),configuration=shot.generationConfig||{};
+ if(estimate||configuration.durationAlignment==='ceil'){
+  const issue=storyboardEstimateIssue(timing);
+  if(issue)throw Error(issue);
+  // Authorization alone does not establish that a queued or old renderer is
+  // still submitting the words covered by the latest estimate.
+  if(value.originalPrompt!==shot.content)throw Error('分镜正文已变化，请刷新并核对时长');
+  const seconds=Number(value.duration),maximum=configuration.durationMode==='recommended'?storyboardRecommendationLimit(timing):estimate?.maxDurationSeconds??3600;
+  if(!Number.isInteger(seconds)||seconds<1||seconds>maximum)throw Error(`执行时长超出 ${maximum} 秒档限制`);
+  if(configuration.durationMode==='recommended'){
+   const caps=value.modelCapabilities||{};
+   const policy={supportedDurations:caps.durationByResolution?.[value.resolution]||caps.durations,durationRange:caps.durationRange};
+   const recommendation=estimate?.recommendedSeconds??timing.recommendedDurationSeconds??configuration.recommendedDurationSeconds;
+   if(seconds!==alignStoryboardDuration(recommendation,policy,maximum))throw Error('执行时长与已保存的建议和当前模型档位不符，请重新按建议时长设置');
+  }
+ }
  return {references:value.references||[]};
 }

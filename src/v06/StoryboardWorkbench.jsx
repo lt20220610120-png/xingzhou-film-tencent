@@ -2,6 +2,10 @@ import {useWorkspacePolling} from './useWorkspacePolling.js';
 import {promptMaterialRow} from '../../core/promptMaterialStatus.js';
 import './prompt-material-overview.css';
 import {recommendedPromptDuration,recommendedStoryboardTiming} from '../../core/promptDisplay.js';
+import {alignStoryboardDuration,storyboardEstimateIssue,storyboardRecommendationLimit,storyboardTimingForDraft} from '../../core/storyboardTiming.js';
+import {estimateVideoDurations,normalizeVideoDurationLimit} from '../../core/videoDurationEstimator.js';
+import {readRemembered} from '../useRememberedState.js';
+import {confirmAction} from '../components/workspace-dialog.js';
 import StoryboardBatchPanel from './StoryboardBatchPanel.jsx';
 import {videoExportId} from '../../core/projectVideoPool.js';
 import {storyboardShots} from '../../core/storyboardPublication.js';
@@ -27,6 +31,9 @@ import {parseDirectorScenesReadonly,inferDirectorEpisodeNumber} from '../../core
 import {normalizeStoryboardEpisodes} from '../../core/storyboardIdentity.js';
 import {projectReferenceCandidates, removeGenerationReference, generationReferenceKey} from '../../core/automaticReferences.js';
 
+function readStoryboardDraft(key){
+ try{const stored=readQueuedDraft(key);return stored.found?stored.value:JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}
+}
 
 function GenerationWorkbenchTools({scopeKey,settings,progress,children}){
  const key='xz-generation-tools:'+scopeKey;
@@ -42,7 +49,8 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const material=materialEntry&&promptMaterialRow(promptBinding,materialEntry);
  const storageKey=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
  const editable=value=>({...value,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''});
- const read=()=>{try{const queued=readQueuedDraft(storageKey);return queued.found?queued.value:JSON.parse(localStorage.getItem(storageKey)||'null')}catch{return null}};
+ const baseFor=row=>({content:row.content,generationConfig:row.generationConfig,durationEstimate:row.durationEstimate});
+ const read=()=>readStoryboardDraft(storageKey);
  const sceneReferences=()=>projectReferenceCandidates(assets,media,project.id,epNumber,scene,{assetImageSlots:true,includeEmptyAssetSlots:true});
  const cleanDraft=entry=>{
   const cleaned=applyStoryboardDefaults(cleanStoryboardReferenceValue(entry.value,project.id),defaults,shot.id);
@@ -51,9 +59,11 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
   const needsSave=linked&&(JSON.stringify(value.references)!==JSON.stringify(shot.generationConfig?.references||[])||value.bindingCompiledPrompt!==shot.generationConfig?.bindingCompiledPrompt||value.prompt!==shot.content);
   return {...entry,value,dirty:entry.dirty||cleaned!==entry.value||needsSave};
  };
- const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:{content:shot.content,generationConfig:shot.generationConfig},dirty:false});
+ const cloudDraft=()=>cleanDraft({value:{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||sceneReferences()},base:baseFor(shot),dirty:false});
  const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(cleanStoryboardReferenceValue(stored.value,project.id),defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
- const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null);
+ const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null),[estimating,setEstimating]=useState(false);
+ const estimateRequest=useRef(null);
+ useEffect(()=>()=>{const request=estimateRequest.current;if(request){request.abort();void Promise.resolve(api.cancelAiTask?.({taskId:request.taskId})).catch(()=>{});}},[]);
  const current=useRef(draft);current.current=draft;
  const restoreReferenceScroll=useRef(null);
  useLayoutEffect(()=>{
@@ -91,14 +101,14 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const readyReferenceCount=referencePreviews.filter(visibleStoryboardReference).length;
  const audioNeedsShare=project.storageMode!=='local'&&referencePreviews.some(ref=>ref.kind==='audio'&&ref.filePath&&!ref.mediaId);
  const refreshAssets=()=>{void Promise.resolve(refresh?.({assetsOnly:true})).catch(()=>{});};
- const save=async()=>{
+ const save=async({estimate}={})=>{
   if(!canEdit)return;setSaving(true);setError('');
   const savingDraft=current.current;
   try{const savedValue=cleanStoryboardReferenceValue(savingDraft.value,project.id),{content,generationConfig}=storyboardSaveUpdates(savedValue);
-   const saved=await api.collabPatchStoryboard({ackOnly:true,projectId:project.id,episodeId:episode.id,...(!episode.storyboardPrompts?{promptEditionId:episode.promptEditionId||'legacy'}:{}),editPolicy:'direct',storyboardPublicationId:shot.storyboardPublicationId,shotId:shot.id,base:savingDraft.base,updates:{content,generationConfig}});
+   const saved=await api.collabPatchStoryboard({ackOnly:true,projectId:project.id,episodeId:episode.id,...(!episode.storyboardPrompts?{promptEditionId:episode.promptEditionId||'legacy'}:{}),editPolicy:'direct',storyboardPublicationId:shot.storyboardPublicationId,shotId:shot.id,base:savingDraft.base,...(estimate?{requireExactBase:true}:{}),updates:{content,generationConfig,...(estimate?{durationEstimate:estimate}:{})}});
    onProjectChange(saved);
    // Do not clear edits typed while the request was in flight.
-   const acknowledged=saved.storyboardReceipt?.shot||(saved.episodes||[]).flatMap(storyboardShots).find(p=>p.id===shot.id),savedBase=acknowledged?{content:acknowledged.content,generationConfig:acknowledged.generationConfig}:{content,generationConfig};
+   const acknowledged=saved.storyboardReceipt?.shot||(saved.episodes||[]).flatMap(storyboardShots).find(p=>p.id===shot.id),savedBase=acknowledged?baseFor(acknowledged):{content,generationConfig,durationEstimate:estimate||savingDraft.base.durationEstimate};
    if(current.current===savingDraft){
     const references=acknowledged?.generationConfig?.references;
     const value=references?{...savedValue,references}:savedValue;
@@ -109,6 +119,35 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
    return true;
   }catch(e){const message=String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,'');let refreshed=false;if(/协作者修改|分镜已变更|提示词版本已切换/.test(message)&&api.collabGetProject){try{onProjectChange(await api.collabGetProject({projectId:project.id}));refreshed=true;}catch{}}setError(refreshed?'':message);return false;}finally{setSaving(false);}
  };
+ const timing=storyboardTimingForDraft({...shot,...recommendedStoryboardTiming(promptBinding,shot)},draft.value,shot.content||'');
+ const reestimate=async()=>{
+  if(!canEdit||saving||estimateRequest.current)return;
+  const snapshot=current.current, prompt=snapshot.value.prompt;
+  if(!prompt?.trim())return;
+  const profiles=state.apiProfiles||[],source=state.directorProjects?.find(row=>row.id===project.director_project_id||row.cloudProjectId===project.director_project_id);
+  const sourceEpisode=source?.episodes?.find(ep=>inferDirectorEpisodeNumber(ep)===epNumber);
+  let directorModel='';
+  try{if(sourceEpisode)directorModel=localStorage.getItem(`xz-model:director-model:${accountId}:${source.id}:${sourceEpisode.id}`);}catch{}
+  const ids=[readRemembered(`xz-director-duration-model:${accountId}`,''),directorModel,state.activeApiId];
+  const profile=ids.map(id=>profiles.find(row=>row.id===id)).find(Boolean)||profiles[0];
+  if(!profile||!api.aiChat){setError('请选择可用的文本估时模型');return;}
+  const job=new AbortController();job.taskId=crypto.randomUUID();estimateRequest.current=job;setEstimating(true);setError('');
+  const segmentId=shot.label||shot.id,maxDurationSeconds=normalizeVideoDurationLimit(timing.durationEstimate?.maxDurationSeconds??timing.maxDurationSeconds);
+  try{
+   const estimates=await estimateVideoDurations({segments:[{id:segmentId,script:timing.durationSourceScript||'',prompt}],maxDurationSeconds,
+    signal:job.signal,request:async({messages,maxOutputTokens,signal})=>{
+     const cancel=()=>void Promise.resolve(api.cancelAiTask?.({taskId:job.taskId})).catch(()=>{});
+     signal?.addEventListener('abort',cancel,{once:true});
+     try{const response=await api.aiChat({...profile,profileId:profile.id,taskId:job.taskId,messages,maxOutputTokens,analysisMode:true});return response?.output??response;}
+     finally{signal?.removeEventListener('abort',cancel);}
+    }});
+   job.signal.throwIfAborted();
+   if(current.current.value.prompt!==prompt||current.current.base.content!==snapshot.base.content||JSON.stringify(current.current.base.durationEstimate)!==JSON.stringify(snapshot.base.durationEstimate)){setError('分镜已修改，请重新估时');return;}
+   const estimate=estimates.get(segmentId);
+   if(estimate)await save({estimate});
+  }catch(reason){if(!job.signal.aborted)setError(String(reason?.message||'估时未完成').replace(/^Error invoking remote method '[^']+': Error: /,''));}
+  finally{if(!job.signal.aborted)setEstimating(false);if(estimateRequest.current===job)estimateRequest.current=null;}
+ };
  const chooseUpload=async tab=>{
   const item=await api.collabUploadMedia({projectId:project.id,episode:epNumber,scene,note:`参考素材 ${shot.label}`,kind:tab});
   if(!item)return null;const all=await loadMedia();const found=all?.find(m=>m.id===item.id);return found?{...found,name:found.filename||found.note}:null;
@@ -117,7 +156,7 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const cloudVideos=media.filter(m=>!deletedMediaIds.has(m.id)&&m.kind==='video'&&(m.note?.includes(`[shot:${shot.id}]`)||m.note===shot.label)&&m.scene===scene).map(m=>({...m,mediaId:m.id,shotLabel:shot.label,localResult:false,status:'success',prompt:shot.content}));
  const localTasks=tasks.filter(t=>t.projectId===project.id&&t.shotId===shot.id&&!t.archived&&!t.projectVideoDeleted).map(t=>({...t,localResult:true}));
  const results=[...localTasks,...cloudVideos.filter(m=>!localTasks.some(t=>t.mediaId===m.id))];
- return <><article className="collab-shot-card" data-shot-id={shot.id}><header><b className="collab-shot-badge">{shot.label}</b><div className="storyboard-reference-actions"><button type="button" className="storyboard-import-scene" disabled={!canEdit||saving||bindingLoading||!!bindingReadError||!!sceneImportError||!sceneImportRefs.length} onClick={importScene}><Plus size={14}/>导入本场景素材</button><button type="button" disabled={!canEdit||!baseline.references?.length} onClick={()=>restore()}><RefreshCw size={14}/>重新载入本条关联素材</button>{!!removedReferences.length&&<details><summary><RotateCcw size={14}/>恢复素材（{removedReferences.length}）</summary><div className="storyboard-reference-recovery"><button disabled={!canEdit} onClick={()=>restore()}>全部恢复</button>{removedReferences.map(ref=><button key={generationReferenceKey(ref)} disabled={!canEdit} onClick={()=>restore([generationReferenceKey(ref)])}>{ref.kind==='image'&&<img src={mediaSource(ref)} alt=""/>}{ref.name}</button>)}</div></details>}</div><div className="storyboard-save-actions"><span ref={setNoticeTarget} className="storyboard-notice-slot"/><button disabled={!canEdit||(!draft.dirty&&!audioNeedsShare)||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}><Trash2 size={14}/>删除分镜</button></div></header>{(sceneImportNotice||sceneImportError)&&<p className="storyboard-scene-import-status" role={sceneImportError?"alert":"status"}>{sceneImportError||sceneImportNotice}</p>}{material&&!material.ready&&<div className="storyboard-material-status" role="status"><b>{material.label}</b><span>{material.issues[0]||"提示词关联尚未发布"}{readyReferenceCount?` · 当前素材 ${readyReferenceCount} 项`:""}</span>{onOpenReview&&<button type="button" onClick={()=>onOpenReview(materialEntry)}>定位清单中的 {materialEntry.label}</button>}</div>}<GenerationComposer api={api} accountId={accountId} state={state} referenceViewport onAssetSlotEmpty={refreshAssets} bindingNoticeTarget={noticeTarget} timing={recommendedStoryboardTiming(promptBinding,shot)||shot} referenceCandidates={referenceCandidates} value={{...draft.value,references:referencePreviews}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
+ return <><article className="collab-shot-card" data-shot-id={shot.id}><header><b className="collab-shot-badge">{shot.label}</b><div className="storyboard-reference-actions"><button type="button" className="storyboard-import-scene" disabled={!canEdit||saving||bindingLoading||!!bindingReadError||!!sceneImportError||!sceneImportRefs.length} onClick={importScene}><Plus size={14}/>导入本场景素材</button><button type="button" disabled={!canEdit||!baseline.references?.length} onClick={()=>restore()}><RefreshCw size={14}/>重新载入本条关联素材</button>{!!removedReferences.length&&<details><summary><RotateCcw size={14}/>恢复素材（{removedReferences.length}）</summary><div className="storyboard-reference-recovery"><button disabled={!canEdit} onClick={()=>restore()}>全部恢复</button>{removedReferences.map(ref=><button key={generationReferenceKey(ref)} disabled={!canEdit} onClick={()=>restore([generationReferenceKey(ref)])}>{ref.kind==='image'&&<img src={mediaSource(ref)} alt=""/>}{ref.name}</button>)}</div></details>}</div><div className="storyboard-save-actions"><span ref={setNoticeTarget} className="storyboard-notice-slot"/><button disabled={!canEdit||(!draft.dirty&&!audioNeedsShare)||saving} onClick={save}><Save size={14}/>{saving?'保存中…':'保存分镜'}</button><button className="danger" disabled={!canEdit||saving} onClick={()=>onDelete(shot)}><Trash2 size={14}/>删除分镜</button></div></header>{(sceneImportNotice||sceneImportError)&&<p className="storyboard-scene-import-status" role={sceneImportError?"alert":"status"}>{sceneImportError||sceneImportNotice}</p>}{material&&!material.ready&&<div className="storyboard-material-status" role="status"><b>{material.label}</b><span>{material.issues[0]||"提示词关联尚未发布"}{readyReferenceCount?` · 当前素材 ${readyReferenceCount} 项`:""}</span>{onOpenReview&&<button type="button" onClick={()=>onOpenReview(materialEntry)}>定位清单中的 {materialEntry.label}</button>}</div>}<GenerationComposer api={api} accountId={accountId} state={state} referenceViewport onAssetSlotEmpty={refreshAssets} bindingNoticeTarget={noticeTarget} timing={timing} estimating={estimating} onReestimate={reestimate} referenceCandidates={referenceCandidates} value={{...draft.value,references:referencePreviews}} onChange={change} disabled={!canEdit} onPick={kind=>setPicker(kind||'image')} onSubmit={async input=>{
   change({...current.current.value,prompt:input.originalPrompt,references:[...normalizeGenerationReferences(current.current.value.references||[]),...input.references.filter(r=>!normalizeGenerationReferences(current.current.value.references||[]).some(old=>generationReferenceKey(old)===generationReferenceKey(r)))],model:input.model,profileId:input.profileId,ratio:input.ratio,duration:input.duration,resolution:input.resolution,autoReferenceOrder:input.autoReferenceOrder,autoReferenceSignature:input.autoReferenceSignature,autoReferenceExclusions:input.autoReferenceExclusions});
   if(!await save())throw new Error('分镜尚未保存，请先处理保存提示');
   const unresolved=assets.filter(a=>{const name=referenceName(a.name);return !assetSkipsReferenceImage(a)&&(input.originalPrompt.includes(`@${name}`)||input.originalPrompt.includes(`@【${name}】`))&&!input.references.some(r=>r.assetId===a.id);});
@@ -131,6 +170,7 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
  const editionId=project.episodes?.some(e=>e.storyboardPrompts)?'published':project.episodes?.find(e=>e.promptEditionId)?.promptEditionId||'legacy',defaultsScope=JSON.stringify([accountId,project.id,editionId]);
  const scope={accountId,projectId:project.id,editionId};
  const [resolvedSettings,setResolvedSettings]=useState(null),[timingNotice,setTimingNotice]=useState(''),[batchStatus,setBatchStatus]=useState(null);
+ const [manualResetScope,setManualResetScope]=useState(null);
  const [defaultState,setDefaultState]=useState(()=>({scope:defaultsScope,value:readStoryboardDefaults(scope)})),[defaultForm,setDefaultForm]=useState(()=>readStoryboardDefaults(scope)?.settings||{}),[defaultsError,setDefaultsError]=useState(''),[applying,setApplying]=useState(false);
  const legacyDefaults=defaultState.scope===defaultsScope?defaultState.value:readStoryboardDefaults(scope);
  useEffect(()=>{setDefaultState({scope:defaultsScope,value:readStoryboardDefaults(scope)});setDefaultForm(readStoryboardDefaults(scope)?.settings||{});setDefaultsError('');},[defaultsScope]);
@@ -158,15 +198,40 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
  const currentScene=labels.includes(scene)?scene:labels[0];
  const defaults=episode?.storyboardDefaultSettings?.scenes?.[currentScene]||episode?.storyboardDefaultSettings?.global||legacyDefaults;
  useEffect(()=>{if(defaults?.settings)setDefaultForm(defaults.settings);},[episode?.id,currentScene,defaults?.revision]);
- const applyRecommended=async target=>{
-  if(applying||!resolvedSettings)return;setApplying(true);setDefaultsError('');setTimingNotice('');
-  try{const recommendedDurations={},recommendedDurationSources={},selected=[];let missing=0,unsupported=0;
-   for(const ep of episodes){if(target!=='project'&&ep.id!==episode?.id)continue;for(const shot of ep.prompts){if(target==='scene'&&String(shot.label||'').split('-').slice(0,2).join('-')!==currentScene)continue;selected.push(shot.id);const timing=recommendedStoryboardTiming(promptBinding,shot)||shot,seconds=recommendedPromptDuration(timing);if(!seconds){missing++;continue;}recommendedDurationSources[shot.id]={sourcePromptId:timing.sourcePromptId||shot.sourcePromptId||shot.id,sourceContent:timing.sourceContent||shot.sourceContent||shot.content,recommendedDurationSeconds:seconds};if(resolvedSettings.supportedDurations?.length&&!resolvedSettings.supportedDurations.includes(seconds)){unsupported++;continue;}recommendedDurations[shot.id]=seconds;}}
-   const {supportedDurations,...settings}=resolvedSettings;
-   const saved=await api.collabPatchStoryboard({projectId:project.id,operation:'settings',scope:target,episodeId:episode?.id,sceneId:currentScene,durationMode:'recommended',recommendedDurations,recommendedDurationSources,settings,revision:crypto.randomUUID()});onProjectChange(saved);
-   const applied=(saved.episodes||[]).flatMap(storyboardShots).filter(s=>selected.includes(s.id)&&recommendedDurations[s.id]!==undefined&&s.generationConfig?.duration===recommendedDurations[s.id]).length;
-   setTimingNotice(`已按建议设置 ${applied} 条${missing?`；${missing} 条缺少建议时长`:''}${unsupported?`；${unsupported} 条当前模型不支持，生成前需处理`:''}`);
-  }catch(e){setDefaultsError(e.message);}finally{setApplying(false);}
+ const applyRecommended=async(target,includeManualDuration=false)=>{
+  if(applying||!resolvedSettings)return;setApplying(true);setDefaultsError('');setTimingNotice('');setManualResetScope(null);
+  try{
+   const recommendedDurations={},recommendedDurationSources={};
+   const {supportedDurations,durationRange,...settings}=resolvedSettings,policy={supportedDurations,durationRange};
+   const selected=episodes.filter(ep=>target==='project'||ep.id===episode?.id).flatMap(ep=>ep.prompts.filter(shot=>target!=='scene'||String(shot.label||'').startsWith(currentScene+'-')));
+   for(const shot of selected){
+    const draftKey=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
+    const draft=readStoryboardDraft(draftKey);
+    const timing=recommendedStoryboardTiming(promptBinding,shot)||shot;
+    if(draft?.dirty&&((draft.value.durationManuallyAdjusted===true&&draft.value.duration!==shot.generationConfig?.duration)||
+      storyboardEstimateIssue(storyboardTimingForDraft({...shot,...timing},draft.value,shot.content||''))!==storyboardEstimateIssue(timing))){
+     throw Error(`${shot.label} 有未保存的正文或手调时长，请先保存分镜。`);
+    }
+    if(storyboardEstimateIssue(timing)||!includeManualDuration&&shot.generationConfig?.durationManuallyAdjusted===true)continue;
+    const seconds=recommendedPromptDuration(timing);if(seconds===null)continue;
+    recommendedDurationSources[shot.id]={sourcePromptId:timing.sourcePromptId||shot.sourcePromptId||shot.id,sourceContent:timing.sourceContent||shot.sourceContent||shot.content,recommendedDurationSeconds:seconds,...(timing.durationEstimate?{durationEstimate:timing.durationEstimate}:{})};
+    const aligned=alignStoryboardDuration(seconds,policy,storyboardRecommendationLimit(timing));
+    if(aligned!==null)recommendedDurations[shot.id]=aligned;
+   }
+   const revision=crypto.randomUUID();
+   const saved=await api.collabPatchStoryboard({projectId:project.id,operation:'settings',scope:target,episodeId:episode?.id,sceneId:currentScene,durationMode:'recommended',recommendedDurations,recommendedDurationSources,supportedDurations,durationRange,includeManualDuration,settings,revision});
+   onProjectChange(saved);
+   const reports=(saved.episodes||[]).flatMap(ep=>{const row=target==='scene'?ep.storyboardDefaultSettings?.scenes?.[currentScene]:ep.storyboardDefaultSettings?.global;return row?.revision===revision&&row.recommendedDurationReport?[row.recommendedDurationReport]:[];});
+   const count=key=>reports.reduce((total,report)=>total+(report[key]?.length||0),0);
+   const manual=count('manual'),pending=count('missing')+count('blocked');
+   setTimingNotice([`已按建议设置 ${count('applied')} 条`,count('aligned')?`${count('aligned')} 条已贴齐模型档位`:'',manual?`已保护 ${manual} 条手调时长`:'',pending?`${pending} 条待估时或重分`:'',count('unsupported')?`${count('unsupported')} 条当前模型无法容纳，请更换模型或处理时长`:''].filter(Boolean).join(' · '));
+   if(manual&&!includeManualDuration)setManualResetScope({target,episodeId:episode?.id,sceneId:currentScene});
+  }catch(e){setDefaultsError(String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,''));}finally{setApplying(false);}
+ };
+ const resetManualDurations=async()=>{
+  const target=manualResetScope;
+  if(!target||target.episodeId!==episode?.id||target.sceneId!==currentScene||applying)return;
+  if(await confirmAction('将本范围已手动调整的秒数重置为建议时长。未估时、超载或当前模型不支持的分镜仍保留原值。',{title:'重置手调时长'}))await applyRecommended(target.target,true);
  };
  const prompts=(episode?.prompts||[]).filter(p=>p.label===currentScene||p.label?.startsWith(currentScene+'-'));
  const navigate=(id,nextScene='')=>{
@@ -242,7 +307,7 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   <div className="collab-episode-grid">{episodes.map(ep=><button className="collab-episode-card" key={ep.id} onClick={()=>navigate(ep.id)}><b>{ep.title}</b><small>{ep.content?.slice(0,70)}</small><span>{ep.prompts?.length||0} 条分镜</span></button>)}</div>
   {!episodes.length&&<p className="generation-empty">当前项目尚无分集，请在导演工作台完善项目后，点击左下角刷新云端数据。</p>}
  </section>;
- return <><GenerationWorkbenchTools scopeKey={JSON.stringify([accountId,project.id])} settings={resolvedSettings} progress={batchStatus}><GenerationComposer settingsOnly accountId={accountId} onSettingsResolved={setResolvedSettings} api={api} state={state} value={defaultForm} onChange={setDefaultForm} disabled={!canEdit||applying} onApplySettings={settings=>applyDefaults(settings,'project')} onApplySceneSettings={settings=>applyDefaults(settings,'scene')} onApplyEpisodeSettings={settings=>applyDefaults(settings,'episode')}/>{defaultsError&&<p className="collab-error" role="alert">{defaultsError}</p>}{timingNotice&&<p className="storyboard-timing-notice" role="status">{timingNotice}</p>}<StoryboardBatchPanel onStatusChange={setBatchStatus} onRecommended={applyRecommended} settingsBusy={applying} api={api} project={project} accountId={accountId} episodeId={episode.id} sceneId={currentScene} settings={resolvedSettings} assets={assets} media={media} binding={promptBinding} canEdit={canEdit} onProjectChange={onProjectChange}/></GenerationWorkbenchTools><div className="collab-storyboard">
+ return <><GenerationWorkbenchTools scopeKey={JSON.stringify([accountId,project.id])} settings={resolvedSettings} progress={batchStatus}><GenerationComposer settingsOnly accountId={accountId} onSettingsResolved={setResolvedSettings} api={api} state={state} value={defaultForm} onChange={setDefaultForm} disabled={!canEdit||applying} onApplySettings={settings=>applyDefaults(settings,'project')} onApplySceneSettings={settings=>applyDefaults(settings,'scene')} onApplyEpisodeSettings={settings=>applyDefaults(settings,'episode')}/>{defaultsError&&<p className="collab-error" role="alert">{defaultsError}</p>}{timingNotice&&<p className="storyboard-timing-notice" role="status">{timingNotice}{manualResetScope?.episodeId===episode?.id&&manualResetScope?.sceneId===currentScene&&<button className="ghost" type="button" disabled={applying||!canEdit} onClick={resetManualDurations}>重置手调时长</button>}</p>}<StoryboardBatchPanel onStatusChange={setBatchStatus} onRecommended={applyRecommended} settingsBusy={applying} api={api} project={project} accountId={accountId} episodeId={episode.id} sceneId={currentScene} settings={resolvedSettings} assets={assets} media={media} binding={promptBinding} canEdit={canEdit} onProjectChange={onProjectChange}/></GenerationWorkbenchTools><div className="collab-storyboard">
   <aside ref={leftColumn} className="collab-sb-left">
    <nav className="collab-sb-navigation" aria-label="分镜导航">
     <button className="collab-sb-back" onClick={()=>navigate(null)}><ArrowLeft size={16}/>返回分集</button>

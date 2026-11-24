@@ -8,6 +8,10 @@ const unionTombstones = (a = [], b = []) => [...new Set([...(a || []), ...(b || 
 const newerPrompt = (a, b) => {
   const ta = Date.parse(a?.editedAt || a?.edited_at || a?.createdAt || 0) || 0;
   const tb = Date.parse(b?.editedAt || b?.edited_at || b?.createdAt || 0) || 0;
+  if(ta===tb&&a?.content===b?.content){
+    const ea=Date.parse(a?.durationEstimatedAt||'')||0,eb=Date.parse(b?.durationEstimatedAt||'')||0;
+    if(ea!==eb)return eb>ea?b:a;
+  }
   return tb > ta ? b : a;
 };
 

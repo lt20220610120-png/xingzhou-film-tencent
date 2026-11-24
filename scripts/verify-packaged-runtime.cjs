@@ -13,6 +13,10 @@ exports.verify = async (exe,version,dependencies={}) => {
     assert.equal(bundled.dependencies[name],manifest.version,`Direct runtime dependency missing: ${name}`);
   }
   const entries=asar.listPackage(archive);
+  const durationSkill=JSON.parse(asar.extractFile(archive,path.join('core','videoDurationEstimatorSkillV2.json')));
+  assert.deepEqual(Object.keys(durationSkill).sort(),['SKILL.md','references/method.md','references/output-contract.md']);
+  assert.equal(durationSkill['SKILL.md'].includes('version: 2.0.0'),true);
+  assert.ok(!entries.some(name=>/duration_math\.py|experiment-cases\.json|long-round-dialogue-case\.json/i.test(name)),'Calibration cases and Python helpers must stay out of the installer');
   assert.deepEqual(fs.readdirSync(path.join(path.dirname(exe),'locales')).sort(),['en-US.pak','zh-CN.pak','zh-TW.pak']);
   assert.ok(!entries.some(name=>/(?:^|[\\/])(?:coverage|tests?|__tests__|fixtures|__fixtures__|\.nyc_output|\.playwright-mcp)(?:$|[\\/])|\.(?:map|pdb|log)$/i.test(name)),'Development-only files must stay out of the installer');
   const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];

@@ -1,0 +1,8 @@
+.duration-estimate-badges {display:inline-flex; flex-wrap:wrap; gap:5px; align-items:center; max-width:100%}
+.duration-estimate-tag.duration-estimate-tag {display:inline-flex; align-items:center; width:max-content; max-width:100%; min-height:0; padding:3px 7px; border:1px solid transparent; border-radius:6px; font-size:11px; line-height:1.35; white-space:normal; text-align:left}
+.duration-estimate-tag.duration-estimate-ready {color:#207466; background:#e6f5ef; border-color:#cfe7df}
+.duration-estimate-tag.duration-estimate-tight,.duration-estimate-tag.duration-estimate-review {color:#805b1e; background:#fff6e4; border-color:#efdcb6}
+.duration-estimate-tag.duration-estimate-overload {color:#9f2734; background:#fff0f1; border-color:#f2ccd2; font-weight:650}
+.duration-estimate-tag.duration-estimate-historical {color:#586577; background:#f4f6f9; border-color:#e3e7ec}
+.duration-estimate-action.duration-estimate-action {min-height:24px; padding:2px 6px; font-size:11px}
+.duration-estimate-detail {display:grid; gap:4px; text-align:left; overflow-wrap:anywhere}

@@ -41,6 +41,20 @@ test('main submission checks saved project/permissions/publication instead of co
  value.originalPrompt='点击后协作者又保存了其他内容';value.references=[{id:'manual-picked',kind:'image'}];assert.deepEqual((await validate()).references,value.references);
  value.storyboardPublicationId='older';await assert.rejects(validate(),/发布新版本/);
 });
+test('main submission checks the latest tagged estimate before preparing or sending video',async()=>{
+ const rows=patchShot(initial(),publication());const shot=storyboardShots(rows[0])[0];
+ const normal={version:'2.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:17,recommendedSeconds:17,needsResegment:false,capacityStatus:'正常',breakdown:{speechSeconds:12,nonparallelActionSeconds:4,pauseBufferSeconds:1},reason:'原话与独立动作顺序合计。'};
+ const project={id:'p',myRole:'producer',episodes:rows},value={projectId:'p',shotId:'source',storyboardPublicationId:'pub1',originalPrompt:shot.content,duration:20,modelCapabilities:{durations:[5,10,15,20,30]}};
+ const validate=()=>validateStoryboardSubmission({getProject:async()=>project,value,accountId:'u'});
+ shot.durationEstimate=normal;shot.generationConfig={durationMode:'recommended',durationAlignment:'ceil'};
+ await validate();
+ value.duration=15;await assert.rejects(validate(),/当前模型档位不符/);
+ value.duration=31;await assert.rejects(validate(),/超出 30 秒/);
+ value.duration=20;value.originalPrompt='不同的正文';await assert.rejects(validate(),/正文已变化/);
+ value.originalPrompt=shot.content;shot.durationEstimate={...normal,status:'needs-review'};await assert.rejects(validate(),/待复核/);
+ shot.durationEstimate={version:'2.0.0',status:'pending',maxDurationSeconds:30,error:{code:'TIMEOUT',message:'估时超时'}};
+ await assert.rejects(validate(),/待估时/);
+});
 test('published manual text and references are preserved without any comparison warning',()=>{
  const shot=storyboardShots(patchShot(initial(),publication())[0]),value={prompt:'手改正文',references:[{id:'manual',kind:'audio'}],referenceBindingMode:'confirmed',bindingCompiledPrompt:'原文'};
  const result=storyboardPromptValue({error:'新导演稿读取失败'},shot[0],value,'u');assert.equal(result.prompt,value.prompt);assert.deepEqual(result.references,value.references);assert.equal(result.bindingIssue,'');validateCompiledBinding(result,['image','audio']);

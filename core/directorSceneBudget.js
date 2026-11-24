@@ -212,9 +212,10 @@ function boundaryCost(source, facts, end, proposed) {
 
 /** Fixed-count dynamic programming: first budget N, then move cut points.
  * Timing is a cost, not a gate. Local fallback retains every source character. */
-export function planEditorialScene({ tape, maxDurationSeconds, assessment, pace, timingScale, strictModelCap = false, facts = buildEditorialSceneFacts(tape, { pace }) }) {
+export function planEditorialScene({ tape, maxDurationSeconds, assessment, pace, timingScale, strictModelCap = false, minimumSegments, facts = buildEditorialSceneFacts(tape, { pace }) }) {
   if (!tape?.sourceText?.trim()) throw new Error('当前场景没有可分段正文');
   const budget = createSceneDurationBudget({ facts, maxDurationSeconds, assessment, pace: pace ?? facts.pace, timingScale, strictModelCap });
+  if(Number.isInteger(minimumSegments))budget.targetCount=Math.max(budget.targetCount,minimumSegments);
   const source = tape.sourceText, positions = cutPositions(tape, facts);
   const warnings = [...budget.warnings];
   const count = Math.min(budget.targetCount, positions.length - 1);

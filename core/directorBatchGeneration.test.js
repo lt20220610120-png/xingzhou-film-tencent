@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {createDirectorBatchPlan,createDirectorBatchController,MAX_DIRECTOR_SCENES_IN_FLIGHT} from './directorBatchGeneration.js';
 import {createQuickGenerationController} from './directorQuickGeneration.js';
 import {commitQuickSceneRun,directorSceneInput} from './directorQuickStore.js';
+import {directorDurationPending} from './directorDurationWorkflow.js';
 
-function fixture({skillHook,auditHook}={}){
+function fixture({skillHook,auditHook,estimateScene}={}){
  let state={accountId:'a',skills:[{id:'s',name:'generic',content:'生成编号提示词'}],apiProfiles:[{id:'m',model:'mock',apiKey:'must-not-persist'}],directorProjects:[{id:'p',name:'测试全剧',style:'真人电影集',aspectRatio:'9:16',episodes:[
  {id:'setting',kind:'setting',title:'设定和小传',content:'背景'},
  {id:'e1',title:'第1集',content:'1-1 景：房间 夜 内\n甲：我来关灯。\n1-2 景：走廊 夜 内\n乙：我先走了。'},
@@ -14,7 +15,7 @@ function fixture({skillHook,auditHook}={}){
  const records=new Map(),calls=[];let failScene='',failCode='',waitRequest=null,waitAllRequests=null,activeSkills=0,maxActiveSkills=0;
  const checkpoints={save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>structuredClone(records.get(runId)),list:async()=>[...records.values()].map(x=>structuredClone(x))};
  const getContext=target=>{const project=state.directorProjects.find(p=>p.id===target.projectId),episode=project.episodes.find(e=>e.id===target.episodeId);return {accountId:state.accountId,project,episode,inputText:directorSceneInput(project,episode,target.sceneLabel),skill:state.skills[0],profile:state.apiProfiles[0],permissions:{canGenerate:true}};};
- const makeScene=()=>createQuickGenerationController({legacyPromptReview:true,getContext,checkpoints,groundedTiming:true,executeText:async payload=>{
+ const makeScene=()=>createQuickGenerationController({legacyPromptReview:true,getContext,checkpoints,groundedTiming:true,estimateScene,executeText:async payload=>{
    calls.push({kind:payload.messages[0].content.includes('核对')?'audit':'plan',scene:payload.snapshot.sceneLabel});
    if(payload.messages[0].content.includes('核对'))return auditHook?.(payload)??'{"ok":true,"issues":[]}';
    return JSON.stringify({segments:[{end:{unitId:'u1'},timing:{speechSeconds:2,actionSeconds:2,overlapSeconds:0,transitionSeconds:0},startState:'起点',endState:'终点',boundary:'scene-end',visualNotes:[]}]});
@@ -34,6 +35,25 @@ function fixture({skillHook,auditHook}={}){
  const batch=createDirectorBatchController(deps);
  return {batch,scene,deps,records,calls,makeScene,get state(){return state;},get maxActiveSkills(){return maxActiveSkills;},setFailure:(label,code='')=>{failScene=label;failCode=code;},waitOn:promise=>{waitRequest=promise;},waitAllOn:promise=>{waitAllRequests=promise;},changeAccount:()=>{state.accountId='other';},plan:opts=>createDirectorBatchPlan({accountId:state.accountId,project:state.directorProjects[0],skill:state.skills[0],profile:state.apiProfiles[0],maxDurationSeconds:30,...opts})};
 }
+
+test('whole script calls the chosen estimator once per scene and pending does not repeat completed prompts',async()=>{
+ const requests=[];
+ const f=fixture({estimateScene:async({segments,snapshot,maxDurationSeconds})=>{
+  requests.push({scene:snapshot.sceneLabel,ids:segments.map(row=>row.id),profile:snapshot.estimateProfileId,limit:maxDurationSeconds});
+  assert.ok(segments.every(row=>row.prompt.includes('正常镜头')&&row.script));
+  return new Map(segments.map(({id})=>[id,directorDurationPending(maxDurationSeconds,'TIMEOUT','模拟超时') ]));
+ }});
+ const plan=await f.plan({concurrency:2,estimateProfileId:'isolated-estimator',maxDurationSeconds:15});
+ const done=await f.batch.start(plan);
+ assert.equal(done.phase,'completed');
+ assert.deepEqual(done.targets.map(row=>row.reason),['待估时','待估时','待估时']);
+ assert.equal(done.targets.filter(row=>row.status==='completed').length,3);
+ assert.deepEqual(requests.map(row=>row.scene).sort(),['1-1','1-2','3-1']);
+ assert.ok(requests.every(row=>row.profile==='isolated-estimator'&&row.limit===15&&row.ids.length===1));
+ assert.equal(f.calls.filter(row=>row.kind==='skill').length,3);
+ await f.batch.resume(done.id);
+ assert.equal(f.calls.filter(row=>row.kind==='skill').length,3);assert.equal(requests.length,3);
+});
 
 test('exhausted gateway throttling pauses remaining work and resume preserves interruption history', async () => {
  const f=fixture();f.setFailure('1-1','RATE_LIMITED');

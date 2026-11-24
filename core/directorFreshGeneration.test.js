@@ -10,9 +10,10 @@ import {mergeCloudEpisodes} from './directorCloudProjects.js';
 import {seedDocument,readDocument} from '../cloud-backend/shared/directorSharedDocument.mjs';
 import {newDirectorPromptEdition,switchDirectorPromptEdition} from './directorPromptEditions.js';
 import {executeSkillWithAi} from './skillExecution.js';
+import {applyDirectorDurationResult,directorDurationTargets,directorDurationPending} from './directorDurationWorkflow.js';
 const gate=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {resolve,promise};};
 const source='9-3 客厅 日 内\n（1）\n甲：给现金。\n乙：要钥匙。\n甲：不要拆台。\n乙：别再吹牛。\n（2）\n甲：都是一家人。\n乙：金镯和养老存折。\n甲：这是棺材本。\n（3）\n乙：原来您分得清。';
-function setup({review,generate,auto=false,beginFailure=false}={}){
+function setup({review,generate,auto=false,beginFailure=false,estimateScene}={}){
  let state={accountId:'a',skills:[{id:'s',name:'客户任意Skill',content:'正文格式由附件规定。',files:Array.from({length:8},(_,n)=>({path:`ref/${n}.md`,content:`完整附件${n}`}))}],apiProfiles:[{id:'m',model:'mock'}],directorProjects:[{id:'p',episodes:[{id:'e',content:source,prompts:[{id:'old',label:'9-3-1',sceneLabel:'9-3',generationMode:'quick',generationRunId:'old-run',content:'OLD_REPLY_SENTINEL',sourceText:source},{id:'other',label:'9-4-1',content:'OTHER_SCENE'}],manualSceneReplies:[{id:'old-run',sceneLabel:'9-3',output:'OLD_REPLY_SENTINEL'}]}]}]};
  state.directorProjects[0].episodes.unshift(...Array.from({length:8},(_,n)=>({id:'prior-'+n,content:`${n+1}-1 其他场景 日 内\n背景。`})));
  state.directorProjects[0].episodes.at(-1).content='9-1 前场 日 内\n背景。\n9-2 前场 日 内\n背景。\n'+source;
@@ -21,11 +22,50 @@ function setup({review,generate,auto=false,beginFailure=false}={}){
  const commit=async(run,partial=false)=>{if(commitFailure){commitFailure=false;return{applied:false,conflict:'模拟保存失败'};}const next=auto?commitQuickSceneRun(state,run,{partial}):commitManualSceneRun(state,run);state=next.state;return next;};
  const beginRun=async run=>{if(beginFailure)throw Error('磁盘写入失败');const next=beginDirectorSceneGeneration(state,run);state=next.state;return next;};
  const api={aiChat:async payload=>{calls.push(payload);return review(payload);}};
- const deps={getContext:context,beginRun,checkpoints:{save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>structuredClone(records.get(runId)),list:async()=>[...records.values()]},
+ const deps={getContext:context,beginRun,estimateScene,checkpoints:{save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>structuredClone(records.get(runId)),list:async()=>[...records.values()]},
   executeSkill:async payload=>{calls.push(payload);return generate?generate(payload,calls.length):payload.expectedLabels.map(label=>`${label}\nNEW_REPLY_${calls.length}`).join('\n\n');},commitRun:commit};
  const controller=auto?createQuickGenerationController({...deps,editorialPlanning:true,groundedTiming:true,executeText:async()=>'{"estimatedSceneSeconds":30}',commitProgress:run=>commit(run,true)}):createDirectorManualController({...deps,...(review?{reviewSkill:payload=>executeSkillWithAi({api,state,skillId:'s',input:payload.input,beforeUserMessages:payload.beforeUserMessages,assistantRole:'逐段复核Agent'})}:{})});
  return {controller,context,calls,records,commit,api,get state(){return state;},setCommitFailure:()=>commitFailure=true};
 }
+
+const estimated=(limit,seconds)=>({version:'2.0.0',status:'estimated',maxDurationSeconds:limit,naturalSeconds:seconds,recommendedSeconds:seconds,
+ needsResegment:seconds>35,capacityStatus:seconds>35?'超载需重分':'正常',reason:seconds>35?'需重新划分片段并重新生成提示词。':'模拟。',
+ breakdown:{speechSeconds:seconds-2,nonparallelActionSeconds:1,pauseBufferSeconds:1}});
+
+test('manual scene estimates the completed bodies once and can repair pending records without modifying cuts or text',async()=>{
+ const est=[];
+ const f=setup({estimateScene:async options=>{
+  est.push(options);const {segments,maxDurationSeconds}=options;
+  assert.equal(options.snapshot.estimateProfileId,'separate');
+  assert.deepEqual(segments.map(row=>row.id),['9-3-1','9-3-2','9-3-3']);
+  assert.match(segments[0].script,/给现金/);assert.doesNotMatch(segments[0].script,/棺材本/);
+  assert.match(segments[1].script,/棺材本/);assert.match(segments[1].prompt,/NEW_REPLY/);
+  assert.deepEqual(f.state.directorProjects[0].episodes.at(-1).prompts.filter(p=>p.sceneLabel==='9-3').map(p=>p.durationEstimate?.status),['pending','pending','pending']);
+  return new Map([[segments[0].id,estimated(maxDurationSeconds,36)],[segments[1].id,directorDurationPending(maxDurationSeconds,'SOURCE_CONFLICT','双源不一致')],[segments[2].id,estimated(maxDurationSeconds,10)]]);
+ }});
+ const run=await f.controller.start({...f.context(),estimateProfileId:'separate'});
+ assert.equal(run.phase,'completed');assert.equal(est.length,1);assert.equal(f.calls.length,1);
+ assert.deepEqual(run.expectedLabels,['9-3-1','9-3-2','9-3-3']);
+ const project=f.state.directorProjects[0],rows=project.episodes.at(-1).prompts.filter(p=>p.sceneLabel==='9-3');
+ assert.deepEqual(rows.map(p=>p.recommendedDurationSeconds),[undefined,undefined,10]);
+ assert.equal(rows[0].durationEstimate.needsResegment,true);assert.equal(rows[1].durationEstimate.error.code,'SOURCE_CONFLICT');
+ const [target]=directorDurationTargets(project,{onlyPending:true});
+ assert.equal(target.prompts.length,1);assert.equal(target.prompts[0].id,rows[1].id);
+ const next=applyDirectorDurationResult(project,target,new Map([[rows[1].label,estimated(30,9)]]));
+ assert.deepEqual(next.episodes.at(-1).prompts.map(p=>p.content),project.episodes.at(-1).prompts.map(p=>p.content));
+ assert.equal(next.episodes.at(-1).prompts.find(p=>p.id===rows[1].id).recommendedDurationSeconds,9);
+ assert.equal(f.calls.length,1);
+});
+
+test('a delayed estimate cannot overwrite a newly edited or replaced prompt and follows the same body across cloud reads',()=>{
+ const old={id:'old',label:'1-1-1',content:'held',createdAt:'2026-02-01T00:00:00Z',durationEstimate:directorDurationPending(30)};
+ const project={id:'p',episodes:[{id:'e',prompts:[old]}]};
+ const [target]=directorDurationTargets(project,{onlyPending:true}),estimates=new Map([[old.label,estimated(30,11)]]);
+ const edited={...project,episodes:[{...project.episodes[0],prompts:[{...old,content:'新的正文'}]}]};
+ assert.equal(applyDirectorDurationResult(edited,target,estimates),edited);
+ const accepted=applyDirectorDurationResult(project,target,estimates);
+ assert.equal(mergeCloudEpisodes(accepted.episodes,project.episodes)[0].prompts[0].recommendedDurationSeconds,11);
+});
 
 test('every fresh manual generation clears the current scene before the request and archives previous text',async()=>{
  const hold=gate(),entered=gate();const f=setup({generate:async(p,n)=>{entered.resolve();if(n===1)await hold.promise;return p.expectedLabels.map(label=>`${label}\nNEW_REPLY_${n}`).join('\n\n');}});

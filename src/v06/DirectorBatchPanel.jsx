@@ -1,17 +1,18 @@
 import React,{useState} from 'react';
 import {isDirectorBatchActive,MAX_DIRECTOR_SCENES_IN_FLIGHT} from '../../core/directorBatchGeneration.js';
 import {useRememberedState} from '../useRememberedState.js';
-import {DEFAULT_DIRECTOR_PACE,directorPaceLabel,effectiveDirectorDurationLimit,normalizeDirectorDurationSelection,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
+import {DEFAULT_DIRECTOR_PACE,directorPaceLabel,effectiveDirectorDurationLimit,normalizeDirectorPace} from '../../core/directorDurationPolicy.js';
+import {normalizeVideoDurationLimit} from '../../core/videoDurationEstimator.js';
 import {Dialog} from './GlobalTools.jsx';
 import {flushEditing} from '../editing.js';
 import {FormattedText} from '../components/FormattedText.jsx';
 
-export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE,calibration,quickGeneration,onJump,disabled,segmentationMode='auto',sceneBusy=false}){
+export function DirectorBatchPanel({project,accountId,skill,profile,estimateProfileId,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE,calibration,quickGeneration,onJump,onEstimatePending,estimateBusy=false,durationSummary=[],disabled,segmentationMode='auto',sceneBusy=false}){
  const [opened,setOpened]=useState(false),[preparing,setPreparing]=useState(false);
  const [preview,setPreview]=useState(null),[policy,setPolicy]=useState('missing-only'),[error,setError]=useState('');
  const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-batch-settings:${accountId||'local'}:${project.id}`,JSON.stringify({concurrency:segmentationMode==='manual'?2:'all'}));
  let settings;try{settings=JSON.parse(settingsJson);}catch{settings={};}
- const defaultDuration=normalizeDirectorDurationSelection(maxDurationSeconds);
+ const defaultDuration=normalizeVideoDurationLimit(maxDurationSeconds);
  const [durationOverride,setDurationOverride]=useState(null);
  const batchDuration=durationOverride??defaultDuration;
  const batchPace=normalizeDirectorPace(segmentationMode==='auto'?calibration?.pace:pace);
@@ -20,7 +21,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
  const concurrencyLabel=value=>value==='all'?`自动排队（最多 ${MAX_DIRECTOR_SCENES_IN_FLIGHT} 场并发）`:`${Math.min(value,MAX_DIRECTOR_SCENES_IN_FLIGHT)} 场并发`;
  const batch=quickGeneration?.getProjectBatch(project.id),active=isDirectorBatchActive(batch);
  const invoke=async operation=>{setError('');try{await operation();}catch(e){setError(e.message);}};
- const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,maxDurationSeconds:batchDuration,pace:batchPace,timingScale:segmentationMode==='auto'?calibration?.timingScale:undefined,concurrency,existingPolicy:policy,segmentationMode,...updates});};
+ const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,estimateProfileId,maxDurationSeconds:batchDuration,pace:batchPace,timingScale:segmentationMode==='auto'?calibration?.timingScale:undefined,concurrency,existingPolicy:policy,segmentationMode,...updates});};
  const changeSettings=updates=>{setSettingsJson(JSON.stringify({concurrency,...updates}));setPreview(null);};
  const open=()=>{setDurationOverride(null);setOpened(true);setPreview(null);setError('');};
  const prepare=()=>invoke(async()=>{setPreparing(true);try{setPreview(await makePreview());}finally{setPreparing(false);}});
@@ -34,11 +35,12 @@ export function DirectorBatchPanel({project,accountId,skill,profile,maxDurationS
    <div className="director-batch-settings">
     {segmentationMode==='auto'&&calibration&&<p className="director-batch-calibration">基准 {calibration.episodeTitle} · 场景 {calibration.sceneLabel} · {directorPaceLabel(batchPace)} · {calibration.totalEstimatedSeconds} 秒 / {Math.ceil(calibration.totalEstimatedSeconds/effectiveDirectorDurationLimit(batchDuration))} 条 · {durationLabel(batchDuration)}</p>}
     {segmentationMode==='auto'&&!calibration&&<p>请先在具体场景调整预估，再点「应用到全剧」。</p>}
-    {segmentationMode==='auto'&&<label><span>单条最高时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled||preparing} onChange={e=>{setDurationOverride(Number(e.target.value));setPreview(null);}}>{Array.from({length:36},(_,i)=><option key={i} value={i}>{i===0?'自动（≤35秒）':`${i} 秒`}</option>)}</select></label>}
+    <label><span>单条最高时长</span><select aria-label="整本最高视频时长" value={batchDuration} disabled={active||disabled||preparing} onChange={e=>{setDurationOverride(Number(e.target.value));setPreview(null);}}>{[15,30].map(n=><option key={n} value={n}>{n} 秒</option>)}</select></label>
     <label><span>场景并发</span><select aria-label="整本场景并发" value={concurrency} disabled={active||disabled||preparing} onChange={e=>changeSettings({concurrency:e.target.value==='all'?'all':Number(e.target.value)})}><option value="all">自动（最多 {MAX_DIRECTOR_SCENES_IN_FLIGHT} 场）</option>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 场</option>)}</select></label>
    <button className="secondary" disabled={disabled||active||sceneBusy||preparing||!skill||!profile||(segmentationMode==='auto'&&!calibration)} onClick={prepare}>{preparing?'读取整本分段…':'预览整本任务'}</button>
    </div>
   </div>
+  {durationSummary.length>0&&<div className="director-batch-progress"><div className="director-batch-heading"><strong>时长待处理</strong>{durationSummary.some(row=>row.pending)&&<button className="secondary" disabled={disabled||active||sceneBusy||estimateBusy} onClick={onEstimatePending}>{estimateBusy?'补估中…':'仅补跑未估时场次'}</button>}</div><div className="director-batch-scenes">{durationSummary.map(row=><div key={`${row.episodeId}:${row.sceneLabel}`}><button className="ghost" onClick={()=>{setOpened(false);onJump?.(row.episodeId,row.sceneLabel);}}>场景 {row.sceneLabel}</button>{row.overload>0&&<strong className="prompt-audit-warning" role="status">超载需重分 · {row.overload} 条</strong>}{row.pending>0&&<small>待估时 {row.pending} 条</small>}</div>)}</div></div>}
   {preview&&<div className="director-batch-preview">
    <p>{preview.episodeCount} 集 · {preview.targets.length} 场 · 将生成 {preview.targets.filter(t=>t.status==='pending').length} 场 · 跳过 {preview.targets.filter(t=>t.status==='skipped').length} 场</p>
    <p>模型：{preview.modelName} · Skill：{preview.skillName} · {concurrencyLabel(preview.concurrency??'all')}。{preview.snapshot.segmentationMode==='manual'?`按人工划分生成 ${preview.manualPromptCount} 条提示词。`:`${durationLabel(preview.snapshot.maxDurationSeconds)} · ${directorPaceLabel(preview.snapshot.pace)}，各场条数在分析后确定。`}</p>

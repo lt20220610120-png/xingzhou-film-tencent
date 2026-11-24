@@ -4,15 +4,15 @@ import { createQuickGenerationController } from './directorQuickGeneration.js';
 import { commitQuickSceneRun } from './directorQuickStore.js';
 import { manorScene, englishManorScene } from './directorSceneBudget.fixtures.js';
 
-function fixture({ source=manorScene, planner, skill, audit }={}) {
+function fixture({ source=manorScene, planner, skill, audit, estimateScene,maxDurationSeconds=32 }={}) {
   let state={accountId:'a',skills:[{id:'s',name:'custom',content:'按括号输出一一对应的编号视频提示词。'}],
     apiProfiles:[{id:'m',model:'mock',apiKey:'never-checkpoint'}],
     directorProjects:[{id:'p',style:'真人电影级',aspectRatio:'9:16',episodes:[{id:'e1',title:'第1集',content:'场景 1-1 门外 日 外景'}, {id:'e',title:'第2集',content:source}]}]};
   const records=new Map(),calls=[],progress=[];
   const context=()=>({accountId:state.accountId,project:state.directorProjects[0],episode:state.directorProjects[0].episodes[1],skill:state.skills[0],profile:state.apiProfiles[0],
-    inputText:source,sceneLabel:'2-1',maxDurationSeconds:32,permissions:{canGenerate:true}});
+    inputText:source,sceneLabel:'2-1',maxDurationSeconds,permissions:{canGenerate:true}});
   const commit=(run,partial)=>{const result=commitQuickSceneRun(state,run,{partial});state=result.state;return result;};
-  const deps={editorialPlanning:true,groundedTiming:true,maxQualityAttempts:3,getContext:context,
+  const deps={editorialPlanning:true,groundedTiming:true,maxQualityAttempts:3,getContext:context,estimateScene,
     checkpoints:{save:async({run})=>records.set(run.id,structuredClone(run)),load:async({runId})=>structuredClone(records.get(runId)),list:async()=>[...records.values()]},
     executeText:async payload=>{
       const type=payload.messages[0].content.includes('核对')?'audit':'plan';calls.push({type,payload});
@@ -22,6 +22,47 @@ function fixture({ source=manorScene, planner, skill, audit }={}) {
     commitProgress:async run=>{progress.push(structuredClone(run));return commit(run,true);},commitRun:async run=>commit(run,false)};
   return {controller:createQuickGenerationController({...deps,legacyPromptReview:true}),deps,context,records,calls,progress,get state(){return state;},changeAccount(){state.accountId='b';}};
 }
+
+const bulkTiming=(segments,maxDurationSeconds,overload)=>new Map(segments.map(({id},index)=>[id,{
+ version:'2.0.0',status:'estimated',maxDurationSeconds,naturalSeconds:overload&&index===0?36:11,recommendedSeconds:overload&&index===0?36:11,
+ needsResegment:overload&&index===0,capacityStatus:overload&&index===0?'超载需重分':'正常',
+ breakdown:{speechSeconds:overload&&index===0?33:8,nonparallelActionSeconds:0,pauseBufferSeconds:3},reason:overload&&index===0?'模拟；需重新划分片段并重新生成提示词。':'模拟',
+}]));
+
+test('duration relay saves the first body before one repair, then preserves its original history',async()=>{
+ const batchSizes=[];let f;
+ f=fixture({maxDurationSeconds:30,estimateScene:async request=>{
+  const {segments,maxDurationSeconds}=request;batchSizes.push(segments.length);
+  assert.match(segments[0].script,/泼|妈/);
+  assert.match(segments[0].prompt,/编辑成品/);
+  assert.equal(f.state.directorProjects[0].episodes[1].prompts.length,2);
+  return bulkTiming(segments,maxDurationSeconds,batchSizes.length===1);
+ },skill:p=>p.expectedLabels.map(l=>`${l}\n编辑成品`).join('\n\n')});
+ const controller=createQuickGenerationController(f.deps),run=await controller.start(f.context());
+ assert.equal(run.phase,'completed',JSON.stringify(run.errors));
+ assert.deepEqual(batchSizes,[2,3]);
+ assert.equal(f.calls.filter(c=>c.type==='skill').length,2);
+ const project=f.state.directorProjects[0];
+ assert.equal(project.episodes[1].prompts.length,3);
+ assert.equal(project.promptHistory.length,5);
+ assert.equal(project.promptHistory.filter(p=>p.durationEstimate?.needsResegment).length,1);
+ assert.ok(project.episodes[1].prompts.every(p=>p.durationEstimate?.recommendedSeconds===11));
+});
+
+test('a second overload and a failed preparation never launch another paid rewrite',async()=>{
+ for(const fail of [false,true]){
+  let estimates=0,skills=0;
+  const f=fixture({maxDurationSeconds:30,estimateScene:async({segments,maxDurationSeconds})=>{estimates++;return bulkTiming(segments,maxDurationSeconds,true);},skill:p=>{
+   if(++skills===2&&fail)throw Error('模拟重分接口失败');
+   return p.expectedLabels.map(l=>`${l}\n编辑成品`).join('\n\n');
+  }});
+  const controller=createQuickGenerationController(f.deps),run=await controller.start(f.context());
+  assert.equal(run.phase,'completed',JSON.stringify(run.errors));
+  assert.equal(skills,2);
+  assert.equal(estimates,fail?1:2);
+  assert.ok(f.state.directorProjects[0].episodes[1].prompts.some(p=>p.durationEstimate?.needsResegment));
+ }
+});
 
 for(const [name,source] of [['bilingual',manorScene],['English-only',englishManorScene]]) {
   test(`${name} actual store path: fixed two brackets -> selected Skill -> two visible saved prompts`,async()=>{

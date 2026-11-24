@@ -4,6 +4,7 @@ import {buildNumberedSceneTasks,buildWholeSceneSubmission,splitNumberedPromptOut
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
 import {isQuickRunActive} from './directorQuickGeneration.js';
 import {buildDirectorOwnershipReview,parseDirectorOwnershipReview} from './directorOwnershipReview.js';
+import {directorDurationForCard,directorRunDurationScript,estimateDirectorRun} from './directorDurationWorkflow.js';
 
 const clone=value=>structuredClone(value);
 const fault=(message,code='FAILED')=>Object.assign(new Error(message),{code});
@@ -35,6 +36,8 @@ export function commitManualSceneRun(state,run){
  const history=collectDirectorPromptHistory(project),current=episode.prompts||[],deleted=new Set([...(project.deletedPromptIds||[]),...project.episodes.flatMap(e=>e.deletedPromptIds||[])]);
  if(run.promptIds.some(id=>deleted.has(id)))return fail('本次结果已删除，不会通过继续任务重新添加');
  const records=run.prompts.map((p,i)=>({...p,id:run.promptIds[i],sceneLabel:s.sceneLabel,generationMode:'quick',segmentationMode:'manual',generationRunId:run.id,promptEditionId:s.promptEditionId,skillId:s.skillId,profileId:s.profileId,profileHash:s.profileHash,skill:state.skills?.find(x=>x.id===s.skillId)?.name||'',sourceText:run.sourceText,sourceHash:s.sourceHash,createdAt:run.createdAt,
+  ...directorDurationForCard(run,p.label,directorRunDurationScript(run,p.label)),
+  ...(run.durationEstimatedAt?{durationEstimatedAt:run.durationEstimatedAt}:{}),
   ...(run.reviewRequired?{sceneAuditStatus:run.ownershipReview?.find(r=>r.label===p.label)?.ok?'passed':run.auditStatus||'pending',sceneAuditWarnings:(run.ownershipReview?.find(r=>r.label===p.label)?.issues||run.auditWarnings||[]).map(message=>({code:'AGENT_OWNERSHIP_REVIEW',message}))}:{})}));
  for(const p of records)for(const old of [current.find(x=>x.id===p.id),history.find(x=>x.id===p.id)])if(old&&(old.generationRunId!==run.id||old.content!==p.content&&run.committedContents?.[p.id]!==old.content))return fail('已生成内容被人工修改，保留修改和原始回包');
  const replacements=new Map(records.map(p=>[p.id,p]));
@@ -45,7 +48,7 @@ export function commitManualSceneRun(state,run){
 
 /** Manual boundaries are immutable input. One complete original Skill request
  * per scene; paid replies are checkpointed before parsing or publishing. */
-export function createDirectorManualController({getContext,executeSkill,reviewSkill=null,checkpoints,commitRun,beginRun=null,cancelRequest=()=>{},onChange=()=>{}}){
+export function createDirectorManualController({getContext,executeSkill,reviewSkill=null,checkpoints,commitRun,beginRun=null,estimateScene=null,cancelRequest=()=>{},onChange=()=>{}}){
  const runs=new Map(),executions=new Map(),tails=new Map();let disposed=false;
  const persist=async run=>{
   run.updatedAt=new Date().toISOString();run.revision=(run.revision||0)+1;
@@ -66,6 +69,7 @@ export function createDirectorManualController({getContext,executeSkill,reviewSk
   const commit=async()=>{await assertCurrent(run);const saved=await commitRun(clone(run));if(!saved?.applied)throw fault(saved?.conflict||'保存失败，完整回包已保留','STALE');run.committedContents=Object.fromEntries(run.prompts.map((p,i)=>[run.promptIds[i],p.content]));await persist(run);};
   try{
    await assertCurrent(run);
+   if(estimateScene)run.durationEstimateEnabled=true;
    if(!run.output){
     if(run.partialOutput)throw fault('上次回包截断，已返回文字保留；请核对后重新建立任务','NEEDS_REVIEW');
     run.phase='generating';run.pendingRequestId=`director-manual-${run.id}-${crypto.randomUUID()}`;await persist(run);await assertCurrent(run);
@@ -92,6 +96,11 @@ export function createDirectorManualController({getContext,executeSkill,reviewSk
     run.output=run.prompts.map(p=>p.content).join('\n\n');run.auditStatus=run.ownershipReview.every(r=>r.ok)?'passed':'warning';await persist(run);
    }
    run.phase='ready-to-commit';await persist(run);await commit();
+   if(estimateScene&&!run.durationEstimates){
+    if(run.pauseRequested)throw fault('已保存提示词，估时尚未完成','PAUSED');
+    await estimateDirectorRun({run,estimateScene,persist,assertCurrent:()=>assertCurrent(run)});
+    run.phase='ready-to-commit';await commit();
+   }
    if(run.reviewRequired&&run.auditStatus!=='passed')throw fault(run.auditWarnings.join('；')||'Agent逐段复核尚未通过，正文与问题已保留','NEEDS_REVIEW');
    run.phase='completed';run.errors=[];await persist(run);
   }catch(e){

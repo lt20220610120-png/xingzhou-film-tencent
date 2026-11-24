@@ -1,4 +1,4 @@
-import {recommendedPromptDuration,recommendedStoryboardTiming} from './promptDisplay.js';
+import {recommendedStoryboardTiming} from './promptDisplay.js';
 import {storyboardShots} from './storyboardPublication.js';
 import {inferDirectorEpisodeNumber} from './scriptImport.js';
 import {storyboardPromptValue,canRefreshStoryboardBinding} from './promptAssetUsage.js';
@@ -14,6 +14,7 @@ import {validateCompiledBinding} from './promptArtBinding.js';
 import {bindReferencePrompt} from './generationReferences.js';
 import {assertMinimumReferenceImages,selectAudioReferences} from './audioReferenceSelection.js';
 import {libtvGenerationParams} from './libtv.js';
+import {storyboardDurationPolicy,storyboardDurationSelection,storyboardTimingForDraft} from './storyboardTiming.js';
 export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={},assets=[],media=[],binding,accountId,readDraft=()=>null}){
  if(!['scene','episode','project'].includes(scope))throw Error('请选择生成范围');
  const top=Object.fromEntries(storyboardSettingKeys.filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]]));
@@ -28,27 +29,30 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
    value=applyStoryboardDefaults(value,ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,shot.id);
    if(!draft||canRefreshStoryboardBinding(draft,shot)){const linked=storyboardPromptValue(binding,shot,value,accountId);if(linked&&!(linked.referenceBindingMode==='pending'&&!linked.references?.length&&value.references?.length))value=linked;}
    value=cleanStoryboardReferenceValue(value,project.id);
-   const selectedSettings={...top};if(value.durationMode==='recommended')delete selectedSettings.duration;
+   const selectedSettings={...top};if(value.durationMode==='recommended'||value.durationManuallyAdjusted===true)delete selectedSettings.duration;
    value={...value,...selectedSettings,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''};
-   if(value.durationMode==='recommended'&&recommendedPromptDuration(value)===null){const timing=recommendedStoryboardTiming(binding,shot);if(timing)value={...value,recommendedDurationSeconds:timing.recommendedDurationSeconds};}
+   if(value.durationMode==='recommended'&&value.recommendedDurationSeconds==null){const timing=recommendedStoryboardTiming(binding,shot);if(timing?.recommendedDurationSeconds!=null)value={...value,recommendedDurationSeconds:timing.recommendedDurationSeconds};}
    return [{shotId:shot.id,episodeId:ep.id,episode,scene,label:shot.label,publicationId:shot.storyboardPublicationId||'',baseContent:draft?.base?.content??shot.content??'',baseGenerationConfig:structuredClone(draft?.base?.generationConfig??shot.generationConfig??{}),value}];
   });
  });
 }
-export async function storyboardGenerationInput({state,value,getLibTVModel}){
+export async function storyboardGenerationInput({state,value,getLibTVModel,shot}){
  const profiles=generationMediaProfiles(state,'video'),profile=value.profileId?profiles.find(p=>p.id===value.profileId):activeMediaProfile(state,'video');if(!profile)throw Error('请配置生成接口');
  const available=profileModels(profile,'video');let model=available.find(m=>m.id===value.model)||available.find(m=>m.id===profile.model)||available[0];if(!model?.id)throw Error('请选择生成模型');
  const libtv=profile.provider==='libtv';if(libtv){if(!getLibTVModel)throw Error('请重新载入LibTV模型');model=await getLibTVModel(model.id);}
  if(!libtv&&profile.provider!=='likeai'&&!profile.apiKey&&!(profile.videoProtocol==='custom'&&profile.videoAdapter?.authMode==='none'))throw Error('请填写接口密钥');
  const caps={...videoModelCapabilities(model.id,{}),...model},resolutions=caps.resolutions?.length?caps.resolutions:['固定'];
  const resolution=model.resolutions?.length?(resolutions.includes(value.resolution)?value.resolution:resolutions[0]):value.resolution||'720p';
- const durations=caps.durationByResolution?.[resolution]||caps.durations||[],duration=(model.durationByResolution?.[resolution]?.length||model.durations?.length)?(durations.includes(value.duration)?value.duration:effectiveVideoProtocol(profile)==='autodl'&&durations.includes(5)?5:durations[0]):Number(value.duration)||(effectiveVideoProtocol(profile).startsWith('videos-')?4:5);
- if(value.durationMode==='recommended'){const expected=recommendedPromptDuration(value);if(!expected)throw Error('本条缺少建议生成时长，请先核对导演提示词');if(Number(value.duration)!==expected||duration!==expected)throw Error(`当前参数不能按建议时长 ${expected} 秒生成，请换模型或手动选择统一时长`);}
+ const durations=caps.durationByResolution?.[resolution]||caps.durations||[],fallback=(model.durationByResolution?.[resolution]?.length||model.durations?.length)?(durations.includes(value.duration)?value.duration:effectiveVideoProtocol(profile)==='autodl'&&durations.includes(5)?5:durations[0]):Number(value.duration)||(effectiveVideoProtocol(profile).startsWith('videos-')?4:5);
+ const timing=shot?storyboardTimingForDraft({...shot,...recommendedStoryboardTiming(null,shot)},value,shot.content):value;
+ const durationPolicy=storyboardDurationPolicy(model,caps,resolution);
+ const {duration,issue}=storyboardDurationSelection({value,timing,policy:durationPolicy,fallback});
+ if(issue)throw Error(issue);
  const ratios=caps.ratios?.length?caps.ratios:['16:9'],ratio=ratios.includes(value.ratio)?value.ratio:ratios[0];
  const limits=referencePolicy(isFeituoEndpoint(profile.endpoint),caps),key=k=>k==='image'?'maxImages':k==='audio'?'maxAudios':'maxVideos';
  const allowed=libtv?['image','audio','video']:['image','audio','video'].filter(k=>limits?.[key(k)]!==0);
  const input=matchBasicReferences(value);validateCompiledBinding(input,[...new Set([...allowed,'audio'])]);
- const modelCapabilities=normalizeCapabilities({...caps,...model.capabilities});
+ const modelCapabilities=normalizeCapabilities({...caps,...model.capabilities,durations:model.durations,durationByResolution:model.durationByResolution,durationRange:durationPolicy.durationRange});
  const candidateRefs=(input.references||[]).filter(r=>r.kind==='audio'||allowed.includes(r.kind));
  const hasAssetSlots=candidateRefs.some(r=>r.assetImageSlot);
  const prompt=projectStoryboardImageAliases(input.prompt,input.references||[],candidateRefs).prompt;

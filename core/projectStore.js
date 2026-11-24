@@ -693,7 +693,7 @@ export const deleteDirectorPromptsEverywhere = (state, projectId, promptIds) => 
 // 在历史提示词中编辑：同步更新历史与仍挂在分集上的同一条提示词。
 const applyPromptUpdates = (prompt, updates) => {
   const next = { ...prompt, ...updates };
-  return Object.hasOwn(updates, 'content') && updates.content !== prompt.content ? markPromptTimingStale({ ...next, editedAt: updates.editedAt || now() }) : next;
+  return Object.hasOwn(updates, 'content') && updates.content !== prompt.content ? markPromptTimingStale({ ...next, editedAt: updates.editedAt || now() }, {previous:prompt}) : next;
 };
 export const updateDirectorPromptEverywhere = (state, projectId, promptId, updates) => ({
   ...state,

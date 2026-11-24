@@ -11,8 +11,9 @@ import { effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
 import { buildEditorialSceneFacts, buildEditorialPlanningMessages, createSceneDurationBudget, planEditorialScene } from './directorSceneBudget.js';
 import { parseStructuredJson } from './directorSegmentation.js';
+import {estimateDirectorRun} from './directorDurationWorkflow.js';
 
-const activePhases = new Set(['planning','validating-plan','generating','auditing','ready-to-commit']);
+const activePhases = new Set(['planning','validating-plan','generating','auditing','estimating','ready-to-commit']);
 export const isQuickRunActive = run => Boolean(run && activePhases.has(run.phase));
 const uid = () => crypto.randomUUID();
 const error = (message,code='FAILED') => Object.assign(new Error(message),{code});
@@ -42,7 +43,7 @@ const reusablePaidRanges=(run,tape)=>{
 };
 
 /** A scene transaction: no React closures or credentials belong in its checkpoint. */
-export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,beginRun=null,commitProgress=null,groundedTiming=false,editorialPlanning=false,legacyPromptReview=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
+export function createQuickGenerationController({getContext,executeText,executeSkill,checkpoints,commitRun,beginRun=null,commitProgress=null,estimateScene=null,groundedTiming=false,editorialPlanning=false,legacyPromptReview=false,maxQualityAttempts=2,cancelRequest=()=>{},onChange=()=>{}}) {
   const contractFor=skill=>legacyPromptReview?identifyPromptContract(skill):'routing-only';
   const runs=new Map(),listeners=new Set(),executions=new Map(),versions=new Map(),saveTails=new Map();
   let disposed=false;
@@ -62,6 +63,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
     if(context.project&&!sameDirectorEdition(context.project,run.snapshot))throw error('提示词版本已切换，原版本草稿已保留','STALE');
     const currentRun=context.episode?.activeSceneGenerationRuns?.[run.snapshot.sceneLabel]?.runId;
     if(currentRun&&currentRun!==run.id)throw error('本场已开始新的生成批次，旧任务仅保留在历史中','STALE');
+    const original=run.durationRepair?.originalPrompts;
+    if(original&&context.episode?.activeQuickScenePlanIds?.[run.snapshot.sceneLabel]!==run.plan?.id&&original.some(row=>context.episode?.prompts?.find(p=>p.id===row.id)?.content!==row.content))throw error('首次提示词已手动修改，原稿和重分进度已保留','STALE');
     if(!context.project || !context.episode || !context.skill || !context.profile)throw error('项目、场景、Skill 或模型已不存在','STALE');
     if(context.permissions?.canGenerate===false || context.project.cloudLocked)throw error('项目已锁定或无权生成','STALE');
     const latest=await createSceneSnapshot({...context,sceneLabel:run.snapshot.sceneLabel,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale});
@@ -70,7 +73,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
     return context;
   };
   const publishProgress=async(run,version)=>{
-    if(!commitProgress)return;
+    if(!commitProgress||run.durationRepair)return;
     await assertCurrent(run,version);
     const result=await commitProgress(clone(run));
     if(!result?.applied)throw error(result?.conflict||'已生成结果保存失败','STALE');
@@ -102,6 +105,10 @@ export function createQuickGenerationController({getContext,executeText,executeS
     if(run.pauseRequested)throw error('已保存当前进度，任务已暂停','PAUSED');
     await assertCurrent(run,version);
     const taskId=`director-quick-${run.id}-${kind}-${uid()}`;
+    if(kind==='skill'&&run.durationRepair){
+      if(run.durationRepair.skillRequestId)throw error('上次自动重分请求已开始，保留首次提示词，请人工核对','NEEDS_REVIEW');
+      run.durationRepair.skillRequestId=taskId;
+    }
     run.pendingRequestId=taskId;await persist(run);
     await assertCurrent(run,version);
     let response;
@@ -122,7 +129,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
       const controlFailure=/^(?:STOPPED|PAUSED|ACCOUNT_CHANGED|STALE|FORBIDDEN|UNAUTHORIZED|RATE_LIMITED|ABORT_ERR|SECURITY_SIGNAL_REVOKED)$/.test(e.code||'')||e.name==='AbortError'||[401,403,429].includes(e.status);
       if(controlFailure)throw e;
       const retryable=/输出被截断|只返回了推理过程|没有返回模型正文/i.test(e.message||'');
-      if(!retryable||payload.recoveryAttempt){e.directorRequestFailure=true;throw e;}
+      if(!retryable||payload.recoveryAttempt||run.durationRepair&&kind==='skill'){e.directorRequestFailure=true;throw e;}
       run.recoveries||=[];run.recoveries.push({kind,message:e.message,partialText:e.partialText||'',at:new Date().toISOString()});
       run.retryMessage='接口未完整返回，正在自动重试本次未完成请求';await persist(run);
       return request(run,version,kind,{...payload,recoveryAttempt:1,maxOutputTokens:32768});
@@ -147,6 +154,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
     const version=(versions.get(run.id)||0)+1;versions.set(run.id,version);
     try {
       await assertCurrent(run,version);
+      if(estimateScene)run.durationEstimateEnabled=true;
       run.reviewIsAdvisory=true;
       if(!legacyPromptReview)run.promptReviewMode='skill';
       const tape=buildSceneSourceTape(run.snapshot.sourceSnapshot);
@@ -169,9 +177,11 @@ export function createQuickGenerationController({getContext,executeText,executeS
           const budget=createSceneDurationBudget({facts,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale,maxDurationSeconds:run.snapshot.maxDurationSeconds});
           run.phase='planning';await persist(run);
           let assessment=run.editorialAssessment;
-          if(!assessment && (budget.targetCount>1 || budget.timingScale===undefined)){
+          if(!assessment && (run.durationRepair||budget.targetCount>1 || budget.timingScale===undefined)){
             try{
-              const output=await request(run,version,'plan',{messages:buildEditorialPlanningMessages({snapshot:run.snapshot,tape,facts}),maxOutputTokens:4096,profileId:run.snapshot.profileId});
+              const messages=buildEditorialPlanningMessages({snapshot:run.snapshot,tape,facts});
+              if(run.durationRepair)messages.push({role:'user',content:`本场精准核验发现表演超载，重分要求至少 ${run.durationRepair.minimumSegments} 段。完整保留所有动作、原话和场次，给出自然转场切点。`});
+              const output=await request(run,version,'plan',{messages,maxOutputTokens:4096,profileId:run.snapshot.profileId});
               run.lastPlanningOutput=output;await persist(run);
               try{assessment=parseStructuredJson(output);}catch{assessment={};}
             }catch(e){
@@ -184,7 +194,8 @@ export function createQuickGenerationController({getContext,executeText,executeS
             }
             run.editorialAssessment=assessment;await persist(run);
           }
-          const plan=planEditorialScene({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale,strictModelCap:true,assessment,facts});
+          const plan=planEditorialScene({tape,maxDurationSeconds:run.snapshot.maxDurationSeconds,pace:run.snapshot.pace,timingScale:run.snapshot.timingScale,strictModelCap:true,assessment,facts,minimumSegments:run.durationRepair?.minimumSegments});
+          if(run.durationRepair&&plan.segments.length<=run.durationRepair.originalPrompts.length)throw error('可用切点不足，已保留首次提示词，请人工重分','NEEDS_REVIEW');
           const planId=run.nextPlanId||`plan-${run.id}`;
           run.plan={...plan,id:planId,sceneLabel:run.snapshot.sceneLabel,pace:run.snapshot.pace,
             sourceHash:run.snapshot.sourceHash,settingsHash:run.snapshot.settingsHash,skillHash:run.snapshot.skillHash,profileHash:run.snapshot.profileHash,
@@ -412,7 +423,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
         }
         delete run.recoveringPaidReplies;
         const finished=()=>run.plan.segments.every(segment=>run.segmentDrafts[segment.id]?.prompt?.content&&run.segmentDrafts[segment.id]?.generationComplete!==false);
-        while(!finished()&&(run.wholeSceneQualityFailures||0)<maxQualityAttempts){
+        while(!finished()&&(run.wholeSceneQualityFailures||0)<(run.durationRepair?1:maxQualityAttempts)){
           const validationIssues=[...(run.wholeSceneIssues||[]),...run.plan.segments.flatMap(segment=>(run.segmentDrafts[segment.id]?.issues||[]).map(issue=>({...issue,segmentIndex:segment.index})))];
           const built=buildWholeSceneSkillRequest({snapshot:run.snapshot,tape,plan:run.plan,sharedBaseline:run.sharedBaseline,drafts:run.segmentDrafts,validationIssues,repairAttempt:run.wholeSceneQualityFailures||0});
           run.currentSegmentIndex=null;run.wholeSceneAttempts=(run.wholeSceneAttempts||0)+1;await persist(run);
@@ -460,17 +471,41 @@ export function createQuickGenerationController({getContext,executeText,executeS
         }
         run.checks.audited=true;await persist(run);
       }
-      await assertCurrent(run,version);
-      run.phase='ready-to-commit';await persist(run);
-      await assertCurrent(run,version);
-      const result=await commitRun(clone(run));
-      if(versions.get(run.id)!==version||disposed)return clone(run);
-      if(!result?.applied)throw error(result?.conflict||'结果与当前项目不一致，已保留草稿','STALE');
+      const current=()=>assertCurrent(run,version);
+      await current();
+      const commit=async()=>{
+        run.phase='ready-to-commit';await persist(run);await current();
+        const result=await commitRun(clone(run));
+        await current();
+        if(!result?.applied)throw error(result?.conflict||'结果与当前项目不一致，已保留草稿','STALE');
+      };
+      if(estimateScene){
+        if(!run.durationRepair&&!run.durationEstimates)await commit();
+        if(run.pauseRequested&&!run.durationEstimates)throw error('已保存提示词，估时尚未完成','PAUSED');
+        await estimateDirectorRun({run,estimateScene,persist,assertCurrent:current});
+      }
+      await commit();
+      if(estimateScene&&editorialPlanning&&!run.durationRepair&&!run.pauseRequested&&Object.values(run.durationEstimates||{}).some(row=>row?.status==='estimated'&&row.needsResegment)){
+        const minimumSegments=run.plan.segments.length+1;
+        const context=await current();
+        const originalPrompts=run.promptIds.map((id,index)=>({id,content:run.segmentDrafts[run.plan.segments[index].id].prompt.content}));
+        if(originalPrompts.every(row=>context.episode.prompts?.find(p=>p.id===row.id)?.content===row.content)){
+          run.durationRepair={minimumSegments,originalPrompts,originalPlanId:run.plan.id};
+          run.previousPlans=[...(run.previousPlans||[]),clone(run.plan)];
+          run.nextPlanId=`plan-${run.id}-duration-repair`;
+          Object.assign(run,{phase:'planning',plan:null,segmentDrafts:{},promptIds:[],checks:{audited:false,ranges:{}},
+            sharedBaseline:'',lastPlanningOutput:'',editorialAssessment:null,durationEstimates:null,durationEstimatedAt:null,durationEstimateDispatched:false,auditWarnings:[]});
+          await persist(run);
+          return execute(run);
+        }
+      }
       run.phase='completed';run.errors=[];run.pendingRequestId=null;await persist(run);
     }catch(e){
       if(versions.get(run.id)!==version)return clone(run);
       run.pendingRequestId=null;
-      run.phase=['ACCOUNT_CHANGED','PAUSED'].includes(e.code)?'paused':e.code==='STALE'?'stale':e.code==='NEEDS_REVIEW'?'needs-review':'failed';
+      const repairFailed=run.durationRepair&&!['ACCOUNT_CHANGED','PAUSED','STALE'].includes(e.code);
+      if(repairFailed)run.durationRepair.error='自动重分未完成，已保留首次提示词';
+      run.phase=repairFailed?'completed':['ACCOUNT_CHANGED','PAUSED'].includes(e.code)?'paused':e.code==='STALE'?'stale':e.code==='NEEDS_REVIEW'?'needs-review':'failed';
       run.errors=[{message:e.message||'生成失败',code:e.code||'FAILED',partialText:e.partialText||'',at:new Date().toISOString()}];
       try{await persist(run);}catch(saveError){run.errors.push({code:'SAVE_FAILED',message:saveError.message});emit();}
     }

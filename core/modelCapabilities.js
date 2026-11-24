@@ -5,6 +5,9 @@ export function normalizeCapabilities(raw = {}) {
   const result = {};
   const durations = [...new Set(values(raw.durations || raw.duration || raw.supported_durations).map(Number).filter(n=>Number.isFinite(n)&&n>0&&n<=3600))];
   if (durations.length) result.durations = durations;
+  const duration=raw.durationRange || raw.duration_range || raw.duration;
+  const min=duration?.min??duration?.minimum,max=duration?.max??duration?.maximum;
+  if(!durations.length&&Number.isInteger(min)&&Number.isInteger(max)&&min>0&&min<=max&&max<=3600)result.durationRange={min,max};
   for (const [key, source] of Object.entries({ratios:raw.ratios||raw.aspect_ratios||raw.aspect_ratio, resolutions:raw.resolutions||raw.resolution, imageSizes:raw.imageSizes||raw.image_sizes||raw.size})) {
     const items = strings(source); if (items.length) result[key] = items;
   }

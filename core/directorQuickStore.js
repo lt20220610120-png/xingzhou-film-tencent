@@ -8,6 +8,7 @@ import {validWholeSceneCompression,assertDirectorDurationSelection,effectiveDire
 import {validateDirectorSegmentTiming} from './directorTiming.js';
 import {quickReviewWarnings} from './directorQuickReview.js';
 import {validateEditorialPlan} from './directorSceneBudget.js';
+import {directorDurationForCard,directorRunDurationScript} from './directorDurationWorkflow.js';
 export {markPromptTimingStale} from './promptTiming.js';
 
 const SHA256_K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
@@ -67,7 +68,7 @@ export function directorSettingsHash({project,episode,maxDurationSeconds,pace=DE
     settingText:directorSettingText(project),episodeSourceHash:sha256Text(String(episode?.content ?? '')),rulesVersion:1}));
 }
 
-function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationSeconds,pace,timingScale,skill,profile}) {
+function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationSeconds,pace,timingScale,skill,profile,estimateProfileId}) {
   if(!accountId || !project?.id || !episode?.id || !sceneLabel || !skill?.id || !profile?.id)throw new Error('场景目标、账号、Skill 或模型配置已不存在');
   assertDirectorDurationSelection(maxDurationSeconds);
   const normalizedPace=assertDirectorPace(pace);
@@ -80,6 +81,7 @@ function snapshotOf({accountId,project,episode,sceneLabel,inputText,maxDurationS
     settingsHash:directorSettingsHash({project,episode,maxDurationSeconds,pace:normalizedPace,timingScale}),
     skillId:skill.id,skillHash:sha256Text(JSON.stringify({name:skill.name || '',context:buildSkillContext(skill)})),
     profileId:profile.id,profileHash:sha256Text(JSON.stringify(publicModelConfiguration(profile))),
+    ...(estimateProfileId?{estimateProfileId}:{}),
     maxDurationSeconds,pace:normalizedPace,...(assertDirectorTimingScale(timingScale)!==undefined?{timingScale}:{}),style,aspectRatio,settingText,rulesVersion,
   };
 }
@@ -110,11 +112,14 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const tombstones=new Set([...(project.deletedPromptIds || []),...(project.episodes || []).flatMap(ep=>ep.deletedPromptIds || [])]);
   if(ids.some(id=>tombstones.has(id)))return fail(state,'本次结果已被删除，不能通过恢复重新添加');
   const history=collectDirectorPromptHistory(project),current=episode.prompts || [];
+  const previous=run.durationRepair?.originalPrompts;
+  if(previous&&episode.activeQuickScenePlanIds?.[snapshot.sceneLabel]!==plan.id&&previous.some(row=>current.find(p=>p.id===row.id)?.content!==row.content))return fail(state,'首次提示词已手动修改，保留现稿与重分回包');
   const belongs=(prompt,i)=>prompt?.generationRunId===run.id && prompt?.segmentId===plan.segments[i].id && prompt?.segmentationPlanId===plan.id;
   if(ids.every((id,i)=>belongs(current.find(pr=>pr.id===id),i)&&belongs(history.find(pr=>pr.id===id),i)
     &&current.find(pr=>pr.id===id)?.content===run.segmentDrafts?.[plan.segments[i].id]?.prompt?.content
     &&current.find(pr=>pr.id===id)?.sceneAuditStatus===statusFor(plan.segments[i])
-    &&JSON.stringify(current.find(pr=>pr.id===id)?.sceneAuditWarnings||[])===JSON.stringify(quickReviewWarnings(run,i+1))))return {state,applied:true};
+    &&JSON.stringify(current.find(pr=>pr.id===id)?.sceneAuditWarnings||[])===JSON.stringify(quickReviewWarnings(run,i+1))
+    &&(!run.durationEstimateEnabled||JSON.stringify(current.find(pr=>pr.id===id)?.durationEstimate)===JSON.stringify(directorDurationForCard(run,run.segmentDrafts[plan.segments[i].id].prompt.label,'').durationEstimate))))return {state,applied:true};
   if(ids.some((id,i)=>[history.find(pr=>pr.id===id),current.find(pr=>pr.id===id)].some(pr=>pr&&!belongs(pr,i))))return fail(state,'提示词编号已有不完整或冲突的提交，请核对历史');
   let latest;
   try { latest=snapshotOf({accountId:state.accountId,project,episode,sceneLabel:snapshot.sceneLabel,inputText:directorSceneInput(project,episode,snapshot.sceneLabel),maxDurationSeconds:snapshot.maxDurationSeconds,pace:snapshot.pace,timingScale:snapshot.timingScale,
@@ -166,7 +171,9 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
     skillId:snapshot.skillId,skillName:state.skills.find(s=>s.id===snapshot.skillId)?.name || '',profileId:snapshot.profileId,profileHash:snapshot.profileHash,
     promptEditionId:snapshot.promptEditionId,generationComplete:run.segmentDrafts[segment.id].generationComplete!==false,generationMode:'quick',segmentationMode:'auto',generationRunId:run.id,segmentationPlanId:plan.id,segmentId:segment.id,
     sourceHash:snapshot.sourceHash,maxDurationSeconds:snapshot.maxDurationSeconds,estimatedSeconds:segment.estimatedSeconds,
-    recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated',timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
+    ...(!run.durationEstimateEnabled?{recommendedDurationSeconds:segment.recommendedDurationSeconds,durationStatus:'estimated'}:{}),timingRulesVersion:1,createdAt:current.find(pr=>pr.id===ids[i])?.createdAt || timestamp,
+    ...directorDurationForCard(run,run.segmentDrafts[segment.id].prompt.label,directorRunDurationScript(run,null,segment)),
+    ...(run.durationEstimatedAt?{durationEstimatedAt:run.durationEstimatedAt}:{}),
     ...(segment.durationCompression?{naturalEstimatedSeconds:segment.naturalEstimatedSeconds,durationCompression:segment.durationCompression}:{}),
     ...(editorial?{editorialEstimatedSeconds:segment.editorialEstimatedSeconds,sceneEstimatedSeconds:plan.editorialBudget.totalEstimatedSeconds,pace:plan.pace??snapshot.pace,timingRulesVersion:2}:{}),
     sceneAuditStatus:statusFor(segment),
@@ -177,7 +184,8 @@ export function commitQuickSceneRun(state,run,{partial=false}={}) {
   const replacements=new Map(prompts.map(pr=>[pr.id,pr]));
   const merge=existing=>[...existing.map(pr=>replacements.get(pr.id)||pr),...prompts.filter(pr=>!existing.some(old=>old.id===pr.id))];
   const replies=(run.wholeSceneResponses||[]).map((r,i)=>({id:`${run.id}:response:${r.requestGroupId||i}:${i}`,sceneLabel:snapshot.sceneLabel,output:r.output,complete:r.complete,createdAt:r.at}));
-  const nextEpisode={...episode,manualSceneReplies:[...(episode.manualSceneReplies||[]),...replies.filter(r=>!(episode.manualSceneReplies||[]).some(old=>old.id===r.id))],...(!partial?{status:'已生成提示词'}:{}),prompts:merge(current),quickScenePlans:existingPlan ? episode.quickScenePlans : [...(episode.quickScenePlans || []),plan],activeQuickScenePlanIds:{...(episode.activeQuickScenePlanIds || {}),[snapshot.sceneLabel]:plan.id}};
+  const previousIds=new Set(previous?.map(row=>row.id));
+  const nextEpisode={...episode,manualSceneReplies:[...(episode.manualSceneReplies||[]),...replies.filter(r=>!(episode.manualSceneReplies||[]).some(old=>old.id===r.id))],...(!partial?{status:'已生成提示词'}:{}),prompts:merge(previous?current.filter(p=>!previousIds.has(p.id)):current),quickScenePlans:existingPlan ? episode.quickScenePlans : [...(episode.quickScenePlans || []),plan],activeQuickScenePlanIds:{...(episode.activeQuickScenePlanIds || {}),[snapshot.sceneLabel]:plan.id}};
   const nextProject={...project,episodes:project.episodes.map(ep=>ep.id===episode.id?nextEpisode:ep),promptHistory:merge(history),updatedAt:timestamp};
   return {state:{...state,directorProjects:state.directorProjects.map(p=>p.id===project.id?nextProject:p)},applied:true};
 }

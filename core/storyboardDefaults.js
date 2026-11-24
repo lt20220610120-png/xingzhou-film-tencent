@@ -8,12 +8,16 @@ export function saveStoryboardDefaults(scope,settings,storage=globalThis.localSt
 }
 export function applyStoryboardDefaults(value,defaults,shotId){
  if(!defaults||value.storyboardDefaultsRevision===defaults.revision)return value;
+ const reset=defaults.durationManualResetShotIds?.includes(shotId);
+ if(defaults.durationMode==='recommended'&&(defaults.recommendedDurationReport?.manual?.includes(shotId)||value.durationManuallyAdjusted===true&&!reset))return {...value,storyboardDefaultsRevision:defaults.revision};
  const next={...value,libtvMode:'auto',libtvParams:{},...(value.libtvSubmissionMode?{libtvSubmissionMode:'auto'}:{}),...defaults.settings,durationMode:defaults.durationMode==='recommended'?'recommended':'uniform',storyboardDefaultsRevision:defaults.revision};
  if(next.durationMode==='recommended'){
+  if(reset)delete next.durationManuallyAdjusted;
+  if(defaults.settings.durationAlignment!=='ceil')delete next.durationAlignment;
   next.duration=value.duration;
   next.recommendedDurationSeconds=defaults.recommendedDurationSecondsByShot?.[shotId]??defaults.recommendedDurations?.[shotId]??null;
   if(Number.isFinite(defaults.recommendedDurations?.[shotId]))next.duration=defaults.recommendedDurations[shotId];
- }else delete next.recommendedDurationSeconds;
+ }else {delete next.recommendedDurationSeconds;delete next.durationAlignment;delete next.durationManuallyAdjusted;}
  return next;
 }
 
@@ -33,5 +37,5 @@ export function rebaseLocalStoryboardDraft(draft,shot,project){
  const canonical=value=>JSON.stringify(value,(_key,row)=>row&&typeof row==='object'&&!Array.isArray(row)
   ?Object.fromEntries(Object.keys(row).sort().filter(k=>!transportKeys.has(k)).map(k=>[k,row[k]])):row);
  if(canonical(draft.base.generationConfig||{})!==canonical(shot.generationConfig||{}))return draft;
- return {...draft,base:{content:shot.content,generationConfig:shot.generationConfig}};
+ return {...draft,base:{...draft.base,content:shot.content,generationConfig:shot.generationConfig}};
 }
