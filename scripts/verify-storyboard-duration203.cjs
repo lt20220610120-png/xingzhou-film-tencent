@@ -1,15 +1,30 @@
-const {app,BrowserWindow,ipcMain}=require('electron');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const temp=fs.realpathSync(os.tmpdir());
+if(!process.versions.electron){
+ const scratch=fs.mkdtempSync(path.join(temp,'xz-storyboard-duration203-'));
+ try{
+  const {spawnSync}=require('node:child_process');
+  const child=spawnSync(require('electron'),[__filename,scratch],{stdio:'inherit',windowsHide:true,timeout:120000});
+  if(child.error)throw child.error;
+  process.exitCode=child.status??1;
+ }finally{
+  fs.rmSync(scratch,{recursive:true,force:true,maxRetries:8,retryDelay:100});
+ }
+ return;
+}
+const {app,BrowserWindow,ipcMain}=require('electron');
 const {setTimeout:pause}=require('node:timers/promises');
 const {patchShot}=require('../cloud-backend/src/storyboard-merge.cjs');
 const {createStoryboardBatchHost}=require('../electron/storyboard-batch-host.cjs');
 const {requestChat}=require('../electron/ai-service.cjs');
 
 const root=path.resolve(__dirname,'..'),page='scripts/fixtures/storyboard-duration203.html';
-const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'xz-storyboard-duration203-'));
+const scratch=fs.realpathSync(process.argv[2]);
+assert.equal(path.dirname(scratch),temp);
+assert.match(path.basename(scratch),/^xz-storyboard-duration203-[A-Za-z0-9]+$/);
 app.setPath('userData',scratch);app.setPath('sessionData',scratch);app.disableHardwareAcceleration();
 app.on('window-all-closed',()=>{});
 
@@ -158,5 +173,5 @@ app.whenReady().then(async()=>{
   }
   console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualStopsScope:true,manualPreservedAndReset:true,fencedSemanticEstimatePersisted:true,deepSeekThinkingPreserved:true,missingShotRetriedOnce:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
  }catch(error){exit=1;console.error(error);}
- finally{await server?.close();for(const win of BrowserWindow.getAllWindows())win.destroy();await fs.promises.rm(scratch,{recursive:true,force:true,maxRetries:8,retryDelay:100}).catch(error=>{console.error(error.message);exit=1;});app.exit(exit);}
+ finally{await server?.close();for(const win of BrowserWindow.getAllWindows())win.destroy();app.exit(exit);}
 });
