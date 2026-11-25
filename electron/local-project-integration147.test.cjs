@@ -54,3 +54,40 @@ test('transport changes during migration can rebase only unchanged reference ide
  const next=rebaseLocalStoryboardDraft(draft,shot,{storageMode:'local'});assert.equal(next.value.prompt,'手工新稿');assert.deepEqual(next.base.generationConfig,shot.generationConfig);
  assert.equal(rebaseLocalStoryboardDraft(draft,{...shot,generationConfig:{...shot.generationConfig,duration:17}},{storageMode:'local'}),draft);
 });
+
+test('a local director supplement refreshes a published material-only edit and queues the aligned recommendation',async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'xz209-timing-local-'));
+ t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ const session={token:'fixture',account:{id:'owner',username:'owner',isProducer:true}};
+ const cloud=new Proxy({}, {get:(_,method)=>()=>assert.fail(`unexpected cloud operation: ${String(method)}`)});
+ const open=()=>createLocalCollabService({cloud,getSession:()=>session,getDirectory:()=>dir,mediaFor:s=>createLocalProjectMedia({root:s.root})});
+ const service=open(),source='人物：甲（参考@），推开门。\n甲：回来了。',compiled='人物：甲（参考@），推开门。\n甲（参考@audio1）：回来了。';
+ const working='人物：甲（参考@），推开门。\n甲：回来了。';
+ const pending={version:'3.0.0',status:'pending',maxDurationSeconds:30,error:{code:'TIMEOUT',message:'等待估时'}};
+ const initialEpisode={id:'e1',title:'第1集',episodeNumber:1,content:'1-1 房间 日 内',prompts:[{id:'s1',label:'1-1-1',content:source,durationEstimate:pending}]};
+ const project=await service.createProject({name:'隔离估时同步',directorProjectId:'director',episodes:[initialEpisode]});
+ const file=path.join(dir,'voice.wav');await fs.writeFile(file,'RIFF-fixture-voice');
+ const voice=await service.uploadMedia({projectId:project.id,kind:'audio',filePath:file,note:'参考素材 1-1-1'});
+ await service.patchStoryboard({projectId:project.id,operation:'publish',episodeNumber:1,sceneIds:['1-1'],publicationId:'pub',prompts:[{...initialEpisode.prompts[0],generationConfig:{bindingSourcePrompt:source,bindingCompiledPrompt:compiled,references:[voice]}}]});
+ await service.patchStoryboard({projectId:project.id,episodeId:'e1',storyboardPublicationId:'pub',shotId:'s1',editPolicy:'direct',updates:{content:working,generationConfig:{bindingSourcePrompt:source,bindingCompiledPrompt:compiled,references:[],storyboardRemovedReferences:[voice]}}});
+ const estimate={version:'3.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:23,recommendedSeconds:23,capacityStatus:'正常',needsResegment:false,
+  breakdown:{speechSeconds:0,nonparallelActionSeconds:22,pauseBufferSeconds:0.8},reason:'依次完成动作。'};
+ await service.updateProject({projectId:project.id,scope:'director-sync',updates:{episodes:[{...initialEpisode,prompts:[{...initialEpisode.prompts[0],durationEstimate:estimate}]}]}});
+ const reopened=open();
+ const {episodes}=await reopened.getProject({projectId:project.id});
+ assert.deepEqual(episodes[0].storyboardPrompts[0].durationEstimate,estimate);
+ assert.equal(episodes[0].storyboardPrompts[0].content,working);
+ const settings={profileId:'v',model:'fixture-video',ratio:'16:9',resolution:'720p'};
+ const updated=await reopened.patchStoryboard({projectId:project.id,operation:'settings',scope:'scene',episodeId:'e1',sceneId:'1-1',revision:'test-recommend',durationMode:'recommended',supportedDurations:[4,24,30],settings,recommendedDurations:{s1:24}});
+ const state={mediaProfiles:[{id:'v',kind:'video',model:'fixture-video',endpoint:'https://fixture.invalid/v1',apiKey:'only-fixture',capabilities:{ratios:['16:9'],durations:[4,24,30],resolutions:['720p'],maxAudios:5}}]};
+ const {storyboardBatchItems}=await import('../core/storyboardBatch.js'),{validateStoryboardSubmission}=await import('../core/storyboardPublication.js');
+ const items=storyboardBatchItems({project:updated,scope:'scene',episodeId:'e1',sceneId:'1-1',settings,accountId:'owner'});
+ const submitted=[],getProject=p=>reopened.getProject(p);
+ const host=createStoryboardBatchHost({directory:path.join(dir,'queue'),owner:()=>session.account.id,license:async()=>{},getProject,listMedia:p=>reopened.listMedia(p),listJobs:()=>[],getState:()=>state,patchShot:p=>reopened.patchStoryboard(p),submit:async input=>{
+  await validateStoryboardSubmission({getProject,value:input,accountId:'owner'});
+  submitted.push(input);return {id:'simulated-task',status:'submitted'};
+ }});
+ await host.start({projectId:project.id,accountId:'owner',scope:'scene',episodeId:'e1',sceneId:'1-1',items});
+ await host.idle();
+ assert.deepEqual(submitted.map(item=>[item.shotId,item.duration,item.originalPrompt]),[['s1',24,working]]);
+});

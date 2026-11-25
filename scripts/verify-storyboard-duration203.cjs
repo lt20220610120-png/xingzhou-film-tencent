@@ -115,8 +115,7 @@ app.whenReady().then(async()=>{
       await mention(card(i),notices[i]);await mention(card(i),'重估时长');await disabled(card(i));
      }
      await button('.storyboard-batch-controls button','一键生成');await button('.storyboard-batch-confirm button','确认并开始');
-     await mention('.storyboard-batch .collab-error','批量生成未启动');assert.deepEqual(sent,[]);
-     await button('.storyboard-batch-confirm button','取消');
+     await mention('.storyboard-batch-progress [role="status"]','1-1-3');assert.deepEqual(sent,[]);
      for(let i=0;i<3;i++){
       await select(card(i)+' select[aria-label="时长"]','20');
       await button(card(i)+' button','生成视频');
@@ -132,8 +131,7 @@ app.whenReady().then(async()=>{
      assert.deepEqual(project.episodes[0].storyboardPrompts.map(({generationConfig:g})=>[g.profileId,g.model,g.ratio,g.resolution,g.duration]),Array.from({length:3},()=>['restricted','restricted-model','9:16','1080p',20]));
      await disabled(card(0));await mention(card(0),'手调时长不符合当前模型支持的秒数');
      await button('.storyboard-batch-controls button','一键生成');await button('.storyboard-batch-confirm button','确认并开始');
-     await mention('.storyboard-batch .collab-error','批量生成未启动');assert.deepEqual(sent,[]);
-     await button('.storyboard-batch-confirm button','取消');
+     await mention('.storyboard-batch-progress [role="status"]','手调时长不符合');assert.deepEqual(sent,[]);
      await select('select[aria-label="默认视频时长"]','15');
      await button('.storyboard-parameter-apply button','应用到全场景');
      await until(async()=> (await window.storyboardDurationFixture.project()).episodes[0].storyboardPrompts.every(shot=>shot.generationConfig.durationMode==='uniform'&&shot.generationConfig.duration===15));
@@ -147,8 +145,8 @@ app.whenReady().then(async()=>{
     }
     await button('.storyboard-batch-controls button','一键生成');
     await button('.storyboard-batch-confirm button','确认并开始');
-    await mention('.storyboard-batch .collab-error','批量生成未启动');assert.equal(sent.length,0);
-    await button('.storyboard-batch-confirm button','取消');
+    await mention('.storyboard-batch-progress [role="status"]','1-1-3');
+    assert.deepEqual(sent,[15,15]);sent.length=0;
     await select(card(1)+' select[aria-label="时长"]','10');await button(card(1)+' button','保存分镜');
     await until(async()=> (await window.storyboardDurationFixture.project()).episodes[0].storyboardPrompts[1].generationConfig.durationManuallyAdjusted===true);
     await editPrompt(2,'修改后的正片');
@@ -172,7 +170,7 @@ app.whenReady().then(async()=>{
     assert.deepEqual(sent,[11,14,4]);assert.deepEqual(requests,[]);
    } finally {await win.webContents.session.clearStorageData();win.destroy();}
   }
-  console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualStopsScope:true,manualPreservedAndReset:true,legacyV2AndV3EstimatePersisted:true,deepSeekFastTransport:true,missingShotRetriedOnce:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
+  console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualSkipped:true,manualPreservedAndReset:true,legacyV2AndV3EstimatePersisted:true,deepSeekFastTransport:true,missingShotRetriedOnce:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
  }catch(error){exit=1;console.error(error);}
  finally{await server?.close();for(const win of BrowserWindow.getAllWindows())win.destroy();app.exit(exit);}
 });

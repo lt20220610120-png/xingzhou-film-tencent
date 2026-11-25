@@ -1,10 +1,15 @@
 import {recommendedPromptDuration,recommendedStoryboardTiming} from './promptDisplay.js';
 import {normalizeVideoDurationLimit,savedDurationEstimate} from './videoDurationMetadata.js';
+import {sameStoryboardTimingText} from './storyboardTimingSource.js';
+export {sameStoryboardTimingText} from './storyboardTimingSource.js';
 
 const integerSeconds = value => Number.isInteger(value) && value > 0 && value <= 3600;
 const supportedOptions = values => [...new Set((values || []).filter(integerSeconds))].sort((a,b)=>a-b);
 
-export const savedStoryboardTiming = (episode,shot) => ({...shot,...recommendedStoryboardTiming({snapshot:{entries:episode?.prompts||[]}},shot)});
+export function savedStoryboardTiming(episode,shot,binding) {
+ const timing=recommendedStoryboardTiming(binding,shot,episode?.prompts);
+ return {...shot,...timing};
+}
 export const storyboardRecommendationLimit = timing => savedDurationEstimate(timing)?.maxDurationSeconds??normalizeVideoDurationLimit(timing?.maxDurationSeconds);
 
 export function storyboardDurationPolicy(model, caps, resolution) {
@@ -36,27 +41,9 @@ export function storyboardEstimateIssue(timing) {
  return '';
 }
 
-// An image alias may change when the same compiler-backed text is rebound.
-// Only this narrow projection is ignored, and both versions must prove the
-// same source; ordinary edits still invalidate the estimate.
-const imageAlias='@(?:image|图片|图)[1-9]\\d*(?![\\w]|\\.[A-Za-z0-9])';
-const referenceGroup='[ \\t]*参考[ \\t]*(?:@|'+imageAlias+'(?:[ \\t]*'+imageAlias+')*)[ \\t]*';
-const imageBindings=new RegExp('（'+referenceGroup+'）|\\('+referenceGroup+'\\)|(?<![\\w.+-])[ \\t]?(?:'+imageAlias+')+','g');
-function sameTimedProjection(before,previous,after,next){
- if(before===after)return true;
- if(typeof before!=='string'||typeof after!=='string')return false;
- const source=next?.bindingSourcePrompt??previous?.bindingSourcePrompt;
- if(typeof source!=='string'||!source.trim())return false;
- if(before===previous?.bindingCompiledPrompt&&previous.bindingSourcePrompt!==source)return false;
- const matches=(body,binding)=>body===source||body===binding?.bindingCompiledPrompt&&source===binding.bindingSourcePrompt;
- if(!matches(before,previous)||!matches(after,next))return false;
- const shared=source.replace(imageBindings,'');
- return before.replace(imageBindings,'')===shared&&after.replace(imageBindings,'')===shared;
-}
-
 export function storyboardTimingForDraft(timing, value, baseContent=timing?.content) {
  if(!timing)return {};
- const same=sameTimedProjection(baseContent,timing.generationConfig,value.prompt,value);
+ const same=sameStoryboardTimingText(baseContent,timing.generationConfig,value.prompt,value);
  if(same||typeof baseContent!=='string')return timing;
  if(timing.durationEstimate)return {...timing,durationEstimate:{...timing.durationEstimate,status:'needs-review'}};
  if(recommendedPromptDuration(timing)!==null)return {...timing,durationStatus:'needs-review'};

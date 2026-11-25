@@ -15,6 +15,20 @@ test('batch retains an explicitly applied fixed duration independently of the cu
  const rows=mod.storyboardBatchItems({project:p,scope:'episode',episodeId:'e1',settings:{duration:30},accountId:'owner'});
  assert.ok(rows.every(({value})=>value.duration===20&&value.durationMode==='uniform'&&value.storyboardDefaultsRevision==='fixed'));
 });
+test('selective batches skip substantive drafts only, including a manually selected unchanged number',()=>{
+ const p=structuredClone(project),shot=p.episodes[0].storyboardPrompts[0];
+ const source='甲（参考@）推门，乙说进来。';
+ const compiled=source.replace('参考@','参考@image1');
+ const references=[{id:'visual',kind:'image',url:'https://fixture/reference.png'}];
+ shot.content=source;
+ shot.generationConfig={duration:23,durationMode:'recommended',references};
+ const base={content:source,generationConfig:shot.generationConfig};
+ const rows=value=>mod.storyboardBatchItems({project:p,scope:'episode',episodeId:'e1',skipUnavailable:true,readDraft:key=>key.includes(':a:pub')?{dirty:true,base,value}:null});
+ const material={...shot.generationConfig,prompt:compiled,bindingSourcePrompt:source,bindingCompiledPrompt:compiled};
+ assert.deepEqual(rows(material).map(row=>row.skipUnsavedDraft),[undefined,undefined]);
+ assert.deepEqual(rows({...material,prompt:compiled.replace('进来','请你再进来')}).map(row=>row.skipUnsavedDraft),[true,undefined]);
+ assert.deepEqual(rows({...material,durationMode:'uniform',durationManuallyAdjusted:true}).map(row=>row.skipUnsavedDraft),[true,undefined]);
+});
 test('recommended generation never rounds unsupported duration or fills missing recommendation',async()=>{
  const state={mediaProfiles:[{id:'v',kind:'video',endpoint:'https://fixture/v1',apiKey:'fixture',model:'movie',capabilities:{ratios:['16:9'],durations:[5,12,30],resolutions:['720p']}}]};
  const value={profileId:'v',model:'movie',prompt:'测试',references:[],durationMode:'recommended',recommendedDurationSeconds:17,duration:17};

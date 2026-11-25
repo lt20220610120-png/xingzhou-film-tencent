@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {alignStoryboardDuration,storyboardDurationPolicy,storyboardDurationSelection,storyboardEstimateIssue,storyboardTimingForDraft} from './storyboardTiming.js';
+import {alignStoryboardDuration,sameStoryboardTimingText,savedStoryboardTiming,storyboardDurationPolicy,storyboardDurationSelection,storyboardEstimateIssue,storyboardTimingForDraft} from './storyboardTiming.js';
 import {rebaseLocalStoryboardDraft} from './storyboardDefaults.js';
+import {readFileSync} from 'node:fs';
 
 test('continuous ranges lift a short suggestion and discrete values round up without truncating',()=>{
  const range=storyboardDurationPolicy({durationRange:{min:4,max:25}}, {}, '720p');
@@ -68,4 +69,52 @@ test('portable local-media rebasing retains the previous optimistic estimate bas
  const draft={base:{content:'正文',generationConfig:{references:[{id:'a',url:'old'}]},durationEstimate:{status:'pending'}},dirty:true};
  const shot={content:'正文',generationConfig:{references:[{id:'a',url:'new'}]},durationEstimate:{status:'estimated'}};
  assert.deepEqual(rebaseLocalStoryboardDraft(draft,shot,{storageMode:'local'}).base,{...draft.base,generationConfig:shot.generationConfig});
+});
+
+test('late director re-estimation revives a published shot with removed or renumbered image and adopted audio references',()=>{
+ const source='甲 （参考@），推门。甲说：“回来。”';
+ const compiled='甲（参考@image1 @image2），推门。甲（参考@audio1）说：“回来。”';
+ const content='甲（参考@image1），推门。甲说：“回来。”';
+ const estimate={version:'3.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:23,recommendedSeconds:23,
+  capacityStatus:'正常',needsResegment:false,breakdown:{speechSeconds:12,nonparallelActionSeconds:10,pauseBufferSeconds:0.8},reason:'对白后接依次动作。'};
+ const references=[{id:'b',kind:'image'}],removed=[{id:'a',kind:'image'},{id:'voice',kind:'audio'}];
+ const generationConfig={bindingSourcePrompt:source,bindingCompiledPrompt:compiled,references,storyboardRemovedReferences:removed};
+ const shot={id:'working',sourcePromptId:'director',sourceContent:source,content,generationConfig,
+  durationEstimate:{...estimate,status:'needs-review'},durationStatus:'needs-review'};
+ const ep={prompts:[{id:'director',content:source,durationEstimate:estimate,durationEstimatedAt:'2026-11-26T04:00:00.000Z'}]};
+ const synced=savedStoryboardTiming(ep,shot);
+ assert.equal(synced.durationEstimate.status,'estimated');
+ assert.equal(synced.recommendedDurationSeconds,23);
+ assert.equal(storyboardEstimateIssue(storyboardTimingForDraft(synced,{...generationConfig,references:[...references,...removed],prompt:compiled})), '');
+ assert.match(storyboardEstimateIssue(storyboardTimingForDraft(synced,{...generationConfig,prompt:content.replace('推门','撞门')})),/待复核/);
+ assert.match(storyboardEstimateIssue(savedStoryboardTiming(ep,{...shot,content:content.replace('回来','离开')})),/待复核/);
+ const older={...estimate,naturalSeconds:22,recommendedSeconds:22,breakdown:{...estimate.breakdown,nonparallelActionSeconds:9}};
+ const reestimated={...shot,durationEstimateSource:'storyboard',durationEstimate:older,durationEstimatedAt:'2026-11-26T04:05:00.000Z'};
+ assert.equal(savedStoryboardTiming(ep,reestimated).durationEstimate.recommendedSeconds,22);
+ const completed={prompts:[{...ep.prompts[0],durationEstimatedAt:'2026-11-26T04:10:00.000Z'}]};
+ assert.equal(savedStoryboardTiming(completed,reestimated).durationEstimate.recommendedSeconds,23);
+ assert.equal(savedStoryboardTiming(completed,reestimated).durationEstimateSource,'director');
+ assert.equal(savedStoryboardTiming(completed,{...reestimated,content:content.replace('回来','离开')}).durationEstimate.recommendedSeconds,22);
+ const staleEpisode={prompts:[{...ep.prompts[0],durationEstimatedAt:'2026-11-26T03:50:00.000Z',durationEstimate:{version:'3.0.0',status:'pending',maxDurationSeconds:30,error:{code:'TIMEOUT',message:'等待估时'}}}]};
+ const binding={currentSnapshot:{entries:completed.prompts},saved:{snapshot:{entries:[{...ep.prompts[0],durationEstimate:older,durationEstimatedAt:'2026-11-26T04:15:00.000Z'}]}}};
+ assert.equal(savedStoryboardTiming(staleEpisode,shot,binding).durationEstimate.recommendedSeconds,23);
+});
+
+test('material-only comparison preserves text, email literals and unproven numbered audio annotations',()=>{
+ const refs={references:[{id:'image-a',kind:'image',name:'道具A'},{id:'voice',kind:'audio'}]};
+ const body='甲推门。甲（参考@audio1）：回来。';
+ assert.equal(sameStoryboardTimingText(body,refs,'甲推门。甲：回来。',{references:[]}),true);
+ assert.equal(sameStoryboardTimingText(body,{},'甲推门。甲：回来。',{}),false);
+ assert.equal(sameStoryboardTimingText('画面显示 support@image1.cn',refs,'画面显示 support.cn',refs),false);
+ assert.equal(sameStoryboardTimingText('密码是“@image1”。',refs,'密码是“”。',refs),false);
+ assert.equal(sameStoryboardTimingText('甲说：“保留（参考）两字。”',refs,'甲说：“保留两字。”',refs),false);
+ assert.equal(sameStoryboardTimingText('甲推门。',{},'甲推门。\n【人工指定参考】\n道具A（参考@image1）',refs),true);
+ assert.equal(sameStoryboardTimingText('甲推门。',{},'甲推门。\n【人工指定参考】\n道具A（参考@image1）\n山崩了。',refs),false);
+ assert.equal(sameStoryboardTimingText('甲推门。',{references:{}},'甲推门。',{storyboardRemovedReferences:{}}),true);
+});
+
+test('renderer and cloud share identical reference and timing selection rules',()=>{
+ const withoutExport=text=>text.trim().split(/\r?\n/).slice(0,-1).join('\n');
+ assert.equal(withoutExport(readFileSync(new URL('./storyboardTimingSource.js',import.meta.url),'utf8')),
+  withoutExport(readFileSync(new URL('../cloud-backend/shared/storyboard-timing.cjs',import.meta.url),'utf8')));
 });

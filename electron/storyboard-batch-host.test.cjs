@@ -12,6 +12,25 @@ test('batch scope rejects awaiting estimates before saving or sending work',asyn
  await assert.rejects(f.q.start(f.payload),/批量生成未启动.*待估时/);
  assert.equal(f.saved.length,0);assert.equal(f.sent.length,0);
 });
+
+test('opt-in batch skips unsaved and unavailable shots while dispatching the valid shot exactly once',async t=>{
+ const f=fixture(t),episode=f.project.episodes[0];
+ const pending={version:'3.0.0',status:'pending',maxDurationSeconds:30,error:{code:'TIMEOUT',message:'估时超时'}};
+ const precise={version:'2.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:17,recommendedSeconds:17,needsResegment:false,capacityStatus:'正常',breakdown:{speechSeconds:12,nonparallelActionSeconds:4,pauseBufferSeconds:1},reason:'原话与动作合计。'};
+ const unsupported={...precise,maxDurationSeconds:15,naturalSeconds:13,recommendedSeconds:13,breakdown:{speechSeconds:8,nonparallelActionSeconds:4,pauseBufferSeconds:1}};
+ const mirrors=[['draft',precise],['pending',pending],['unsupported',unsupported]];
+ for(const [index,[shotId,estimate]] of mirrors.entries()){
+  episode.storyboardPrompts.push({id:shotId,label:`1-1-${index+2}`,content:'原词',generationConfig:{references:[]},durationEstimate:estimate});
+  f.payload.items.push({...f.payload.items[0],shotId,skipUnsavedDraft:shotId==='draft',value:{...f.payload.items[0].value,prompt:'原词',durationMode:'recommended',durationAlignment:'ceil'}});
+ }
+ const run=await f.q.start({...f.payload,skipUnavailable:true});await f.q.idle();
+ assert.deepEqual(run.items.slice(1).map(item=>item.status),['skipped','skipped','skipped']);
+ assert.match(run.items[1].error,/未保存/);
+ assert.match(run.items[2].error,/待估时/);
+ assert.match(run.items[3].error,/模型.*建议时长/);
+ assert.deepEqual(f.saved.map(item=>item.shotId),['s']);
+ assert.deepEqual(f.sent.map(item=>item.shotId),['s']);
+});
 test('batch with an explicit model duration policy aligns the persisted and generated execution seconds',async t=>{
  const f=fixture(t),shot=f.project.episodes[0].storyboardPrompts[0],item=f.payload.items[0];
  shot.durationEstimate={version:'2.0.0',status:'estimated',maxDurationSeconds:30,naturalSeconds:17,recommendedSeconds:17,needsResegment:false,capacityStatus:'正常',breakdown:{speechSeconds:12,nonparallelActionSeconds:4,pauseBufferSeconds:1},reason:'原话与动作合计。'};

@@ -2,7 +2,7 @@ const path=require('node:path');
 const {createStoryboardBatchQueue,existingTask}=require('./storyboard-batch.cjs');
 const locked=p=>!['producer','collaborator','artist_collaborator'].includes(p?.myRole)||p.locked||p.is_locked||String(p.genre||'').includes('[PROJECT_LOCKED]');
 const durationModes=['recommended','uniform'];
-const valueKeys=['storyboardDefaultsRevision','durationMode','durationAlignment','durationManuallyAdjusted','recommendedDurationSeconds','profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode','prompt','references','autoReferenceExclusions','autoReferenceOrder','autoReferenceSignature','bindingSourcePrompt','bindingCompiledPrompt','bindingExpectedReferences','bindingAssets','bindingAssetIds','bindingVersionId','bindingSourcePromptId','referenceBindingMode','storyboardPublicationId'];
+const valueKeys=['storyboardDefaultsRevision','durationMode','durationAlignment','durationManuallyAdjusted','recommendedDurationSeconds','profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode','prompt','references','autoReferenceExclusions','autoReferenceOrder','autoReferenceSignature','bindingSourcePrompt','bindingCompiledPrompt','bindingExpectedReferences','bindingAssets','bindingAssetIds','bindingVersionId','bindingSourcePromptId','referenceBindingMode','storyboardPublicationId','storyboardRemovedReferences','storyboardReferenceBaseline','storyboardSceneImport','sceneVoiceSourcePrompt','sceneVoiceCompiledPrompt'];
 const missingDurationMode=(saved,value)=>durationModes.includes(saved?.durationMode)&&!durationModes.includes(value.durationMode);
 function createStoryboardBatchHost({directory,owner,license,getProject,listMedia,listJobs,getState,schema,patchShot,submit}){
  const check=async r=>{if(String(owner())!==r.accountId)throw Error('账号已变化');await license();const p=await getProject({projectId:r.projectId});if(locked(p))throw Error('项目已锁定或没有编辑权限');if(String(owner())!==r.accountId)throw Error('账号已变化');return p;};
@@ -30,18 +30,36 @@ function createStoryboardBatchHost({directory,owner,license,getProject,listMedia
   for(const [index,ep] of project.episodes.entries()){if(ep.kind==='setting'||ep.title==='设定和小传'||payload.scope!=='project'&&ep.id!==payload.episodeId)continue;for(const shot of ep.storyboardPrompts||ep.prompts||[]){const scene=String(shot.label||'').split('-').slice(0,2).join('-');if(payload.scope==='scene'&&scene!==payload.sceneId)continue;allowed.set(shot.id,{shot,ep,episode:inferDirectorEpisodeNumber(ep,index+1),scene});}}
   const media=await listMedia({projectId:project.id}),jobs=listJobs();
   const {savedStoryboardTiming,storyboardDurationMode,storyboardDurationSelection,storyboardEstimateIssue,storyboardTimingForDraft}=await import('../core/storyboardTiming.js');
+  const skipUnavailable=payload.skipUnavailable===true;
   const blockers=[];
-  const items=payload.items.map(item=>{const row=allowed.get(item.shotId);if(!row)throw Error('分镜不在所选范围');const skip=existingTask(jobs,project.id,item.shotId)||media.some(m=>m.kind==='video'&&(m.note?.includes(`[shot:${item.shotId}]`)||m.note===row.shot.label));if(!skip&&(item.baseContent!==(row.shot.content||'')||JSON.stringify(item.baseGenerationConfig||{})!==JSON.stringify(row.shot.generationConfig||{})))throw Error('分镜已被修改，请刷新核对后再批量生成');const value=Object.fromEntries(valueKeys.filter(k=>item.value?.[k]!==undefined).map(k=>[k,structuredClone(item.value[k])]));if(!skip&&(typeof value.prompt!=='string'||!value.prompt.trim()||!Array.isArray(value.references)||value.references.length>256))throw Error('分镜正文或素材无效');if(!skip&&(row.shot.storyboardPublicationId||'')!==(item.publicationId||''))throw Error('分镜发布版本已变化');
-   return {shotId:row.shot.id,episodeId:row.ep.id,publicationId:row.shot.storyboardPublicationId||'',baseContent:row.shot.content||'',baseGenerationConfig:structuredClone(row.shot.generationConfig||{}),episode:row.episode,scene:row.scene,label:row.shot.label,value:skip?{}:value,skip};});
-  if(new Set(items.map(i=>i.shotId)).size!==allowed.size)throw Error('批量范围已变化，请重新选择');
+  const items=payload.items.map(item=>{
+   const row=allowed.get(item.shotId);
+   if(!row)throw Error('分镜不在所选范围');
+   const {shot}=row,publicationId=shot.storyboardPublicationId||'';
+   const unsaved=skipUnavailable&&item.skipUnsavedDraft===true;
+   const skip=unsaved||existingTask(jobs,project.id,item.shotId)||media.some(m=>m.kind==='video'&&(m.note?.includes(`[shot:${item.shotId}]`)||m.note===shot.label));
+   if(!skip&&(item.baseContent!==(shot.content||'')||JSON.stringify(item.baseGenerationConfig||{})!==JSON.stringify(shot.generationConfig||{})))throw Error('分镜已被修改，请刷新核对后再批量生成');
+   const value=skip?{}:Object.fromEntries(valueKeys.filter(k=>item.value?.[k]!==undefined).map(k=>[k,structuredClone(item.value[k])]));
+   if(!skip&&(typeof value.prompt!=='string'||!value.prompt.trim()||!Array.isArray(value.references)||value.references.length>256))throw Error('分镜正文或素材无效');
+   if(!skip&&publicationId!==(item.publicationId||''))throw Error('分镜发布版本已变化');
+   return {shotId:shot.id,episodeId:row.ep.id,publicationId,baseContent:shot.content||'',baseGenerationConfig:structuredClone(shot.generationConfig||{}),episode:row.episode,scene:row.scene,label:shot.label,value,skip,skipReason:unsaved?'正文或手调时长尚未保存':''};
+  });
+  if(items.length!==allowed.size||new Set(items.map(i=>i.shotId)).size!==allowed.size)throw Error('批量范围已变化，请重新选择');
+  const unavailable=(item,issue)=>{
+   if(!skipUnavailable){blockers.push(`${item.label} ${issue}`);return;}
+   item.skip=true;
+   item.skipReason=issue;
+   item.value={};
+  };
   const needsModel=[];
-  for(const {shotId,value,label,skip} of items){
-   if(skip)continue;
+  for(const item of items){
+   if(item.skip)continue;
+   const {shotId,value}=item;
    const {ep,shot}=allowed.get(shotId),mode=storyboardDurationMode(value);
    const timing=storyboardTimingForDraft(savedStoryboardTiming(ep,shot),value);
    const issue=missingDurationMode(shot.generationConfig,value)?'分镜时长模式已变化，请刷新核对':mode==='uniform'?'':storyboardEstimateIssue(timing);
-   if(issue)blockers.push(`${label} ${issue}`);
-   else if(mode!=='legacy')needsModel.push({label,value,timing});
+   if(issue)unavailable(item,issue);
+   else if(mode!=='legacy')needsModel.push({item,value,timing});
   }
   if(!blockers.length&&needsModel.length){
    const {storyboardGenerationModel}=await import('../core/storyboardBatch.js');
@@ -49,10 +67,10 @@ function createStoryboardBatchHost({directory,owner,license,getProject,listMedia
     if(!schemas.has(model))schemas.set(model,schema(accountId,model));
     return schemas.get(model);
    };
-   for(const {label,value,timing} of needsModel){
+   for(const {item,value,timing} of needsModel){
     const {durationPolicy:policy,fallback}=await storyboardGenerationModel({state,value,getLibTVModel});
     const {issue}=storyboardDurationSelection({value,timing,policy,fallback});
-    if(issue)blockers.push(`${label} ${issue}`);
+    if(issue)unavailable(item,issue);
    }
   }
   if(blockers.length)throw Error(`有 ${blockers.length} 条分镜需处理时长，批量生成未启动。${blockers.slice(0,3).join('；')}`);

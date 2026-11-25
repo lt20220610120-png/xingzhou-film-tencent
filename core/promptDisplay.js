@@ -1,5 +1,6 @@
 import {numberedReferences} from './generationReferences.js';
 import {savedDurationEstimate} from './videoDurationMetadata.js';
+import {selectStoryboardTiming} from './storyboardTimingSource.js';
 export function promptDisplayParts(value,references){
  const text=String(value||''),known=new Map(numberedReferences(references||[]).map(r=>[r.alias,r])),parts=[];let end=0;
  for(const match of text.matchAll(/@(image|audio|video)[1-9]\d*/g)){
@@ -37,20 +38,15 @@ export function promptTimingMetadata(value){
   timing.timingRulesVersion=2;
   timing.durationStatus=durationEstimate.status;
   if(typeof value.durationSourceScript==='string'&&value.durationSourceScript.length<=250000)timing.durationSourceScript=value.durationSourceScript;
+  if(typeof value.durationEstimatedAt==='string'&&value.durationEstimatedAt.length<=35&&Number.isFinite(Date.parse(value.durationEstimatedAt)))timing.durationEstimatedAt=value.durationEstimatedAt;
  }
  return timing;
 }
-export function recommendedStoryboardTiming(binding,shot){
- const sourcePromptId=String(shot?.sourcePromptId||shot?.id||''),sourceContent=shot?.sourceContent??shot?.generationConfig?.bindingSourcePrompt??shot?.content??shot?.prompt;
- const direct=promptTimingMetadata(shot),own=direct.durationEstimate||direct.recommendedDurationSeconds?{...direct,sourcePromptId,sourceContent}:null;
- if(direct.durationEstimate)return own;
- if(!sourcePromptId||typeof sourceContent!=='string'||!sourceContent.trim())return own;
- const snapshots=[binding?.currentSnapshot,binding?.snapshot,binding?.saved?.snapshot].filter(Boolean),entries=snapshots.flatMap(snapshot=>[...(snapshot.entries||[]),...(snapshot.promptEditions||[]).flatMap(edition=>edition.entries||[])]);
- const matching=entries.filter(entry=>String(entry.id)===sourcePromptId&&(entry.prompt??entry.content)===sourceContent),timings=matching.map(promptTimingMetadata);
- const precise=timings.find(timing=>timing.durationEstimate);
- if(precise)return {...precise,sourcePromptId,sourceContent};
- if(own)return own;
- const legacy=timings.filter(timing=>timing.recommendedDurationSeconds);
- if(!legacy.length||new Set(legacy.map(timing=>timing.recommendedDurationSeconds)).size!==1)return null;
- return {...legacy[0],sourcePromptId,sourceContent};
+export function recommendedStoryboardTiming(binding,shot,episodeEntries){
+ return selectStoryboardTiming(binding,shot,promptTimingMetadata,value=>{
+  if(value.durationEstimate?.status==='pending')return value;
+  if(!value.durationEstimate)return {...value,durationStatus:'needs-review'};
+  const {recommendedDurationSeconds,...prior}=value;
+  return {...prior,durationEstimate:{...value.durationEstimate,status:'needs-review'},durationStatus:'needs-review'};
+ },episodeEntries);
 }

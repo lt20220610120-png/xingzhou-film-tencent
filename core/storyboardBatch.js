@@ -1,9 +1,8 @@
-import {recommendedStoryboardTiming} from './promptDisplay.js';
 import {storyboardShots} from './storyboardPublication.js';
 import {inferDirectorEpisodeNumber} from './scriptImport.js';
 import {storyboardPromptValue,canRefreshStoryboardBinding} from './promptAssetUsage.js';
 import {cleanStoryboardReferenceValue,projectStoryboardImageAliases} from './storyboardReferences.js';
-import {applyStoryboardDefaults,storyboardSettingKeys,rebaseStoryboardDefaultsDraft,rebaseLocalStoryboardDraft} from './storyboardDefaults.js';
+import {applyStoryboardDefaults,storyboardSettingKeys,rebaseStoryboardDefaultsDraft,rebaseLocalStoryboardDraft,storyboardDraftKey,hasUnsavedStoryboardTimingEdit} from './storyboardDefaults.js';
 import {projectReferenceCandidates,matchBasicReferences} from './automaticReferences.js';
 import {generationMediaProfiles,activeMediaProfile,videoModelCapabilities,isFeituoEndpoint} from './canvasStore.js';
 import {profileModels} from './videoCatalog.js';
@@ -14,8 +13,8 @@ import {validateCompiledBinding} from './promptArtBinding.js';
 import {bindReferencePrompt} from './generationReferences.js';
 import {assertMinimumReferenceImages,selectAudioReferences} from './audioReferenceSelection.js';
 import {libtvGenerationParams} from './libtv.js';
-import {storyboardDurationMode,storyboardDurationPolicy,storyboardDurationSelection,storyboardTimingForDraft} from './storyboardTiming.js';
-export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={},assets=[],media=[],binding,accountId,readDraft=()=>null}){
+import {savedStoryboardTiming,storyboardDurationMode,storyboardDurationPolicy,storyboardDurationSelection,storyboardTimingForDraft} from './storyboardTiming.js';
+export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={},assets=[],media=[],binding,accountId,readDraft=()=>null,skipUnavailable=false}){
  if(!['scene','episode','project'].includes(scope))throw Error('请选择生成范围');
  const top=Object.fromEntries(storyboardSettingKeys.filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]]));
  return (project.episodes||[]).flatMap((ep,index)=>{
@@ -23,7 +22,8 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
   const episode=inferDirectorEpisodeNumber(ep,index+1);
   return storyboardShots(ep).flatMap(shot=>{
    const scene=String(shot.label||'').split('-').slice(0,2).join('-');if(scope==='scene'&&scene!==sceneId)return [];
-   const key=`xz-shot-draft:${project.id}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`,stored=readDraft(key),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(stored,shot,defaults),shot,project);
+   const stored=readDraft(storyboardDraftKey(project.id,shot)),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(stored,shot,defaults),shot,project);
+   if(skipUnavailable&&hasUnsavedStoryboardTimingEdit(shot,draft))return [{shotId:shot.id,label:shot.label,skipUnsavedDraft:true}];
    const refs=projectReferenceCandidates(assets,media,project.id,episode,scene,{assetImageSlots:true,includeEmptyAssetSlots:true});
    let value=cleanStoryboardReferenceValue(draft?.value||{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||refs},project.id);
    value=applyStoryboardDefaults(value,ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,shot.id);
@@ -31,7 +31,7 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
    value=cleanStoryboardReferenceValue(value,project.id);
    const selectedSettings={...top};if(storyboardDurationMode(value)!=='legacy')delete selectedSettings.duration;
    value={...value,...selectedSettings,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''};
-   if(value.durationMode==='recommended'&&value.recommendedDurationSeconds==null){const timing=recommendedStoryboardTiming(binding,shot);if(timing?.recommendedDurationSeconds!=null)value={...value,recommendedDurationSeconds:timing.recommendedDurationSeconds};}
+   if(value.durationMode==='recommended'&&value.recommendedDurationSeconds==null){const timing=savedStoryboardTiming(ep,shot,binding);if(timing.recommendedDurationSeconds!=null)value={...value,recommendedDurationSeconds:timing.recommendedDurationSeconds};}
    return [{shotId:shot.id,episodeId:ep.id,episode,scene,label:shot.label,publicationId:shot.storyboardPublicationId||'',baseContent:draft?.base?.content??shot.content??'',baseGenerationConfig:structuredClone(draft?.base?.generationConfig??shot.generationConfig??{}),value}];
   });
  });
@@ -50,7 +50,7 @@ export async function storyboardGenerationModel({state,value,getLibTVModel}){
 export async function storyboardGenerationInput({state,value,getLibTVModel,shot}){
  const {profile,model,libtv,caps,resolution,durationPolicy,fallback}=await storyboardGenerationModel({state,value,getLibTVModel});
  if(!libtv&&profile.provider!=='likeai'&&!profile.apiKey&&!(profile.videoProtocol==='custom'&&profile.videoAdapter?.authMode==='none'))throw Error('请填写接口密钥');
- const timing=shot?storyboardTimingForDraft({...shot,...recommendedStoryboardTiming(null,shot)},value,shot.content):value;
+ const timing=shot?storyboardTimingForDraft(shot,value):value;
  const {duration,issue}=storyboardDurationSelection({value,timing,policy:durationPolicy,fallback});
  if(issue)throw Error(issue);
  const ratios=caps.ratios?.length?caps.ratios:['16:9'],ratio=ratios.includes(value.ratio)?value.ratio:ratios[0];

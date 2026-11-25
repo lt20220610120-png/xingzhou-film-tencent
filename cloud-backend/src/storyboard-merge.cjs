@@ -4,30 +4,14 @@ const {isDeepStrictEqual}=require('node:util');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const {applySettings,settingsFor,generationDefaults}=require('./storyboard-settings.cjs');
 const {recommendedStoryboardTiming,promptTimingMetadata,validatedDurationEstimate,markStoryboardTimingStale}=require('./prompt-duration.cjs');
-const imageAlias='@(?:image|图片|图)[1-9]\\d*(?![\\w]|\\.[A-Za-z0-9])';
-const referenceGroup='[ \\t]*参考[ \\t]*(?:@|'+imageAlias+'(?:[ \\t]*'+imageAlias+')*)[ \\t]*';
-const imageBindings=new RegExp('（'+referenceGroup+'）|\\('+referenceGroup+'\\)|(?<![\\w.+-])[ \\t]?(?:'+imageAlias+')+','g');
-function sameImageBoundStoryboardText(before,after,prior,next){
- const source=next?.bindingSourcePrompt??prior?.bindingSourcePrompt;
- if(typeof source!=='string'||!source.trim()||typeof before!=='string'||typeof after!=='string')return false;
- if(before===prior?.bindingCompiledPrompt&&prior.bindingSourcePrompt!==source)return false;
- const isBound=(body,config)=>body===source||config?.bindingSourcePrompt===source&&config.bindingCompiledPrompt===body;
- if(!isBound(before,prior)||!isBound(after,next))return false;
- const shared=source.replace(imageBindings,'');
- return before.replace(imageBindings,'')===shared&&after.replace(imageBindings,'')===shared;
-}
+const {sameStoryboardTimingText}=require('../shared/storyboard-timing.cjs');
 
 function restoreShotTiming(shot,sources){
- if(shot.durationEstimateSource==='storyboard')return shot;
- const edited=shot.sourceContent&&shot.content!==(shot.generationConfig?.bindingCompiledPrompt||shot.sourceContent);
- const binding={snapshot:{entries:[...(sources||[])].reverse().map(source=>({...source,prompt:source.content}))}};
- const direct=recommendedStoryboardTiming(binding,shot);
- const current=!edited&&binding.snapshot.entries.find(source=>String(source.id)===direct?.sourcePromptId&&source.content===direct.sourceContent&&validatedDurationEstimate(source.durationEstimate));
- const timing=current||direct;
+ const timing=recommendedStoryboardTiming(null,shot,sources);
  if(!timing)return shot;
- const metadata=promptTimingMetadata(timing),updated={...shot,...metadata};
+ const metadata=promptTimingMetadata(timing),updated={...shot,...metadata,...(timing.durationEstimateSource?{durationEstimateSource:timing.durationEstimateSource}:{})};
  if(metadata.durationEstimate&&metadata.recommendedDurationSeconds===undefined)delete updated.recommendedDurationSeconds;
- return edited?markStoryboardTimingStale(updated):updated;
+ return updated;
 }
 
 function saveGenerationConfig(shot,update,defaults){
@@ -71,7 +55,8 @@ function mergeDirectorEpisodes(current=[],incoming=[]) {
   // Director drafts remain available to the review page. The storyboard has
   // its own published working copy, initialized once for older projects.
   const existingStoryboard=old.storyboardPrompts||((old.prompts||[]).length?structuredClone(old.prompts):null);
-  const storyboardPrompts=existingStoryboard?.map(shot=>restoreShotTiming(shot,[...(old.prompts||[]),...(ep.prompts||[])]));
+  const timingSources=[...(ep.prompts||[]),...(old.prompts||[])];
+  const storyboardPrompts=existingStoryboard?.map(shot=>restoreShotTiming(shot,timingSources));
   const editions=[...(old.collaborationEditions||[])],legacy=(ep.promptEditions||[]).find(row=>String(row.id).startsWith('original:'))?.id||'legacy';
   const oldEdition=old.promptEditionId||legacy,nextEdition=ep.promptEditionId||legacy;
   if(oldEdition!==nextEdition){
@@ -182,8 +167,8 @@ function patchShot(episodes,payload) {
   }
   if(estimate){
    delete shot.recommendedDurationSeconds;
-   Object.assign(shot,promptTimingMetadata({durationEstimate:estimate}),{durationEstimateSource:'storyboard',durationStatus:estimate.status});
-  }else if(Object.hasOwn(updates,'content')&&previousContent!==shot.content&&!sameImageBoundStoryboardText(previousContent,shot.content,previousConfig,shot.generationConfig)){
+   Object.assign(shot,promptTimingMetadata({durationEstimate:estimate,durationEstimatedAt:new Date().toISOString()}),{durationEstimateSource:'storyboard',durationStatus:estimate.status});
+  }else if(Object.hasOwn(updates,'content')&&!sameStoryboardTimingText(previousContent,previousConfig,shot.content,shot.generationConfig)){
    Object.assign(shot,markStoryboardTimingStale({...shot,content:previousContent}),{content:updates.content});
    if(shot.durationEstimate?.status==='needs-review')delete shot.recommendedDurationSeconds;
   }

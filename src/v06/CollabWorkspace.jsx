@@ -1824,7 +1824,7 @@ export function CollabWorkspace({ state, api, account }) {
   },[account?.id,project?.id]);
 
   useWorkspacePolling(visible=>refreshProject({visible}),{
-    scope:project?.id,delay:12000,enabled:Boolean(project?.id)&&section!=='art-review',immediate:false,
+    scope:project?.id,delay:12000,enabled:Boolean(project?.id)&&section!=='art-review',immediate:section==='storyboard',
   });
 
   const openProject = async (id) => {

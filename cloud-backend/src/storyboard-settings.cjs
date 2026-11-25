@@ -1,5 +1,6 @@
 const {isDeepStrictEqual}=require('node:util');
 const {recommendedStoryboardTiming,promptTimingMetadata,validatedDurationEstimate,markStoryboardTimingStale}=require('./prompt-duration.cjs');
+const {storyboardTimingIdentity,usingDirectorStoryboardTiming}=require('../shared/storyboard-timing.cjs');
 const keys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode'];
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value);
@@ -11,6 +12,8 @@ const generationDefaults=(config,settings)=>({libtvMode:'auto',libtvParams:{},..
 function settingsFor(ep,label,shotId){
  const all=ep.storyboardDefaultSettings||{},scene=String(label||'').split('-').slice(0,2).join('-'),record=all.scenes?.[scene]||all.global;
  if(!record||shotId===undefined)return record;
+ const skipped=record.recommendedDurationReport?.skipped;
+ if(Array.isArray(skipped)&&skipped.includes(shotId))return undefined;
  if(record.recommendedDurationReport?.manual?.includes(shotId))return {...record,settings:record.manualDurationProtection==='duration-only'?commonSettings(record.settings):{}};
  const settings={...record.settings,durationMode:record.durationMode==='recommended'?'recommended':'uniform'};
  if(settings.durationMode==='recommended'){
@@ -21,15 +24,16 @@ function settingsFor(ep,label,shotId){
  return {...record,settings};
 }
 function timingForShot(ep,shot,proof){
- const own=recommendedStoryboardTiming({snapshot:{entries:(ep.prompts||[]).map(source=>({...source,prompt:source.content}))}},shot);
+ const own=recommendedStoryboardTiming(null,shot,ep.prompts);
  if(proof!==undefined){
-  const sourcePromptId=String(shot.sourcePromptId||shot.id||''),sourceContent=shot.sourceContent??shot.generationConfig?.bindingSourcePrompt??shot.content;
+  const {sourcePromptId,sourceContent}=storyboardTimingIdentity(shot);
   const provided=plain(proof)&&validatedDurationEstimate(proof.durationEstimate);
   if(!plain(proof)||(!provided&&!validSeconds(proof.recommendedDurationSeconds))||String(proof.sourcePromptId||'')!==sourcePromptId||typeof sourceContent!=='string'||!sourceContent.trim()||proof.sourceContent!==sourceContent)fail('建议时长来源已变更，请刷新核对',409);
   if(provided&&own?.durationEstimate&&!isDeepStrictEqual(provided,own.durationEstimate))fail('建议时长与已保存来源不一致，请刷新核对',409);
   if(!provided&&own&&proof.recommendedDurationSeconds!==own.recommendedDurationSeconds)fail('建议时长与已保存来源不一致，请刷新核对',409);
   if((!provided&&own)||own?.durationEstimate)return own;
-  return {...promptTimingMetadata(proof),sourcePromptId,sourceContent};
+  const timing={...promptTimingMetadata(proof),sourcePromptId,sourceContent};
+  return usingDirectorStoryboardTiming(shot,sourceContent)?timing:markStoryboardTimingStale(timing);
  }
  return own;
 }
@@ -42,7 +46,7 @@ function alignedSeconds(recommended,options,range,limit){
 
 function blockedTiming(timing,shot,modern){
  if(timing?.durationEstimate?.status==='pending')return 'pending';
- if(timing?.durationEstimate?.status==='needs-review'||modern&&(timing?.durationStatus==='needs-review'||shot.durationStatus==='needs-review'))return 'needs-review';
+ if(timing?.durationEstimate?.status==='needs-review'||modern&&(timing?.durationStatus??shot.durationStatus)==='needs-review')return 'needs-review';
  if(timing?.durationEstimate?.needsResegment)return 'overload';
  return null;
 }
@@ -63,12 +67,16 @@ function applySettings(episodes,payload){
  const inScope=shot=>scope!=='scene'||String(shot.label||'').startsWith(payload.sceneId+'-');
  const ids=new Set(selected.flatMap(ep=>(ep.storyboardPrompts||ep.prompts||[]).filter(inScope).map(shot=>shot.id)));
  if(scope!=='project'&&!ids.size)fail('分集或场景已变更，请刷新',409);
+ const excludedIds=payload.excludedShotIds??[];
+ if(!Array.isArray(excludedIds)||excludedIds.length>20000||excludedIds.some(id=>!recommended||typeof id!=='string'||!ids.has(id)||Object.hasOwn(map,id)||Object.hasOwn(sources,id)))fail('跳过的分镜不在所选范围或包含时长参数');
+ const excluded=new Set(excludedIds);
  if(recommended&&[...Object.keys(map),...Object.keys(sources)].some(id=>!ids.has(id)))fail('建议时长包含范围外分镜');
  const settings={...Object.fromEntries(keys.filter(k=>value[k]!==undefined&&(!recommended||k!=='duration')).map(k=>[k,structuredClone(value[k])])),...(modern?{durationAlignment:'ceil'}:{})};
  const manualSettings=commonSettings(settings);
  for(const ep of selected){
-  const shots=ep.storyboardPrompts||ep.prompts||[],approved={},known={},timings=new Map(),report={applied:[],missing:[],unsupported:[],aligned:[],manual:[],blocked:[]},reset=[];
+  const shots=ep.storyboardPrompts||ep.prompts||[],approved={},known={},timings=new Map(),report={applied:[],missing:[],unsupported:[],aligned:[],manual:[],blocked:[],skipped:[]},reset=[];
   if(recommended)for(const shot of shots.filter(inScope)){
+   if(excluded.has(shot.id)){report.skipped.push(shot.id);continue;}
    const manual=shot.generationConfig?.durationManuallyAdjusted===true;
    if(manual&&!payload.includeManualDuration){report.manual.push(shot.id);continue;}
    const timing=timingForShot(ep,shot,sources[shot.id]),seconds=timing?.recommendedDurationSeconds;
@@ -93,7 +101,7 @@ function applySettings(episodes,payload){
   const old=ep.storyboardDefaultSettings||{};
   ep.storyboardDefaultSettings=scope!=='scene'?{global:record,scenes:{}}:{...old,scenes:{...old.scenes,[payload.sceneId]:record}};
   ep.storyboardPrompts=structuredClone(shots).map(shot=>{
-   if(!inScope(shot))return shot;
+   if(!inScope(shot)||excluded.has(shot.id))return shot;
    const keepManual=report.manual.includes(shot.id);
    const generationConfig={...shot.generationConfig,...generationDefaults(shot.generationConfig,keepManual?manualSettings:settings),...(keepManual?{}:{durationMode:mode}),storyboardDefaultsRevision:record.revision};
    if(keepManual)return {...shot,generationConfig};
@@ -101,10 +109,10 @@ function applySettings(episodes,payload){
    else delete generationConfig.recommendedDurationSeconds;
    if(!modern)delete generationConfig.durationAlignment;
    if(!recommended||reset.includes(shot.id))delete generationConfig.durationManuallyAdjusted;
-   const timing=recommended?promptTimingMetadata(timings.get(shot.id)):{},edited=shot.sourceContent&&shot.content!==(shot.generationConfig?.bindingCompiledPrompt||shot.sourceContent);
-   const next={...shot,...timing,generationConfig};
+   const source=timings.get(shot.id),timing=recommended?promptTimingMetadata(source):{};
+   const next={...shot,...timing,...(source?.durationEstimateSource?{durationEstimateSource:source.durationEstimateSource}:{}),generationConfig};
    if(timing.durationEstimate&&timing.recommendedDurationSeconds===undefined)delete next.recommendedDurationSeconds;
-   return edited&&shot.durationEstimateSource!=='storyboard'&&!timing.durationEstimate&&timing.recommendedDurationSeconds?markStoryboardTimingStale(next):next;
+   return next;
   });
   ep.storyboardWorkspacePolicy='published';
  }

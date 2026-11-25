@@ -1,4 +1,18 @@
+import {sameStoryboardTimingText} from './storyboardTiming.js';
+
 export const storyboardSettingKeys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode'];
+export const storyboardDraftKey=(projectId,shot)=>`xz-shot-draft:${projectId}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
+
+export function hasUnsavedStoryboardTimingEdit(shot,draft){
+ if(!draft?.dirty||!draft.value)return false;
+ const {value}=draft,base=draft.base||shot;
+ const matches=source=>sameStoryboardTimingText(source.content||'',source.generationConfig,value.prompt,value);
+ if(typeof value.prompt==='string'&&!matches(base)&&!matches(shot))return true;
+ if(value.durationManuallyAdjusted!==true)return false;
+ const sameManual=config=>config?.durationManuallyAdjusted===true&&value.duration===config.duration;
+ return !sameManual(base.generationConfig)&&!sameManual(shot.generationConfig);
+}
+
 const storageKey=scope=>'xz-storyboard-defaults:'+JSON.stringify([scope.accountId,scope.projectId,scope.editionId||'legacy']);
 export function readStoryboardDefaults(scope,storage=globalThis.localStorage){try{const value=JSON.parse(storage.getItem(storageKey(scope))||'null');return value?.revision&&value.settings?value:null;}catch{return null;}}
 export function saveStoryboardDefaults(scope,settings,storage=globalThis.localStorage){
@@ -7,7 +21,8 @@ export function saveStoryboardDefaults(scope,settings,storage=globalThis.localSt
  storage.setItem(storageKey(scope),JSON.stringify(value));return value;
 }
 export function applyStoryboardDefaults(value,defaults,shotId){
- if(!defaults||value.storyboardDefaultsRevision===defaults.revision)return value;
+ const skipped=defaults?.recommendedDurationReport?.skipped;
+ if(!defaults||value.storyboardDefaultsRevision===defaults.revision||Array.isArray(skipped)&&skipped.includes(shotId))return value;
  const recommended=defaults.durationMode==='recommended';
  const reset=defaults.durationManualResetShotIds?.includes(shotId);
  const keepManual=recommended&&(defaults.recommendedDurationReport?.manual?.includes(shotId)||value.durationManuallyAdjusted===true&&!reset);

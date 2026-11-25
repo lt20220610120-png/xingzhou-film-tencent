@@ -102,6 +102,20 @@ if(fixture.has('asset-image-delete')){
     collabListMedia:payload=>bridge.call('listMedia',payload),collabDeleteAssetImage:payload=>bridge.call('deleteAssetImage',payload),
     collabClearAssetImages:payload=>bridge.call('clearAssetImages',payload)});
 }
+if(fixture.has('storyboard-duration209')){
+  const bridge=window.storyboard209Fixture;
+  const active=await bridge.bootstrap();
+  Object.assign(saved,{directorProjects:[active.director],mediaProfiles:active.profiles,activeVideoApiId:active.profiles[0].id});
+  localStorage.setItem('xz-director-last-project',active.director.id);
+  localStorage.setItem('xz-director-last-pane',active.director.episodes[0].id);
+  Object.assign(answers,{
+    appVersion:'2.8.209',loadDirectorProjects:saved.directorProjects,
+    collabListProjects:()=>bridge.call('listProjects'),collabGetProject:p=>bridge.call('getProject',p),
+    collabUpdateProject:p=>bridge.call('updateProject',p),collabPatchStoryboard:p=>bridge.call('patchStoryboard',p),
+    promptArtStatus:{enabled:false},artReviewLoadLocal:{episodes:{}},
+    storyboardBatchStart:p=>bridge.call('start',p),storyboardBatchList:p=>bridge.call('list',p),
+  });
+}
 window.xingzhou = new Proxy({}, { get(_, key) {
   if (typeof key !== 'string' || key === 'then') return undefined;
   if (key === 'onLicenseState') return callback => {qa.licenseChanged=callback;return ()=>{qa.licenseChanged=null;};};

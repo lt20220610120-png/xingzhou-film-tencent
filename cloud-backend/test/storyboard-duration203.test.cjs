@@ -20,6 +20,21 @@ const apply = (options={}) => ({operation:'settings',scope:'project',revision:'n
   settings:{profileId:'profile',model:'video',ratio:'16:9',resolution:'720p'},...options});
 const edit = (id, updates, base={}) => ({episodeId:'ep',shotId:id,editPolicy:'direct',updates,base});
 
+test('recommended settings skip only the named local draft and never apply the saved defaults back onto it', async () => {
+  const {applyStoryboardDefaults}=await import('../../core/storyboardDefaults.js');
+  const original = project(shot('1',estimate(17),{model:'previous'}),shot('2',estimate(17),{model:'previous'}));
+  const [episode] = patchShot(original,apply({excludedShotIds:['1'],recommendedDurations:{'2':20}}));
+  const defaults=episode.storyboardDefaultSettings.global;
+  assert.deepEqual(defaults.recommendedDurationReport.skipped,['1']);
+  assert.deepEqual(episode.storyboardPrompts[0],original[0].storyboardPrompts[0]);
+  assert.equal(episode.storyboardPrompts[1].generationConfig.duration,20);
+  assert.equal(settingsFor(episode,'1-1-1','1'),undefined);
+  const draft={model:'previous',prompt:'还在编辑',duration:12,durationManuallyAdjusted:true};
+  assert.equal(applyStoryboardDefaults(draft,defaults,'1'),draft);
+  assert.throws(()=>patchShot(original,apply({excludedShotIds:['out-of-scope']})),{status:400});
+  assert.throws(()=>patchShot(original,apply({excludedShotIds:['1'],recommendedDurations:{'1':20}})),{status:400});
+});
+
 test('suggested settings round up to the nearest provider duration without truncating or exceeding the 15/30 cap', () => {
   const original = project(shot('1',estimate(3)),shot('2',estimate(17)),shot('3',estimate(25)),shot('4',estimate(13,15)));
   const [episode] = patchShot(original,apply({recommendedDurations:{'1':5,'2':20}}));
@@ -177,6 +192,27 @@ test('director timing can fill a pending published estimate without replacing co
   const [fresh] = mergeDirectorEpisodes([published],project({...shot('1',estimate(14)),content:'原稿'}));
   assert.equal(fresh.storyboardPrompts[0].content,'原稿 @image1');
   assert.equal(fresh.storyboardPrompts[0].durationEstimate.recommendedSeconds,14);
+});
+
+test('aged material-only storyboard projections receive latest director timing on merge and recommended apply', async () => {
+  const content='甲 （参考@），推门。甲说：“回来。”';
+  const compiled='甲（参考@image1 @image2），推门。甲（参考@audio1）说：“回来。”';
+  const edited='甲（参考@image1），推门。甲说：“回来。”';
+  const director={...shot('1',estimate(23,30,'3.0.0')),content,durationEstimatedAt:'2026-11-26T04:00:00.000Z'};
+  const generationConfig={duration:7,bindingSourcePrompt:content,bindingCompiledPrompt:compiled,references:[{id:'b',kind:'image'}],storyboardRemovedReferences:[{id:'a',kind:'image'},{id:'v',kind:'audio'}]};
+  const stale={...shot('working',{...estimate(11),status:'needs-review'},generationConfig),sourcePromptId:'1',sourceContent:content,content:edited,durationStatus:'needs-review'};
+  const source=project(director);
+  const fresh=mergeDirectorEpisodes([{...source[0],storyboardPrompts:[stale]}],source);
+  assert.equal(fresh[0].storyboardPrompts[0].content,edited);
+  assert.deepEqual(fresh[0].storyboardPrompts[0].durationEstimate,director.durationEstimate);
+  const [configured]=patchShot([{...source[0],storyboardPrompts:[stale]}],apply({supportedDurations:[4,24,30],recommendedDurations:{working:24},recommendedDurationSources:{working:{sourcePromptId:'1',sourceContent:content,durationEstimate:director.durationEstimate}}}));
+  assert.equal(configured.storyboardPrompts[0].generationConfig.duration,24);
+  const modified={...stale,content:edited.replace('回来','离开')};
+  const [refreshed]=mergeDirectorEpisodes([{...source[0],storyboardPrompts:[modified]}],source);
+  assert.equal(refreshed.storyboardPrompts[0].content,modified.content);
+  assert.equal(refreshed.storyboardPrompts[0].durationEstimate.status,'needs-review');
+  const {savedStoryboardTiming}=await import('../../core/storyboardTiming.js');
+  assert.deepEqual(savedStoryboardTiming(source[0],stale).durationEstimate,fresh[0].storyboardPrompts[0].durationEstimate);
 });
 
 test('saved legacy review status cannot be cleared by timing proof tied only to the old director body', () => {

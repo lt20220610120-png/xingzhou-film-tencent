@@ -4,7 +4,7 @@ Codex 默认直接在 `D:/AI/Qwen3-TTS/xingzhou-release` 开发。Hermes 只在�
 
 ## 当前进展
 
-2.8.208 已发布。`ui/commercial-polish` 的 `afbe953` 已快进合入发布分支，官网、GitHub 与 2.8.207 软件内更新均已核验。本机及官网镜像保留 2.8.204–2.8.208。
+2.8.209 验证中。已复现并修复导演估时与分镜错配、批量时长设置误挡及素材提示横条。隔离 Electron 已完成三档验证，云端隔离验证与正式发布待完成。公开版为 2.8.208。
 
 ## 前端视觉约定
 
@@ -12,7 +12,7 @@ Codex 默认直接在 `D:/AI/Qwen3-TTS/xingzhou-release` 开发。Hermes 只在�
 
 ## 最近已发布版本
 
-- **2.8.208，2026-11-25。** 合并商业 UI 改版，拉齐文字对比度、资产与音色工具栏、分镜设置及视频池响应式。三档 Electron 与 2.8.207 → 2.8.208 更新通过。源码 `c6c4b63`，Release 458320787。[验收](release-verification-2.8.208.md)
+- **2.8.208，2026-11-25。** 合并商业 UI 改版，拉齐文字对比度、资产与音色工具栏、分镜设置及视频池响应式。三档 Electron 与 2.8.207 → 2.8.208 更新通过。源码 `c6c4b63`，Release 458320787。[验收](archive/verification/release-verification-2.8.208.md)
 - **2.8.207，2026-11-25。** 修复共用弹窗居中、本机资产删图及错误反馈。三档 Electron 验证双模式删图、采用切换、取消和重开。云端业务服务继续使用现有版本。实现 `c636a97`，Release 458247809。[验收](archive/verification/release-verification-2.8.207.md)
 - **2.8.206，2026-11-25。** 估时采用实拍校准版 3.0.0 算账，快速 Chat 模型估时关闭思考，常用数字和缩写有默认读法。云端兼容 2.0.0 与 3.0.0。实现 `f34f01e`，Release 458076807。[验收](archive/verification/release-verification-2.8.206.md)
 - **2.8.205，2026-11-25。** 精准估时改用语义拆解和确定性计算，单条补试、明确错误和进度。导演超载需确认才重分，长下拉统一省略。实现 `b57484a`，Release 457859093。[验收](archive/verification/release-verification-2.8.205.md)

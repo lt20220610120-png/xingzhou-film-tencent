@@ -1,4 +1,5 @@
 // Pure timing rules mirrored from core/promptDisplay.js; parity checked by recommendedDuration146 tests.
+const {selectStoryboardTiming}=require('../shared/storyboard-timing.cjs');
 const validDuration=value=>Number.isFinite(value)&&value>0&&value<=3600;
 const estimateVersion='3.0.0';
 const estimateVersions=new Set(['2.0.0',estimateVersion]);
@@ -62,20 +63,12 @@ function promptTimingMetadata(value){
   timing.timingRulesVersion=2;
   timing.durationStatus=estimate.status;
   if(typeof value.durationSourceScript==='string'&&value.durationSourceScript.length<=250000)timing.durationSourceScript=value.durationSourceScript;
+  if(typeof value.durationEstimatedAt==='string'&&value.durationEstimatedAt.length<=35&&Number.isFinite(Date.parse(value.durationEstimatedAt)))timing.durationEstimatedAt=value.durationEstimatedAt;
  }
  return timing;
 }
-function recommendedStoryboardTiming(binding,shot){
- const sourcePromptId=String(shot?.sourcePromptId||shot?.id||''),sourceContent=shot?.sourceContent??shot?.generationConfig?.bindingSourcePrompt??shot?.content??shot?.prompt;
- const direct=promptTimingMetadata(shot),directTiming=direct.durationEstimate||direct.recommendedDurationSeconds?{...direct,sourcePromptId,sourceContent}:null;
- if(direct.durationEstimate||!sourcePromptId||typeof sourceContent!=='string'||!sourceContent.trim())return directTiming;
- const snapshots=[binding?.currentSnapshot,binding?.snapshot,binding?.saved?.snapshot].filter(Boolean),entries=snapshots.flatMap(snapshot=>[...(snapshot.entries||[]),...(snapshot.promptEditions||[]).flatMap(edition=>edition.entries||[])]);
- const matching=entries.filter(entry=>String(entry.id)===sourcePromptId&&(entry.prompt??entry.content)===sourceContent),all=matching.map(promptTimingMetadata),current=all.find(timing=>timing.durationEstimate);
- if(current)return {...current,sourcePromptId,sourceContent};
- if(directTiming)return directTiming;
- const timings=all.filter(timing=>timing.recommendedDurationSeconds);
- if(!timings.length||new Set(timings.map(timing=>timing.recommendedDurationSeconds)).size!==1)return null;
- return {...timings[0],sourcePromptId,sourceContent};
+function recommendedStoryboardTiming(binding,shot,episodeEntries){
+ return selectStoryboardTiming(binding,shot,promptTimingMetadata,markStoryboardTimingStale,episodeEntries);
 }
 
 function markStoryboardTimingStale(value){
