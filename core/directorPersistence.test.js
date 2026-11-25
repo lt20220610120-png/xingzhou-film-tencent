@@ -22,6 +22,20 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test('a staged save confirms only that exact snapshot after autosave coalescing',async()=>{
+ for(const useDelta of [false,true]){
+  const blocked=deferred(),started=deferred();
+  const save=async note=>{if(note==='candidate'){started.resolve();await blocked.promise;}};
+  const writer=createDirectorPersistence({saveState:state=>save(state.note),saveDirectorProjects:async()=>{},
+   ...(useDelta?{saveDelta:delta=>save(delta.workspace?.set.note)}:{})});
+  const base={note:'current'},candidate={note:'candidate'};
+  const pending=writer.saveAndConfirm(candidate);
+  await started.promise;writer.enqueue(base);blocked.resolve();
+  assert.equal(await pending,false);
+  assert.equal(await writer.saveAndConfirm(candidate),true);
+ }
+});
+
 test('创作内容改变且导演数组未变时不重复写导演文件；切换目录后重新写入', async()=>{
  const projects=[{id:'director'}],calls=[];
  const writer=createDirectorPersistence({saveState:async s=>calls.push(['state',s.note]),saveDirectorProjects:async()=>calls.push(['director'])});

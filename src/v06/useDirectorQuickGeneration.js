@@ -15,7 +15,8 @@ import {directorJobs} from '../../core/backgroundJobs.js';
 import {beginDirectorSceneGeneration} from '../../core/directorGenerationSession.js';
 import {sameJson} from '../../core/threeWayMerge.js';
 import {estimateVideoDurations,normalizeVideoDurationLimit} from '../../core/videoDurationEstimator.js';
-import {applyDirectorDurationResult,directorDurationTargets} from '../../core/directorDurationWorkflow.js';
+import {requestVideoDurationText} from '../../core/videoDurationRequest.js';
+import {applyDirectorDurationResult,commitDirectorResegment,directorDurationTargets} from '../../core/directorDurationWorkflow.js';
 
 function browserCheckpoints(accountRef) {
   const key=()=>`xz-director-quick-runs:${accountRef.current || 'signed-out'}`;
@@ -37,6 +38,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   },[]);
   const controllerRef=useRef(null);
   const durationTasks=useRef(new Map());
+  const durationStatus=useRef(new Map());
   const estimateRunner=useRef(null);
   const manualControllerRef=useRef(null);
   const batchControllerRef=useRef(null),cloudSyncRef=useRef(null),cloudScheduledRef=useRef(new Map());
@@ -59,30 +61,44 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       if(result?.ok===false)throw Object.assign(new Error(result.error||'生成失败'),{partialText:result.partialText||'',code:result.code||'FAILED'});
       return result?.output ?? result;
     };
-    const estimate=async({segments,maxDurationSeconds,snapshot,taskId,signal})=>{
+    const estimateRequests=new Map();
+    const cancelRequest=taskId=>{
+      const worker=estimateRequests.get(taskId);
+      if(worker)worker.abort();else return api.cancelAiTask?.({taskId});
+    };
+    const estimate=async({segments,maxDurationSeconds,snapshot,taskId,signal,onEstimates,onProgress})=>{
       const profileId=snapshot.estimateProfileId||snapshot.profileId;
-      return estimateVideoDurations({segments,maxDurationSeconds,signal,request:async({messages,maxOutputTokens,signal:requestSignal})=>{
+      const worker=new AbortController();estimateRequests.set(taskId,worker);
+      const activeSignal=signal?AbortSignal.any([signal,worker.signal]):worker.signal;
+      let attempt=0;
+      try{return await estimateVideoDurations({segments,maxDurationSeconds,signal:activeSignal,onEstimates,onProgress,request:async({messages,maxOutputTokens,signal:requestSignal})=>{
         const profile=stateRef.current.apiProfiles?.find(row=>row.id===profileId);
         if(!profile)throw new Error('估时模型已移除，请重新选择');
         if(accountRef.current!==snapshot.accountId||directorySwitchRef.current)throw new Error('账号或资料位置已变化');
         assertMessageCapacity(messages,profile,{maxOutputTokens});
-        const cancel=()=>{void Promise.resolve(api.cancelAiTask?.({taskId})).catch(()=>{});};
-        requestSignal?.throwIfAborted();
-        requestSignal?.addEventListener('abort',cancel,{once:true});
-        try{return unwrap(await api.aiChat({...profile,profileId,messages,taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}));}
-        finally{requestSignal?.removeEventListener('abort',cancel);}
-      }});
+        return requestVideoDurationText({api,profile,taskId:`${taskId}:${++attempt}`,messages,maxOutputTokens,signal:requestSignal});
+      }});}finally{estimateRequests.delete(taskId);}
     };
     estimateRunner.current=estimate;
     const commit=async(run,partial=false)=>{
       if(accountRef.current!==run.snapshot.accountId)return {applied:false,conflict:'账号已切换'};
+      const apply=current=>{
+        const result=commitQuickSceneRun({...current,accountId:accountRef.current},run,{partial});
+        return result.applied?{...result,state:{...current,directorProjects:result.state.directorProjects}}:result;
+      };
+      if(run.durationRepair&&!partial){
+        const directory=directoryEpochRef.current;
+        return commitDirectorResegment({read:()=>stateRef.current,apply,publish:setState,
+          save:value=>persistence.saveAndConfirm(value),
+          isCurrent:()=>accountRef.current===run.snapshot.accountId&&directoryEpochRef.current===directory&&!directorySwitchRef.current});
+      }
       let result;
       // App's setter publishes the latest ref synchronously. Every parallel
       // scene merges inside that setter, so another scene's saved results and
       // concurrent user edits remain part of this exact persisted snapshot.
       setState(current=>{
-        result=commitQuickSceneRun({...current,accountId:accountRef.current},run,{partial});
-        return result.applied?{...current,directorProjects:result.state.directorProjects}:current;
+        result=apply(current);
+        return result.applied?result.state:current;
       });
       if(!result.applied)return result;
       persistence.enqueue(stateRef.current);await persistence.flush();
@@ -90,7 +106,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     };
     const beginRun=async run=>{let result;setState(current=>{result=beginDirectorSceneGeneration({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};};
     controllerRef.current=createQuickGenerationController({beginRun,estimateScene:estimate,
-      getContext,checkpoints,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
+      getContext,checkpoints,onChange:progress.publish,cancelRequest,
       groundedTiming:true,editorialPlanning:true,maxQualityAttempts:3,
       executeText:async({messages,taskId,snapshot,maxOutputTokens=16384})=>{
         const context=getContext(snapshot),profile=context.profile;
@@ -105,7 +121,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
       },
       commitProgress:run=>commit(run,true),commitRun:run=>commit(run),
     });
-    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,beginRun,estimateScene:estimate,onChange:progress.publish,cancelRequest:taskId=>api.cancelAiTask?.({taskId}),
+    manualControllerRef.current=createDirectorManualController({getContext,checkpoints,beginRun,estimateScene:estimate,onChange:progress.publish,cancelRequest,
       executeSkill:async({input,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,assistantRole:'行舟影视导演提示词助手',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
       reviewSkill:async({input,beforeUserMessages,taskId,snapshot,skillId,maxOutputTokens})=>executeSkillWithAi({api,state:stateRef.current,profile:getContext(snapshot).profile,skillId,input,beforeUserMessages,assistantRole:'行舟影视导演提示词复核Agent',requestOptions:{taskId,resultEnvelope:true,maxOutputTokens,analysisMode:true}}),
       commitRun:async run=>{if(accountRef.current!==run.snapshot.accountId)return{applied:false,conflict:'账号已切换'};let result;setState(current=>{result=commitManualSceneRun({...current,accountId:accountRef.current},run);return result.applied?{...current,directorProjects:result.state.directorProjects}:current;});if(!result.applied)return result;persistence.enqueue(stateRef.current);await persistence.flush();return{applied:true};},
@@ -131,7 +147,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     if(!initialized||!accountId)return;
     let live=true;
     Promise.all([controller.restore(),manualController.restore(),batchController.restore()]).catch(e=>{if(live)setRestoreError(e.message);});
-    return()=>{live=false;for(const active of durationTasks.current.values())active.abort();durationTasks.current.clear();cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
+    return()=>{live=false;for(const active of durationTasks.current.values())active.abort();durationTasks.current.clear();durationStatus.current.clear();cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
   },[accountId,initialized]);
   // Editing is local. Only an explicit upload publishes a captured version.
   useEffect(()=>{controller.activate();manualController.activate();batchController.activate();cloudSync.activate();return()=>{batchController.dispose();controller.dispose();manualController.dispose();cloudSync.dispose();};},[]);
@@ -160,22 +176,51 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     if(!targets.length)return {total:0};
     const latestProject=()=>stateRef.current.directorProjects?.find(p=>p.id===projectId);
     const current=()=>accountRef.current===account&&directoryEpochRef.current===directory&&!worker.signal.aborted&&writable(latestProject())&&sameDirectorEdition(latestProject(),{projectId,promptEditionId:directorEditionKey(project)});
-    const worker=new AbortController();durationTasks.current.set(projectId,worker);progress.publish();
+    const worker=new AbortController();durationTasks.current.set(projectId,worker);
+    const status={account,editionId:directorEditionKey(project),episodeId:scope.episodeId,sceneLabel:scope.sceneLabel,running:true,
+      total:targets.reduce((count,target)=>count+target.prompts.length,0),succeeded:0,failed:0,retryId:null};
+    const report=updates=>{if(durationTasks.current.get(projectId)!==worker)return;Object.assign(status,updates);durationStatus.current.set(projectId,{...status});progress.publish();};
+    report({});
     try{
       for(const target of targets){
         if(!current())break;
         const live=latestProject().episodes.find(episode=>episode.id===target.episodeId);
         const prompts=target.prompts.filter(frozen=>live?.prompts?.some(row=>row.id===frozen.id&&row.content===frozen.content));
         if(!prompts.length)continue;
+        const seen=new Set();
+        const onEstimates=async updates=>{
+          if(!current())return;
+          const fresh=new Map([...updates].filter(([id])=>!seen.has(id)));
+          if(!fresh.size)return;
+          let applied=[];
+          setState(state=>({...state,directorProjects:state.directorProjects.map(row=>{
+            if(row.id!==projectId||!writable(row)||!sameDirectorEdition(row,{projectId,promptEditionId:directorEditionKey(project)}))return row;
+            const next=applyDirectorDurationResult(row,target,fresh);
+            if(next!==row){
+              const previous=row.episodes.find(ep=>ep.id===target.episodeId).prompts;
+              applied=next.episodes.find(ep=>ep.id===target.episodeId).prompts.filter((prompt,index)=>prompt!==previous[index]);
+            }
+            return next;
+          })}));
+          for(const id of fresh.keys())seen.add(id);
+          if(!applied.length)return;
+          persistence.enqueue(stateRef.current);await persistence.flush();
+          if(current())report({succeeded:status.succeeded+applied.filter(prompt=>prompt.durationEstimate?.status==='estimated').length,
+            failed:status.failed+applied.filter(prompt=>prompt.durationEstimate?.status==='pending').length});
+        };
         const estimates=await estimateRunner.current({segments:prompts.map(p=>({id:p.label,prompt:p.content,script:p.script})),maxDurationSeconds:target.limit,
-          snapshot:{accountId:account,profileId,estimateProfileId},taskId:`director-duration-manual-${crypto.randomUUID()}`,signal:worker.signal});
-        if(!current())break;
-        setState(state=>({...state,directorProjects:state.directorProjects.map(row=>row.id===projectId&&writable(row)&&sameDirectorEdition(row,{projectId,promptEditionId:directorEditionKey(project)})?applyDirectorDurationResult(row,target,estimates):row)}));
-        persistence.enqueue(stateRef.current);await persistence.flush();
+          snapshot:{accountId:account,profileId,estimateProfileId},taskId:`director-duration-manual-${crypto.randomUUID()}`,signal:worker.signal,onEstimates,
+          onProgress:({retryId})=>{
+            const original=prompts.find(prompt=>prompt.label===retryId);
+            if(!current()||original&&!latestProject()?.episodes.find(ep=>ep.id===target.episodeId)?.prompts?.some(prompt=>prompt.id===original.id&&prompt.content===original.content))worker.abort();
+            worker.signal.throwIfAborted();
+            report({retryId:retryId||null});
+          }});
+        await onEstimates(estimates);
       }
-      return {total:targets.length};
+      return {...status};
     }catch(error){if(!worker.signal.aborted)throw error;return {cancelled:true};}
-    finally{if(durationTasks.current.get(projectId)===worker)durationTasks.current.delete(projectId);progress.publish();}
+    finally{report({running:false,cancelled:worker.signal.aborted,retryId:null});if(durationTasks.current.get(projectId)===worker)durationTasks.current.delete(projectId);progress.publish();}
   };
   return {
     startManualScene:request=>directorySwitchRef.current||durationTasks.current.has(request.project.id)?Promise.reject(new Error('资料位置正在切换或项目正在估时，请稍后生成')):manualController.start(freshSceneRequest(request)),
@@ -188,6 +233,14 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     getSceneManualRuns:(projectId,episodeId,sceneLabel)=>manualController.entries({projectId,episodeId,sceneLabel,accountId}).filter(run=>sameDirectorEdition(stateRef.current.directorProjects?.find(p=>p.id===projectId),run.snapshot)),
     previewBatch:request=>createDirectorBatchPlan({...request,maxDurationSeconds:normalizeVideoDurationLimit(request.maxDurationSeconds),accountId}),
     estimateSaved,isProjectEstimating:projectId=>durationTasks.current.has(projectId),cancelEstimate:projectId=>durationTasks.current.get(projectId)?.abort(),
+    getEstimateStatus:projectId=>{const status=durationStatus.current.get(projectId);return status&&status.account===accountId&&status.editionId===directorEditionKey(stateRef.current.directorProjects?.find(p=>p.id===projectId))?status:null;},
+    resegmentScene:async(projectId,runId)=>{
+      flushEditing();assertNoSingleWork(projectId);
+      if(directorySwitchRef.current||summaries().batches.some(batch=>batch.snapshot.projectId===projectId&&isDirectorBatchActive(batch)))throw Error('本项目正在处理整本任务，请稍后重分');
+      const run=await controller.resegment(runId);
+      if(run.durationRepair?.error||run.phase==='stale')throw Error(run.errors?.[0]?.message||run.durationRepair?.error||'场景已变化，已保留原稿');
+      return run;
+    },
     startBatch:async plan=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');assertNoSingleWork(plan.snapshot.projectId);return batchController.start(plan);},
     resumeBatch:async id=>{if(directorySwitchRef.current)throw new Error('资料位置正在切换');const batch=batchController.get(id);if(!batch)throw new Error('找不到整本任务');if(!isDirectorBatchActive(batch))assertNoSingleWork(batch.snapshot.projectId);return batchController.resume(id);},
     pauseBatch:id=>batchController.pause(id),cancelBatch:id=>batchController.cancel(id),

@@ -37,6 +37,14 @@ test('desktop abort envelope has a stopped classification while success still re
  assert.equal((await ipcBridge(async()=> '完整正文')({resultEnvelope:true})).output,'完整正文');
 });
 
+test('HTTP failures carry a safe status across IPC for duration diagnostics',async()=>{
+ const respond=status=>ipcBridge(async()=>{throw Object.assign(new Error('接口失败'),{httpStatus:status,providerType:'private'});})({resultEnvelope:true});
+ const valid=await respond(429);
+ assert.equal(valid.httpStatus,429);
+ assert.equal('providerType' in valid,false);
+ for(const invalid of ['429',399,600])assert.equal('httpStatus' in await respond(invalid),false);
+});
+
 test('stream diagnostics cross IPC only through an explicit metadata whitelist',async()=>{
  const bridge=ipcBridge(async()=>{throw Object.assign(new Error('流中断'),{code:'STREAM_INCOMPLETE',partialText:'已付费部分',providerDiagnostic:{frameCount:3,receivedBytes:80,outputCharacters:6,hasDoneMarker:false,streamEOF:true,completionMarker:'',finishReason:'aborted',headers:{Authorization:'private'},prompt:'private',endpoint:'https://private',apiKey:'private',extra:'private'}});});
  const result=structuredClone(await bridge({resultEnvelope:true}));

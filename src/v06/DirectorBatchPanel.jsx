@@ -7,7 +7,7 @@ import {Dialog} from './GlobalTools.jsx';
 import {flushEditing} from '../editing.js';
 import {FormattedText} from '../components/FormattedText.jsx';
 
-export function DirectorBatchPanel({project,accountId,skill,profile,estimateProfileId,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE,calibration,quickGeneration,onJump,onEstimatePending,estimateBusy=false,durationSummary=[],disabled,segmentationMode='auto',sceneBusy=false}){
+export function DirectorBatchPanel({project,accountId,skill,profile,estimateProfileId,maxDurationSeconds,pace=DEFAULT_DIRECTOR_PACE,calibration,quickGeneration,onJump,onEstimatePending,estimateBusy=false,estimateStatus,durationSummary=[],disabled,segmentationMode='auto',sceneBusy=false}){
  const [opened,setOpened]=useState(false),[preparing,setPreparing]=useState(false);
  const [preview,setPreview]=useState(null),[policy,setPolicy]=useState('missing-only'),[error,setError]=useState('');
  const [settingsJson,setSettingsJson]=useRememberedState(`xz-director-batch-settings:${accountId||'local'}:${project.id}`,JSON.stringify({concurrency:segmentationMode==='manual'?2:'all'}));
@@ -20,6 +20,8 @@ export function DirectorBatchPanel({project,accountId,skill,profile,estimateProf
  const concurrency=Number.isInteger(settings.concurrency)&&settings.concurrency>0?Math.min(settings.concurrency,MAX_DIRECTOR_SCENES_IN_FLIGHT):'all';
  const concurrencyLabel=value=>value==='all'?`自动排队（最多 ${MAX_DIRECTOR_SCENES_IN_FLIGHT} 场并发）`:`${Math.min(value,MAX_DIRECTOR_SCENES_IN_FLIGHT)} 场并发`;
  const batch=quickGeneration?.getProjectBatch(project.id),active=isDirectorBatchActive(batch);
+ const overloads=durationSummary.filter(row=>row.overload),overloadedPrompts=overloads.reduce((total,row)=>total+row.overload,0);
+ const bookEstimate=estimateStatus&&!estimateStatus.episodeId?estimateStatus:null;
  const invoke=async operation=>{setError('');try{await operation();}catch(e){setError(e.message);}};
  const makePreview=(updates={})=>{flushEditing();return quickGeneration.previewBatch({project:quickGeneration.getCloudProject?.(project.id)||project,skill,profile,estimateProfileId,maxDurationSeconds:batchDuration,pace:batchPace,timingScale:segmentationMode==='auto'?calibration?.timingScale:undefined,concurrency,existingPolicy:policy,segmentationMode,...updates});};
  const changeSettings=updates=>{setSettingsJson(JSON.stringify({concurrency,...updates}));setPreview(null);};
@@ -29,6 +31,7 @@ export function DirectorBatchPanel({project,accountId,skill,profile,estimateProf
  const status={preview:'待开始',running:'正在生成',pausing:'正在保存并发请求，完成后暂停',paused:'已暂停，可以继续',completed:'整本任务已完成','completed-with-errors':'本轮已结束，部分场景需处理',cancelled:'任务已结束'};
  const rowStatus={pending:'待处理',running:'处理中',completed:'已保存',skipped:'跳过',stale:'需重新建立任务',failed:'失败，可继续',paused:'已暂停'};
  return <div className="director-batch-launcher"><button className="primary" onClick={open} disabled={!quickGeneration}>{active?`整本生成 · ${batch.targets.filter(t=>t.status==='completed').length}/${batch.targets.filter(t=>t.status!=='skipped').length}`:batch&&['paused','completed-with-errors'].includes(batch.phase)?'继续整本任务':'一键生成整本提示词'}</button>
+ {batch&&!active&&overloads.length>0&&<button type="button" className="secondary" title="定位首个超载场景" onClick={()=>onJump?.(overloads[0].episodeId,overloads[0].sceneLabel)}>超载 {overloads.length} 场 · 定位</button>}
  <Dialog open={opened} title="生成整本提示词" onClose={()=>setOpened(false)} className="director-batch-dialog"><section className="director-batch-panel" aria-label="整本剧本生成">
   <p>{segmentationMode==='manual'?'沿用人工划分的集、场景和（1）（2）分段；每场一次运行所选完整 Skill，不重新拆分。没有分段标记的场景生成一条。':'沿用已划分的集与场景，各场自动分析视频分段后生成提示词。'}生成结果先保存本地，实时协作连接后自动同步给项目成员。</p>
   <div className="director-batch-heading"><div className="director-batch-purpose"><strong>整本提示词</strong><small>按场景并发生成，进度自动保存，中断后可继续。</small></div>
@@ -40,7 +43,9 @@ export function DirectorBatchPanel({project,accountId,skill,profile,estimateProf
    <button className="secondary" disabled={disabled||active||sceneBusy||preparing||!skill||!profile||(segmentationMode==='auto'&&!calibration)} onClick={prepare}>{preparing?'读取整本分段…':'预览整本任务'}</button>
    </div>
   </div>
-  {durationSummary.length>0&&<div className="director-batch-progress"><div className="director-batch-heading"><strong>时长待处理</strong>{durationSummary.some(row=>row.pending)&&<button className="secondary" disabled={disabled||active||sceneBusy||estimateBusy} onClick={onEstimatePending}>{estimateBusy?'补估中…':'仅补跑未估时场次'}</button>}</div><div className="director-batch-scenes">{durationSummary.map(row=><div key={`${row.episodeId}:${row.sceneLabel}`}><button className="ghost" onClick={()=>{setOpened(false);onJump?.(row.episodeId,row.sceneLabel);}}>场景 {row.sceneLabel}</button>{row.overload>0&&<strong className="prompt-audit-warning" role="status">超载需重分 · {row.overload} 条</strong>}{row.pending>0&&<small>待估时 {row.pending} 条</small>}</div>)}</div></div>}
+  {(durationSummary.length>0||bookEstimate)&&<div className="director-batch-progress"><div className="director-batch-heading"><strong>{overloads.length?`超载 ${overloads.length} 场 · ${overloadedPrompts} 条`:'时长待处理'}</strong>{bookEstimate?.running?<button type="button" className="ghost" onClick={()=>quickGeneration.cancelEstimate(project.id)}>取消估时</button>:durationSummary.some(row=>row.pending)&&<button className="secondary" disabled={disabled||active||sceneBusy||estimateBusy} onClick={onEstimatePending}>仅补跑未估时场次</button>}</div>
+   {bookEstimate&&<small role="status">{bookEstimate.running?`估时 ${bookEstimate.succeeded+bookEstimate.failed}/${bookEstimate.total}`:`${bookEstimate.cancelled?'已取消':'估时完成'} · 成功 ${bookEstimate.succeeded} 条 · 失败 ${bookEstimate.failed} 条`}</small>}
+   <div className="director-batch-scenes">{durationSummary.map(row=><div key={`${row.episodeId}:${row.sceneLabel}`}><button className="ghost" onClick={()=>{setOpened(false);onJump?.(row.episodeId,row.sceneLabel);}}>场景 {row.sceneLabel}</button>{row.overload>0&&<strong className="prompt-audit-warning" role="status">超载需重分 · {row.overload} 条</strong>}{row.pending>0&&<small>待估时 {row.pending} 条</small>}</div>)}</div></div>}
   {preview&&<div className="director-batch-preview">
    <p>{preview.episodeCount} 集 · {preview.targets.length} 场 · 将生成 {preview.targets.filter(t=>t.status==='pending').length} 场 · 跳过 {preview.targets.filter(t=>t.status==='skipped').length} 场</p>
    <p>模型：{preview.modelName} · Skill：{preview.skillName} · {concurrencyLabel(preview.concurrency??'all')}。{preview.snapshot.segmentationMode==='manual'?`按人工划分生成 ${preview.manualPromptCount} 条提示词。`:`${durationLabel(preview.snapshot.maxDurationSeconds)} · ${directorPaceLabel(preview.snapshot.pace)}，各场条数在分析后确定。`}</p>

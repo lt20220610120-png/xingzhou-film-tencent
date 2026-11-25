@@ -1,4 +1,4 @@
-import {showNotice} from '../components/workspace-dialog.js';
+import {confirmAction,showNotice} from '../components/workspace-dialog.js';
 import {isProtectedSkill} from '../../core/clientDistribution.js';
 import {currentManualSceneReplies} from '../../core/directorGenerationSession.js';
 import {prepareDirectorEpisodeAddition,directorEpisodeCount} from '../../core/directorAppendEpisode.js';
@@ -402,16 +402,27 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
   const manualRun=sceneManualRuns.filter(r=>!activeRunId||r.id===activeRunId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
   const manualOutputs=[...savedReplies,...(sceneManualRuns.length?sceneManualRuns:quickGeneration?.runs||[]).filter(r=>r.kind==='manual-scene'&&(!activeRunId||r.id===activeRunId)&&r.snapshot.projectId===project.id&&r.snapshot.episodeId===episode.id&&r.snapshot.sceneLabel===currentScene&&(r.output||r.partialOutput)&&!savedReplies.some(reply=>reply.id===r.id)).map(r=>({id:r.id,output:r.output||r.partialOutput}))];
   const [autoError,setAutoError]=useState('');
+  const [durationActionError,setDurationActionError]=useState('');
   const localRun=storedAutoRun?.storedSummary?details?.get(storedAutoRun.id):storedAutoRun;
   const savedPlan=episode.quickScenePlans?.find(p=>p.id===episode.activeQuickScenePlanIds?.[currentScene]);
   const autoRun=localRun&&(!activeRunId||localRun.id===activeRunId)?(localRun.durationRepair&&savedPlan&&localRun.plan?.id!==savedPlan.id?{...localRun,plan:savedPlan}:localRun):(savedPlan?{id:savedPlan.id,phase:'completed',plan:savedPlan,segmentDrafts:{}}:null);
   const autoBusy=isQuickRunActive(localRun);
   const batchBusy=quickGeneration?.isProjectBatchActive(project.id);
   const estimating=quickGeneration?.isProjectEstimating?.(project.id);
+  const estimateStatus=quickGeneration?.getEstimateStatus?.(project.id);
+  const sceneEstimateStatus=estimateStatus&&(!estimateStatus.episodeId||estimateStatus.episodeId===episode.id&&estimateStatus.sceneLabel===currentScene)?estimateStatus:null;
   const canEstimate=Boolean(quickGeneration?.estimateSaved&&(estimateProfileId||directorProfile)&&!estimating&&!batchBusy&&!autoBusy&&!isQuickRunActive(manualRun)&&!project.cloudLocked&&!project.cloudConflict&&project.canWrite!==false&&project.permissions?.canWrite!==false&&project.permissions?.canGenerate!==false);
   const reestimate=async(scope={})=>{
-    setAutoError('');
-    try{await quickGeneration.estimateSaved({projectId:project.id,profileId:directorProfile?.id,estimateProfileId,...scope});}catch(error){setAutoError(error.message);}
+    setDurationActionError('');
+    try{
+      const result=await quickGeneration.estimateSaved({projectId:project.id,profileId:directorProfile?.id,estimateProfileId,...scope});
+      if(result.total===0)setDurationActionError('当前范围没有可估时的提示词');
+    }catch(error){setDurationActionError(error.message);}
+  };
+  const resegment=async()=>{
+    if(!canResegment||!await confirmAction('将重新划分本场并调用模型生成提示词，可能产生费用。新稿成功保存前保留当前稿。',{title:'重分本场'}))return;
+    setDurationActionError('');
+    try{await quickGeneration.resegmentScene(project.id,localRun.id);}catch(error){setDurationActionError(error.message);}
   };
   const durationSummary=React.useMemo(()=>{
     const scenes=new Map();
@@ -436,7 +447,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     }catch(e){setAutoError(e.message);}
   };
   const resumeAutoScene=async()=>{setAutoError('');try{await quickGeneration.resume(localRun.id,{profileId:directorProfile?.id});}catch(e){setAutoError(e.message);}};
-  useEffect(()=>{setSourceView('source');setAutoError('');},[currentScene]);
+  useEffect(()=>{setSourceView('source');setAutoError('');setDurationActionError('');},[currentScene,episode.id]);
 
   const saveSceneVision = (sceneLabel, content) => {
     setState((s) => updateDirectorEpisode(s, project.id, episode.id, current=>({
@@ -546,6 +557,10 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
 
   // 获取当前选中场景的已生成提示词
   const scenePrompts = currentScene ? promptsForScene(savedPrompts, currentScene).filter(p=>!activeRunId||p.generationRunId===activeRunId) : [];
+  const pendingDurationCount=scenePrompts.filter(prompt=>prompt.durationEstimate?.status==='pending'&&prompt.generationComplete!==false).length;
+  const hasOverload=scenePrompts.some(prompt=>prompt.durationEstimate?.status==='estimated'&&prompt.durationEstimate.needsResegment);
+  const canResegment=Boolean(hasOverload&&quickSettings.segmentationMode==='auto'&&quickGeneration?.resegmentScene&&localRun?.phase==='completed'&&!localRun.durationRepair&&
+    !batchBusy&&!estimating&&!project.cloudLocked&&!project.cloudConflict&&project.canWrite!==false&&project.permissions?.canWrite!==false&&project.permissions?.canGenerate!==false);
   const creativeScenePrompts = currentScene ? creativePromptsForScene(savedPrompts, currentScene) : [];
   const togglePromptSelection = (promptId) => setSelectedPromptIds((current) => {
     const next = new Set(current);
@@ -620,7 +635,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
       <div className={`director-config-model-row${mode==='quick'?' director-config-model-row--with-duration':''}`}>
       <ModelSelect profiles={state.apiProfiles||[]} value={directorModelId} onChange={setDirectorModelId} label="本集提示词模型"/>
       {mode==='quick'&&<><label className="window-model-select">估时模型<select aria-label="估时模型" value={estimateProfileId} disabled={estimating||batchBusy||autoBusy||isQuickRunActive(manualRun)} onChange={event=>setEstimateProfileId(event.target.value)}><option value="">跟随当前模型</option>{estimateProfileId&&!(state.apiProfiles||[]).some(profile=>profile.id===estimateProfileId)&&<option value={estimateProfileId}>接口已移除，请重新选择</option>}{(state.apiProfiles||[]).map(profile=><option key={profile.id} value={profile.id}>{profile.name} · {profile.model}</option>)}</select></label>
-      <DirectorBatchPanel key={`${accountId}:${project.id}:${quickSettings.segmentationMode}`} project={project} accountId={accountId} skill={currentSkill} profile={directorProfile} estimateProfileId={estimateProfileId} durationSummary={durationSummary} onEstimatePending={()=>void reestimate({onlyPending:true})} estimateBusy={estimating} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} calibration={appliedCalibration} segmentationMode={quickSettings.segmentationMode} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked||project.cloudConflict)||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false} sceneBusy={estimating||quickGeneration?.runs.some(r=>r.snapshot.projectId===project.id&&isQuickRunActive(r))||directorJobs.entries().some(([key,job])=>key.startsWith(JSON.stringify([accountId,project.id]).slice(0,-1)+',')&&job.status==='running')} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/></>}
+      <DirectorBatchPanel key={`${accountId}:${project.id}:${quickSettings.segmentationMode}`} project={project} accountId={accountId} skill={currentSkill} profile={directorProfile} estimateProfileId={estimateProfileId} durationSummary={durationSummary} onEstimatePending={()=>void reestimate({onlyPending:true})} estimateBusy={estimating} estimateStatus={estimateStatus} maxDurationSeconds={quickSettings.maxDurationSeconds} pace={quickSettings.pace} calibration={appliedCalibration} segmentationMode={quickSettings.segmentationMode} quickGeneration={quickGeneration} disabled={Boolean(project.cloudLocked||project.cloudConflict)||project.canWrite===false||project.permissions?.canWrite===false||project.permissions?.canGenerate===false} sceneBusy={estimating||quickGeneration?.runs.some(r=>r.snapshot.projectId===project.id&&isQuickRunActive(r))||directorJobs.entries().some(([key,job])=>key.startsWith(JSON.stringify([accountId,project.id]).slice(0,-1)+',')&&job.status==='running')} onJump={(episodeId,sceneLabel)=>{if(episodeId===episode.id)setActiveScene(sceneLabel);else onJumpToScene?.(episodeId,sceneLabel);}}/></>}
       </div>
       {/* 项目设定功能区：风格与画幅（创造/快速模式共用，运行 Skill 前优先注入给大模型） */}
       <div className="project-style-bar">
@@ -783,10 +798,17 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
           {/* 右栏：当前场景生成的提示词结果 */}
           <section className="quick-scene-prompts">
             <div className="quick-scene-prompts-title">
-              <Sparkles size={15} /> {currentScene ? `场景 ${currentScene} 提示词` : '提示词结果'}
+              <span className="director-duration-heading"><Sparkles size={15}/><span>{currentScene ? `场景 ${currentScene} 提示词` : '提示词结果'}</span></span>
+              {scenePrompts.length>0&&quickGeneration?.estimateSaved&&<div className="director-duration-actions">
+                {estimating?<><span role="status" className="director-duration-progress" title={sceneEstimateStatus?.retryId?`正在补试 ${sceneEstimateStatus.retryId}`:undefined}>{sceneEstimateStatus?`估时 ${sceneEstimateStatus.succeeded+sceneEstimateStatus.failed}/${sceneEstimateStatus.total}`:'估时中…'}</span><button type="button" className="ghost" onClick={()=>quickGeneration.cancelEstimate(project.id)}>取消估时</button></>:<>
+                  <button type="button" className="secondary director-duration-reestimate" disabled={!canEstimate} onClick={()=>void reestimate({episodeId:episode.id,sceneLabel:currentScene,maxDurationSeconds:quickSettings.maxDurationSeconds})}>重估时长</button>
+                  {pendingDurationCount>0&&<button type="button" className="primary director-duration-retry" disabled={!canEstimate} onClick={()=>void reestimate({episodeId:episode.id,sceneLabel:currentScene,onlyPending:true})}>仅补跑未估时</button>}
+                </>}
+              </div>}
             </div>
-            {scenePrompts.length>0&&quickGeneration?.estimateSaved&&<div className="prompt-bulk-actions director-duration-actions">{estimating?<><span role="status">估时中…</span><button className="ghost" onClick={()=>quickGeneration.cancelEstimate(project.id)}>取消估时</button></>:<><button className="ghost" disabled={!canEstimate} onClick={()=>void reestimate({episodeId:episode.id,sceneLabel:currentScene,maxDurationSeconds:quickSettings.maxDurationSeconds})}>重估时长</button>{scenePrompts.some(prompt=>prompt.durationEstimate?.status==='pending'&&prompt.generationComplete!==false)&&<button className="ghost" disabled={!canEstimate} onClick={()=>void reestimate({episodeId:episode.id,sceneLabel:currentScene,onlyPending:true})}>仅补跑未估时</button>}</>}</div>}
-            {scenePrompts.length > 0 && <div className="prompt-locator-toolbar"><nav className="prompt-locator" aria-label="提示词快速定位">{scenePrompts.map((prompt, index) => <button key={prompt.id} onClick={() => promptCardRefs.current[prompt.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{index + 1}</button>)}</nav><div className="prompt-bulk-actions">{promptSelectionOpen ? <><button className="ghost" onClick={() => setSelectedPromptIds(new Set(scenePrompts.map((prompt) => prompt.id)))}>全选</button><button className="danger" disabled={!selectedPromptIds.size} onClick={() => setBulkDeleteOpen(true)}>删除选中（{selectedPromptIds.size}）</button><button className="ghost" onClick={closePromptSelection}>取消</button></> : <button className="ghost" onClick={() => setPromptSelectionOpen(true)}><Trash2 size={14}/>选择删除</button>}</div></div>}
+            {durationActionError&&<p className="director-duration-result prompt-audit-warning" role="alert">{durationActionError}</p>}
+            {!durationActionError&&sceneEstimateStatus&&!sceneEstimateStatus.running&&<small role="status" className="director-duration-result">{sceneEstimateStatus.cancelled?'已取消':'估时完成'} · 成功 {sceneEstimateStatus.succeeded} 条 · 失败 {sceneEstimateStatus.failed} 条{sceneEstimateStatus.total>sceneEstimateStatus.succeeded+sceneEstimateStatus.failed?` · 未处理 ${sceneEstimateStatus.total-sceneEstimateStatus.succeeded-sceneEstimateStatus.failed} 条`:''}</small>}
+            {scenePrompts.length > 0 && <div className="prompt-locator-toolbar"><nav className="prompt-locator" aria-label="提示词快速定位">{scenePrompts.map((prompt, index) => <button key={prompt.id} onClick={() => promptCardRefs.current[prompt.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{index + 1}</button>)}</nav><div className="prompt-bulk-actions">{canResegment&&<button type="button" className="secondary director-duration-reestimate" onClick={()=>void resegment()}>重分本场</button>}{promptSelectionOpen ? <><button className="ghost" onClick={() => setSelectedPromptIds(new Set(scenePrompts.map((prompt) => prompt.id)))}>全选</button><button className="danger" disabled={!selectedPromptIds.size} onClick={() => setBulkDeleteOpen(true)}>删除选中（{selectedPromptIds.size}）</button><button className="ghost" onClick={closePromptSelection}>取消</button></> : <button className="ghost" onClick={() => setPromptSelectionOpen(true)}><Trash2 size={14}/>选择删除</button>}</div></div>}
             {scenePrompts.length > 0 ? (
               <div className="prompt-list compact">
                 {scenePrompts.map((prompt, i) => (

@@ -60,6 +60,7 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects, sav
           assertSaved(await saveDirectorProjects(next.state.directorProjects || []), '导演项目');
           savedDirectorProjects = next.state.directorProjects;
         }
+        savedSnapshot=next.state;
         lastOutcome = { revision: next.revision, error: null };
       } catch (error) {
         lastOutcome = { revision: next.revision, error: error instanceof Error ? error : new Error('导演资料保存失败。') };
@@ -102,6 +103,11 @@ export function createDirectorPersistence({ saveState, saveDirectorProjects, sav
     enqueue(state) {
       queueSnapshot(state);
       start();
+    },
+    async saveAndConfirm(state) {
+      queueSnapshot(state);
+      await flush();
+      return savedSnapshot===state;
     },
     flush,
     async suspendAfterFlush() {

@@ -7,6 +7,7 @@ const account = { id: 'wave-three-isolated', username: 'qa', roles: ['creator', 
 const ep = { id: 'qa-episode', number: 1, episodeNumber: 1, title: '第1集', content: text, script: text, prompts: [{ id: 'qa-prompt', label: '1-1-1', sceneLabel: '1-1', content: '1-1-1\n测试场面' }], scenes: [], storyboards: [] };
 const director = { id: 'qa-director', name: '隔离导演剧本', masterScript: text, episodes: [ep] };
 const fixture = new URLSearchParams(location.search);
+if(fixture.has('long-selects'))ep.title='第1集｜隔离测试：婚礼直播、冷链基地与投资决策的完整集名测试';
 const storyboard = fixture.has('storyboard-scroll') ? await import('./storyboard-scroll.js') : null;
 const preferenceFixture = fixture.has('asset-reference-preference');
 const shot = (label,ids) => ({label,generationConfig:{bindingAssetIds:ids}});
@@ -14,6 +15,7 @@ const secondEpisode={...ep,id:'qa-episode-2',number:2,episodeNumber:2,title:'第
 const preferenceEpisodes=[{...ep,storyboardPrompts:[shot('1-1-1',['truck','lamp','pen','archive']),shot('1-1-2',['pen'])]},secondEpisode];
 const project = { id: 'qa-project', name: '隔离协作项目', owner_name: 'qa', myRole: 'producer', storageMode: 'cloud', episodes: preferenceFixture?preferenceEpisodes:storyboard?.episodes || [ep], updated_at: '2026-11-23T00:00:00Z' };
 const profiles = Array.from({length: 30}, (_, i) => ({ id: 'mock-'+i, name: '隔离模拟模型 '+i, model: 'mock-'+i, endpoint: 'https://example.invalid/v1', apiKey: 'isolated' }));
+if(fixture.has('long-selects'))Object.assign(profiles[0],{name:'测试 Fast DeepSeek-V4.1-Flash',model:'cn:deepseek-v4.1-flash-'+ 'extended-production-context-'.repeat(8)});
 const saved = { ...createInitialState(), apiProfiles: profiles, activeApiId: profiles[0].id, directorProjects: [director], skills: [{id:'qa-skill', name:'隔离规则', content:'测试'}] };
 const jobs = Array.from({length: 120},(_,i)=>({id:'job-'+i, kind:i%2?'image':'video', status:'success', prompt:'隔离生成历史 '+i}));
 jobs.push(...Array.from({length: 80},(_,i)=>({id:'image-'+i, kind:'image', status:'success', prompt:'隔离图片历史 '+i})));

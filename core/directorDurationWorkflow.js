@@ -45,6 +45,25 @@ export function applyDirectorDurationResult(project,target,estimates){
  };
 }
 
+// A replacement must reach storage before it replaces the first draft on
+// screen. Rebuild against concurrent workspace changes and restore the latest
+// snapshot if a staged write cannot be published.
+export async function commitDirectorResegment({read,apply,publish,save,isCurrent}){
+ let staged=false,committed=false;
+ try{
+  for(let attempt=0;attempt<3&&isCurrent();attempt++){
+   const base=read(),result=apply(base);
+   if(!result.applied)return result;
+   staged=true;
+   const saved=await save(result.state);
+   if(saved!==false&&isCurrent()&&read()===base){publish(result.state);committed=true;return result;}
+  }
+  return {applied:false,conflict:'项目在保存期间已变化，保留当前提示词及重分回包'};
+ }finally{
+  if(staged&&!committed&&isCurrent())await save(read()).catch(()=>{});
+ }
+}
+
 export const directorDurationPending=(maxDurationSeconds,code='AWAITING_ESTIMATE',message='提示词已保存，待精准估时。')=>
  pendingDurationEstimate(normalizeVideoDurationLimit(maxDurationSeconds),code,message);
 
@@ -72,25 +91,45 @@ export function directorDurationSegments(run){
  });
 }
 
-export async function estimateDirectorRun({run,estimateScene,persist,assertCurrent}){
- if(!estimateScene||run.durationEstimates)return;
+export const directorEstimationFinished=run=>Boolean(run.durationEstimates&&!run.durationEstimatesPartial);
+
+export async function estimateDirectorRun({run,estimateScene,persist,assertCurrent,commitProgress}){
+ if(!estimateScene||directorEstimationFinished(run))return;
  const segments=directorDurationSegments(run),limit=normalizeVideoDurationLimit(run.snapshot.maxDurationSeconds);
+ const finish=(estimates,code,message)=>{
+  const partial=run.durationEstimates||{};
+  run.durationEstimates=Object.fromEntries(segments.map(({id})=>[id,validatedDurationEstimate(estimates?.get(id))||partial[id]||directorDurationPending(limit,code,message)]));
+  delete run.durationEstimatesPartial;
+  run.durationEstimatedAt=new Date().toISOString();
+ };
  if(run.durationEstimateDispatched){
   // A crash or stop may have happened after forwarding a paid estimate. Do
   // not automatically send it twice. The prompt body is already recoverable.
-  run.durationEstimates=Object.fromEntries(segments.map(({id})=>[id,directorDurationPending(limit,'INTERRUPTED','上次估时未确认，点击补估继续。')]));
+  finish(null,'INTERRUPTED','上次估时未确认，点击补估继续。');
   await persist(run);return;
  }
  await assertCurrent();
  const taskId=`director-duration-${run.id}-${crypto.randomUUID()}`;
  run.phase='estimating';run.pendingRequestId=taskId;run.durationEstimateDispatched=true;
  await persist(run);await assertCurrent();
- let estimates;
- try{estimates=await estimateScene({segments,maxDurationSeconds:limit,snapshot:run.snapshot,taskId});}
- catch{estimates=new Map();}
+ let estimates,callbackError;
+ try{estimates=await estimateScene({segments,maxDurationSeconds:limit,snapshot:run.snapshot,taskId,onProgress:async({stage,retryId})=>{
+  await assertCurrent(retryId);
+  if(stage==='retrying'&&run.pauseRequested)throw Object.assign(new Error('任务已暂停，尚未补估该片段。'),{code:'PAUSED'});
+ },onEstimates:async updates=>{
+  try{
+   await assertCurrent();
+   const values=segments.flatMap(({id})=>{const estimate=validatedDurationEstimate(updates.get(id));return estimate?[[id,estimate]]:[];});
+   if(!values.length)return;
+   run.durationEstimatesPartial=true;
+   run.durationEstimates={...run.durationEstimates,...Object.fromEntries(values)};
+   run.durationEstimatedAt=new Date().toISOString();
+   await persist(run);await commitProgress?.();
+  }catch(error){callbackError=error;throw error;}
+ }});}
+ catch(error){if(callbackError)throw callbackError;if(['STOPPED','PAUSED','STALE','ACCOUNT_CHANGED'].includes(error?.code))throw error;}
  await assertCurrent();
  run.pendingRequestId=null;
- run.durationEstimates=Object.fromEntries(segments.map(({id})=>[id,validatedDurationEstimate(estimates?.get(id))||directorDurationPending(limit,'ESTIMATE_UNAVAILABLE','估时未完成，点击补估继续。')]));
- run.durationEstimatedAt=new Date().toISOString();
+ finish(estimates,'ESTIMATE_UNAVAILABLE','未取得估时结果，请点击补估重试。');
  await persist(run);
 }

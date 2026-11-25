@@ -46,3 +46,9 @@
 @media(max-width:1450px){.agent-footer-context{gap:7px}.agent-permission{font-size:10px}.agent-native-chat .furnace-chat-compose-footer{flex-wrap:wrap}.agent-composer-actions{margin-left:auto}}
 
 .production-console .agent-permission select{width:auto;min-height:28px;padding:2px 4px;color:inherit;font:inherit;background:transparent;border:0;cursor:pointer}
+
+.production-console .agent-native-chat .agent-model-trigger{max-width:100%;min-width:0}
+.agent-model-trigger>span:nth-child(2){min-width:0}
+.agent-model-trigger>svg,.agent-model-options button>svg{flex:none}
+.agent-model-menu{width:min(420px,calc(100vw - 32px))}
+.agent-model-options button>span{min-width:0;white-space:normal;overflow-wrap:anywhere}

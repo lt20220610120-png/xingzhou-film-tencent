@@ -4,7 +4,7 @@ import {buildNumberedSceneTasks,buildWholeSceneSubmission,splitNumberedPromptOut
 import {buildProjectPreamble,collectDirectorPromptHistory} from './projectStore.js';
 import {isQuickRunActive} from './directorQuickGeneration.js';
 import {buildDirectorOwnershipReview,parseDirectorOwnershipReview} from './directorOwnershipReview.js';
-import {directorDurationForCard,directorRunDurationScript,estimateDirectorRun} from './directorDurationWorkflow.js';
+import {directorDurationForCard,directorRunDurationScript,directorEstimationFinished,estimateDirectorRun} from './directorDurationWorkflow.js';
 
 const clone=value=>structuredClone(value);
 const fault=(message,code='FAILED')=>Object.assign(new Error(message),{code});
@@ -64,6 +64,7 @@ export function createDirectorManualController({getContext,executeSkill,reviewSk
   if(currentRun&&currentRun!==run.id)throw fault('本场已开始新的生成批次，旧任务仅保留在历史中','STALE');
   if(!context.project||!context.episode||context.permissions?.canGenerate===false||context.project.cloudLocked||context.project.cloudConflict)throw fault('项目或权限已变化，完整回包已保留','STALE');
   if(!await snapshotMatchesContext(run.snapshot,{...context,sceneLabel:run.snapshot.sceneLabel,inputText:directorSceneInput(context.project,context.episode,run.snapshot.sceneLabel)}))throw fault('原文、项目设定、Skill 或模型已变化，完整回包已保留','STALE');
+  return context;
  };
  const execute=async run=>{
   const commit=async()=>{await assertCurrent(run);const saved=await commitRun(clone(run));if(!saved?.applied)throw fault(saved?.conflict||'保存失败，完整回包已保留','STALE');run.committedContents=Object.fromEntries(run.prompts.map((p,i)=>[run.promptIds[i],p.content]));await persist(run);};
@@ -96,9 +97,14 @@ export function createDirectorManualController({getContext,executeSkill,reviewSk
     run.output=run.prompts.map(p=>p.content).join('\n\n');run.auditStatus=run.ownershipReview.every(r=>r.ok)?'passed':'warning';await persist(run);
    }
    run.phase='ready-to-commit';await persist(run);await commit();
-   if(estimateScene&&!run.durationEstimates){
+   if(estimateScene&&!directorEstimationFinished(run)){
     if(run.pauseRequested)throw fault('已保存提示词，估时尚未完成','PAUSED');
-    await estimateDirectorRun({run,estimateScene,persist,assertCurrent:()=>assertCurrent(run)});
+    await estimateDirectorRun({run,estimateScene,persist,assertCurrent:async retryId=>{
+     const context=await assertCurrent(run);
+     if(!retryId)return;
+     const index=run.prompts.findIndex(prompt=>prompt.label===retryId);
+     if(index<0||context.episode.prompts?.find(prompt=>prompt.id===run.promptIds[index])?.content!==run.prompts[index].content)throw fault('提示词已编辑，保留现稿，请按需重新估时','STALE');
+    },commitProgress:commit});
     run.phase='ready-to-commit';await commit();
    }
    if(run.reviewRequired&&run.auditStatus!=='passed')throw fault(run.auditWarnings.join('；')||'Agent逐段复核尚未通过，正文与问题已保留','NEEDS_REVIEW');

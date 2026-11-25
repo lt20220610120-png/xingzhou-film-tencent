@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createQuickGenerationController } from './directorQuickGeneration.js';
 import { commitQuickSceneRun } from './directorQuickStore.js';
+import {commitDirectorResegment} from './directorDurationWorkflow.js';
 import { manorScene, englishManorScene } from './directorSceneBudget.fixtures.js';
 
 function fixture({ source=manorScene, planner, skill, audit, estimateScene,maxDurationSeconds=32 }={}) {
@@ -29,7 +30,7 @@ const bulkTiming=(segments,maxDurationSeconds,overload)=>new Map(segments.map(({
  breakdown:{speechSeconds:overload&&index===0?33:8,nonparallelActionSeconds:0,pauseBufferSeconds:3},reason:overload&&index===0?'模拟；需重新划分片段并重新生成提示词。':'模拟',
 }]));
 
-test('duration relay saves the first body before one repair, then preserves its original history',async()=>{
+test('overload saves the first body, and only an explicit resegment generates a new draft',async()=>{
  const batchSizes=[];let f;
  f=fixture({maxDurationSeconds:30,estimateScene:async request=>{
   const {segments,maxDurationSeconds}=request;batchSizes.push(segments.length);
@@ -38,7 +39,12 @@ test('duration relay saves the first body before one repair, then preserves its 
   assert.equal(f.state.directorProjects[0].episodes[1].prompts.length,2);
   return bulkTiming(segments,maxDurationSeconds,batchSizes.length===1);
  },skill:p=>p.expectedLabels.map(l=>`${l}\n编辑成品`).join('\n\n')});
- const controller=createQuickGenerationController(f.deps),run=await controller.start(f.context());
+ const controller=createQuickGenerationController(f.deps),first=await controller.start(f.context());
+ assert.equal(first.phase,'completed');
+ assert.deepEqual(batchSizes,[2]);
+ assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
+ assert.ok(f.state.directorProjects[0].episodes[1].prompts[0].durationEstimate.needsResegment);
+ const run=await controller.resegment(first.id);
  assert.equal(run.phase,'completed',JSON.stringify(run.errors));
  assert.deepEqual(batchSizes,[2,3]);
  assert.equal(f.calls.filter(c=>c.type==='skill').length,2);
@@ -49,19 +55,97 @@ test('duration relay saves the first body before one repair, then preserves its 
  assert.ok(project.episodes[1].prompts.every(p=>p.durationEstimate?.recommendedSeconds===11));
 });
 
-test('a second overload and a failed preparation never launch another paid rewrite',async()=>{
+test('a second overload and a failed explicit resegment never launch another rewrite',async()=>{
  for(const fail of [false,true]){
   let estimates=0,skills=0;
   const f=fixture({maxDurationSeconds:30,estimateScene:async({segments,maxDurationSeconds})=>{estimates++;return bulkTiming(segments,maxDurationSeconds,true);},skill:p=>{
    if(++skills===2&&fail)throw Error('模拟重分接口失败');
    return p.expectedLabels.map(l=>`${l}\n编辑成品`).join('\n\n');
   }});
-  const controller=createQuickGenerationController(f.deps),run=await controller.start(f.context());
+  const controller=createQuickGenerationController(f.deps),first=await controller.start(f.context());
+  assert.equal(skills,1);
+  const run=await controller.resegment(first.id);
   assert.equal(run.phase,'completed',JSON.stringify(run.errors));
   assert.equal(skills,2);
   assert.equal(estimates,fail?1:2);
   assert.ok(f.state.directorProjects[0].episodes[1].prompts.some(p=>p.durationEstimate?.needsResegment));
+  await assert.rejects(controller.resegment(first.id),/重分/);
+  assert.equal(skills,2);
  }
+});
+
+test('successful estimates are written before the other rows settle and original text stays intact',async()=>{
+ let f;
+ f=fixture({maxDurationSeconds:30,estimateScene:async({segments,maxDurationSeconds,onEstimates})=>{
+  const valid=bulkTiming(segments,maxDurationSeconds,false);
+  const id=segments[0].id;
+  await onEstimates(new Map([[id,valid.get(id)]]));
+  const live=f.state.directorProjects[0].episodes[1].prompts;
+  assert.equal(live[0].durationEstimate.recommendedSeconds,11);
+  assert.equal(live[1].durationEstimate.status,'pending');
+  return valid;
+ }});
+ const run=await f.controller.start(f.context());
+ assert.equal(run.phase,'completed',JSON.stringify(run.errors));
+ assert.ok(f.state.directorProjects[0].episodes[1].prompts.every(p=>p.durationEstimate.recommendedSeconds===11));
+});
+
+test('pending, tight, edited and obsolete drafts cannot launch a resegment',async()=>{
+ for(const state of ['pending','tight','edited','account']){
+  const f=fixture({maxDurationSeconds:30,estimateScene:async({segments,maxDurationSeconds})=>{
+   const values=bulkTiming(segments,maxDurationSeconds,true),first=segments[0].id;
+   if(state==='pending')values.set(first,{version:'2.0.0',status:'pending',maxDurationSeconds,error:{code:'TIMEOUT',message:'估时超时。'}});
+   if(state==='tight')values.set(first,{...values.get(first),naturalSeconds:35,recommendedSeconds:30,needsResegment:false,capacityStatus:'略偏紧',breakdown:{speechSeconds:33,nonparallelActionSeconds:0,pauseBufferSeconds:2}});
+   return values;
+  }});
+  const run=await f.controller.start(f.context());
+  assert.equal(run.phase,'completed');
+  if(state==='edited')f.state.directorProjects[0].episodes[1].prompts[0].content='手工改过的内容';
+  if(state==='account')f.changeAccount();
+  await assert.rejects(f.controller.resegment(run.id),/超载|手动修改|账号已切换/);
+  assert.equal(f.calls.filter(c=>c.type==='skill').length,1);
+ }
+});
+
+test('resplit first draft stays visible until the new draft is durable, including write failures and rebases',async()=>{
+ const original={prompt:'首次稿',other:'旧修改'};
+ let visible=original,writes=[];
+ const shared={read:()=>visible,apply:state=>({applied:true,state:{...state,prompt:'重分稿'}}),publish:state=>{visible=state;},isCurrent:()=>true};
+ await assert.rejects(commitDirectorResegment({...shared,save:async state=>{
+  writes.push(state.prompt);assert.equal(visible,original);
+  if(writes.length===1)throw Error('隔离写入故障');
+ }}),/隔离写入故障/);
+ assert.equal(visible,original);assert.deepEqual(writes,['重分稿','首次稿']);
+ writes=[];
+ await commitDirectorResegment({...shared,save:async state=>{
+  writes.push(state);assert.equal(visible.prompt,'首次稿');
+  if(writes.length===1)visible={...visible,other:'保存时的手动编辑'};
+ }});
+ assert.equal(writes.length,2);assert.deepEqual(visible,{prompt:'重分稿',other:'保存时的手动编辑'});
+});
+
+test('an edition change before an isolated retry does not dispatch another estimate',async()=>{
+ let f,retries=0;
+ f=fixture({maxDurationSeconds:30,estimateScene:async({onProgress})=>{
+  f.changeAccount();
+  await onProgress({stage:'retrying',retryId:'2-1-1'});
+  retries++;
+  return new Map();
+ }});
+ const run=await f.controller.start(f.context());
+ assert.equal(retries,0);assert.equal(run.phase,'paused');
+});
+
+test('an edit to a fresh saved prompt stops an estimate retry against its old text',async()=>{
+ let f,retries=0;
+ f=fixture({maxDurationSeconds:30,estimateScene:async({segments,onProgress})=>{
+  f.state.directorProjects[0].episodes[1].prompts[0].content='已编辑的提示词';
+  await onProgress({stage:'retrying',retryId:segments[0].id});
+  retries++;return new Map();
+ }});
+ const run=await f.controller.start(f.context());
+ assert.equal(retries,0);assert.equal(run.phase,'stale');
+ assert.equal(f.state.directorProjects[0].episodes[1].prompts[0].content,'已编辑的提示词');
 });
 
 for(const [name,source] of [['bilingual',manorScene],['English-only',englishManorScene]]) {

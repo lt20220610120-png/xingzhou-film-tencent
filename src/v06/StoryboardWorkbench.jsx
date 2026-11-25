@@ -4,6 +4,7 @@ import './prompt-material-overview.css';
 import {recommendedPromptDuration,recommendedStoryboardTiming} from '../../core/promptDisplay.js';
 import {alignStoryboardDuration,storyboardEstimateIssue,storyboardRecommendationLimit,storyboardTimingForDraft} from '../../core/storyboardTiming.js';
 import {estimateVideoDurations,normalizeVideoDurationLimit} from '../../core/videoDurationEstimator.js';
+import {requestVideoDurationText} from '../../core/videoDurationRequest.js';
 import {readRemembered} from '../useRememberedState.js';
 import {confirmAction} from '../components/workspace-dialog.js';
 import StoryboardBatchPanel from './StoryboardBatchPanel.jsx';
@@ -63,7 +64,7 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
  const initial=()=>{const saved=read();if(!saved)return cloudDraft();const stored=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(saved,shot,defaults),shot,project);const value=applyStoryboardDefaults(cleanStoryboardReferenceValue(stored.value,project.id),defaults,shot.id),next=value===stored.value?stored:{...stored,value,dirty:true};return canRefreshStoryboardBinding(next,shot)?cleanDraft(next):{...next,value:editable(next.value)};};
  const [draft,setDraft]=useState(initial),[picker,setPicker]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[noticeTarget,setNoticeTarget]=useState(null),[estimating,setEstimating]=useState(false);
  const estimateRequest=useRef(null);
- useEffect(()=>()=>{const request=estimateRequest.current;if(request){request.abort();void Promise.resolve(api.cancelAiTask?.({taskId:request.taskId})).catch(()=>{});}},[]);
+ useEffect(()=>()=>estimateRequest.current?.abort(),[]);
  const current=useRef(draft);current.current=draft;
  const restoreReferenceScroll=useRef(null);
  useLayoutEffect(()=>{
@@ -131,16 +132,12 @@ export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state
   const ids=[readRemembered(`xz-director-duration-model:${accountId}`,''),directorModel,state.activeApiId];
   const profile=ids.map(id=>profiles.find(row=>row.id===id)).find(Boolean)||profiles[0];
   if(!profile||!api.aiChat){setError('请选择可用的文本估时模型');return;}
-  const job=new AbortController();job.taskId=crypto.randomUUID();estimateRequest.current=job;setEstimating(true);setError('');
+  const job=new AbortController(),taskId=crypto.randomUUID();let attempt=0;
+  estimateRequest.current=job;setEstimating(true);setError('');
   const segmentId=shot.label||shot.id,maxDurationSeconds=normalizeVideoDurationLimit(timing.durationEstimate?.maxDurationSeconds??timing.maxDurationSeconds);
   try{
    const estimates=await estimateVideoDurations({segments:[{id:segmentId,script:timing.durationSourceScript||'',prompt}],maxDurationSeconds,
-    signal:job.signal,request:async({messages,maxOutputTokens,signal})=>{
-     const cancel=()=>void Promise.resolve(api.cancelAiTask?.({taskId:job.taskId})).catch(()=>{});
-     signal?.addEventListener('abort',cancel,{once:true});
-     try{const response=await api.aiChat({...profile,profileId:profile.id,taskId:job.taskId,messages,maxOutputTokens,analysisMode:true});return response?.output??response;}
-     finally{signal?.removeEventListener('abort',cancel);}
-    }});
+    signal:job.signal,request:options=>requestVideoDurationText({api,profile,taskId:`${taskId}:${++attempt}`,...options})});
    job.signal.throwIfAborted();
    if(current.current.value.prompt!==prompt||current.current.base.content!==snapshot.base.content||JSON.stringify(current.current.base.durationEstimate)!==JSON.stringify(snapshot.base.durationEstimate)){setError('分镜已修改，请重新估时');return;}
    const estimate=estimates.get(segmentId);

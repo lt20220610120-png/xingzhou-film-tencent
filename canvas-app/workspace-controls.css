@@ -53,6 +53,11 @@ button:where(.ghost, .icon-button, .card-delete):not(:disabled):hover {
 [aria-busy='true']:is(button, [role='button']) { cursor: progress; }
 
 @supports (appearance: base-select) and selector(select::picker(select)) {
+  select:where(:not([multiple], [size]:not([size='1']))) {
+    max-inline-size: 100%;
+    white-space: nowrap;
+  }
+
   select:not([multiple], [size]:not([size='1'])) {
     appearance: base-select !important;
     -webkit-app-region: no-drag;
@@ -67,6 +72,22 @@ button:where(.ghost, .icon-button, .card-delete):not(:disabled):hover {
   }
 
   select:not([multiple], [size]:not([size='1'])):disabled { cursor: not-allowed; }
+
+  select:has(> .workspace-select-value) { display: inline-flex !important; }
+
+  select > .workspace-select-value {
+    all: unset;
+    display: contents !important;
+  }
+
+  select > .workspace-select-value > selectedcontent {
+    display: block;
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   select:not([multiple], [size]:not([size='1'])):is(:hover, :open):not(:disabled) {
     border-color: color-mix(in srgb, var(--control-focus) 40%, var(--control-border)) !important;
@@ -87,8 +108,9 @@ button:where(.ghost, .icon-button, .card-delete):not(:disabled):hover {
 
   select:not([multiple], [size]:not([size='1']))::picker(select) {
     appearance: base-select;
+    inline-size: max-content;
     min-inline-size: min(anchor-size(width), calc(100vi - 24px));
-    max-inline-size: min(32rem, calc(100vi - 24px));
+    max-inline-size: calc(100vi - 24px);
     max-block-size: min(20rem, 48dvb);
     margin-block: 5px;
     padding: 4px;

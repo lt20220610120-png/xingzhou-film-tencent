@@ -6,6 +6,7 @@ const path=require('node:path');
 const {setTimeout:pause}=require('node:timers/promises');
 const {patchShot}=require('../cloud-backend/src/storyboard-merge.cjs');
 const {createStoryboardBatchHost}=require('../electron/storyboard-batch-host.cjs');
+const {requestChat}=require('../electron/ai-service.cjs');
 
 const root=path.resolve(__dirname,'..'),page='scripts/fixtures/storyboard-duration203.html';
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'xz-storyboard-duration203-'));
@@ -13,7 +14,7 @@ app.setPath('userData',scratch);app.setPath('sessionData',scratch);app.disableHa
 app.on('window-all-closed',()=>{});
 
 const accountId='fixture-account';
-const state={activeVideoApiId:'discrete',activeApiId:'text',apiProfiles:[{id:'text',name:'测试文本模型',model:'text-fixture'}],mediaProfiles:[
+const state={activeVideoApiId:'discrete',activeApiId:'text',apiProfiles:[{id:'text',name:'测试文本模型',model:'cn:deepseek-v4.1-flash',endpoint:'https://fixture.invalid/v1',requiresApiKey:false}],mediaProfiles:[
  {id:'discrete',name:'离散测试模型',kind:'video',model:'discrete-model',endpoint:'https://fixture.invalid/v1',apiKey:'fixture-only',capabilities:{ratios:['16:9'],resolutions:['720p'],durations:[5,10,15,20,30]}},
  {id:'continuous',name:'连续测试模型',kind:'video',model:'continuous-model',endpoint:'https://fixture.invalid/v1',apiKey:'fixture-only',capabilities:{ratios:['16:9','9:16'],resolutions:['720p','1080p'],durationRange:{min:4,max:30}}},
  {id:'restricted',name:'短时测试模型',kind:'video',model:'restricted-model',endpoint:'https://fixture.invalid/v1',apiKey:'fixture-only',capabilities:{ratios:['9:16'],resolutions:['1080p'],durations:[5,15]}},
@@ -42,10 +43,10 @@ app.whenReady().then(async()=>{
   fs.writeFileSync(preload,`const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('storyboardDurationFixture',Object.fromEntries(['bootstrap','project','patch','estimate','submit','start','list'].map(name=>[name,p=>ipcRenderer.invoke('timing-'+name,p)])));`);
   const {validateStoryboardSubmission}=await import('../core/storyboardPublication.js');
   const {storyboardDurationPolicy}=await import('../core/storyboardTiming.js');
-  let project,host,sent,singles,textCalls,policyScenario=false,iteration=0;
+  let project,host,sent,singles,textAttempts,policyScenario=false,iteration=0;
   const save=p=>{project={...project,episodes:patchShot(project.episodes,p)};return project;};
   ipcMain.handle('timing-bootstrap',()=>{
-   project=policyScenario?policyProject():init();sent=[];singles=[];textCalls=0;
+   project=policyScenario?policyProject():init();sent=[];singles=[];textAttempts=[];
    host=createStoryboardBatchHost({directory:path.join(scratch,`run-${++iteration}`),owner:()=>accountId,license:async()=>{},getProject:async()=>project,listMedia:async()=>[],listJobs:()=>[],getState:()=>state,patchShot:async p=>save(p),submit:async input=>{sent.push(input.duration);return {id:`job-${sent.length}`,status:'submitted'};}});
    return {project,state};
   });
@@ -60,13 +61,20 @@ app.whenReady().then(async()=>{
   });
   ipcMain.handle('timing-start',async(_,p)=>{const batch=await host.start(p);await host.idle();return batch;});
   ipcMain.handle('timing-list',(_,p)=>host.list(p));
-  ipcMain.handle('timing-estimate',(_,p)=>{
-   textCalls++;assert.equal(p.profileId,'text');
+  ipcMain.handle('timing-estimate',async(_,p)=>{
+   textAttempts.push(p.taskId);assert.equal(p.profileId,'text');assert.equal(p.resultEnvelope,true);
    const data=JSON.parse(p.messages.at(-1).content),segment=data.segments[0];
    assert.match(segment.script,/进入房间/);assert.match(segment.prompt,/修改后的正片/);
-   return '```json\n'+JSON.stringify({errors:[],results:[{
-    segment_id:segment.segment_id,timing:{natural_seconds:3,recommended_seconds:3,needs_resegment:false},breakdown:{speech_seconds:0,nonparallel_action_seconds:2.2,pause_buffer_seconds:0.6},reason:'微动及气口。',capacity_status:'正常',
-   }],schema_version:'1.0',limit_defaulted:false,max_duration_seconds:30})+'\n```';
+   const output=await requestChat(p,{fetchFn:async(_,options)=>{
+    const body=JSON.parse(options.body);
+    assert.equal(body.stream,true);assert.equal(Object.hasOwn(body,'thinking'),false);
+    const content='```json\n'+JSON.stringify({results:textAttempts.length===1?[]:[{
+     reason:'微动及气口。',tail_buffer_seconds:0.6,groups:[{visual_seconds:2.2}],kind:'transition',segment_id:segment.segment_id,
+    }]})+'\n```';
+    return new Response(`data: ${JSON.stringify({choices:[{delta:{reasoning_content:'模型推理'}}]})}\n\n`+
+     `data: ${JSON.stringify({choices:[{delta:{content},finish_reason:'stop'}]})}\n\ndata: [DONE]\n\n`);
+   }});
+   return {ok:true,output};
   });
   for(const [width,scenario] of widths.flatMap(width=>[[width,false],[width,true]])){
    policyScenario=scenario;
@@ -130,7 +138,8 @@ app.whenReady().then(async()=>{
     await select(card(1)+' select[aria-label="时长"]','10');await button(card(1)+' button','保存分镜');
     await until(async()=> (await window.storyboardDurationFixture.project()).episodes[0].storyboardPrompts[1].generationConfig.durationManuallyAdjusted===true);
     await editPrompt(2,'修改后的正片');
-    await button(card(2)+' button','重估时长');await mention(card(2),'建议生成时长 3 秒');assert.equal(textCalls,1);
+    await button(card(2)+' button','重估时长');await mention(card(2),'建议生成时长 3 秒');
+    assert.equal(textAttempts.length,2);assert.equal(new Set(textAttempts).size,2);
     assert.match(project.episodes[0].storyboardPrompts[2].content,/修改后的正片/);
     await button('.storyboard-batch-controls button','按建议时长设置');
     await mention('.storyboard-timing-notice','已保护 1 条手调时长');
@@ -147,7 +156,7 @@ app.whenReady().then(async()=>{
     assert.deepEqual(sent,[11,14,4]);assert.deepEqual(requests,[]);
    } finally {await win.webContents.session.clearStorageData();win.destroy();}
   }
-  console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualStopsScope:true,manualPreservedAndReset:true,fencedEstimatePersisted:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
+  console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualStopsScope:true,manualPreservedAndReset:true,fencedSemanticEstimatePersisted:true,deepSeekThinkingPreserved:true,missingShotRetriedOnce:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
  }catch(error){exit=1;console.error(error);}
  finally{await server?.close();for(const win of BrowserWindow.getAllWindows())win.destroy();await fs.promises.rm(scratch,{recursive:true,force:true,maxRetries:8,retryDelay:100}).catch(error=>{console.error(error.message);exit=1;});app.exit(exit);}
 });
