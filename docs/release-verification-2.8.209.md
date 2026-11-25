@@ -16,3 +16,14 @@
 - 三档 Electron 验证了叹号显示条件、全部原因、白底浮层、鼠标移入以及 Tab、Enter、Esc。点击文字在真实工作台定位到了对应清单条目。另验证历史 2.0.0/3.0.0、手调保护、显式重置、定长和连续时长模型。
 - 3,375 项 Node、13 项 Python 发布测试、12 项本地 Qwen 测试和 Vite 构建通过。全部生成均使用隔离模拟，真实付费调用为 0。
 - Node 18.19.1 与临时 PostgreSQL 16 验证最新导演估时、引用修改、合法档位、单条跳过、协作权限及过期写入保护。验证库随测试销毁。
+
+## 云端上线
+
+- 备份目录为 `/opt/xingzhou-backups/duration-estimate-2.8.209-20261125T163930Z-s9epztos`，保留运行目录、私有 Skill、服务和代理配置、数据库及角色。数据库归档为 65,229,388 字节，已验证恢复目录和回滚脚本语法。
+- 上线四个已通过隔离数据库验证的时长模块，无数据库迁移。恢复后 `/healthz` 正常，未认证网关保持 401。真实用户项目未用于测试。
+
+## 正式发布
+
+- 源码 `ed9c80f`，GitHub Release 458368622，上传工作流 45656436215。正式 Windows 安装包为 95,297,586 字节，SHA-256 为 `31bf66858bd26f73c25a7d6ed5e5ead28594677246ed564eee00706c80cbcbc9`。
+- 正式 NSIS 载荷启动和五类历史 Windows 凭据读取通过。三份更新清单签名、GitHub 资产摘要和官网 HTTP 206 通过。隔离运行 2.8.208 软件内更新，模拟中断后续传，通过整包校验和安装交接。本机与官网镜像保留 2.8.205–2.8.209 五版。
+- [官网下载](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.209.exe) · [GitHub 下载](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.209/Xingzhou-Film-Tencent-Setup-2.8.209.exe)
