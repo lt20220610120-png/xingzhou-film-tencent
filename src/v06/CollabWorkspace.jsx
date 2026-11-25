@@ -53,8 +53,9 @@ import {useWorkspacePolling,useWorkspaceVisible} from './useWorkspacePolling.js'
 import {
   ArrowLeft, Plus, X, Users, AudioLines, FileText, Palette, Box, Clapperboard,
   UserPlus, BarChart3, MessagesSquare, Sparkles, RefreshCw, Send,
-  Image as ImageIcon, Upload, Download, Trash2, Check, Film, AtSign, Loader2, PencilLine, Save, ClipboardCheck,
+  Image as ImageIcon, Upload, Download, Trash2, Check, Film, AtSign, Loader2, PencilLine, Save, ClipboardCheck, Info,
 } from 'lucide-react';
+import HoverInfo from './HoverInfo.jsx';
 import {
   COLLAB_ROLES, COLLAB_SECTIONS, COLLAB_STYLES, ASSET_CATEGORIES,
   sectionsForRole, parseAssetName, displayAssetName, resolveAssetReference, isCharacterWardrobeVariant, groupCharacterAssets, parseArtAnalysis,
@@ -1225,28 +1226,48 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
   return (
     <div ref={locator.root} className="collab-art art-workbench asset-library-workbench">
       {syncPanel}
-      <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
       <div className="collab-art-head">
         <div className="collab-art-head-left asset-category-heading">
-        <b><Box size={16} /> 资产总览</b>
-        {!!archivedAssets.length&&<button className="secondary" disabled={batchBusy} onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
-        <button className="secondary manual-add-button" onClick={() => { setManualName('');setManualBaseline(null); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
-        <div className="collab-cat-tabs">
-          {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
-            <button key={key} disabled={batchBusy} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
-          ))}
-        </div>
+          <div className="asset-heading-primary">
+            <b><Box size={16} /> 资产总览</b>
+            <div className="collab-cat-tabs">
+              {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
+                <button key={key} disabled={batchBusy} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="asset-heading-secondary">
+            <ProjectCompositionControl inline project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}/>
+            {!!archivedAssets.length&&<button className="secondary" disabled={batchBusy} onClick={()=>{setShowArchived(v=>!v);setOutfits({});}}>{showArchived?'返回已关联资产':`未关联历史资产（${archivedAssets.length}）`}</button>}
+            <button className="secondary manual-add-button" onClick={() => { setManualName('');setManualBaseline(null); setManualOpen(true); }} disabled={!canEdit}><Plus size={14} /> 添加资产</button>
+          </div>
         </div>
         <div className="asset-category-batch-controls" aria-label="当前分类批量生图">
-          <ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy||showArchived} label="资产批量生图模型" displayLabel="生图模型"/>
-          <label>画幅<select aria-label="资产批量生成画幅" value={batchSize} disabled={batchBusy||showArchived} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(format=><option key={format.value} value={format.size}>{format.label}</option>)}</select></label>
-          <label>并发<select aria-label="资产图片并发数量" value={imageConcurrency} disabled={batchBusy||showArchived} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张</option>)}</select></label>
-          <button className="secondary" disabled={batchBusy||referencePreference.busy||showArchived||(!pendingAssets.length&&!selectedIds.length)} onClick={()=>setBatchSelectedIds(allPendingSelected?[]:pendingAssets.map(asset=>asset.id))}>{allPendingSelected?'取消全选':'全选未生成'}</button>
-          {referencePreference.change&&<button className="secondary" type="button" disabled={batchBusy||referencePreference.busy||!referencePreferenceTargets.length} onClick={()=>void referencePreference.change(referencePreferenceTargets,true)}>一键确定无需参考图（{referencePreferenceTargets.length}）</button>}
-          {category==='character'&&<button className="secondary" disabled={!canEdit||batchBusy||referencePreference.busy||showArchived||!batchProfile||!baselineIds.length} onClick={()=>generateBatch(true)}>只生成默认参考妆造（{baselineIds.length}）</button>}<button className="primary" disabled={!canEdit||batchBusy||referencePreference.busy||showArchived||!batchProfile||!selectedIds.length} onClick={()=>generateBatch()}><Sparkles size={14}/>{batchBusy?(batchKind==='recovery'?'恢复中…':'批量生成中…'):`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
+          <div className="asset-batch-params">
+            <ModelSelect profiles={batchProfiles} value={batchProfileId} onChange={setBatchProfileId} disabled={batchBusy||showArchived} label="资产批量生图模型" displayLabel="生图模型"/>
+            <label className="asset-batch-ratio">画幅<select aria-label="资产批量生成画幅" value={batchSize} disabled={batchBusy||showArchived} onChange={e=>setBatchSize(e.target.value)}>{batchFormats.map(format=><option key={format.value} value={format.size}>{format.label}</option>)}</select></label>
+            <label className="asset-batch-concurrency">并发<select aria-label="资产图片并发数量" value={imageConcurrency} disabled={batchBusy||showArchived} onChange={e=>setImageConcurrency(Number(e.target.value))}>{[1,2,3,4,6,8].map(n=><option key={n} value={n}>{n} 张</option>)}</select></label>
+          </div>
+          <div className="asset-batch-actions">
+            <button className="secondary" disabled={batchBusy||referencePreference.busy||showArchived||(!pendingAssets.length&&!selectedIds.length)} onClick={()=>setBatchSelectedIds(allPendingSelected?[]:pendingAssets.map(asset=>asset.id))}>{allPendingSelected?'取消全选':'全选未生成'}</button>
+            {referencePreference.change&&<button className="secondary" type="button" disabled={batchBusy||referencePreference.busy||!referencePreferenceTargets.length} onClick={()=>void referencePreference.change(referencePreferenceTargets,true)}>一键确定无需参考图（{referencePreferenceTargets.length}）</button>}
+            {category==='character'&&<button className="secondary" disabled={!canEdit||batchBusy||referencePreference.busy||showArchived||!batchProfile||!baselineIds.length} onClick={()=>generateBatch(true)}>只生成默认参考妆造（{baselineIds.length}）</button>}
+            <button className="primary asset-batch-primary" disabled={!canEdit||batchBusy||referencePreference.busy||showArchived||!batchProfile||!selectedIds.length} onClick={()=>generateBatch()}><Sparkles size={14}/>{batchBusy?(batchKind==='recovery'?'恢复中…':'批量生成中…'):`一键生成${ASSET_CATEGORIES[category]}（${selectedIds.length}）`}</button>
+          </div>
         </div>
       </div>
-      <div className="asset-category-batch-status"><span>{showArchived?'历史资产仅供查看，请返回已关联资产后批量生成。':`已选 ${selectedIds.length}/${displayAssets.length} 项 · ${onlyMissing?'仅生成当前分类未出图的资产与妆造':category==='prop'?'默认选择符合条件的未生成道具':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。`}</span>{!showArchived&&<small>按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。</small>}{imageProgress&&<span role="status">已处理 {imageProgress.completed}/{imageProgress.total} · 未完成 {imageProgress.failed}</span>}{batchBusy&&<button className="secondary" onClick={()=>{stopImages.current=true;}}>{batchKind==='recovery'?'停止后续恢复':'停止后续生成'}</button>}</div>
+      <div className="asset-category-batch-status">
+        {showArchived ? (
+          <span>历史资产仅供查看，返回已关联资产后可批量生成。</span>
+        ) : (
+          <>
+            <span className="asset-selection-pill">已选 <b>{selectedIds.length}</b> / {displayAssets.length} 项</span>
+            <HoverInfo className="asset-batch-info-trigger" label="批量生图范围说明" content={`${onlyMissing?'仅生成当前分类未出图的资产与妆造':category==='prop'?'默认选择符合条件的未生成道具':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。`}><Info size={13} aria-hidden="true"/><span>生成规则</span></HoverInfo>
+          </>
+        )}
+        {imageProgress&&<span className="asset-progress-pill" role="status">已处理 {imageProgress.completed}/{imageProgress.total}{imageProgress.failed ? ` · 未完成 ${imageProgress.failed}` : ''}</span>}
+        {batchBusy&&<button className="secondary asset-batch-stop" onClick={()=>{stopImages.current=true;}}>{batchKind==='recovery'?'停止后续恢复':'停止后续生成'}</button>}
+      </div>
       {category==='prop'&&!showArchived&&<div className="prop-prompt-filter" role="group" aria-label="按道具关联提示词数量筛选">
         <label>关联提示词<select aria-label="道具关联数量条件" value={propComparison} disabled={batchBusy} onChange={e=>setPropComparison(e.target.value)}><option value="all">全部</option><option value="at-least">至少</option><option value="at-most">至多</option></select></label>
         {propComparison!=='all'&&<label><span className="art-review-sr-only">提示词条数</span><input type="number" aria-label="道具关联提示词条数" min="1" step="1" value={propThreshold} disabled={batchBusy} onChange={e=>setPropThreshold(e.target.value)}/><span>条</span></label>}

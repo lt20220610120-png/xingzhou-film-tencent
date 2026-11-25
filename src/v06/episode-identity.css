@@ -1,6 +1,6 @@
-.episode-identity-panel{margin:0 0 18px;padding:12px 16px;border:1px solid #d6dfe4;border-radius:12px;background:#f7fafb;color:#243943;font-size:13px;line-height:1.65;min-width:0;}
-.episode-identity-panel.has-issues{border-color:#ddbc70;background:#fffaf0;}
-.episode-identity-panel summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere;}
+.episode-identity-panel{margin:0 0 10px;padding:9px 14px;border:1px solid var(--brand-line,#dfe4ee);border-radius:10px;background:#fff;color:var(--brand-ink,#18202c);font-size:13px;line-height:1.55;min-width:0;}
+.episode-identity-panel.has-issues{border-color:#e5c378;background:#fffaf0;}
+.episode-identity-panel summary{cursor:pointer;font-weight:600;color:var(--brand-ink-body,#2d3748);overflow-wrap:anywhere;}
 .episode-identity-panel p{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;}
 .episode-identity-panel h3{font-size:15px;margin:12px 0 6px;}
 .episode-identity-panel button{border:1px solid #b7c9d0;border-radius:7px;padding:6px 10px;background:#fff;color:#244a5a;cursor:pointer;font:inherit;}

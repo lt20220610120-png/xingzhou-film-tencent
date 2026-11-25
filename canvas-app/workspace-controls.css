@@ -1,11 +1,11 @@
 /* Loaded by both the main workbench and the independent canvas window. */
 :root {
-  --control-radius: 9px;
-  --control-border: var(--brand-line, #dce1e9);
-  --control-focus: var(--brand-accent, #6959bd);
-  --control-hover: var(--brand-subtle, #f1eff9);
-  --control-selected: var(--brand-selected, #ece7fb);
-  --control-ink: var(--brand-ink, #263044);
+  --control-radius: 8px;
+  --control-border: var(--brand-line, #dfe4ee);
+  --control-focus: var(--brand-accent, #6c56bd);
+  --control-hover: var(--brand-subtle, #f3f5f9);
+  --control-selected: var(--brand-selected, #efeafb);
+  --control-ink: var(--brand-ink, #18202c);
   --control-surface: #fff;
 }
 

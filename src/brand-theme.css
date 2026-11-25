@@ -1,21 +1,48 @@
 /* 行舟影视：通透白色工作面，黑体正文，紫色仅用于交互强调。最后加载，统一历史页面外观。 */
 :root {
-  --brand-canvas:#f7f9fc;
+  --brand-canvas:#f6f7fb;
   --brand-surface:#ffffff;
-  --brand-subtle:#f7f8fb;
-  --brand-rail:#f0edf9;
-  --brand-selected:#eee9fa;
-  --brand-selected-hover:#e5ddf7;
-  --brand-accent:#7563bf;
-  --brand-accent-hover:#6652af;
-  --brand-text:#5c4a96;
-  --brand-ink:#232b38;
-  --brand-muted:#647084;
-  --brand-line:#e1e6ee;
-  --brand-line-strong:#c9bde6;
-  --brand-focus:#8974bf;
-  --brand-shadow:0 3px 16px #45346108;
-  --brand-panel-shadow:0 2px 8px #2430440b,0 8px 22px #24304405;
+  --brand-subtle:#f3f5f9;
+  --brand-rail:#f4f3fa;
+  --brand-selected:#efeafb;
+  --brand-selected-hover:#e5dcf7;
+  --brand-accent:#6c56bd;
+  --brand-accent-hover:#5c46ac;
+  --brand-text:#543e9e;
+  --brand-ink:#18202c;
+  --brand-ink-body:#2d3748;
+  --brand-ink-secondary:#4e596c;
+  --brand-muted:#525f74;
+  --brand-line:#dfe4ee;
+  --brand-line-strong:#c4b8e6;
+  --brand-focus:#7c66cc;
+  --brand-shadow:0 1px 3px rgba(24,32,44,.04),0 4px 12px rgba(24,32,44,.03);
+  --brand-panel-shadow:0 1px 3px rgba(24,32,44,.05),0 6px 18px rgba(24,32,44,.04);
+  --ui-bg:var(--brand-canvas);
+  --ui-surface:var(--brand-surface);
+  --ui-surface-subtle:var(--brand-subtle);
+  --ui-border:var(--brand-line);
+  --ui-border-strong:var(--brand-line-strong);
+  --ui-ink:var(--brand-ink);
+  --ui-ink-body:var(--brand-ink-body);
+  --ui-ink-secondary:var(--brand-ink-secondary);
+  --ui-ink-muted:var(--brand-muted);
+  --ui-accent:var(--brand-accent);
+  --ui-accent-hover:var(--brand-accent-hover);
+  --ui-accent-soft:var(--brand-selected);
+  --ui-accent-text:var(--brand-text);
+  --ui-success:#166534;
+  --ui-success-bg:#e8f7ef;
+  --ui-success-border:#bfe6d0;
+  --ui-warning:#9a520a;
+  --ui-warning-bg:#fef5e7;
+  --ui-warning-border:#f3d5a5;
+  --ui-danger:#b42e42;
+  --ui-danger-bg:#fdeef0;
+  --ui-danger-border:#f2c6cc;
+  --ui-radius-sm:6px;
+  --ui-radius-md:8px;
+  --ui-radius-lg:12px;
   --studio-font:'Microsoft YaHei','PingFang SC','Segoe UI',sans-serif;
   --paper:var(--brand-canvas);
   --surface:var(--brand-surface);
@@ -50,23 +77,23 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   outline:2px solid var(--brand-focus); outline-offset:3px;
 }
 input:focus,textarea:focus,select:focus { border-color:var(--brand-focus); box-shadow:0 0 0 3px #7563bf12; }
-input::placeholder,textarea::placeholder { color:#8390a3; }
-.sidebar { background:linear-gradient(180deg,#f0edfb,#f4f6fc); border-color:var(--brand-line); }
-.sidebar>button { color:#536079; }
+input::placeholder,textarea::placeholder { color:#647084; }
+.sidebar { background:linear-gradient(180deg,#f2effa,#f5f7fc); border-color:var(--brand-line); }
+.sidebar>button { color:#3e4a5e; }
 .sidebar>button:hover,.side-bottom button:hover { background:var(--brand-selected); color:var(--brand-text); }
-.sidebar>button.active { background:var(--brand-selected); color:var(--brand-text); box-shadow:inset 3px 0 var(--brand-accent); }
+.sidebar>button.active { background:var(--brand-selected); color:var(--brand-text); font-weight:600; box-shadow:inset 3px 0 var(--brand-accent); }
 .side-bottom,.sidebar .brand-logo { border-color:var(--brand-line); }
 .side-bottom button,.side-bottom small,.sidebar .nav-label,.sidebar .brand-logo.compact small { color:var(--brand-muted); }
 .sidebar .brand-logo.compact strong { color:var(--brand-ink); }
-.director-shell>.director-rail,.collab-rail,.studio-picker .project-list,.project-shell .episode-rail { background:#f1f6fa; border-color:var(--brand-line); }
-.director-rail>button,.collab-rail>button,.studio-picker .project-row,.project-shell .episode-rail nav>button { color:var(--brand-muted); }
+.director-shell>.director-rail,.collab-rail,.studio-picker .project-list,.project-shell .episode-rail { background:#f3f5fa; border-color:var(--brand-line); }
+.director-rail>button,.collab-rail>button,.studio-picker .project-row,.project-shell .episode-rail nav>button { color:#4a566b; }
 .director-rail>button:hover,.collab-rail>button:hover,.studio-picker .project-row:hover { background:var(--brand-selected); color:var(--brand-text); }
-.director-rail>button.active,.collab-rail>button.active,.studio-picker .project-row.active,.project-shell .episode-rail nav>button.active { color:var(--brand-text); background:#fff; box-shadow:var(--brand-shadow); }
+.director-rail>button.active,.collab-rail>button.active,.studio-picker .project-row.active,.project-shell .episode-rail nav>button.active { color:var(--brand-text); font-weight:600; background:#fff; box-shadow:var(--brand-shadow); }
 .rail-index,.collab-role-badge,.collab-ep-badge,.collab-card-role { color:var(--brand-text); background:var(--brand-selected); }
 .card-page,.resource-page,.library-page,.settings-page,.director-shell,.collab-shell,.collab-stage,.collab-hub,.skill-library,.api-library,.admin-panel,.generation-workspace { background:var(--brand-canvas); color:var(--brand-ink); }
 .primary,button.primary,.auth-submit,.invite-maker button { background:var(--brand-accent); border-color:var(--brand-accent); color:#fff; box-shadow:none; }
 .primary:hover:not(:disabled),button.primary:hover:not(:disabled),.auth-submit:hover:not(:disabled),.invite-maker button:hover:not(:disabled) { background:var(--brand-accent-hover); border-color:var(--brand-accent-hover); box-shadow:none; }
-.secondary,button.secondary,.ghost { background:#fff; color:#536079; border-color:var(--brand-line); box-shadow:none; }
+.secondary,button.secondary,.ghost { background:#fff; color:#374151; border-color:var(--brand-line); box-shadow:none; }
 .secondary:hover:not(:disabled),button.secondary:hover:not(:disabled),.ghost:hover:not(:disabled) { background:var(--brand-subtle); border-color:var(--brand-line-strong); color:var(--brand-text); }
 .primary:disabled,.secondary:disabled,.ghost:disabled { box-shadow:none; cursor:not-allowed; }
 .project-card,.resource-card,.settings-card,.prompt-card,.skill-card,.api-card,.canvas-card { border-color:var(--brand-line)!important; box-shadow:var(--brand-shadow)!important; }
@@ -89,8 +116,8 @@ input::placeholder,textarea::placeholder { color:#8390a3; }
 .quick-scene-label,.scene-item-label,.quick-scene-item.active .scene-item-label { color:var(--brand-text); }
 .quick-scene-label { background:var(--brand-selected); }
 .prompt-card header b,.prompt-id,.prompt-number,.prompt-label { color:var(--brand-text); }
-.prompt-locator button { width:28px; height:28px; padding:0; border:1px solid #acd8df; border-radius:50%; color:#08758b; background:#edf9fb; }
-.prompt-locator button.active,.prompt-locator button:hover { color:#fff; background:#087d94; border-color:#087d94; }
+.prompt-locator button { width:28px; height:28px; padding:0; border:1px solid var(--brand-line-strong,#c4b8e6); border-radius:50%; color:var(--brand-text,#543e9e); background:var(--brand-selected,#efeafb); font-weight:600; }
+.prompt-locator button.active,.prompt-locator button:hover { color:#fff; background:var(--brand-accent,#6c56bd); border-color:var(--brand-accent,#6c56bd); }
 .director-stage .prompt-select-wrapper.selected { border-color:var(--brand-line-strong); background:var(--brand-selected); }
 .director-stage .prompt-select-wrapper.selected .prompt-card { background:var(--brand-selected)!important; border-color:var(--brand-line-strong)!important; }
 .director-stage .prompt-select-check { color:var(--brand-text); }
@@ -174,8 +201,8 @@ input::placeholder,textarea::placeholder { color:#8390a3; }
 .quick-scene-card-head .scene-label,.quick-scene-card-head .quick-scene-label,.scene-card-badge {
   background:#f0ebfa; color:var(--brand-text);
 }
-.prompt-duration:not(.needs-review) { background:#e6f5ef; color:#207466; border-color:#cfe7df; }
-.quick-plan-timing span { background:#edf9fb; color:#08758b; }
+.prompt-duration:not(.needs-review) { background:var(--ui-success-bg,#e8f7ef); color:var(--ui-success,#166534); border-color:var(--ui-success-border,#bfe6d0); }
+.quick-plan-timing span { background:var(--brand-selected,#efeafb); color:var(--brand-text,#543e9e); }
 .quick-scene-textarea,.prompt-content,.prompt-card textarea,.master-editor,.big-editor,.setting-editor>textarea,.creative-script-panel textarea,.creative-vision-panel textarea,.collab-info-script>textarea {
   color:var(--brand-ink); background:#fff; font-family:var(--studio-font);
 }
