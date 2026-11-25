@@ -15,8 +15,15 @@
 - 导演与分镜在 1280、1600、1920 像素通过 Electron 实测。旧 2.0.0 推荐可正常展示与执行，显式重估写入 3.0.0。逐条保存、只补试失败条、取消、错误提示、超载保留首稿与确认重分通过。
 - 分镜建议/固定/手调模式、默认设置同步和受保护手调、旧项目及素材引用继续通过。所有生成上游均使用模拟，真实付费调用为 0。未测实际生产模型耗时。
 - 全量 3,361 项 Node、13 项发布测试、12 项本地 Qwen 测试与 Vite 构建通过。三档长文本下拉、分镜滚动、LibTV 预检及连接、资产无需参考图与登录激活回归通过。
+- 正式 NSIS 载荷启动核验通过。解出 `app.asar` 后比对七个关键工作区文件，并直接比对 ZIP 的三个原始文档。五类历史 Windows 凭据、原设备身份、新凭据重启及账号进入工作台在隔离环境验证通过。
 
 ## 云端部署
 
 - 完整备份位于 `/opt/xingzhou-backups/duration-estimate-2.8.206-20261125T121510Z-lcezc79a`，包含运行目录、私有 Skill、服务与代理配置以及 PostgreSQL 应用库和角色。数据库归档 65,229,521 字节，`pg_restore` 目录与 `rollback-duration-estimate.sh` 语法检查通过。
 - 仅部署 `src/prompt-duration.cjs`，对照隔离已验 SHA-256 `ccb933910bde22c7754a07c1fc3850fcf7aaf178b16f0d309154e849cf10c188`，无需迁移数据库。重启后官网 `/healthz` 正常，未认证网关保持 401。用户项目无测试写入。
+
+## 正式发布
+
+- 实现 `f34f01e`，GitHub Release 458076807，上传工作流 45613036035。安装包 95,289,558 字节，SHA-256 `7471e2730e342663282e15f4b22d4ea477d4a98c80c1952a2f0e1f08f50af9f2`。
+- 三份公开更新清单签名、GitHub 资产摘要和官网 HTTP 206 均核验通过。2.8.205 正式载荷在模拟中断后从官网下载续传，通过整包校验和安装交接。本机和官网均保留 2.8.202–2.8.206 五版。
+- [官网下载](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.206.exe) · [GitHub 下载](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.206/Xingzhou-Film-Tencent-Setup-2.8.206.exe)
