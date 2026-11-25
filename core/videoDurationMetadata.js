@@ -1,4 +1,5 @@
-export const VIDEO_DURATION_ESTIMATOR_VERSION = '2.0.0';
+export const VIDEO_DURATION_ESTIMATOR_VERSION = '3.0.0';
+const supportedEstimateVersions = new Set(['2.0.0', VIDEO_DURATION_ESTIMATOR_VERSION]);
 export const RESEGMENT_DURATION_REASON = '需重新划分片段并重新生成提示词';
 export const validVideoDurationLimit = value => value === 15 || value === 30;
 
@@ -25,9 +26,9 @@ export function pendingDurationEstimate(maxDurationSeconds, code, message) {
 }
 
 export function validatedDurationEstimate(value) {
-  if (!value || value.version !== VIDEO_DURATION_ESTIMATOR_VERSION || !validVideoDurationLimit(value.maxDurationSeconds)
+  if (!value || !supportedEstimateVersions.has(value.version) || !validVideoDurationLimit(value.maxDurationSeconds)
     || !['pending','needs-review','estimated'].includes(value.status)) return null;
-  const base={version:VIDEO_DURATION_ESTIMATOR_VERSION,status:value.status,maxDurationSeconds:value.maxDurationSeconds};
+  const base={version:value.version,status:value.status,maxDurationSeconds:value.maxDurationSeconds};
   if (value.status === 'pending' || (value.status === 'needs-review' && value.naturalSeconds === undefined)) {
     return singleLine(value.error?.code,64) && singleLine(value.error?.message,600)
       ? {...base,error:{code:value.error.code,message:value.error.message}} : value.status==='needs-review'?base:null;

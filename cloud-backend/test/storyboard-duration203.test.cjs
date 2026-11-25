@@ -3,10 +3,10 @@ const assert = require('node:assert/strict');
 const {patchShot, mergeDirectorEpisodes} = require('../src/storyboard-merge.cjs');
 const {settingsFor} = require('../src/storyboard-settings.cjs');
 
-const estimate = (naturalSeconds, maxDurationSeconds = 30) => {
+const estimate = (naturalSeconds, maxDurationSeconds = 30, version = '2.0.0') => {
   const needsResegment = naturalSeconds > (maxDurationSeconds === 15 ? 18 : 35);
   const capacityStatus = needsResegment ? '超载需重分' : naturalSeconds > maxDurationSeconds ? '略偏紧' : '正常';
-  return { version:'2.0.0', status:'estimated', maxDurationSeconds, naturalSeconds,
+  return { version, status:'estimated', maxDurationSeconds, naturalSeconds,
     recommendedSeconds:needsResegment ? naturalSeconds : Math.min(naturalSeconds,maxDurationSeconds),
     needsResegment, capacityStatus,
     breakdown:{speechSeconds:0,nonparallelActionSeconds:naturalSeconds - 1,pauseBufferSeconds:0.8},
@@ -189,10 +189,31 @@ test('saved legacy review status cannot be cleared by timing proof tied only to 
   assert.throws(()=>patchShot([refreshed],apply({recommendedDurations:{'1':20}})),{status:409});
 });
 
-test('renderer and server agree on v2 metadata including safe fallback for a malformed estimate', async () => {
+test('mixed timing versions keep historical values and use current settings, with an exact proof when re-estimating', () => {
+  const original=project(shot('1',estimate(17,30)),shot('2',estimate(34,30,'3.0.0')));
+  const [configured]=patchShot(original,apply({supportedDurations:[5,20,30],recommendedDurations:{'1':20,'2':30}}));
+  assert.deepEqual(configured.storyboardPrompts.map(row=>[row.durationEstimate.version,row.generationConfig.duration]),[
+    ['2.0.0',20],['3.0.0',30],
+  ]);
+  const first=configured.storyboardPrompts[0], refreshed=estimate(13,30,'3.0.0');
+  const proof={content:first.content,durationEstimate:first.durationEstimate};
+  for(const tampered of [{...refreshed,version:'3.1.0'},{...refreshed,recommendedSeconds:3},
+    {...refreshed,breakdown:{...refreshed.breakdown,pauseBufferSeconds:0.49}},
+    {...refreshed,breakdown:{...refreshed.breakdown,pauseBufferSeconds:0.501}}]){
+    assert.throws(()=>patchShot([configured],edit('1',{durationEstimate:tampered},proof)),{status:400});
+  }
+  const [next]=patchShot([configured],edit('1',{durationEstimate:refreshed},proof));
+  assert.deepEqual(next.storyboardPrompts[0].durationEstimate,refreshed);
+  assert.deepEqual(next.prompts[0].durationEstimate,original[0].prompts[0].durationEstimate);
+  assert.throws(()=>patchShot([next],edit('1',{durationEstimate:estimate(11)},proof)),{status:409});
+});
+
+test('renderer and server agree on mixed timing versions including safe fallback for a malformed estimate', async () => {
   const renderer = await import('../../core/promptDisplay.js');
   const cloud = require('../src/prompt-duration.cjs');
   const candidates=[estimate(3),estimate(17,15),estimate(36),pending,{...estimate(7),status:'needs-review'},
+    estimate(13,15,'3.0.0'),estimate(35,30,'3.0.0'),estimate(39,30,'3.0.0'),{...pending,version:'3.0.0'},
+    {...estimate(13,15,'3.0.0'),status:'needs-review'},
     {version:'2.0.0',status:'needs-review',maxDurationSeconds:30},{...estimate(8),recommendedSeconds:100},null];
   for(const durationEstimate of candidates){
     const row={id:'1',content:'建议时长：1秒',durationEstimate,durationSourceScript:'原始切片',recommendedDurationSeconds:1};

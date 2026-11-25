@@ -82,12 +82,11 @@ app.whenReady().then(async()=>{
    assert.match(segment.script,/进入房间/);assert.match(segment.prompt,/修改后的正片/);
    const output=await requestChat(p,{fetchFn:async(_,options)=>{
     const body=JSON.parse(options.body);
-    assert.equal(body.stream,true);assert.equal(Object.hasOwn(body,'thinking'),false);
+    assert.equal(body.stream,true);assert.deepEqual(body.thinking,{type:'disabled'});
     const content='```json\n'+JSON.stringify({results:textAttempts.length===1?[]:[{
      reason:'微动及气口。',tail_buffer_seconds:0.6,groups:[{visual_seconds:2.2}],kind:'transition',segment_id:segment.segment_id,
     }]})+'\n```';
-    return new Response(`data: ${JSON.stringify({choices:[{delta:{reasoning_content:'模型推理'}}]})}\n\n`+
-     `data: ${JSON.stringify({choices:[{delta:{content},finish_reason:'stop'}]})}\n\ndata: [DONE]\n\n`);
+    return new Response(`data: ${JSON.stringify({choices:[{delta:{content},finish_reason:'stop'}]})}\n\ndata: [DONE]\n\n`);
    }});
    return {ok:true,output};
   });
@@ -154,6 +153,8 @@ app.whenReady().then(async()=>{
     await until(async()=> (await window.storyboardDurationFixture.project()).episodes[0].storyboardPrompts[1].generationConfig.durationManuallyAdjusted===true);
     await editPrompt(2,'修改后的正片');
     await button(card(2)+' button','重估时长');await mention(card(2),'建议生成时长 3 秒');
+    assert.equal(project.episodes[0].storyboardPrompts[0].durationEstimate.version,'2.0.0');
+    assert.equal(project.episodes[0].storyboardPrompts[2].durationEstimate.version,'3.0.0');
     assert.equal(textAttempts.length,2);assert.equal(new Set(textAttempts).size,2);
     assert.match(project.episodes[0].storyboardPrompts[2].content,/修改后的正片/);
     await button('.storyboard-batch-controls button','按建议时长设置');
@@ -171,7 +172,7 @@ app.whenReady().then(async()=>{
     assert.deepEqual(sent,[11,14,4]);assert.deepEqual(requests,[]);
    } finally {await win.webContents.session.clearStorageData();win.destroy();}
   }
-  console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualStopsScope:true,manualPreservedAndReset:true,fencedSemanticEstimatePersisted:true,deepSeekThinkingPreserved:true,missingShotRetriedOnce:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
+  console.log(JSON.stringify({widths,strictRecommendedStatuses:true,manualAboveEstimateCap:[20,20,20],fixedBatch:[15,15,15],protectedParametersSync:true,unsupportedManualStopsScope:true,manualPreservedAndReset:true,legacyV2AndV3EstimatePersisted:true,deepSeekFastTransport:true,missingShotRetriedOnce:true,alignedDiscrete:[15,10,5],continuousBatch:[11,14,4],realPaidCalls:0}));
  }catch(error){exit=1;console.error(error);}
  finally{await server?.close();for(const win of BrowserWindow.getAllWindows())win.destroy();app.exit(exit);}
 });

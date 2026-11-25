@@ -13,10 +13,16 @@ exports.verify = async (exe,version,dependencies={}) => {
     assert.equal(bundled.dependencies[name],manifest.version,`Direct runtime dependency missing: ${name}`);
   }
   const entries=asar.listPackage(archive);
-  const durationSkill=JSON.parse(asar.extractFile(archive,path.join('core','videoDurationEstimatorSkillV2.json')));
-  assert.deepEqual(Object.keys(durationSkill).sort(),['SKILL.md','references/method.md','references/output-contract.md']);
-  assert.equal(durationSkill['SKILL.md'].includes('version: 2.0.0'),true);
-  assert.ok(!entries.some(name=>/duration_math\.py|experiment-cases\.json|long-round-dialogue-case\.json/i.test(name)),'Calibration cases and Python helpers must stay out of the installer');
+  const durationSkill=JSON.parse(asar.extractFile(archive,path.join('core','videoDurationEstimatorSkillV3.json')));
+  const durationHashes={
+    'SKILL.md':'618717807aeba8f2661aa9c8aa050df5e57c3b355b72641c5d0c09e2beade2bf',
+    'references/method.md':'19e368cebba84d47dc22fa3bdacdb8bf53e2dff6b99dc11fb174becc6a00b45e',
+    'references/output-contract.md':'7b19db4686580e3dc22e9d5227b9e3edb0ca41b4555aaf93cc305bee029ea951',
+  };
+  assert.deepEqual(Object.keys(durationSkill).sort(),Object.keys(durationHashes));
+  const {createHash}=require('node:crypto');
+  for(const [name,digest] of Object.entries(durationHashes))assert.equal(createHash('sha256').update(durationSkill[name],'utf8').digest('hex'),digest,`Exact upstream Skill document: ${name}`);
+  assert.ok(!entries.some(name=>/videoDurationEstimatorSkillV2\.json|duration_math\.py|experiment-cases\.json|long-round-dialogue-case\.json/i.test(name)),'Retired rules, calibration cases and Python helpers must stay out of the installer');
   assert.deepEqual(fs.readdirSync(path.join(path.dirname(exe),'locales')).sort(),['en-US.pak','zh-CN.pak','zh-TW.pak']);
   assert.ok(!entries.some(name=>/(?:^|[\\/])(?:coverage|tests?|__tests__|fixtures|__fixtures__|\.nyc_output|\.playwright-mcp)(?:$|[\\/])|\.(?:map|pdb|log)$/i.test(name)),'Development-only files must stay out of the installer');
   const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];

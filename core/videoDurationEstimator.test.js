@@ -17,15 +17,18 @@ test('dual sources reach one initial request, successful rows save before one re
  const input=[...segments,third],calls=[],saves=[],progress=[];
  const values=await estimateVideoDurations({segments:input,maxDurationSeconds:30,request:async({messages})=>{
   assert.equal(messages.length,2);
-  assert.match(messages[0].content,/多回合长对白防漏算/);
+  assert.match(messages[0].content,/v3\.0\.0/);
+  assert.match(messages[0].content,/turns/);
   assert.match(messages[0].content,/visual_seconds/);
-  assert.doesNotMatch(messages[0].content,/experiment-cases\.json/);
+  assert.match(messages[0].content,/tight/);
+  assert.doesNotMatch(messages[0].content,/experiment-cases\.json|schema_version|逗顿用 comma/);
+  assert.ok(messages[0].content.length<1800,'semantic-only prompt should stay compact');
   const {segments:sent}=JSON.parse(messages[1].content);
   calls.push(sent.map(row=>row.segment_id));
   if(calls.length===1){
    assert.deepEqual(sent,input.map(({id,script,prompt})=>({segment_id:id,script,prompt})));
    return semanticResponse([semantic(third.id,[{visual_seconds:3.5}]),semantic(segments[0].id,[
-    {speech:[{text:'我发定位，快来接我。',pace:'normal'}],pause_seconds:0.6,visual_seconds:2}, {visual_seconds:2},
+    {turns:[{text:'我发定位，快来接我。',pace:'normal'}],visual_seconds:2}, {visual_seconds:2},
    ]),semantic(segments[1].id,[{speech:[{text:'',pace:'normal'}]}])]);
   }
   assert.deepEqual(saves,[[segments[0].id,third.id]]);
@@ -33,7 +36,8 @@ test('dual sources reach one initial request, successful rows save before one re
  },onEstimates:async values=>saves.push([...values.keys()]),onProgress:state=>progress.push(state)});
  assert.deepEqual(calls,[input.map(row=>row.id),[segments[1].id]]);
  assert.deepEqual(saves,[[segments[0].id,third.id],[segments[1].id]]);
- assert.equal(values.get(segments[0].id).recommendedSeconds,6);
+ assert.equal(values.get(segments[0].id).recommendedSeconds,5);
+ assert.equal(values.get(segments[0].id).version,'3.0.0');
  assert.equal(values.get(segments[1].id).error.code,'MISSING_SPOKEN_CONTENT');
  assert.match(values.get(segments[1].id).error.message,/朗读原文/);
  assert.deepEqual(progress.map(({stage,completed})=>[stage,completed]),[['requesting',0],['retrying',2],['complete',3]]);
@@ -43,6 +47,7 @@ test('the 15/30 execution values remain capped and overloaded values retain the 
  for(const [cap,natural,recommended] of [[15,17,15],[30,34,30],[15,19,19],[30,36,36]]){
   const doc=response(cap,[result('a',natural,recommended,{cap,speech:natural-1,action:0})]);
   const value=parseVideoDurationResponse(doc,['a'],cap).get('a');
+  assert.equal(value.version,'2.0.0');
   assert.equal(value.recommendedSeconds,recommended);
   assert.equal(value.capacityStatus,recommended===cap?'略偏紧':'超载需重分');
  }
@@ -62,16 +67,16 @@ test('legacy standalone JSON fence and reordered keys produce the same estimate'
 });
 
 test('semantic rows ignore old derived fields and produce identical cents across model formats and limits',async()=>{
- const wide=semantic('a',[{speech:[{text:'15万。',pronunciation:'十五万。',pace:'fast'},{text:'OK。',pronunciation:'o kay',pace:'normal'}],
+ const wide=semantic('a',[{turns:[{text:'15万。',pace:'fast'},{text:'OK。',pace:'normal'}],
   parallel_speech:[[{text:'抢话。',pace:'normal'}]],pause_seconds:0.30001,visual_seconds:2.1009},
- {reading:{text:'屏幕正文'.repeat(23)},pause_seconds:.4},{visual_seconds:1}],{tail_buffer_seconds:.85});
+ {reading:{text:'屏幕正文'.repeat(23)},pause_seconds:.4},{visual_seconds:1}],{tail_buffer_seconds:.75});
  const another={natural_seconds:1,capacity_status:'正常',breakdown:{speech_seconds:999},...wide,groups:[{...wide.groups[0],visual_seconds:'2.1009'},...wide.groups.slice(1)]};
  const call=(raw,maxDurationSeconds)=>estimateVideoDurations({segments:[{id:'a',script:'进门',prompt:'向前走'}],maxDurationSeconds,request:async()=>raw});
  const [fast,pro,otherLimit]=await Promise.all([call(semanticResponse([wide]),15),call(`\`\`\`json\n${semanticResponse([another],[])}\n\`\`\``,15),call(semanticResponse([wide]),30)]);
  const computed=fast.get('a');
  assert.deepEqual(computed,pro.get('a'));
- assert.deepEqual(computed.breakdown,{speechSeconds:1.08,nonparallelActionSeconds:17.16,pauseBufferSeconds:1.56});
- assert.equal(computed.naturalSeconds,20);
+ assert.deepEqual(computed.breakdown,{speechSeconds:.77,nonparallelActionSeconds:13.37,pauseBufferSeconds:4.69});
+ assert.equal(computed.naturalSeconds,19);
  assert.equal(computed.capacityStatus,'超载需重分');
  assert.match(computed.reason,/需重新划分片段并重新生成提示词/);
  assert.deepEqual(otherLimit.get('a').breakdown,computed.breakdown);
@@ -80,8 +85,8 @@ test('semantic rows ignore old derived fields and produce identical cents across
 
 test('the semantic ledger carries decimal rounding over the four capacity boundaries',async()=>{
  for(const [maxDurationSeconds,visual_seconds,naturalSeconds,capacityStatus,recommendedSeconds] of [
-   [15,14.2,15,'正常',15],[15,14.20001,16,'略偏紧',15],[15,17.2,18,'略偏紧',15],[15,17.20001,19,'超载需重分',19],
-   [30,29.2,30,'正常',30],[30,29.20001,31,'略偏紧',30],[30,34.2,35,'略偏紧',30],[30,34.20001,36,'超载需重分',36],
+   [15,14.4,15,'正常',15],[15,14.40001,16,'略偏紧',15],[15,17.4,18,'略偏紧',15],[15,17.40001,19,'超载需重分',19],
+   [30,29.4,30,'正常',30],[30,29.40001,31,'略偏紧',30],[30,34.4,35,'略偏紧',30],[30,34.40001,36,'超载需重分',36],
  ]){
   const value=(await estimateVideoDurations({segments:[{id:'a',prompt:'连续完成动作'}],maxDurationSeconds,
    request:async()=>semanticResponse([semantic('a',[{visual_seconds}])])})).get('a');
@@ -103,16 +108,16 @@ test('only the last concrete failure survives, and a missing row can recover on 
  assert.equal(values.get('third').recommendedSeconds,2);
 });
 
-test('real pause entries add in cents, and cancellation during partial save prevents retries',async()=>{
+test('cancellation during partial save prevents retries',async()=>{
  const controller=new AbortController(),saves=[];
  let calls=0;
  const operation=estimateVideoDurations({segments,maxDurationSeconds:30,signal:controller.signal,request:async()=>{
   calls++;
-  return semanticResponse([semantic(segments[0].id,[{speech:[{text:'马'.repeat(16),pace:'normal'}],pauses:['end',0.30001,'comma']}])]);
+  return semanticResponse([semantic(segments[0].id,[{turns:[{text:'马'.repeat(16),pace:'normal'}]}])]);
  },onEstimates:async rows=>{saves.push(rows);controller.abort(new DOMException('取消','AbortError'));}});
  await assert.rejects(operation,error=>error.name==='AbortError');
  assert.equal(calls,1);
- assert.deepEqual(saves[0].get(segments[0].id).breakdown,{speechSeconds:4,nonparallelActionSeconds:0,pauseBufferSeconds:1.71});
+ assert.deepEqual(saves[0].get(segments[0].id).breakdown,{speechSeconds:2.67,nonparallelActionSeconds:0,pauseBufferSeconds:1.33});
 });
 
 test('strict protocol rejects chatter, duplicate keys, incomplete data, invalid numbers and incorrect capacity',()=>{

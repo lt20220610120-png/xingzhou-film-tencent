@@ -1,12 +1,13 @@
 // Pure timing rules mirrored from core/promptDisplay.js; parity checked by recommendedDuration146 tests.
 const validDuration=value=>Number.isFinite(value)&&value>0&&value<=3600;
-const estimateVersion='2.0.0';
+const estimateVersion='3.0.0';
+const estimateVersions=new Set(['2.0.0',estimateVersion]);
 const limitFor=value=>Number.isFinite(Number(value))&&Number(value)>0&&Number(value)<=15?15:30;
 const singleLine=(value,max)=>typeof value==='string'&&value.length<=max&&Boolean(value.trim())&&!/[\r\n]/.test(value);
 const breakdownFields=['speechSeconds','nonparallelActionSeconds','pauseBufferSeconds'];
 
 function validatedDurationEstimate(value){
- if(!value||value.version!==estimateVersion||![15,30].includes(value.maxDurationSeconds)||!['pending','needs-review','estimated'].includes(value.status))return null;
+ if(!value||!estimateVersions.has(value.version)||![15,30].includes(value.maxDurationSeconds)||!['pending','needs-review','estimated'].includes(value.status))return null;
  const {version,status,maxDurationSeconds}=value;
  const base={version,status,maxDurationSeconds};
  if(status==='pending'||status==='needs-review'&&value.naturalSeconds===undefined){

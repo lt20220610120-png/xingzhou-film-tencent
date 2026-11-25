@@ -40,7 +40,7 @@ app.whenReady().then(async()=>{
   assert.deepEqual(first.map(row=>[row.kind,row.profileId]),[['body','director-fixture'],['review','director-fixture'],['estimate','director-fixture'],['estimate','director-fixture']]);
   assert.equal(first[0].independent,true);
   assert.equal(first[2].skillIsolated,true);
-  assert.equal(first[2].thinkingPreserved,true);
+  assert.equal(first[2].stream,true);assert.equal(first[2].analysisMode,true);
   assert.notEqual(first[2].taskId,first[3].taskId);
   assert.deepEqual(first[3].input.segments.map(row=>row.segment_id),['1-1-3']);
   assert.match(first[2].input.segments[0].script,/- 她掏出手机/);
@@ -67,13 +67,14 @@ app.whenReady().then(async()=>{
   let calls=await run('durationFixture.calls');
   assert.deepEqual(calls.map(row=>[row.kind,row.profileId]),[...first.map(row=>[row.kind,row.profileId]),['estimate','estimator-fixture']]);
   assert.deepEqual(calls[4].input.segments.map(row=>row.segment_id),['1-1-3']);
+  assert.equal(calls[4].analysisMode,false);
   for(const width of widths){
    window.setContentSize(width,940);
    await until(`innerWidth===${width}`);
    const result=await run(`(() => { const caps=document.querySelector('select[aria-label="最高视频时长"]'); const ready=[...document.querySelectorAll('.duration-estimate-ready')].find(node=>node.textContent.includes('30 秒')); ready.scrollIntoView({block:'center'});ready.focus();ready.dispatchEvent(new FocusEvent('focusin',{bubbles:true}));return {choices:[...caps.options].map(option=>option.value),cap:caps.value,overflow:document.documentElement.scrollWidth>innerWidth}; })()`);
    assert.deepEqual(result,{choices:['15','30'],cap:'30',overflow:false});
    const popup=await until(`(() => { const popup=document.querySelector('[role=tooltip] .duration-estimate-detail');if(!popup)return false;const rect=popup.getBoundingClientRect();return {text:popup.textContent,left:rect.left,right:rect.right}; })()`);
-   for(const label of ['自然演完 34 秒','发声 0 秒','非并行动作 33 秒','气口缓冲 1 秒'])assert.ok(popup.text.includes(label),JSON.stringify(popup));
+   for(const label of ['自然演完 34 秒','发声 0 秒','非并行动作 33.4 秒','气口缓冲 0.6 秒'])assert.ok(popup.text.includes(label),JSON.stringify(popup));
    assert.ok(popup.left>=0&&popup.right<=width,JSON.stringify(popup));
    await run("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.activeElement.blur()");
   }
@@ -110,10 +111,20 @@ app.whenReady().then(async()=>{
   assert.equal(await run('durationFixture.calls.filter(row=>row.kind==="body").length'),2);
   assert.ok((await run('durationFixture.saved[0].promptHistory.map(p=>p.content)')).some(content=>initial.includes(content)));
   assert.deepEqual(await run('durationFixture.unexpected'),[]);
+  await window.loadURL(target+'scripts/fixtures/director-duration.html?legacy=1');
+  await press('#app-sidebar button','导演工作台');
+  await until('document.querySelector(".duration-estimate-ready")?.textContent.includes("9 秒")');
+  await press('.director-duration-actions button','重估时长');
+  await until('durationFixture.saved?.[0].episodes[0].prompts[0].durationEstimate.version==="3.0.0"');
+  const refreshed=await run('durationFixture.saved[0].episodes[0].prompts[0]');
+  assert.equal(refreshed.durationEstimate.status,'estimated');
+  assert.equal(refreshed.durationEstimate.recommendedSeconds,4);
+  assert.match(refreshed.content,/500万，OK/);
+  assert.deepEqual(await run('durationFixture.unexpected'),[]);
   assert.deepEqual(blocked,[]);
-  console.log(JSON.stringify({widths,exactBatches:[3,1,1,1,3],partialResultsPersistBeforeRetry:true,deepSeekThinkingPreserved:true,preciseHiddenFailureTooltip:true,
+  console.log(JSON.stringify({widths,exactBatches:[3,1,1,1,3],partialResultsPersistBeforeRetry:true,deepSeekFastAndOtherProfilesUnchanged:true,preciseHiddenFailureTooltip:true,
    headerAlignmentAndPurple:true,progressSummaryAndCancellation:true,legacy35MappedTo30:true,manualCuts:true,staleManualEdit:true,keyboardTooltip:true,
-   overloadKeepsFirstDraft:true,explicitResegmentAfterConfirmation:true,paidCalls:0}));
+   overloadKeepsFirstDraft:true,explicitResegmentAfterConfirmation:true,legacyV2ReadAndExplicitV3Reestimate:true,paidCalls:0}));
  }catch(error){exit=1;console.error(error);}
  finally{
   window?.destroy();await server?.close();

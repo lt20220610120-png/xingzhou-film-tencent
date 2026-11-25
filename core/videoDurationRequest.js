@@ -5,14 +5,16 @@ const noFinalText=new Map([
  ['本机 Codex 没有返回正文','EMPTY_RESPONSE'],
  ['Gemini 网页没有返回正文，请检查登录状态和当前模型额度','EMPTY_RESPONSE'],
 ]);
+const fastDeepSeekModel=/(?:^|[/:])deepseek-(?:chat|(?:v\d+(?:\.\d+)*-)?(?:flash|lite|turbo))$/i;
 
 export async function requestVideoDurationText({api,profile,taskId,messages,maxOutputTokens,signal}) {
  signal?.throwIfAborted();
  const cancel=()=>{void Promise.resolve(api.cancelAiTask?.({taskId})).catch(()=>{});};
  signal?.addEventListener('abort',cancel,{once:true});
  try{
-  // Stream final text without applying the art-analysis setting that disables DeepSeek thinking.
-  const result=await api.aiChat({...profile,profileId:profile.id,taskId,messages,maxOutputTokens,stream:true,analysisMode:false,resultEnvelope:true});
+  // The chat adapter uses this option for DeepSeek's documented non-thinking mode.
+  const nonThinkingEstimate=fastDeepSeekModel.test(profile.model?.trim()||'');
+  const result=await api.aiChat({...profile,profileId:profile.id,taskId,messages,maxOutputTokens,stream:true,analysisMode:nonThinkingEstimate,resultEnvelope:true});
   if(result?.ok===false){
    let code=result.code||'REQUEST_FAILED';
    if(!result.httpStatus&&['FAILED','REQUEST_FAILED'].includes(code))code=noFinalText.get(result.error)||code;
