@@ -4,10 +4,13 @@ const ART_ROLES = ['producer','artist','artist_collaborator'];
 const REFERENCE_ROLES = ['producer','collaborator','artist_collaborator'];
 
 const denied = {status:403,body:{error:'你没有这个项目的操作权限'}};
+const PENDING_SHARE_PREFIX = '[LOCAL_SHARE_PENDING:';
+const VISIBLE_PROJECT_SQL = `position('${PENDING_SHARE_PREFIX}' in coalesce(p.genre,''))=0`;
+const isPendingLocalShare = project => String(project?.genre || '').includes(PENDING_SHARE_PREFIX);
 
 function projectWriteError(project) {
   const genre = String(project?.genre || '');
-  if (!project || genre.includes('[DIRECTOR_PROJECT]') || genre.includes('[LOCAL_SHARE_PENDING:')) return denied;
+  if (!project || genre.includes('[DIRECTOR_PROJECT]') || isPendingLocalShare(project)) return denied;
   if (project.deleted_at || genre.includes('[RECYCLE_UNTIL:')) return {status:410,body:{error:'项目已删除，请先恢复'}};
   if (genre.includes('[PROJECT_LOCKED]')) return {status:423,body:{error:'项目已锁定，暂不可编辑'}};
   return null;
@@ -44,4 +47,4 @@ async function lockWritableMediaProject(client, pid, uid, roles, full = false) {
   return member ? project : null;
 }
 
-module.exports = {MEDIA_KINDS,SHARE_ROLES,ART_ROLES,REFERENCE_ROLES,denied,projectWriteError,validProjectObject,assetImageObject,objectFromLink,lockWritableMediaProject};
+module.exports = {MEDIA_KINDS,SHARE_ROLES,ART_ROLES,REFERENCE_ROLES,denied,isPendingLocalShare,VISIBLE_PROJECT_SQL,projectWriteError,validProjectObject,assetImageObject,objectFromLink,lockWritableMediaProject};

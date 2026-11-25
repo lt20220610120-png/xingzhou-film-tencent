@@ -359,7 +359,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     });
   }
 
-  async function prepareShare({project, assets = [], media = []}) {
+  async function prepareShare({project, assets = [], media = []}, uploadContext) {
     const projectId = projectIdentifier(project.id);
     const root = rootPath();
     const canonical = projectRows(assets,media,projectId);
@@ -416,7 +416,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     for (const {row,objectKey,filename} of planned.values()) {
       let key = objectKey || uploadedFiles.get(filename);
       if (!key) {
-        const result = await upload(projectId,filename,row.kind);
+        const result = await upload(projectId,filename,row.kind,uploadContext);
         key = cloudKey(result?.objectKey,projectId);
         if (!key) throw Error('素材上传回执不属于当前项目');
         uploadedFiles.set(filename,key);

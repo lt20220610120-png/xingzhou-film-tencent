@@ -1,5 +1,5 @@
 const { buildObjectKey } = require('./cos.cjs');
-const {MEDIA_KINDS,SHARE_ROLES,ART_ROLES,denied,projectWriteError,validProjectObject}=require('./project-media-policy.cjs');
+const {MEDIA_KINDS,SHARE_ROLES,ART_ROLES,denied,isPendingLocalShare,projectWriteError,validProjectObject}=require('./project-media-policy.cjs');
 
 const NO_STORAGE = { status: 503, body: { error: '媒体存储尚未配置，请联系管理员' } };
 
@@ -14,6 +14,22 @@ async function handleMediaAction(action, payload, user, repo, signer) {
   if (!user) return { status: 401, body: { error: '请先登录账号' } };
   if (!signer) return NO_STORAGE;
   const projectId = String(payload?.projectId || '');
+  const kind = String(payload?.kind || 'file');
+  const issueUpload = id => {
+    const objectKey = buildObjectKey({projectId:id, kind, filename:payload?.filename});
+    const signed = signer.signUpload({objectKey, contentType:payload?.mime});
+    return {status:200, body:{method:signed.method, url:signed.url, authorization:signed.authorization, objectKey, contentType:signed.contentType, expiresAt:signed.expiresAt}};
+  };
+
+  if (action === 'media-upload-url' && payload.localShareRequestId !== undefined) {
+    if (!MEDIA_KINDS.includes(kind) || payload.assetId || payload.objectKey) return {status:400,body:{error:'首次共享素材参数无效'}};
+    if (!repo.signLocalProjectShareUpload) return NO_STORAGE;
+    try { return await repo.signLocalProjectShareUpload(payload, user, issueUpload); }
+    catch (error) {
+      if (error.status) return {status:error.status,body:{error:error.message,...(error.code ? {code:error.code} : {})}};
+      throw error;
+    }
+  }
 
   if (['media-upload-url','media-commit','media-record'].includes(action)) {
     const project = projectId && await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id);
@@ -25,16 +41,12 @@ async function handleMediaAction(action, payload, user, repo, signer) {
   }
 
   if (action === 'media-upload-url') {
-    const kind = String(payload?.kind || 'file');
     if (!MEDIA_KINDS.includes(kind) || !/^[\w-]+$/.test(projectId)) return {status:400,body:{error:'媒体类型或存储路径不合法'}};
-    const objectKey = buildObjectKey({ projectId, kind, filename: payload?.filename });
-    const signed = signer.signUpload({ objectKey, contentType: payload?.mime });
-    return { status: 200, body: { method: signed.method, url: signed.url, authorization: signed.authorization, objectKey, contentType: signed.contentType, expiresAt: signed.expiresAt } };
+    return issueUpload(projectId);
   }
 
   if (action === 'media-commit' || action === 'media-record') {
     const objectKey = String(payload?.objectKey || '');
-    const kind = String(payload?.kind || 'file');
     if (!MEDIA_KINDS.includes(kind) || !validProjectObject(objectKey,projectId,[kind])) return { status: 400, body: { error: '媒体存储路径不合法' } };
     const saved = await repo.createMedia(projectId, {
       asset_id: payload?.assetId || null, episode: Number(payload?.episode || 0),
@@ -47,7 +59,8 @@ async function handleMediaAction(action, payload, user, repo, signer) {
   }
 
   if (action === 'media-list') {
-    if (!projectId || !await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id)) return denied;
+    const project = projectId && await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id);
+    if (!project || isPendingLocalShare(project)) return denied;
     const rows = await repo.listMedia(projectId, user.id);
     // 每条记录附带短时签名地址，界面可直接显示图片或播放视频。
     return { status: 200, body: rows.map((row) => ({
@@ -66,7 +79,7 @@ async function handleMediaAction(action, payload, user, repo, signer) {
     let removed;
     if (payload?.purpose === 'reference-upload') {
       const project = projectId && await repo.getProject(projectId, user.id);
-      if (!project || String(project.genre || '').includes('[DIRECTOR_PROJECT]')) return {status:403,body:{error:'你没有这个项目的操作权限'}};
+      if (!project || isPendingLocalShare(project) || String(project.genre || '').includes('[DIRECTOR_PROJECT]')) return {status:403,body:{error:'你没有这个项目的操作权限'}};
       if (project.deleted_at || String(project.genre || '').includes('[RECYCLE_UNTIL:')) return {status:410,body:{error:'项目已删除，请先恢复'}};
       if (String(project.genre || '').includes('[PROJECT_LOCKED]')) return {status:423,body:{error:'项目已锁定，暂不可删除'}};
       let locked;

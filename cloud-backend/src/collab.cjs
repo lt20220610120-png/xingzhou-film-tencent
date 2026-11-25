@@ -1,6 +1,6 @@
 const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
-const {ART_ROLES,assetImageObject,objectFromLink}=require('./project-media-policy.cjs');
+const {ART_ROLES,isPendingLocalShare,assetImageObject,objectFromLink}=require('./project-media-policy.cjs');
 const {parseAssetReferencePreference}=require('../shared/asset-reference-preference.cjs');
 const {assetImageLink}=require('./asset-image-links.cjs');
 const adoptedImageSelector=import('../shared/adopted-asset-image.mjs');
@@ -17,6 +17,7 @@ const guard = (value) => (value === null || value === undefined ? null : value);
 // 与 Supabase 版一致的内部标记：不能泄露给客户端，且要从中提取导演项目关联。
 const COLLAB_SENTINEL = '[COLLAB_PROJECT]';
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
+const ordinaryCollab = row => Boolean(row && !isPendingLocalShare(row) && !String(row.genre || '').includes(DIRECTOR_SENTINEL));
 const LOCK_SENTINEL = '[PROJECT_LOCKED]';
 const recycleUntil = (genre) => (String(genre || '').match(/\[RECYCLE_UNTIL:([^\]]+)\]/) || [])[1] || '';
 const collabSource = (genre) => (String(genre || '').match(/\[COLLAB_SOURCE:([^\]]+)\]/) || [])[1] || '';
@@ -94,7 +95,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     collabRow=action==='asset-image-url'&&repo.getAssetImageProjectAccess
       ? await repo.getAssetImageProjectAccess(projectId,user.id)
       : await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id);
-    if(!collabRow||String(collabRow.genre||'').includes(DIRECTOR_SENTINEL))return action==='project-get'?NOT_FOUND:DENY;
+    if(!ordinaryCollab(collabRow))return action==='project-get'?NOT_FOUND:DENY;
   }
 
   // Ordinary writes fail closed. Restore may reactivate a recycled project;
@@ -104,7 +105,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (WRITE_ACTIONS.includes(action)) {
     if (!projectId) return DENY;
     const row = collabRow || await (repo.getProjectAccess || repo.getProject).call(repo,projectId,user.id);
-    if (!row || String(row.genre||'').includes(DIRECTOR_SENTINEL)) return DENY;
+    if (!ordinaryCollab(row)) return DENY;
     if (row.deleted_at || String(row.genre||'').includes('[RECYCLE_UNTIL:')) return DELETED;
     if (action !== 'project-lock') {
       if (String(row.genre||'').includes(LOCK_SENTINEL)) return LOCKED;
@@ -163,7 +164,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return receipt?ok(receipt):NOT_FOUND;
   }
   if (action === 'project-get') {
-    try {const r = guard(repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id)); return r ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
+    try {const r = repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id); return ordinaryCollab(r) ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
   }
   if (action === 'episode-identity-resolve') {
@@ -339,8 +340,9 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
 
   // ---- 成员（导演项目与协作项目共用成员表）----
   if (['members-list','member-add','member-remove','member-role'].includes(action)) {
+    if (payload.directorProjectId && payload.directorProjectId !== projectId) return DENY;
     const row=projectId&&await repo.getProject(projectId,user.id);
-    if(!row||String(row.genre||'').includes(DIRECTOR_SENTINEL))return DENY;
+    if(!ordinaryCollab(row))return DENY;
   }
   if (action === 'director-members-list' || action === 'members-list') {
     const pid = payload.directorProjectId || projectId;

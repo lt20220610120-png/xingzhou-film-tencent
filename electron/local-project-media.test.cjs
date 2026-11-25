@@ -9,6 +9,7 @@ const projectId = 'ba9b16f4-9b10-493d-b5df-2b806b91c031';
 const imageId = 'efb09eaa-2d40-4f03-b3d4-d8a0844bc0c0';
 const assetId = '11d303b7-2baf-4706-b8f2-6308b42fd41d';
 const audioId = 'be318175-e8b2-4c11-85d1-86d3924f70cb';
+const videoId = '46426427-bf5b-4e5c-a190-31c8b1814a7e';
 const imageKey = `projects/${projectId}/image/123-asset.png`;
 const audioKey = `projects/${projectId}/audio/456-asset.wav`;
 const imageUrl = `https://example.test/${imageKey}?q-signature=fixture`;
@@ -190,4 +191,38 @@ test('local audio and video retain their media type through the collaboration up
     assert.deepEqual(signed.at(-1),[kind,mime]);
     assert.deepEqual(received.at(-1),[mime,bytes]);
   }
+});
+
+test('only the authorised first-share path passes its request ID to the signer, across image, audio and video', async t=>{
+  const {uploadToBucket}=require('./collab-service.cjs');
+  const localShareRequestId='93fdd2e1-01bb-4536-827f-81fdf9685766';
+  const requests=[],uploaded=[];
+  const uploader={
+    requestSignature: async (action,payload) => {
+      requests.push({action,...payload});
+      return {url:'https://bucket.invalid/fixture',contentType:payload.mime,
+        objectKey:`projects/${projectId}/${payload.kind}/fixture.${payload.filename.split('.').at(-1)}`,authorization:'fixture'};
+    },
+    putObject:async (_url,init)=>{
+      uploaded.push(Buffer.from(init.body instanceof Blob?await init.body.arrayBuffer():init.body).toString());
+      return new Response(null,{status:200});
+    },
+  };
+  const f=await fixture(t,{upload:(id,file,kind,options)=>uploadToBucket(id,file,kind,'session',null,{...uploader,...options})});
+  const selections=[['png','asset-image',imageId],['wav','audio',audioId],['mp4','video',videoId]];
+  const media=[];
+  for(const [ext,kind,id] of selections){
+    const filePath=path.join(f.directory,`fixture.${ext}`);
+    await fs.writeFile(filePath,`fixture-${kind}`);
+    media.push(await f.helper.storeFile({projectId,filePath,kind,id}));
+  }
+  const assets=[{id:assetId,images:[media[0]],adoptedImageId:imageId}];
+  const bundle=await f.helper.prepareShare({project:withRefs(media),media,assets},{localShareRequestId});
+  assert.deepEqual(requests.map(({action,kind,localShareRequestId:request,purpose})=>[action,kind,request,purpose]),
+    ['image','audio','video'].map(kind=>['media-upload-url',kind,localShareRequestId,undefined]));
+  assert.deepEqual(uploaded,['fixture-asset-image','fixture-audio','fixture-video']);
+  assert.equal(bundle.assets[0].adoptedImageId,imageId);
+  assert.deepEqual(refs(bundle).map(row=>row.objectKey),bundle.media.map(row=>row.objectKey));
+  await uploadToBucket(projectId,media[0].filePath,'image','session',null,uploader);
+  assert.equal(Object.hasOwn(requests.at(-1),'localShareRequestId'),false);
 });

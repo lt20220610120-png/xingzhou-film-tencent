@@ -25,7 +25,7 @@ exports.verify = async (exe,version,dependencies={}) => {
   assert.ok(!entries.some(name=>/videoDurationEstimatorSkillV2\.json|duration_math\.py|experiment-cases\.json|long-round-dialogue-case\.json/i.test(name)),'Retired rules, calibration cases and Python helpers must stay out of the installer');
   assert.deepEqual(fs.readdirSync(path.join(path.dirname(exe),'locales')).sort(),['en-US.pak','zh-CN.pak','zh-TW.pak']);
   assert.ok(!entries.some(name=>/(?:^|[\\/])(?:coverage|tests?|__tests__|fixtures|__fixtures__|\.nyc_output|\.playwright-mcp)(?:$|[\\/])|\.(?:map|pdb|log)$/i.test(name)),'Development-only files must stay out of the installer');
-  const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
+  const requiredProjectModules=['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','project-media-policy','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
   for(const name of requiredProjectModules){
     const relative=path.join('cloud-backend','src',name+'.cjs');
     assert.ok(entries.some(entry=>entry.replace(/^[\\/]/,'').replaceAll('\\','/')===relative.replaceAll('\\','/')),`Packaged project module missing: ${name}`);

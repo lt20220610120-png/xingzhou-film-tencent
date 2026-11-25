@@ -52,7 +52,7 @@ function copyDependency(name, from) {
   staging = fs.mkdtempSync(path.join(releaseRoot, `staging-${pkg.version}-`));
   for (const folder of ['dist','electron','core','world-simulation','canvas-app','browser-extension','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
   copyTree(path.join(root,'cloud-backend/shared'),path.join(staging,'cloud-backend/shared'));
-  const localProjectModules = ['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
+  const localProjectModules = ['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','project-media-policy','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
   fs.mkdirSync(path.join(staging,'cloud-backend/src'),{recursive:true});
   for (const name of localProjectModules) fs.copyFileSync(path.join(root,'cloud-backend/src',name+'.cjs'),path.join(staging,'cloud-backend/src',name+'.cjs'));
   const desktopDependencies=['mammoth','yjs','p-queue','jszip'];

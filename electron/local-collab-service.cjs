@@ -276,9 +276,12 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const record = await stored(current, id);
       if (!record || record.shared) return cloud.addMember(payload);
       if (record.project.locked || record.project.deleted_at || projectBusy(id)) throw error('请先完成生成任务并确认项目可编辑', 409);
-      const invitation = { username: String(payload.username || '').trim(), role: payload.role };
+      const invitation = { username: String(payload.username || '').trim().toLowerCase(), role: payload.role };
       if (!invitation.username || !allowedRoles.has(invitation.role)) throw error('请填写协作者账号并选择身份');
-      if (record.share && (record.share.invitation.username !== invitation.username || record.share.invitation.role !== invitation.role)) throw error('请先重试上一条邀请，确认项目共享结果', 409);
+      if (record.share && (record.share.invitation.username.toLowerCase() !== invitation.username || record.share.invitation.role !== invitation.role)) {
+        if (record.share.committing) throw error('上一条邀请的结果尚未确认，请先重试上一条邀请', 409);
+        record.share = null;
+      }
       record.share ||= { requestId: randomUUID(), invitation };
       const requestId = record.share.requestId;
       await save(current, record);
@@ -289,11 +292,13 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
         let completed = prepared.completed;
         if (!completed) {
           record.share.revision = prepared.revision;
+          record.share.committing = false;
           await save(current, record);
           const snapshot = view(current, record);
           const voices = adoptedVoices(current, id);
           if (Object.keys(voices).length) snapshot.project.analysis_progress = { ...snapshot.project.analysis_progress, _sharedVoiceProfiles: voices };
-          const {unavailableCount,...bundle} = await mediaFor(current).prepareShare(snapshot);
+          const uploadContext = prepared.pending === true ? {localShareRequestId:requestId} : undefined;
+          const {unavailableCount,...bundle} = await mediaFor(current).prepareShare(snapshot, uploadContext);
           record.share.unavailableCount = unavailableCount || 0;
           record.share.committing = true;
           await save(current, record);
@@ -303,16 +308,19 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
               ? directorSource.cloudProjectId : undefined;
             completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, directorCloudProjectId, deletedMediaIds:record.deletedMediaIds || [] });
           } catch (cause) {
-            if(cause.status&&cause.status<500)throw cause;
+            if (cause.status >= 400 && cause.status < 500 && ![408,429].includes(cause.status)) {
+              record.share.committing = false;
+              await save(current, record);
+              throw cause;
+            }
             completed=await readShareReceipt(current,record);
             if(!completed)throw cause;
           }
         }
         return await finishShare(current,record,completed);
       } catch (cause) {
-        if ([400, 401, 403, 404, 409, 410, 423].includes(cause.status)) {
-          if (!record.share?.revision) record.share = null;
-          else record.share.committing = false;
+        if (!record.share?.committing && !record.share?.revision && [400, 401, 403, 404, 409, 410, 423].includes(cause.status)) {
+          record.share = null;
           await save(current, record);
         }
         throw cause;

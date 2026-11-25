@@ -6,7 +6,7 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { createLocalCollabService } = require('./local-collab-service.cjs');
 
-function fixture(t, overrides = {}) {
+function fixture(t, overrides = {}, mediaOverrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xz-local-project-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   let account = { id: 'owner', username: 'owner', isProducer: true };
@@ -30,6 +30,7 @@ function fixture(t, overrides = {}) {
       prepareShare: async bundle => bundle,
       storeFile: async file => ({ ...file, localPath: 'media/reference.wav', url: `xzmedia://fixture/${file.id}` }),
       resolveReferences: refs => refs,
+      ...mediaOverrides,
     }),
   });
   const storedFile = projectId => path.join(directory, '本地项目', createHash('sha256').update(account.id).digest('hex'), `${projectId}.json`);
@@ -199,6 +200,108 @@ test('an existing first invitation can retry with the selected director cloud bi
   assert.equal(requests[1].requestId, requests[0].requestId);
   assert.equal(requests[1].directorCloudProjectId, directorCloudProjectId);
   assert.equal(requests[1].project.director_project_id, directorProjectId);
+});
+
+test('retrying a 2.8.209 incomplete invite threads the current staging request through media and preserves local data', async t => {
+  const stages = [];
+  const {setup,storedFile} = fixture(t, {
+    prepareLocalShare: payload => {
+      stages.push(payload);
+      return {revision:'pending-revision',pending:true};
+    },
+    commitLocalShare: payload => {
+      assert.equal(payload.assets.length,1);
+      assert.equal(payload.media.length,1);
+      return {project:{id:payload.projectId},member:{id:'confirmed'}};
+    },
+  }, {
+    prepareShare: async (bundle, options) => {
+      assert.deepEqual(options,{localShareRequestId:stages.at(-1).requestId});
+      return bundle;
+    },
+  });
+  const service=setup(), project=await service.createProject(source);
+  const asset=await service.createAsset({projectId:project.id,name:'隔离资产'});
+  await service.attachAssetImage({projectId:project.id,assetId:asset.id,filePath:'fixture.png'});
+  const file=storedFile(project.id), before=JSON.parse(fs.readFileSync(file,'utf8'));
+  const requestId=randomUUID(), invitation={username:'fixture_member',role:'artist_collaborator'};
+  fs.writeFileSync(file,JSON.stringify({...before,share:{requestId,revision:'pending-revision',invitation,committing:false}}));
+  await setup().addMember({projectId:project.id,...invitation});
+  assert.deepEqual(stages,[{projectId:project.id,revision:'pending-revision',requestId,invitation}]);
+  const after=JSON.parse(fs.readFileSync(file,'utf8'));
+  assert.equal(after.shared,true);
+  assert.equal(after.share,null);
+  for(const key of ['project','assets','media'])assert.deepEqual(after[key],before[key]);
+});
+
+test('an interrupted uncommitted invitation can change the requested account and role', async t => {
+  const stages=[];
+  const f=fixture(t,{
+    prepareLocalShare: payload => { stages.push(payload);return {revision:'pending-revision',pending:true}; },
+    commitLocalShare: payload => {
+      assert.equal(payload.requestId,stages.at(-1).requestId);
+      assert.deepEqual(payload.invitation,{username:'new_member',role:'artist_collaborator'});
+      return {project:{id:payload.projectId},member:{id:'confirmed'}};
+    },
+  },{
+    prepareShare: bundle => {
+      if(stages.length===1)throw Object.assign(Error('模拟断线，素材尚未传完'),{status:502});
+      return bundle;
+    },
+  });
+  const project=await f.setup().createProject(source);
+  await assert.rejects(f.setup().addMember({projectId:project.id,username:'old_member',role:'artist'}),/素材尚未传完/);
+  await f.setup().addMember({projectId:project.id,username:'new_member',role:'artist_collaborator'});
+  assert.equal(stages.length,2);
+  assert.equal(stages[1].revision,null);
+  assert.notEqual(stages[1].requestId,stages[0].requestId);
+});
+
+test('sharing an established solo cloud project keeps its base revision and ordinary media upload', async t => {
+  const stages=[];
+  const f=fixture(t,{
+    prepareLocalShare: payload => { stages.push(payload);return {revision:'confirmed-cloud-revision'}; },
+    commitLocalShare: payload => ({project:{id:payload.projectId},member:{id:'confirmed'}}),
+  },{
+    prepareShare: (bundle, options) => {
+      assert.equal(options,undefined);
+      if(stages.length===1)throw Error('模拟上传中断');
+      return bundle;
+    },
+  });
+  const project=await f.setup().createProject(source);
+  const file=f.storedFile(project.id), record=JSON.parse(fs.readFileSync(file,'utf8'));
+  fs.writeFileSync(file,JSON.stringify({...record,cloudRevision:'original-cloud-revision'}));
+  const invite = {projectId:project.id,username:'fixture_member'};
+  await assert.rejects(f.setup().addMember({...invite,role:'artist'}),/上传中断/);
+  await f.setup().addMember({...invite,role:'artist_collaborator'});
+  assert.deepEqual(stages.map(stage=>stage.revision),['original-cloud-revision','original-cloud-revision']);
+  assert.notEqual(stages[1].requestId,stages[0].requestId);
+});
+
+test('a lost commit receipt keeps the original invitation until its outcome is confirmed', async t => {
+  let completed, preparations=0, receiptReads=0;
+  const f=fixture(t,{
+    prepareLocalShare: () => {
+      preparations++;
+      if(preparations===2)throw Object.assign(Error('认证暂时不可用'),{status:401});
+      return {revision:'one-revision',pending:true,completed};
+    },
+    commitLocalShare: payload => {
+      completed={project:{id:payload.projectId},member:{id:'confirmed'}};
+      throw Error('响应中断');
+    },
+    readLocalShareReceipt: () => { receiptReads++;throw Error('连接仍不可用'); },
+  });
+  const project=await f.setup().createProject(source);
+  const original={projectId:project.id,username:'first_member',role:'artist'};
+  await assert.rejects(f.setup().addMember(original),/响应中断/);
+  assert.equal(receiptReads,1);
+  await assert.rejects(f.setup().addMember(original),/认证暂时不可用/);
+  assert.equal(JSON.parse(fs.readFileSync(f.storedFile(project.id),'utf8')).share.committing,true);
+  await assert.rejects(f.setup().addMember({...original,role:'collaborator'}),/重试上一条邀请/);
+  assert.equal(preparations,2);
+  assert.equal((await f.setup().addMember(original)).id,'confirmed');
 });
 
 test('local prompt associations survive restart and enter the invitation snapshot',async t=>{

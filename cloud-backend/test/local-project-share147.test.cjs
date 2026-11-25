@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { handleAction } = require('../src/collab.cjs');
+const { handleMediaAction } = require('../src/media.cjs');
 const {
   createLocalShareRepository, validateSnapshot, snapshotRevision,
 } = require('../src/local-project-share.cjs');
@@ -142,6 +143,34 @@ test('first invite reserves same UUID and atomically publishes saved content and
   const finalizeRetry = await handleAction('project-local-share', payload(pending.body.revision), owner, f.repo);
   assert.equal(finalizeRetry.body.member.user_id, memberId);
   assert.equal(f.writes.length, writes, 'lost acknowledgements must not repeat writes');
+});
+
+test('only the owner with the current share request can stage media without publishing rows', async () => {
+  const f = database();
+  const pending = await handleAction('project-local-share-prepare', prepare, owner, f.repo);
+  const writes = f.writes.length;
+  const args = {projectId, kind: 'image', mime: 'image/png', filename: 'reference.png', localShareRequestId: requestId};
+  const repo = {...f.repo, getProjectAccess: async () => f.state.project};
+  const signed = [];
+  const signer = {signUpload: ({objectKey}) => {
+    signed.push(objectKey);
+    return {url:`https://storage.test/${objectKey}`,method:'PUT'};
+  }};
+  const call = (action, values, actor = owner) => handleMediaAction(action, values, actor, repo, signer);
+  assert.equal(pending.body.pending, true);
+  assert.equal((await call('media-upload-url', args)).status, 200);
+  assert.match(signed[0], new RegExp(`^projects/${projectId}/image/[^/]+\\.png$`));
+  assert.equal((await call('media-upload-url', {...args, localShareRequestId: undefined})).status, 403);
+  assert.equal((await call('media-upload-url', args, {...target, is_admin:true})).status, 404);
+  assert.equal((await call('media-upload-url', {...args, localShareRequestId: mediaId})).status, 409);
+  assert.equal((await call('media-upload-url', {...args, assetId})).status, 400);
+  assert.equal((await call('media-record', {...args, objectKey})).status, 403);
+  assert.equal((await call('media-commit', {...args, objectKey})).status, 403);
+  assert.equal(f.writes.length, writes);
+  assert.equal(signed.length, 1);
+  assert.equal((await handleAction('project-local-share', payload(pending.body.revision), owner, f.repo)).status, 200);
+  assert.equal((await call('media-upload-url', args)).status, 409);
+  assert.equal((await call('media-upload-url', {...args, localShareRequestId: undefined})).status, 200);
 });
 
 test('first invite retries a duplicate director alias using the exact saved cloud binding', async () => {

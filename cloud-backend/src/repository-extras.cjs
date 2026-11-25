@@ -6,7 +6,7 @@ const {applyEpisodeIdentityChange,composeEpisodeIdentityScript,filterRemovedDire
 const {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences}=require('./director-source.cjs');
 const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
-const {ART_ROLES,assetImageObject,lockWritableMediaProject}=require('./project-media-policy.cjs');
+const {ART_ROLES,isPendingLocalShare,VISIBLE_PROJECT_SQL,assetImageObject,lockWritableMediaProject}=require('./project-media-policy.cjs');
 // 导演协作 / 统计 / 资产图片 的仓储扩展。
 // 说明：导演项目与协作项目共用 collab_projects 表，用 genre 中的哨兵标记区分。
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
@@ -14,7 +14,7 @@ const LOCK_SENTINEL = '[PROJECT_LOCKED]';
 
 const statusError = (status,message) => Object.assign(new Error(message),{status});
 
-const READ_SCOPE = 'left join collab_members m on m.project_id=p.id and m.user_id=$2 where p.id::text=$1 and (p.owner_id=$2 or m.user_id is not null)';
+const READ_SCOPE = `left join collab_members m on m.project_id=p.id and m.user_id=$2 where p.id::text=$1 and (p.owner_id=$2 or m.user_id is not null) and ${VISIBLE_PROJECT_SQL}`;
 
 function extendRepository(pool) {
   const one = async (s, p) => (await pool.query(s, p)).rows[0] || null;
@@ -37,7 +37,8 @@ function extendRepository(pool) {
   const lockAuthorizedProject = async (client,pid,uid,roles=null) => {
     if(!uid)return null;
     const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
-    if(!row||row.owner_id===uid)return row||null;
+    if (!row || isPendingLocalShare(row)) return null;
+    if (row.owner_id===uid) return row;
     const roleSql=Array.isArray(roles)&&roles.length
       ? ` and role in (${roles.map((_,index)=>'$'+(index+3)).join(',')})`
       : '';
@@ -127,7 +128,7 @@ function extendRepository(pool) {
       try {
         await client.query('BEGIN');
         const row = (await client.query('select p.* from collab_projects p where p.id=$1 for update', [pid])).rows[0];
-        if (!row || row.owner_id !== uid || row.deleted_at || String(row.genre||'').includes('[RECYCLE_UNTIL:')
+        if (!row || isPendingLocalShare(row) || row.owner_id !== uid || row.deleted_at || String(row.genre||'').includes('[RECYCLE_UNTIL:')
           || String(row.genre||'').includes(DIRECTOR_SENTINEL)) {await client.query('ROLLBACK'); return null;}
         const stripped = String(row.genre || '').split(LOCK_SENTINEL).join('').trim();
         const next = locked ? (stripped + '\n' + LOCK_SENTINEL).trim() : stripped;
@@ -153,7 +154,7 @@ function extendRepository(pool) {
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
-        const correctDomain=domain==='director'?directorRow(row):Boolean(row&&!String(row.genre||'').includes(DIRECTOR_SENTINEL)&&!row.deleted_at);
+        const correctDomain=domain==='director'?directorRow(row):Boolean(row&&!isPendingLocalShare(row)&&!String(row.genre||'').includes(DIRECTOR_SENTINEL)&&!row.deleted_at);
         if(!correctDomain||row.owner_id!==uid){await client.query('ROLLBACK');return null;}
         const column=target.memberId?'id':'user_id';
         const removed=(await client.query(`delete from collab_members where project_id=$1 and ${column}=$2 and role <> 'producer' and user_id<>$3 returning *`,[pid,target.memberId||target.userId,uid])).rows[0]||null;
@@ -166,7 +167,7 @@ function extendRepository(pool) {
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
-        if(!row||row.owner_id!==uid||String(row.genre||'').includes(DIRECTOR_SENTINEL)||row.deleted_at){await client.query('ROLLBACK');return null;}
+        if(!row||isPendingLocalShare(row)||row.owner_id!==uid||String(row.genre||'').includes(DIRECTOR_SENTINEL)||row.deleted_at){await client.query('ROLLBACK');return null;}
         const column=p.memberId?'id':'user_id';
         const saved=(await client.query(`update collab_members set role=$1 where project_id=$2 and ${column}=$3 and role <> 'producer' and user_id<>$4 returning *`,[role,pid,p.memberId||p.userId,uid])).rows[0]||null;
         await client.query('COMMIT');return saved;
@@ -195,7 +196,7 @@ function extendRepository(pool) {
       const client=await pool.connect();
       let writing=false;
       const inspect=async row=>{
-        if (!row || String(row.genre||'').includes(DIRECTOR_SENTINEL)) return {row:null};
+        if (!row || isPendingLocalShare(row) || String(row.genre||'').includes(DIRECTOR_SENTINEL)) return {row:null};
         if (row.deleted_at || /\[(?:RECYCLE_UNTIL:|PROJECT_LOCKED\])/.test(row.genre||'')) return {row};
         const source=(String(row.genre||'').match(/\[COLLAB_SOURCE:([^\]]+)\]/)||[])[1];
         if (!source) return {row};
@@ -312,7 +313,7 @@ function extendRepository(pool) {
         'with requested as (select * from unnest($1::text[],$2::text[]) with ordinality as x(project_id,collab_id,position)) '+
         'select requested.position,p.genre,p.deleted_at,p.purge_after from requested join collab_projects p on ('+
         'p.id::text=requested.collab_id or p.director_project_id=requested.project_id or collab_source_markers(p.genre) && array[requested.project_id] or '+
-        "(p.genre like '%[DIRECTOR_PROJECT]%' and length(p.analysis_output)<=500 and p.analysis_output=requested.project_id))",
+        `(p.genre like '%[DIRECTOR_PROJECT]%' and length(p.analysis_output)<=500 and p.analysis_output=requested.project_id)) where ${VISIBLE_PROJECT_SQL}`,
         [items.map(item=>item.projectId),items.map(item=>item.collaborationProjectId)]);
       const protectedPositions=new Set(rows.filter(row=>!String(row.genre||'').includes('[COLLAB_PROJECT]')||sourceProtection(row)!=='expired').map(row=>Number(row.position)));
       return items.map(({projectId,collaborationProjectId},index)=>({projectId,collaborationProjectId,status:protectedPositions.has(index+1)?'protected':'released'}));
@@ -442,7 +443,7 @@ function extendRepository(pool) {
     },
     async getAssetImageProjectAccess(pid,uid) {
       return one(`select p.id,p.genre from collab_projects p where p.id=$1
-        and (p.owner_id=$2 or exists(select 1 from collab_members member where member.project_id=p.id and member.user_id=$2))`,[pid,uid]);
+        and (p.owner_id=$2 or exists(select 1 from collab_members member where member.project_id=p.id and member.user_id=$2)) and ${VISIBLE_PROJECT_SQL}`,[pid,uid]);
     },
     async findAdoptedAssetImage(pid,assetId,uid) {
       return one(`select a.image_url,m.id as image_id,m.filename,m.mime from collab_assets a

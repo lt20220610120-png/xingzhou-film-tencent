@@ -1,5 +1,6 @@
 const {randomUUID} = require('node:crypto');
 const {lockDirectorReferences} = require('./director-source.cjs');
+const {isPendingLocalShare} = require('./project-media-policy.cjs');
 const {chineseDigits,chineseUnits,metadataKeys,chineseLabel,englishLabel,markdownHeading,sceneNumber} = require('../shared/episode-title.json');
 const EPISODE_LABEL = new RegExp(chineseLabel + '|' + englishLabel, 'gi');
 const SCENE = new RegExp('^[ \\t]*' + markdownHeading + sceneNumber, 'gim');
@@ -12,8 +13,8 @@ function collabGenre(value, original = '') {
   const markers = String(original || '').match(INTERNAL_GENRE) || [];
   return [publicGenre(value), '[COLLAB_PROJECT]', ...markers.filter(marker => marker !== '[COLLAB_PROJECT]' && marker !== '[DIRECTOR_PROJECT]')].filter(Boolean).join('\n');
 }
-function editableCollab(row) {
-  if (!row || String(row.genre || '').includes('[DIRECTOR_PROJECT]')) return false;
+function editableCollab(row, {allowPendingShare = false} = {}) {
+  if (!row || String(row.genre || '').includes('[DIRECTOR_PROJECT]') || (!allowPendingShare && isPendingLocalShare(row))) return false;
   if (String(row.genre || '').includes('[PROJECT_LOCKED]')) throw Object.assign(new Error('项目已锁定，暂不可编辑'), {status: 423});
   if (row.deleted_at || String(row.genre || '').includes('[RECYCLE_UNTIL:')) throw Object.assign(new Error('项目已删除，请先恢复'), {status: 410});
   return true;

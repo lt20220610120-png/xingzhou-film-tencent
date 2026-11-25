@@ -7,7 +7,7 @@ const { gateway: sharedGateway } = require('./cloud-access-service.cjs');
 const gateway = (action, payload = {}, token = '') => sharedGateway(action, payload, token);
 // 通过服务端签名直传腾讯云 COS：大文件不再经过 JSON base64，避免内存暴涨与请求体超限。
 async function uploadToBucket(projectId, filePath, kindHint, token, onUploaded, {
-  requestSignature=gateway, putObject=require('./win-ai-api-fetch.cjs').winAIFetch,
+  requestSignature=gateway, putObject=require('./win-ai-api-fetch.cjs').winAIFetch, localShareRequestId,
 }={}) {
   if (!filePath || !path.isAbsolute(filePath) || !(await fs.promises.stat(filePath).catch(()=>null))?.isFile()) throw new Error('素材文件不存在');
   const ext = (path.extname(filePath) || '.bin').toLowerCase();
@@ -15,7 +15,8 @@ async function uploadToBucket(projectId, filePath, kindHint, token, onUploaded, 
   const filename = path.basename(filePath);
   const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
   const body = kind==='image'||kind==='audio'?await fs.promises.readFile(filePath):await fs.openAsBlob(filePath,{type:mime});
-  const signed = await requestSignature('media-upload-url', { projectId, filename, kind, mime, ...(kindHint==='asset'?{purpose:'asset-image'}:{}) }, token);
+  const signed = await requestSignature('media-upload-url', { projectId, filename, kind, mime,
+    ...(kindHint==='asset'?{purpose:'asset-image'}:{}), ...(localShareRequestId?{localShareRequestId}:{}) }, token);
   // PUT to this exact signed object is idempotent. A retry cannot create another photo.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {

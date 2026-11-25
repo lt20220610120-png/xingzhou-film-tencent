@@ -452,10 +452,10 @@ function createProjectCollab() {
         if (!response.ok) { await response.body?.cancel?.(); throw Object.assign(Error('本机副本素材下载失败'),{status:response.status}); }
         return {body:response.body,mime:response.headers.get('content-type'),...(response.headers.get('content-length')?{size:Number(response.headers.get('content-length'))}:{})};
       },
-      async upload(id,file,kind) {
+      async upload(id,file,kind,uploadContext) {
         if (readCloudSession()?.token !== scope.token) throw Error('账号已切换');
         const source = await verifiedDataFile(file,scope.root);
-        return require('./collab-service.cjs').uploadToBucket(id,source,kind,scope.token);
+        return require('./collab-service.cjs').uploadToBucket(id,source,kind,scope.token,null,uploadContext);
       },
       async resolveLocalReference(row,id) {
         if (readCloudSession()?.token !== scope.token || !row.filePath) return null;

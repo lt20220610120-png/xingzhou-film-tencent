@@ -3,12 +3,12 @@ const crypto = require('node:crypto');
 const { extendRepository } = require('./repository-extras.cjs');
 const {collabGenre} = require('./collab-episodes.cjs');
 const {resolveCreationSource} = require('./director-source.cjs');
-const {MEDIA_KINDS,SHARE_ROLES,ART_ROLES,REFERENCE_ROLES,validProjectObject,assetImageObject,lockWritableMediaProject}=require('./project-media-policy.cjs');
+const {MEDIA_KINDS,SHARE_ROLES,ART_ROLES,REFERENCE_ROLES,VISIBLE_PROJECT_SQL,validProjectObject,assetImageObject,lockWritableMediaProject}=require('./project-media-policy.cjs');
 const {validReferenceObject,publishedReferenceUses}=require('./reference-upload-delete.cjs');
 const {inviteUsable,rolesForInvite}=require('./invites.cjs');
 const {emailCodeValid}=require('./email-code.cjs');
 
-const PROJECT_ACCESS = 'left join collab_members m on m.project_id=p.id and m.user_id=$2 where p.id::text=$1 and (p.owner_id=$2 or m.user_id is not null)';
+const PROJECT_ACCESS = `left join collab_members m on m.project_id=p.id and m.user_id=$2 where p.id::text=$1 and (p.owner_id=$2 or m.user_id is not null) and ${VISIBLE_PROJECT_SQL}`;
 const INVITE_SELECT = 'select id,code,kind,role,max_uses,used_count,disabled from invites where digest=$1 for update';
 const USE_INVITE = 'update invites set used_count=used_count+1 where id=$1 and not disabled and (max_uses is null or used_count<max_uses) returning id,used_count';
 const authError = (status,message) => Object.assign(new Error(message),{status});
@@ -118,7 +118,7 @@ function createRepository(databaseUrl, deps = {}) {
       const sql = 'select '+fields+',m.role as viewer_role from ('+
         'select id from collab_projects where owner_id=$1 union select project_id from collab_members where user_id=$1'+
         ') accessible join collab_projects p on p.id=accessible.id left join collab_members m on m.project_id=p.id and m.user_id=$1 '+
-        "where (p.purge_after is null or p.purge_after > now()) and position('[DIRECTOR_PROJECT]' in coalesce(p.genre,''))=0 and position('[LOCAL_SHARE_PENDING:' in coalesce(p.genre,''))=0 order by p.updated_at desc";
+        `where (p.purge_after is null or p.purge_after > now()) and position('[DIRECTOR_PROJECT]' in coalesce(p.genre,''))=0 and ${VISIBLE_PROJECT_SQL} order by p.updated_at desc`;
       const r = await pool.query(sql, [uid]);
       return r.rows;
     },
@@ -174,7 +174,7 @@ function createRepository(databaseUrl, deps = {}) {
     }); },
     async findMedia(id,uid) {
       if (!id) return null;
-      const r=await pool.query('select media.* from collab_media media join collab_projects p on p.id=media.project_id where media.id::text=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) limit 1',[id,uid]); return r.rows[0]||null;
+      const r=await pool.query(`select media.* from collab_media media join collab_projects p on p.id=media.project_id where media.id::text=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) and ${VISIBLE_PROJECT_SQL} limit 1`,[id,uid]); return r.rows[0]||null;
     },
     async deleteMedia(id,uid,pid) {
       pid ||= (await this.findMedia(id,uid))?.project_id;

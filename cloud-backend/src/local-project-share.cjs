@@ -3,6 +3,7 @@ const { collabGenre, editableCollab } = require('./collab-episodes.cjs');
 const { resolveShareDirectorSource } = require('./director-source.cjs');
 const { validateImageComposition } = require('./image-composition.cjs');
 const { sourceProtection } = require('./cloud-recycle.cjs');
+const { isPendingLocalShare } = require('./project-media-policy.cjs');
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const ROLES = new Set(['producer', 'artist', 'collaborator', 'artist_collaborator']);
@@ -180,8 +181,17 @@ function readRevision(value, optional = false) {
 }
 
 function checkOwner(project, user) {
-  if (!project || project.owner_id !== user.id || !editableCollab(project)) fail(404, '项目不存在或无权访问');
+  if (!project || project.owner_id !== user.id || !editableCollab(project, {allowPendingShare:true})) fail(404, '项目不存在或无权访问');
   if (sourceProtection(project) !== 'active') fail(410, '项目已删除，请先恢复');
+}
+
+function pendingShare(project) {
+  if (!isPendingLocalShare(project)) return null;
+  const match = project.genre.match(PENDING);
+  if (!match || !UUID.test(match[1]) || !UUID.test(match[2]) || !ROLES.has(match[3]) || !project.genre.includes('[COLLAB_PROJECT]')) {
+    fail(409, '首次共享准备状态无效，请重新打开项目后重试');
+  }
+  return match;
 }
 
 function checkSoleOwner(members, user) {
@@ -318,7 +328,7 @@ function createLocalShareRepository(pool) {
       return transaction(true, async client => {
         const project = await projectRow(client, projectId, false);
         checkOwner(project, user);
-        if (PENDING.test(String(project.genre || ''))) fail(404, '项目仍在等待首次同步');
+        if (isPendingLocalShare(project)) fail(404, '项目仍在等待首次同步');
         const current = await snapshot(client, project, false);
         checkSoleOwner(current.members, user);
         return { revision: current.revision, updatedAt: project.updated_at, ...(payload.includeProject === true ? { project } : {}) };
@@ -348,7 +358,7 @@ function createLocalShareRepository(pool) {
         if (completed) return { revision:expected, completed };
         let current = await snapshot(client, project, true);
         checkSoleOwner(current.members, user);
-        const pending = String(project.genre || '').match(PENDING);
+        const pending = pendingShare(project);
         if (pending && expected === null && !sameRequest(pending, requestId, target, invited)) {
           const marker = '[LOCAL_SHARE_PENDING:' + requestId + ':' + target.id + ':' + invited.role + ']';
           project = (await client.query('update collab_projects set genre=$2,updated_at=now() where id=$1 returning *',
@@ -357,7 +367,23 @@ function createLocalShareRepository(pool) {
         } else if (!pending || expected !== null) {
           checkRevision(current.revision, expected);
         }
-        return { revision: current.revision };
+        return { revision: current.revision, ...(pending ? {pending:true} : {}) };
+      });
+    },
+
+    async signLocalProjectShareUpload(payload, user, sign) {
+      const projectId = id(payload.projectId, '项目');
+      const requestId = id(payload.localShareRequestId, '邀请请求');
+      return transaction(false, async client => {
+        const project = (await client.query(
+          'select id,owner_id,genre,deleted_at,purge_after from collab_projects where id=$1 for share', [projectId],
+        )).rows[0];
+        checkOwner(project, user);
+        if (pendingShare(project)?.[1] !== requestId) fail(409, '首次共享准备状态已变化，请重新邀请');
+        const members = (await client.query('select * from collab_members where project_id=$1 order by id', [projectId])).rows;
+        checkSoleOwner(members, user);
+        // Only authorize a PUT. The final invite transaction attaches the material and publishes the project.
+        return sign(projectId);
       });
     },
 
@@ -375,7 +401,7 @@ function createLocalShareRepository(pool) {
         const current = await snapshot(client, project, true);
         checkSoleOwner(current.members, user);
         checkRevision(current.revision, expected);
-        const pending = String(project.genre || '').match(PENDING);
+        const pending = pendingShare(project);
         if (pending && !sameRequest(pending, requestId, target, invited)) fail(409, '已有其他邀请准备，请重新核对协作者');
 
         const next = validateSnapshot(payload, projectId);
