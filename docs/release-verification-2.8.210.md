@@ -17,4 +17,7 @@
 
 ## 上线记录
 
-待核对云端部署、签名更新清单、公开安装包和软件内更新。
+- 源码 `49b3777`。云端备份 `/opt/xingzhou-backups/local-share-2.8.210-20261125T171325Z-tjt0jws8`，含运行环境、服务配置和 65,229,571 字节的数据库归档。数据库恢复清单和回滚脚本语法已核验。部署 7 个模块，数据库结构维持原版。公网 `/healthz` 正常，未认证网关返回 401。
+- GitHub Release 458405881，上传工作流 45662154774。安装包 95,301,435 字节，SHA-256 `93b23b455ed3f9c92ae51deac51f06135925c13eafc9214e7d6e14d023dd47fd`。三份签名清单、GitHub 资产摘要及官网 HTTP 206 均已核验。
+- 用 2.8.209 正式载荷在隔离 Electron 中完成检查更新、模拟中断后的续传、整包校验和安装交接。本机和官网镜像保留 2.8.206–2.8.210 五版。
+- [官网下载](https://xingzhoufilm.cn/api/updates/Xingzhou-Film-Tencent-Setup-2.8.210.exe) · [GitHub 下载](https://github.com/lt20220610120-png/xingzhou-film-updates/releases/download/v2.8.210/Xingzhou-Film-Tencent-Setup-2.8.210.exe)
