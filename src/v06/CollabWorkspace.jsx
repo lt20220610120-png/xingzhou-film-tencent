@@ -23,7 +23,7 @@ import {planAssetImageRecovery,runAssetImageRecoveryBatch,abandonAssetImageRecov
 import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch,pendingCharacterBaselines} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
-import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection,visibleArtAssets } from '../../core/assetImages.js';
+import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection,visibleArtAssets,removeAssetImages } from '../../core/assetImages.js';
 import {assetHasAdoptedImage,assetSkipsReferenceImage} from '../../core/assetReferencePolicy.js';
 import {runContinuousArtAnalysis} from '../../core/artContinuousAnalysis.js';
 import {getArtDistributionController} from '../../core/artAnalysisPipeline.js';
@@ -455,10 +455,32 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
     } catch(e) { setError(readableCloudError(e)); }
     finally { setBusy(false); }
   };
-  const deleteImage = async () => { if (!selectedImage || selectedImage.id === 'legacy') return; if(!(await confirmAction('删除这张图片？若正在采用，将改用最新的剩余图片。', {danger:true})))return; await api.collabDeleteAssetImage({ projectId: project.id, imageId: selectedImage.id }); setSelectedImageId(''); await refresh(); };
-  const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: displayAssetName(asset,assets), images: [{ ...selectedImage, assetName: displayAssetName(asset,assets) }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
   const previewRequest = useRef(0);
   useEffect(() => { previewRequest.current++; }, [asset.id, selectedImage?.id]);
+  const deleteImage = async () => {
+    if (!selectedImage || selectedImage.id === 'legacy' || !canEdit || busy) return;
+    const assetId = asset.id;
+    const imageId = selectedImage.id;
+    if (!await confirmAction('删除这张图片？若正在采用，将改用最新的剩余图片。', {danger: true})) return;
+    setBusy(true);
+    setError('');
+    let deleted = false;
+    try {
+      const result = await api.collabDeleteAssetImage({projectId: project.id, assetId, imageId});
+      if (result?.ok !== true) throw new Error(result?.error || '未确认删除，请刷新后重试');
+      deleted = true;
+      setLocalImages(current => current.filter(image => image.id !== imageId));
+      setSelectedImageId(current => current === imageId ? '' : current);
+      previewRequest.current++;
+      setPreviewImage('');
+      await refresh({assetsOnly: true, afterCurrent: true, assetImageDeletion: {assetId, imageId}});
+    } catch (error) {
+      setError(`${deleted ? '图片已删除，刷新失败' : '删除图片失败'}：${readableCloudError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const downloadImage = async () => { if (!selectedImage) return; setError(''); try { await api.collabExportImages({ archive: false, filename: displayAssetName(asset,assets), images: [{ ...selectedImage, assetName: displayAssetName(asset,assets) }] }); } catch (e) { setError(`下载失败：${e.message}`); } };
   const openOriginal = async () => {
     const request=++previewRequest.current;
     setError('');
@@ -476,7 +498,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={openOriginal} title="点击放大查看原图"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={image} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
       </div>
-      {selectedImage && <div className="collab-image-item-actions"><button className={`asset-image-adopt${selectedImage.id===adoptedImage?.id?' adopted':''}`} disabled={!canEdit||busy||selectedImage.id===adoptedImage?.id} onClick={adoptImage}>{selectedImage.id===adoptedImage?.id?'已采用':'采用此图'}</button><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit}>删除图片</button>}</div>}
+      {selectedImage && <div className="collab-image-item-actions"><button className={`asset-image-adopt${selectedImage.id===adoptedImage?.id?' adopted':''}`} disabled={!canEdit||busy||selectedImage.id===adoptedImage?.id} onClick={adoptImage}>{selectedImage.id===adoptedImage?.id?'已采用':'采用此图'}</button><button className="ghost" onClick={downloadImage}>单独下载</button>{selectedImage.id !== 'legacy' && <button className="danger" onClick={deleteImage} disabled={!canEdit||busy}>删除图片</button>}</div>}
       <div className="collab-image-controls">
         <select aria-label={`${asset.name} 生图接口`} value={profileId} onChange={(e) => setProfileId(e.target.value)}><option value="">{imageProfiles.length ? '选择生图接口' : '未配置生图接口'}</option>{imageProfiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select>
         <select aria-label="图片画幅" value={size} onChange={(e) => setSize(e.target.value)}>{formats.map((format) => <option key={format.value} value={format.size}>{format.label}</option>)}</select>
@@ -494,13 +516,13 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
             <button className="secondary image-recovery-abandon" disabled={busy||generating||!canEdit} onClick={async ()=>{if((await confirmAction(`${pendingImage.taskId?'原生成任务可能仍在运行，放弃恢复不会取消上游任务。':'原恢复记录仍保留在本机。'}确定放弃旧结果？之后点击“生成图片”会重新调用接口并可能产生费用。`, {danger:true}))){clearAssetImageRecovery(project.id,asset.id);setError('已放弃旧结果；可上传原图，或点击“生成图片”提交新任务（可能产生费用）。');}}}>放弃旧结果</button>
           </div>
           <small>恢复只取回原结果；放弃后再点“生成图片”会提交新任务，可能产生费用。</small>
-          {error&&<div className="image-recovery-error" role="status">{error}</div>}
+          {error&&<div className="image-recovery-error" role="alert">{error}</div>}
         </section>:<div className="collab-image-actions"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit}>{generating||busy?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {generating||busy?'处理中…':'生成图片'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传</button></div>}
         {refAsset&&asset.category==='scene'&&parseAssetName(asset.name).base===parseAssetName(refAsset.name).base&&<small className="collab-ref-hint">将参考 {refAsset.name} 的第一张图片，保持同地点布局，仅改变时间光线</small>}
         {referenceRequired&&asset.category!=='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次不会锁定身份一致性。</small>}
         {referenceRequired&&asset.category==='scene'&&!refAsset&&explicitlyNoReference&&<small className="collab-ref-hint">已明确不引用参考，本次无法保证场景布局一致。</small>}
         {referenceRequired&&!refAsset&&!explicitlyNoReference&&<small className="collab-ref-hint">{asset.category==='scene'?'请先生成或选择场景基准参考图，避免只改变光线时重新设计布局。':'请先生成或选择人物基准参考图，避免差异造型生成另一张脸。'}</small>}
-        {error && !pendingImage && <div className="collab-error">{error}</div>}
+        {error && !pendingImage && <div className="collab-error" role="alert">{error}</div>}
         <button type="button" className="ghost art-final-prompt-button" onClick={() => setShowPrompt(true)}>查看实际生图提示词</button>
       </div>
       {workspaceActive && showPrompt && createPortal(<div className="veil" onMouseDown={event => event.target === event.currentTarget && setShowPrompt(false)}><div className="modal art-final-prompt-modal" role="dialog" aria-modal="true" aria-label="实际生图提示词"><header><h2>实际生图提示词</h2><button className="ghost" onClick={() => setShowPrompt(false)} aria-label="关闭提示词预览"><X size={18} /></button></header><FormattedEditor readOnly value={buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project)} aria-label="最终发送的提示词" /><div className="modal-actions"><button className="primary" onClick={() => setShowPrompt(false)}>完成</button></div></div></div>, document.body)}
@@ -817,6 +839,24 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
   const [preferredBatchSize, setBatchSize] = useState(IMAGE_FORMATS[0].size);
   const batchSize = batchFormats.some(f=>f.size===preferredBatchSize)?preferredBatchSize:batchFormats[0].size;
   const [exportError, setExportError] = useState('');
+  const [clearingImages, setClearingImages] = useState(false);
+  const clearProjectImages = async () => {
+    if (!canEdit || project.myRole !== 'producer' || clearingImages) return;
+    if (!await confirmAction('确定清除整个项目的全部图片缓存？请先确认已下载到本地。', {danger: true})) return;
+    setClearingImages(true);
+    setExportError('');
+    let cleared = false;
+    try {
+      const result = await api.collabClearAssetImages({projectId: project.id});
+      if (result?.ok !== true) throw new Error(result?.error || '未确认清除，请刷新后重试');
+      cleared = true;
+      await refresh({assetsOnly: true, afterCurrent: true, assetImageDeletion: {clear: true}});
+    } catch (error) {
+      setExportError(`${cleared ? '图片已清除，刷新失败' : '清除图片失败'}：${readableCloudError(error)}`);
+    } finally {
+      setClearingImages(false);
+    }
+  };
   const [exportChoiceOpen, setExportChoiceOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportAudioChoice,setExportAudioChoice]=useState(null);
@@ -952,7 +992,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
         {wholeModal}
         {exportError&&<div className="collab-error" role="alert">{exportError}</div>}
         <ProjectCompositionControl project={project} api={api} refresh={refresh} canEdit={canEdit} onProjectChange={onProjectChange}>{wholeControls}</ProjectCompositionControl>
-        <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={async () => { if (!(await confirmAction('确定清除整个项目的全部图片缓存？请先确认已下载到本地。', {danger:true}))) return; await api.collabClearAssetImages({ projectId: project.id }); await refresh(); }}>清除图片缓存</button>}</div>
+        <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={clearProjectImages} disabled={!canEdit||clearingImages}>清除图片缓存</button>}</div>
         {exportChoiceOpen&&<ArtExportChoiceDialog versions={exportVersions} version={selectedExportVersion} onVersionChange={setExportVersion} loading={!availableExportBinding&&!exportBindingError} error={exportBindingError} exporting={exporting} onClose={()=>setExportChoiceOpen(false)} onChoose={layout=>{if(layout==='flat')void exportImages(projectImages,`${project.name}-全部美术图片`,'flat');else if(layout==='episode')void exportWithVoices(projectImages,`${project.name}-按集美术素材`,'episode');else if(layout==='scene')void exportWithVoices(projectImages,`${project.name}-按场景美术素材`,'scene');else askExport(exportPromptVersion);}}/>}
         {exportAudioChoice&&<ArtExportAudioDialog onClose={()=>setExportAudioChoice(null)} onChoose={includeAudio=>{const run=exportAudioChoice.run;setExportAudioChoice(null);void run(includeAudio);}}/>}
         {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
@@ -1686,14 +1726,25 @@ export function CollabWorkspace({ state, api, account }) {
 
   const syncDirector = useRef(createDirectorSync());
   const refreshProject = useCallback(async (options = {}) => {
+    const projectId = project?.id;
+    if (!projectId) return;
+    const isCurrentAccount = () => accountScope.current === (account?.id||'local');
+    const isCurrentProject = () => isCurrentAccount() && currentProjectIdRef.current === projectId;
+    if (options.assetImageDeletion && isCurrentAccount()) {
+      const cacheKey = `assets-${projectId}`;
+      const cached = readCache(cacheKey);
+      if (cached) writeCache(cacheKey, normalizeArtAssets(removeAssetImages(cached, options.assetImageDeletion)));
+      if (isCurrentProject()) {
+        refreshRequestRef.current++;
+        setAssets(current => isCurrentProject() ? normalizeArtAssets(removeAssetImages(current, options.assetImageDeletion)) : current);
+      }
+    }
     while(refreshInFlight.current){
       if(!options.publicationComplete&&!options.afterCurrent)return refreshInFlight.current;
       try{await refreshInFlight.current;}catch{}
     }
     const work=(async()=>{
-    if (!project?.id) return;
-    const projectId = project.id;
-    const isCurrentTarget = () => accountScope.current === (account?.id||'local') && currentProjectIdRef.current === projectId && (options.manual || currentSectionRef.current !== 'art-review') && (!options.visible || options.visible());
+    const isCurrentTarget = () => isCurrentProject() && (options.manual || currentSectionRef.current !== 'art-review') && (!options.visible || options.visible());
     if (!isCurrentTarget()) return;
     const requestId = ++refreshRequestRef.current;
     try {
@@ -1704,7 +1755,13 @@ export function CollabWorkspace({ state, api, account }) {
         if(requestId!==refreshRequestRef.current||!isCurrentTarget())return;
         const ledger=getArtReviewStore({api,projectId,accountId:account?.id}).snapshot();
         const p=publishedReviewProject(project,ledger),normalizedAssets=prepareAssets(p,rows||[]);
-        setProject(p);setAssets(normalizedAssets);writeCache(`project-${projectId}`,p);writeCache(`assets-${projectId}`,normalizedAssets);return p;
+        if (!options.assetImageDeletion) {
+          setProject(p);
+          writeCache(`project-${projectId}`,p);
+        }
+        setAssets(normalizedAssets);
+        writeCache(`assets-${projectId}`,normalizedAssets);
+        return p;
       }
       let [p, a] = await Promise.all([
         api.collabGetProject({ projectId, retryLocal:options.manual === true }),

@@ -145,6 +145,10 @@ button:where(.ghost, .icon-button, .card-delete):not(:disabled):hover {
 }
 
 .workspace-dialog {
+  /* The app's margin reset overrides the native dialog's centering. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
   box-sizing: border-box;
   inline-size: min(430px, calc(100% - 32px));
   max-block-size: calc(100% - 32px);

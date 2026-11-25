@@ -65,6 +65,45 @@ app.whenReady().then(async () => {
     await wait('document.querySelector("#app-sidebar")?.getClientRects().length');
     assert.equal(await run("CSS.supports('appearance','base-select')"),true);
 
+    const sharedDialogs = [];
+    for (const [width,height] of [[1280,900],[1600,900],[1920,900],[760,620]]) {
+      win.setContentSize(width,height);
+      await wait(`innerWidth===${width} && innerHeight===${height}`);
+      for (const confirm of [true,false]) {
+        const content = width===760 ? '隔离验证弹窗正文\n'.repeat(90) : '隔离验证弹窗居中。';
+        const show = confirm ? 'confirmAction' : 'showNotice';
+        await run(`waveThree.choice=undefined;waveThree.${show}(${JSON.stringify(content)}).then(value=>waveThree.choice=value);void 0`);
+        const box = await wait(`(() => {
+          const modal=document.querySelector('dialog.workspace-dialog:modal');
+          if(!modal||modal.getAnimations().some(animation=>animation.playState==='running'))return false;
+          const {left,top,right,bottom}=modal.getBoundingClientRect();
+          return {left,top,right,bottom,margin:getComputedStyle(modal).margin,
+            backdrop:getComputedStyle(modal,'::backdrop').backgroundColor,
+            scrollable:modal.scrollHeight>modal.clientHeight};
+        })()`);
+        const measurement=JSON.stringify({width,height,show,box});
+        assert.ok(Math.abs(box.left+box.right-width)<=1,measurement);
+        assert.ok(Math.abs(box.top+box.bottom-height)<=1,measurement);
+        assert.ok(box.left>=15&&box.top>=15&&box.right<=width-15&&box.bottom<=height-15,measurement);
+        assert.equal(box.backdrop,'rgba(34, 29, 55, 0.247)',measurement);
+        if(width===760)assert.ok(box.scrollable,measurement);
+        if(confirm)await press('Escape',27);
+        else await click('.workspace-dialog button','知道了');
+        await wait(`waveThree.choice===${!confirm}&&!document.querySelector('dialog.workspace-dialog')`);
+        sharedDialogs.push({width,height,show,box});
+      }
+    }
+    await click('#app-sidebar button','退出登录');
+    const logoutDialog = await wait(`(() => {
+      const modal=document.querySelector('dialog.logout-confirm:modal');
+      if(!modal)return false;
+      const {left,top,right,bottom}=modal.getBoundingClientRect();
+      return Math.abs(left+right-innerWidth)<=1&&Math.abs(top+bottom-innerHeight)<=1;
+    })()`);
+    await click('.logout-confirm .access-dialog-actions button','取消');
+    await wait("!document.querySelector('dialog.logout-confirm')");
+    assert.equal(await run('waveThree.counts.authLogout || 0'),0);
+
     const panels = [];
     for (const width of [1280,1600,1920]) {
       win.setContentSize(width,900);
@@ -201,7 +240,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(await run('waveThree.attemptedPaid'),[]);
     assert.deepEqual(errors,[]);
     assert.deepEqual(external.filter(host=>/font/.test(host)),[]);
-    const result={panels, backgroundCollabReads:0, initialImageRows:48, paidCalls:0, networkFontRequests:0};
+    const result={panels, sharedDialogs, logoutDialog, backgroundCollabReads:0, initialImageRows:48, paidCalls:0, networkFontRequests:0};
     if(evidence) fs.writeFileSync(path.join(evidence,'report.json'),JSON.stringify(result,null,2));
     console.log(JSON.stringify(result));
   } catch (error) {

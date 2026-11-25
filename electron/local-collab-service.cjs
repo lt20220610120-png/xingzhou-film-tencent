@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { writeJsonAtomic } = require('./atomic-json.cjs');
+const { adoptedLocalAssetImage } = require('./local-project-media.cjs');
 const { patchShot, mergeDirectorEpisodes } = require('../cloud-backend/src/storyboard-merge.cjs');
 const { appendArtEpisodeSnapshot, composeDirectorScript, numberedEpisodes } = require('../cloud-backend/src/collab-episodes.cjs');
 const { applyEpisodeIdentityChange, composeEpisodeIdentityScript, filterRemovedDirectorEpisodes } = require('../cloud-backend/src/episode-identity-repair.cjs');
@@ -238,11 +239,14 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       return row;
     });
   }
-  function removeMedia(record, ids) {
-    const removing = new Set(ids);
-    const cloudIds = record.media.filter(row => removing.has(row.id) && row.objectKey).map(row => row.id);
+  function removeMedia(record, removing) {
+    const cloudIds = [];
+    record.media = record.media.filter(row => {
+      if (!removing(row)) return true;
+      if (row.objectKey) cloudIds.push(row.id);
+      return false;
+    });
     record.deletedMediaIds = [...new Set([...(record.deletedMediaIds || []), ...cloudIds])];
-    record.media = record.media.filter(row => !removing.has(row.id));
   }
   function assetIn(record, id) {
     const asset = record.assets.find(row => row.id === id);
@@ -484,16 +488,21 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     attachGeneratedAssetImage: p => addFile('attachGeneratedAssetImage', p, true),
     deleteAssetImage: p => write('deleteAssetImage', p, record => {
       const asset = assetIn(record, p.assetId);
-      asset.images = (asset.images || []).filter(image => image.id !== p.imageId);
-      removeMedia(record,record.media.filter(image=>image.id===p.imageId&&image.assetId===asset.id).map(image=>image.id));
-      if (asset.adoptedImageId === p.imageId) adoptAssetImage(asset, asset.images.at(-1));
+      if (!p.imageId || !asset.images?.some(image => image.id === p.imageId)) throw error('图片不存在，或不属于此资产', 404);
+      const wasAdopted = adoptedLocalAssetImage(asset)?.id === p.imageId;
+      asset.images = asset.images.filter(image => image.id !== p.imageId);
+      removeMedia(record, row => row.kind === 'asset-image' && row.id === p.imageId && (row.assetId ?? row.asset_id) === asset.id);
+      if (wasAdopted || (!asset.images.length && !asset.image_url)) adoptAssetImage(asset, asset.images.at(-1));
       return { ok: true };
     }),
     clearAssetImages: p => write('clearAssetImages', p, record => {
-      const asset = assetIn(record, p.assetId);
-      asset.images = [];
-      removeMedia(record,record.media.filter(image=>image.assetId===asset.id).map(image=>image.id));
-      adoptAssetImage(asset, null);
+      const allAssets = p.assetId === undefined;
+      const assets = allAssets ? record.assets : [assetIn(record, p.assetId)];
+      removeMedia(record, row => row.kind === 'asset-image' && (allAssets || (row.assetId ?? row.asset_id) === p.assetId));
+      for (const asset of assets) {
+        asset.images = [];
+        adoptAssetImage(asset, null);
+      }
       return { ok: true };
     }),
     listMedia: p => read('listMedia', p, record => record.media),
@@ -507,7 +516,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
         const protectedUse = publishedReferenceUses(record.project, { ...row, object_path: row.objectKey || row.filePath });
         if (!owned || protectedUse) throw error('只能删除自己上传且未采用的参考素材', 403);
       }
-      removeMedia(record,[p.mediaId]);
+      removeMedia(record, item => item.id === p.mediaId);
       return { ok: true };
     }),
     listMembers: p => read('listMembers', p, (record, { account }) => [{ id: account.id, user_id: account.id, username: account.username, display_name: record.project.owner_name, role: 'producer', created_at: record.project.created_at }]),

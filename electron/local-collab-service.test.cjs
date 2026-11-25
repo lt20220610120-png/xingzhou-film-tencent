@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { createHash, randomUUID } = require('node:crypto');
 const { createLocalCollabService } = require('./local-collab-service.cjs');
 
 function fixture(t, overrides = {}) {
@@ -27,14 +28,117 @@ function fixture(t, overrides = {}) {
       materialize: structuredClone,
       capture: async bundle => bundle,
       prepareShare: async bundle => bundle,
-      storeFile: async file => ({ ...file, localPath: 'media/reference.wav' }),
+      storeFile: async file => ({ ...file, localPath: 'media/reference.wav', url: `xzmedia://fixture/${file.id}` }),
       resolveReferences: refs => refs,
     }),
   });
-  return { setup, calls, switchAccount: id => { account = { ...account, id }; } };
+  const storedFile = projectId => path.join(directory, '本地项目', createHash('sha256').update(account.id).digest('hex'), `${projectId}.json`);
+  return { setup, calls, storedFile, switchAccount: id => { account = { ...account, id }; } };
 }
 
 const source = { name: '单人制作', episodes: [{ id: 'e1', title: '第一集', prompts: [{ id: 's1', label: '1-1-1', content: '原稿' }] }] };
+
+test('local asset deletion keeps the exact card, chooses the newest survivor and persists through restart', async t => {
+  const f = fixture(t), service = f.setup(), { id: projectId } = await service.createProject(source);
+  const first = await service.createAsset({ projectId, name: '旧妆造' });
+  const second = await service.createAsset({ projectId, name: '其他妆造' });
+  const old = await service.attachAssetImage({ projectId, assetId: first.id, filePath: 'old.png' });
+  const adopted = await service.attachGeneratedAssetImage({ projectId, assetId: first.id, filePath: 'adopted.png' });
+  const latest = await service.attachGeneratedAssetImage({ projectId, assetId: first.id, filePath: 'latest.png' });
+  const other = await service.attachAssetImage({ projectId, assetId: second.id, filePath: 'other.png' });
+  await service.updateAsset({ projectId, assetId: first.id, updates: { adoptedImageId: adopted.id } });
+  const del = imageId => service.deleteAssetImage({ projectId, assetId: first.id, imageId });
+  const snapshot = async () => (await f.setup().listAssets({ projectId })).map(asset => [asset.images.map(image => image.id), asset.adoptedImageId, asset.image_url]);
+  await assert.rejects(del(other.id), { status: 404 });
+  await assert.rejects(del('missing'), { status: 404 });
+  await assert.rejects(service.deleteAssetImage({ projectId, assetId: first.id, imageId: old.id, accountId: 'another' }), { status: 403 });
+  await service.setProjectLocked({ projectId, locked: true });
+  await assert.rejects(del(old.id), { status: 423 });
+  await service.setProjectLocked({ projectId, locked: false });
+  assert.deepEqual(await del(old.id), { ok: true });
+  assert.deepEqual(await snapshot(), [[[adopted.id, latest.id], adopted.id, adopted.url], [[other.id], other.id, other.url]]);
+  assert.deepEqual(await del(adopted.id), { ok: true });
+  assert.deepEqual(await snapshot(), [[[latest.id], latest.id, latest.url], [[other.id], other.id, other.url]]);
+  assert.deepEqual(await del(latest.id), { ok: true });
+  assert.deepEqual(await snapshot(), [[[], null, ''], [[other.id], other.id, other.url]]);
+  assert.deepEqual((await f.setup().listMedia({ projectId })).map(image => image.id), [other.id]);
+  assert.deepEqual(f.calls, []);
+});
+
+test('local deletion replaces an older URL-only adoption and only tombstones its imported image', async t => {
+  let shared;
+  const f = fixture(t, { prepareLocalShare: () => ({ revision: 'r1' }), commitLocalShare: value => {
+    shared = value;
+    return { project: value.project, member: { id: 'member' } };
+  } });
+  const service = f.setup(), { id: projectId } = await service.createProject(source);
+  const { id: assetId } = await service.createAsset({ projectId, name: '旧版妆造' });
+  const old = await service.attachAssetImage({ projectId, assetId, filePath: 'cloud.png' });
+  const newer = await service.attachAssetImage({ projectId, assetId, filePath: 'local.png' });
+  const recordFile = f.storedFile(projectId), record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  const cloudUrl = 'https://fixture.invalid/image.png?signature=old';
+  for (const row of [record.assets[0].images[0], record.media[0]]) {
+    row.url = cloudUrl;
+    row.objectKey = `projects/${projectId}/image/imported.png`;
+  }
+  delete record.assets[0].adoptedImageId;
+  record.assets[0].image_url = 'https://fixture.invalid/image.png?signature=new';
+  fs.writeFileSync(recordFile, JSON.stringify(record));
+  await service.deleteAssetImage({ projectId, assetId, imageId: old.id });
+  const [asset] = await f.setup().listAssets({ projectId });
+  assert.equal(asset.adoptedImageId, newer.id);
+  assert.equal(asset.image_url, newer.url);
+  await service.addMember({ projectId, username: 'editor', role: 'artist' });
+  assert.deepEqual(shared.deletedMediaIds, [old.id]);
+  assert.deepEqual(shared.assets[0].images.map(image => image.id), [newer.id]);
+});
+
+test('local deletion preserves a distinct legacy adoption outside the image history', async t => {
+  const f = fixture(t), service = f.setup(), { id: projectId } = await service.createProject(source);
+  const { id: assetId } = await service.createAsset({ projectId, name: '旧版妆造' });
+  const image = await service.attachAssetImage({ projectId, assetId, filePath: 'newer.png' });
+  const legacyUrl = 'https://fixture.invalid/legacy.png';
+  const recordFile = f.storedFile(projectId), record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  delete record.assets[0].adoptedImageId;
+  record.assets[0].image_url = legacyUrl;
+  fs.writeFileSync(recordFile, JSON.stringify(record));
+  await service.deleteAssetImage({ projectId, assetId, imageId: image.id });
+  const [asset] = await f.setup().listAssets({ projectId });
+  assert.deepEqual(asset.images, []);
+  assert.equal(asset.image_url, legacyUrl);
+});
+
+test('local asset image clearing targets only the specified card or the whole image gallery', async t => {
+  const f = fixture(t), service = f.setup(), { id: projectId } = await service.createProject(source);
+  const first = await service.createAsset({ projectId, name: '第一角色' });
+  const second = await service.createAsset({ projectId, name: '第二角色' });
+  await service.attachAssetImage({ projectId, assetId: first.id, filePath: 'first.png' });
+  const survivor = await service.attachAssetImage({ projectId, assetId: second.id, filePath: 'second.png' });
+  const reference = await service.uploadMedia({ projectId, kind: 'audio', filePath: 'reference.wav' });
+  const recordFile = f.storedFile(projectId), record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  record.media.find(row => row.id === reference.id).assetId = first.id;
+  fs.writeFileSync(recordFile, JSON.stringify(record));
+  assert.deepEqual(await service.clearAssetImages({ projectId, assetId: first.id }), { ok: true });
+  assert.deepEqual((await f.setup().listMedia({ projectId })).map(row => row.id), [survivor.id, reference.id]);
+  await assert.rejects(service.clearAssetImages({ projectId, assetId: 'missing' }), { status: 404 });
+  assert.deepEqual(await service.clearAssetImages({ projectId }), { ok: true });
+  assert.deepEqual((await f.setup().listAssets({ projectId })).map(asset => [asset.images, asset.adoptedImageId, asset.image_url]), [[[], null, ''], [[], null, '']]);
+  assert.deepEqual((await f.setup().listMedia({ projectId })).map(row => row.id), [reference.id]);
+  assert.deepEqual(f.calls, []);
+});
+
+test('cloud asset deletion and clearing keep the existing route and surface rejection unchanged', async t => {
+  const received = [];
+  const f = fixture(t, { deleteAssetImage: payload => {
+    received.push(payload);
+    throw Object.assign(Error('云端无权限'), {status: 403});
+  }, clearAssetImages: payload => { received.push(payload);return { ok: true }; } });
+  const projectId = randomUUID(), payload = { projectId, assetId: randomUUID(), imageId: randomUUID() };
+  await assert.rejects(f.setup().deleteAssetImage(payload), {status: 403, message: '云端无权限'});
+  assert.deepEqual(await f.setup().clearAssetImages({ projectId }), { ok: true });
+  assert.deepEqual(f.calls, ['deleteAssetImage', 'clearAssetImages']);
+  assert.deepEqual(received, [payload, { projectId }]);
+});
 
 test('local reference-image preference survives restart and protects the adopted image of another look', async (t) => {
   const f = fixture(t), service = f.setup();

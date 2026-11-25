@@ -69,6 +69,18 @@ if(preferenceFixture)Object.assign(answers,{
     writePreferenceRows(row=>row.id===assetId?{...row,...updates,image_url:row.images.find(image=>image.id===updates.adoptedImageId).url,noReferenceImage:false}:row);
   },
 });
+if(fixture.has('asset-image-delete')){
+  const bridge=window.assetDeletionFixture;
+  const active=await bridge.state();
+  if(localStorage.getItem('qa-asset-delete-project')!==active.projectId){
+    localStorage.removeItem('xz-collab-last-project');
+    localStorage.setItem('qa-asset-delete-project',active.projectId);
+  }
+  Object.assign(answers,{appVersion:'2.8.207',collabListProjects:()=>bridge.call('listProjects'),
+    collabGetProject:payload=>bridge.call('getProject',payload),collabListAssets:payload=>bridge.call('listAssets',payload),
+    collabListMedia:payload=>bridge.call('listMedia',payload),collabDeleteAssetImage:payload=>bridge.call('deleteAssetImage',payload),
+    collabClearAssetImages:payload=>bridge.call('clearAssetImages',payload)});
+}
 window.xingzhou = new Proxy({}, { get(_, key) {
   if (typeof key !== 'string' || key === 'then') return undefined;
   if (key === 'onLicenseState') return callback => {qa.licenseChanged=callback;return ()=>{qa.licenseChanged=null;};};
@@ -81,7 +93,7 @@ window.xingzhou = new Proxy({}, { get(_, key) {
     }
     if (/Clear|Remove|Delete|UpdateProject|WriteProject/.test(key)) qa.operations.push(key);
     const answer = answers[key];
-    return structuredClone(typeof answer === 'function' ? answer(...args) : answer === undefined ? [] : answer);
+    return structuredClone(await (typeof answer === 'function' ? answer(...args) : answer === undefined ? [] : answer));
   };
 }});
 await import('../../src/main.jsx');

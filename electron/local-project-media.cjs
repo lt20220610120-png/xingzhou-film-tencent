@@ -442,4 +442,4 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
   return {storeFile,capture,materialize,resolveReferences,prepareShare};
 }
 
-module.exports = {createLocalProjectMedia, projectMediaMime};
+module.exports = {createLocalProjectMedia, projectMediaMime, adoptedLocalAssetImage: assetImage};
