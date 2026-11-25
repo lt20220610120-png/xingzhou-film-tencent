@@ -78,12 +78,6 @@ app.whenReady().then(async () => {
     };
     const rail = label => click('.collab-rail button', label);
     const nav = label => click('#app-sidebar button', label);
-    const screenshot = async (width, name) => {
-      if (!evidence) return;
-      await run(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      const {data} = await win.webContents.debugger.sendCommand('Page.captureScreenshot', {format:'png'});
-      fs.writeFileSync(path.join(evidence, `${width}-${name}.png`), Buffer.from(data, 'base64'));
-    };
     const inspect = async (width, panel, selector, {controls = 'button,select,input', minimum = 1, baseline, expectedHeight = 36} = {}) => {
       const data = await run((selector, controls, baseline) => {
         const root = document.querySelector(selector);
@@ -178,7 +172,6 @@ app.whenReady().then(async () => {
           inViewport:r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight};
       }, trigger);
       check(tip.focusVisible && tip.inViewport && /搜索不改变生成范围/.test(tip.text), `${width} asset tooltip ${JSON.stringify(tip)}`);
-      await screenshot(width, 'asset');
       await press('Escape', 27);
       await wait(selector => document.activeElement.matches(selector) && !document.activeElement.hasAttribute('aria-describedby'), trigger);
       report.panels.push({width, panel:'asset-help', ...tip, escapeRestoredFocus:true});
@@ -191,7 +184,6 @@ app.whenReady().then(async () => {
       await inspect(width, 'voice', '.project-voice-card.is-empty .voice-model-actions', {minimum:4, baseline:'button,select'});
       await measureText(width, '.voice-status-badge', 3);
       await measureText(width, '.voice-status-filters [aria-pressed=true]');
-      await screenshot(width, 'voice');
       await click('.voice-status-filters button:nth-child(2)');
       await wait(() => document.querySelector('.voice-status-filters button:nth-child(2)').getAttribute('aria-pressed') === 'true' &&
         document.querySelectorAll('.project-voice-card').length === 1 && Boolean(document.querySelector('.project-voice-card.is-empty')));
@@ -215,14 +207,12 @@ app.whenReady().then(async () => {
         document.querySelector('.storyboard-tools-toggle').getAttribute('aria-expanded') === 'true' &&
         Boolean(document.querySelector('.storyboard-generation-tools .storyboard-defaults + .storyboard-batch'))),
       `${width} storyboard generation settings missing integrated batch controls`);
-      await screenshot(width, 'storyboard');
 
       await rail('视频池');
       await present('.video-pool-row');
       await inspect(width, 'video-pool', '.video-pool-header-actions', {minimum:7, baseline:'button'});
       await inspect(width, 'video-pool', '.video-pool-toolbar', {minimum:7, baseline:'select'});
       await measureText(width, '.video-pool-status-tabs [aria-pressed=true]');
-      await screenshot(width, 'video-pool');
       await click('.video-pool-status-tabs button:nth-child(2)');
       await wait(() => document.querySelector('.video-pool-status-tabs button:nth-child(2)').getAttribute('aria-pressed') === 'true' &&
         document.querySelectorAll('.video-pool-row').length === 1 && document.querySelector('.video-pool-row h3')?.textContent === '1-1-1');
