@@ -6,6 +6,7 @@
 
 | 版本 | 发布说明 | 验收记录 | 早期发布与专项验收 |
 | --- | --- | --- | --- |
+| 2.8.207 | [说明](release-notes/2.8.207.md) | [验收](verification/release-verification-2.8.207.md) | — |
 | 2.8.206 | [说明](release-notes/2.8.206.md) | [验收](verification/release-verification-2.8.206.md) | — |
 | 2.8.205 | [说明](release-notes/2.8.205.md) | [验收](verification/release-verification-2.8.205.md) | — |
 | 2.8.204 | [说明](release-notes/2.8.204.md) | [验收](verification/release-verification-2.8.204.md) | — |

@@ -7,8 +7,9 @@ const account = { id: 'wave-three-isolated', username: 'qa', roles: ['creator', 
 const ep = { id: 'qa-episode', number: 1, episodeNumber: 1, title: '第1集', content: text, script: text, prompts: [{ id: 'qa-prompt', label: '1-1-1', sceneLabel: '1-1', content: '1-1-1\n测试场面' }], scenes: [], storyboards: [] };
 const director = { id: 'qa-director', name: '隔离导演剧本', masterScript: text, episodes: [ep] };
 const fixture = new URLSearchParams(location.search);
+const commercialFixture = fixture.has('commercial-polish');
 if(fixture.has('long-selects'))ep.title='第1集｜隔离测试：婚礼直播、冷链基地与投资决策的完整集名测试';
-const storyboard = fixture.has('storyboard-scroll') ? await import('./storyboard-scroll.js') : null;
+const storyboard = fixture.has('storyboard-scroll') || commercialFixture ? await import('./storyboard-scroll.js') : null;
 const preferenceFixture = fixture.has('asset-reference-preference');
 const shot = (label,ids) => ({label,generationConfig:{bindingAssetIds:ids}});
 const secondEpisode={...ep,id:'qa-episode-2',number:2,episodeNumber:2,title:'第2集',storyboardPrompts:[shot('2-1-1',['stamp','seal'])]};
@@ -69,6 +70,26 @@ if(preferenceFixture)Object.assign(answers,{
     writePreferenceRows(row=>row.id===assetId?{...row,...updates,image_url:row.images.find(image=>image.id===updates.adoptedImageId).url,noReferenceImage:false}:row);
   },
 });
+if(commercialFixture){
+  const voice = name => ({manual:{name,characterName:name,sceneIds:['1-1'],quote:'隔离样音。'}});
+  const sample = {id:'qa-sample',kind:'audio',name:'隔离样音',url:'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='};
+  const poolJobs = ['success','submitted','failed'].map((status,index)=>({
+    id:`qa-pool-${index}`,projectId:project.id,shotId:`scroll-1-1-${index+1}`,kind:'video',status,
+  }));
+  const mediaProfiles = ['image','video'].map(kind=>({
+    id:`qa-${kind}`,kind,name:'隔离模拟生成接口',model:`qa-${kind}-model`,endpoint:'https://example.invalid/v1',apiKey:'isolated',
+  }));
+  Object.assign(saved,{mediaProfiles,activeImageApiId:'qa-image',activeVideoApiId:'qa-video'});
+  Object.assign(answers,{
+    collabListAssets:preferenceRows,
+    artReviewLoadLocal:{episodes:{},voiceProfiles:{
+      'qa-empty':voice('甲'),
+      'qa-candidate':{...voice('乙'),candidates:[sample]},
+      'qa-confirmed':{...voice('丙'),confirmed:sample,candidates:[sample]},
+    }},
+    generationList:({includeArchived}={})=>includeArchived?poolJobs:jobs,
+  });
+}
 if(fixture.has('asset-image-delete')){
   const bridge=window.assetDeletionFixture;
   const active=await bridge.state();
@@ -87,7 +108,8 @@ window.xingzhou = new Proxy({}, { get(_, key) {
   if (key.startsWith('on')) return () => () => {};
   return async (...args) => {
     qa.counts[key] = (qa.counts[key] || 0) + 1;
-    if (/^(?:aiChat|audioGenerate|generationSubmit|imageGenerate|videoGenerate|productionConnect)/.test(key)) {
+    if (/^(?:aiChat|audioGenerate|generationSubmit|imageGenerate|videoGenerate|productionConnect)/.test(key) ||
+        commercialFixture&&/^(?:generate|storyboardBatchStart|storyboardBatchResume|projectVideoShare)/i.test(key)) {
       qa.attemptedPaid.push(key);
       throw Error('隔离环境禁止上游请求');
     }

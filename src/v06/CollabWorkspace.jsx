@@ -1232,7 +1232,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
             <b><Box size={16} /> 资产总览</b>
             <div className="collab-cat-tabs">
               {Object.entries(ASSET_CATEGORIES).map(([key, label]) => (
-                <button key={key} disabled={batchBusy} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
+                <button key={key} disabled={batchBusy} aria-pressed={category === key} className={category === key ? 'active' : ''} onClick={() => { setCategory(key); setSearch(''); }}>{key === 'character' ? '角色' : label}</button>
               ))}
             </div>
           </div>
@@ -1262,7 +1262,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
         ) : (
           <>
             <span className="asset-selection-pill">已选 <b>{selectedIds.length}</b> / {displayAssets.length} 项</span>
-            <HoverInfo className="asset-batch-info-trigger" label="批量生图范围说明" content={`${onlyMissing?'仅生成当前分类未出图的资产与妆造':category==='prop'?'默认选择符合条件的未生成道具':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。`}><Info size={13} aria-hidden="true"/><span>生成规则</span></HoverInfo>
+            <HoverInfo className="asset-batch-info-trigger" label="生成规则" content={`${onlyMissing?'仅生成当前分类未出图的资产与妆造':category==='prop'?'默认选择符合条件的未生成道具':'默认选择未生成资产；人物包含全部妆造'}，搜索不改变生成范围。按所选接口生成；手动勾选已有图片的资产会新增图片，原图保留。`}><Info size={13} aria-hidden="true"/><span>生成规则</span></HoverInfo>
           </>
         )}
         {imageProgress&&<span className="asset-progress-pill" role="status">已处理 {imageProgress.completed}/{imageProgress.total}{imageProgress.failed ? ` · 未完成 ${imageProgress.failed}` : ''}</span>}

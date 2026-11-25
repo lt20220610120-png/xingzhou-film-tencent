@@ -3,8 +3,8 @@
 .collab-stage .collab-sb-left{width:240px;position:sticky;top:0;align-self:flex-start;height:var(--storyboard-left-height,calc(100vh - 32px));max-height:none;gap:12px;min-height:360px}
 .collab-stage .collab-sb-navigation{background:white;border:1px solid #e1e4ec;border-radius:8px;padding:14px;box-shadow:none}
 .collab-stage .collab-sb-back{display:inline-flex;gap:6px;align-items:center;min-height:34px;background:transparent;color:#6b55a5;border:0;padding:4px 0;margin-bottom:12px}
-.collab-stage .collab-sb-ep-switch{gap:12px}.collab-stage .collab-sb-ep-switch label{font-size:13px;color:#737987;display:flex;flex-direction:column;gap:7px}
-.collab-stage .collab-sb-ep-switch select{background:white;border:1px solid #dfe3ec;border-radius:6px;color:#303747;font-size:14px;min-height:36px}
+.collab-stage .collab-sb-ep-switch{gap:12px}.collab-stage .collab-sb-ep-switch label{font-size:13px;color:var(--ui-ink-secondary,#4e596c);display:flex;flex-direction:column;gap:7px}
+.collab-stage .collab-sb-ep-switch select{background:white;border:1px solid var(--ui-border,#dfe4ee);border-radius:8px;color:var(--ui-ink,#18202c);font-size:14px;min-height:36px}
 .collab-stage .collab-sb-script{background:#fff;border:1px solid #e1e4ec;box-shadow:none;border-radius:8px;font-size:14px;line-height:1.8;color:#414752;padding:16px;outline-offset:2px;resize:vertical;overflow:auto}
 .collab-stage .collab-sb-script:focus-visible{outline:2px solid #a18acb;border-color:#a18acb}
 .collab-stage .collab-sb-prompt-stack{gap:14px;overflow:visible;padding:0}.collab-stage .collab-storyboard .collab-panel-title{font-size:14px;color:#6d7483;padding:0 0 4px}
@@ -50,7 +50,7 @@
 .storyboard-parameter-apply{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding-top:10px;margin-top:2px;border-top:1px dashed #e6eaf2}
 .storyboard-parameter-apply>span{font-size:12px;font-weight:600;color:var(--ui-ink-secondary,#4e596c);white-space:nowrap}
 .storyboard-parameter-apply>div{display:flex;flex-wrap:wrap;gap:8px}
-.storyboard-generation-tools .storyboard-parameter-apply button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;min-height:32px;padding:0 12px;border:1px solid var(--ui-border,#dfe4ee);background:#fff;color:var(--ui-ink-body,#2d3748);border-radius:8px;font-size:12px;font-weight:600;box-shadow:none;cursor:pointer}
+.storyboard-generation-tools .storyboard-parameter-apply button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;min-height:36px;padding:0 12px;border:1px solid var(--ui-border,#dfe4ee);background:#fff;color:var(--ui-ink-body,#2d3748);border-radius:8px;font-size:12px;font-weight:600;box-shadow:none;cursor:pointer}
 .storyboard-generation-tools .storyboard-parameter-apply button:hover:not(:disabled){background:var(--ui-accent-soft,#efeafb);border-color:var(--ui-border-strong,#c4b8e6);color:var(--ui-accent-text,#543e9e)}
 .storyboard-generation-tools .storyboard-batch{margin:14px -16px 0;padding:12px 16px;border:0;border-top:1px solid #eceef5;border-radius:0;background:#f8f9fc}
 .storyboard-generation-tools .storyboard-batch-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:transparent;border:0;border-radius:0;padding:0}
@@ -59,7 +59,7 @@
 .storyboard-generation-tools .storyboard-batch-controls button{height:36px;min-height:36px;gap:6px;padding:0 15px;border-radius:8px;font-size:13px;font-weight:600;transition:background .15s,border-color .15s}
 .storyboard-generation-tools .storyboard-batch-controls .secondary{color:var(--ui-accent-text,#543e9e);background:#fff;border:1px solid var(--ui-border-strong,#c4b8e6);box-shadow:none}
 .storyboard-generation-tools .storyboard-batch-controls .secondary:hover:not(:disabled){background:var(--ui-accent-soft,#efeafb);border-color:var(--ui-accent,#6c56bd)}
-.storyboard-generation-tools .storyboard-batch-controls .primary{margin-left:auto;order:10;background:var(--ui-accent,#6c56bd);border:1px solid var(--ui-accent,#6c56bd);color:#fff;box-shadow:0 1px 3px rgba(108,86,189,.25)}
+.storyboard-generation-tools .storyboard-batch-controls .primary{margin-left:auto;background:var(--ui-accent,#6c56bd);border:1px solid var(--ui-accent,#6c56bd);color:#fff;box-shadow:0 1px 3px rgba(108,86,189,.25)}
 .storyboard-generation-tools .storyboard-batch-controls .primary:hover:not(:disabled){background:var(--ui-accent-hover,#5c46ac);border-color:var(--ui-accent-hover,#5c46ac)}
 .storyboard-generation-tools button:disabled{opacity:.56;box-shadow:none;cursor:not-allowed}
 .storyboard-generation-tools button:focus-visible{outline:2px solid var(--brand-focus,#7c66cc);outline-offset:2px}
