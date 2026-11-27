@@ -11,3 +11,18 @@ test('lost cloud acknowledgement reconciles the same generated file without uplo
  const [a,b]=await Promise.all([service.attachGeneratedAssetImage(payload),service.attachGeneratedAssetImage(payload)]);
  assert.equal(a.id,'i');assert.equal(b.id,'i');assert.equal(uploaded,1);assert.equal(inserted,1);
 });
+
+test('changing accounts mid-upload never records the old image or uses the new session token',async()=>{
+ let active={token:'test-session-one',account:{id:'old'}},released,uploaded;
+ const entered=new Promise(resolve=>uploaded=resolve);
+ const hold=new Promise(resolve=>released=resolve);
+ const calls=[];
+ const service=createCollabService(()=>active,{
+  callGateway:async(action,_params,token)=>{calls.push([action,token]);return [{id:'a',images:[]}];},
+  upload:async(_project,_file,_kind,token)=>{calls.push(['upload',token]);uploaded();await hold;return {objectPath:'p/old'};},
+ });
+ const work=service.attachGeneratedAssetImage({projectId:'p',assetId:'a',accountId:'old',filePath:'old.png'});
+ await entered;active={token:'test-session-two',account:{id:'new'}};released();
+ await assert.rejects(work,/账号已变化/);
+ assert.deepEqual(calls,[['assets-list','test-session-one'],['upload','test-session-one']]);
+});

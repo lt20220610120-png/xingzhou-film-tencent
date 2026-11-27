@@ -18,7 +18,30 @@ test('context covers every chunk, persists before proceeding, and caches only un
 });
 test('interrupted context resumes from last saved segment without inventing a completed premise',async()=>{
  const f=fixture(),project={script:'甲'.repeat(150)},original=f.api.aiChat;let n=0;
- f.api.aiChat=async p=>{if(++n===2)throw Error('temporary API error');return original(p);};
- await assert.rejects(ensureArtScriptContext({...f,project,maxChunkChars:70}),/temporary/);assert.equal(f.data.scriptContext.chunks.length,1);assert.notEqual(f.data.scriptContext.complete,true);
+ f.api.aiChat=async p=>{if(++n>=2)throw Error('temporary API error');return original(p);};
+ await assert.rejects(ensureArtScriptContext({...f,project,maxChunkChars:70,waitForRetry:async()=>{}}),/temporary/);assert.equal(n,4);assert.equal(f.data.scriptContext.chunks.length,1);assert.notEqual(f.data.scriptContext.complete,true);
  f.api.aiChat=original;const before=f.calls.length;await ensureArtScriptContext({...f,project,maxChunkChars:70});assert.equal(f.calls.length-before,3);assert.equal(f.data.scriptContext.complete,true);
+});
+test('a 20,000-character script can open in scene one and supply identity evidence after the opening',async()=>{
+ const f=fixture(),project={script:'第一集\n1-1 码头 日 外\n'+ '工人把旧木箱堆在栈桥上。'.repeat(1600)+'\n2-1 仓库 夜 内\n墙上挂着一九八八年上海港装卸日历。'};
+ f.api.aiChat=async p=>{
+  f.calls.push(p);
+  const input=JSON.parse(p.messages[1].content);
+  if(input.untrustedScript)return JSON.stringify(input.untrustedScript.includes('一九八八年')?{era:'1988 年，上海港，依据装卸日历'}:{background:'码头工人搬运木箱，故事发生在港口'});
+  assert.ok(input.untrustedSegmentObservations.length>=2);
+  assert.match(JSON.stringify(input),/1988 年/);
+  return JSON.stringify({background:'上海港工人的生活与工作',era:'1988 年上海港',population:null,tone:'港口劳动纪实'});
+ };
+ const result=await ensureArtScriptContext({...f,project});
+ assert.match(result.summary.era,/1988 年上海港/);
+ assert.match(result.summary.population,/待核对/);
+ assert.ok(f.calls.length>=3);
+});
+test('malformed responses receive targeted corrections and never exceed three attempts',async()=>{
+ const f=fixture(),project={script:'第一集\n1-1 船舱 夜 内'};
+ f.api.aiChat=async p=>{f.calls.push(p);return f.calls.length===1?'不可解析':f.calls.length===2?'{}':JSON.stringify({...summary});};
+ assert.equal((await ensureArtScriptContext({...f,project,waitForRetry:async()=>{}})).complete,true);
+ assert.equal(f.calls.length,3);
+ assert.match(f.calls[1].messages[0].content,/纠偏/);
+ assert.notEqual(f.calls[1].messages[0].content,f.calls[2].messages[0].content);
 });

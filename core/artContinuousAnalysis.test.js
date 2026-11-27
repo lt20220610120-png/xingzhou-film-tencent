@@ -31,6 +31,20 @@ test('waiting can be stopped and resumes without claiming complete or retrying d
  const result=await runContinuousArtAnalysis({...f,job,waitForRetry:async()=>{job.cancelled=true}});assert.notEqual(result.workflow.phase,'complete');assert.equal(f.disk.analysisRun.status,'stopped');
  const broken=fixture();broken.api.artReviewSaveLocal=async()=>{throw Error('disk full')};await assert.rejects(runContinuousArtAnalysis(broken),/disk full/);assert.equal(broken.calls.length,0);
 });
+test('persistent background failure stops and a confirmed manual background resumes downstream analysis',async()=>{
+ const f=fixture(),original=f.api.aiChat;
+ f.project.script='第一集\n1-1 街道 日 外\n林舟牵着狗。';
+ f.api.aiChat=async p=>{f.calls.push(p);return {ok:false,error:'模拟接口不可用'};};
+ await assert.rejects(runContinuousArtAnalysis(f),/背景.*模拟接口不可用/);
+ assert.equal(f.calls.length,3);
+ assert.equal(f.disk.analysisRun.status,'paused');
+ assert.match(f.disk.analysisRun.backgroundError,/模拟接口不可用/);
+ f.api.aiChat=original;
+ const result=await runContinuousArtAnalysis({...f,manualBackground:'现代港口城市，地点和族群待核对。'});
+ assert.equal(result.workflow.phase,'complete');
+ assert.match(result.scriptContext.genre,/现代港口城市/);
+ assert.equal(f.calls.length,5);
+});
 test('a parseable but interrupted inventory must be retried, never falsely completed or skipped',async()=>{
  const f=fixture(),original=f.api.aiChat;let once=true;
  f.api.aiChat=async p=>{const r=await original(p);if(once){once=false;return {...r,ok:false,error:'输出截断'}}return r;};

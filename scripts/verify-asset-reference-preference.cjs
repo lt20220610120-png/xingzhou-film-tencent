@@ -50,17 +50,27 @@ app.whenReady().then(async()=>{
   const hasRow=name=>`!!document.querySelector(${JSON.stringify(row(name))})`;
   const preference=id=>`waveThree.preferences().find(a=>a.id===${JSON.stringify(id)}).noReferenceImage`;
   const clickTab=label=>click('.collab-rail button',label);
-  await win.loadURL(url+'scripts/fixtures/wave-three-ui.html?asset-reference-preference');
+  for(const mode of ['cloud','local']){
+  await win.loadURL(url+'scripts/fixtures/wave-three-ui.html?asset-reference-preference&mode='+mode);
+  await run("localStorage.removeItem('xz-collab-last-project:wave-three-isolated')");
+  await win.reload();
   await click('#app-sidebar button','项目协作');
   await click('.collab-hub button, .collab-hub [role=button]','进入项目');
   await clickTab('美术');
-  await click('.collab-episode-card','第 1 集',true);
+  await wait("!!document.querySelector('.collab-episode-card, .art-episode-picker')");
+  if(!await run("!!document.querySelector('.art-episode-picker')"))await click('.collab-episode-card','第 1 集',true);
   await click('.collab-cat-tabs button','道具');
   await wait(hasRow('冷链重卡'));
   await wait(`document.querySelector('${row('冷链重卡')} input[type=checkbox]')?.checked`);
   await click(`${row('随身钢笔')} input[type=checkbox]`,'选择 随身钢笔 批量生成');
   await click(`${row('台灯')} input[type=checkbox]`,'选择 台灯 批量生成');
-  await click('.collab-art-head-right button','一键确定无需参考图（1）');
+  await click('.asset-reference-preference-actions button','一键确定无需参考图（1）');
+  await wait("document.querySelector('.workspace-dialog[open]')?.textContent.includes('道具分类的 1 项')");
+  assert.deepEqual(await run('waveThree.operations.filter(r=>r.assetIds)'),[]);
+  await click('.workspace-dialog button','取消');
+  assert.equal(await run(preference('truck')),false);
+  await click('.asset-reference-preference-actions button','一键确定无需参考图（1）');
+  await click('.workspace-dialog button','确定标记');
   await wait(`document.querySelector('${row('冷链重卡')} .reference-exempt')?.textContent==='无需参考图'`);
   assert.deepEqual(await run('waveThree.operations.filter(r=>r.assetIds)'),[{assetIds:['truck'],noReferenceImage:true}]);
   assert.equal(await run(preference('stamp')),false);
@@ -75,7 +85,8 @@ app.whenReady().then(async()=>{
   await wait(`document.querySelector('${row('印泥')} input[type=checkbox]')?.checked`);
   await click(`${row('印泥')} input[type=checkbox]`,'选择 印泥 批量生成');
   await click(`${row('台灯')} input[type=checkbox]`,'选择 台灯 批量生成');
-  await click('.asset-category-batch-controls button','一键确定无需参考图（1）');
+  await click('.asset-reference-preference-actions button','一键确定无需参考图（1）');
+  await click('.workspace-dialog button','确定标记');
   await wait(`document.querySelector('${row('印章')} .reference-exempt')?.textContent==='无需参考图'`);
   assert.deepEqual(await run('waveThree.operations.filter(r=>r.assetIds).at(-1)'),{assetIds:['stamp'],noReferenceImage:true});
   await click('.asset-view-filters button','只看未生成（1）');
@@ -84,10 +95,36 @@ app.whenReady().then(async()=>{
   await click('.asset-category-batch-controls button','全选未生成');
   await wait(`document.querySelector('${row('印泥')} input[type=checkbox]')?.checked`);
   await click('.asset-view-filters button','只看未生成（1）');
-  await click(`${row('印章')} button`,'取消无需参考图');
-  await wait(`!${preference('stamp')} && !document.querySelector('${row('印章')} .reference-exempt')`);
   await click(`${row('旧钱包')} button`,'采用此图');
+  await click('.asset-reference-preference-actions button','一键取消无需参考图（2）');
+  await wait(`!${preference('stamp')} && !document.querySelector('${row('印章')} .reference-exempt')`);
   await wait(`!${preference('archive')} && document.querySelector('${row('旧钱包')} .asset-image-adopt')?.textContent==='已采用'`);
+  await click('.collab-cat-tabs button','角色');
+  await click('.character-outfit-picker button','工装',true);
+  const picker=(asset)=>`document.querySelector(${JSON.stringify(row(asset)+' select[aria-label$="参考图片"]')})`;
+  const checkOptions=async(asset,id)=>{
+   await wait(`!!${picker(asset)}`);
+   const values=await run(`[...${picker(asset)}.options].map(option=>option.value)`);
+   assert.ok(values.includes(id));
+   assert.ok(values.includes('__auto__')&&values.includes(''));
+   assert.ok(values.every(value=>['__auto__','','__local__',id,...(id==='day'?['person']:[])].includes(value)),`${asset} 跨类参考 ${values}`);
+  };
+  await checkOptions('【李岚-工装】','day');
+  await run("localStorage.setItem('xz-asset-reference:wave-three-isolated:qa-project:studio-night','day')");
+  await click('.collab-cat-tabs button','场景');
+  await checkOptions('【影棚-夜-内】','studio');
+  assert.equal(await run(`${picker('【影棚-夜-内】')}.value`),'__auto__');
+  await click('.asset-reference-preference-actions button','一键确定无需参考图（1）');
+  await click('.workspace-dialog button','确定标记');
+  await wait(preference('studio-night'));
+  await click('.asset-reference-preference-actions button','撤销');
+  await wait(`!${preference('studio-night')}`);
+  await click('.collab-cat-tabs button','道具');
+  await select('道具关联数量条件','all');
+  await wait(`!!${picker('冷链重卡')}`);
+  const propOptions=await run(`[...${picker('冷链重卡')}.options].map(option=>option.value)`);
+  assert.ok(propOptions.includes('lamp'));
+  assert.ok(propOptions.every(value=>['__auto__','','__local__','lamp','archive'].includes(value)));
   await click('.collab-cat-tabs button','角色');
   await click('.character-outfit-picker button','工装',true);
   await click(`${row('【李岚-工装】')} button`,'标记无需参考图');
@@ -109,9 +146,10 @@ app.whenReady().then(async()=>{
    await wait(`innerWidth===${width}`);
    assert.ok(await run("document.documentElement.scrollWidth<=innerWidth"),`资产操作区在 ${width}px 应可完整显示`);
   }
+  }
   assert.deepEqual(external,[]);
   assert.deepEqual(await run('waveThree.attemptedPaid'),[]);
-  console.log(JSON.stringify({widths:[1280,1600,1920],episodeBulk:true,wholeProjectPropFilter:true,
+  console.log(JSON.stringify({modes:['local','cloud'],widths:[1280,1600,1920],sameCategory:true,undo:true,episodeBulk:true,wholeProjectPropFilter:true,
    skippedAdopted:true,defaultSelectionExcludesMarked:true,cancel:true,adoption:true,isolatedOutfit:true,reload:true,paidCalls:0}));
  }catch(error){
   console.error(error);

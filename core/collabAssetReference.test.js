@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveAssetReference } from './collabStore.js';
+import { projectAssetReferenceOptions, resolveAssetReference } from './collabStore.js';
 import { autoReferences } from './generationReferences.js';
 
 const assets = [
@@ -71,4 +71,20 @@ test('new scene baseline ids without time anchor later lighting cards', () => {
   assert.equal(resolveAssetReference(assets[1], assets).id, 'base');
   assert.equal(resolveAssetReference(assets[1], assets, 'room').id, 'room');
   assert.equal(resolveAssetReference(assets[1], assets).id, 'base');
+});
+
+test('historical cross-category selections fall back to the correct category baseline', () => {
+  const prop={id:'prop',name:'木箱',category:'prop',image_url:'prop.png'};
+  const scene={id:'scene',name:'码头',category:'scene',image_url:'scene.png'};
+  const mixed=[...assets,prop,scene];
+  assert.equal(resolveAssetReference(assets[1],mixed,'scene').id,'base');
+  assert.equal(resolveAssetReference(scene,mixed,'base'),null);
+  assert.equal(resolveAssetReference(prop,mixed,'base'),null);
+  for(const target of [assets[1],scene,prop]){
+    const same={...target,id:target.category+'-image',image_url:'same.png'};
+    const options=projectAssetReferenceOptions(target,[...mixed,same]);
+    assert.ok(options.every(candidate=>candidate.category===target.category&&candidate.id!==target.id));
+    assert.ok(options.includes(same));
+    assert.equal(resolveAssetReference(target,[...mixed,same],same.id),same);
+  }
 });

@@ -6,13 +6,15 @@ async function fixture({canEdit=true,hold=false,updatingReferencePreference=fals
  const {runArtImageBatch}=await import('../core/artImageBatch.js');
  const recovery=await import('../core/assetImageRecovery.js');
  const asset={id:'p',name:'道具',category:'prop',description:'完整道具描述'},project={id:crypto.randomUUID(),style:''};
+ const activity=(await import('../core/assetImageActivity.js')).assetImageActivity(project.id,'a');
+ const helper=ui.slice(ui.indexOf('const attachImageToAsset'),ui.indexOf('function AssetImageBox'));
  let selected=['p'],paid=0,release,markStarted;const wait=hold?new Promise(resolve=>release=resolve):null;
  const paidStarted=new Promise(resolve=>markStarted=resolve);
- const scope={project,assets:[asset],selectedIds:['p'],baselineIds:[],canEdit,showArchived:false,batchBusy:false,referencePreference:{updating:{current:updatingReferencePreference}},batchRunning:{current:false},batchProfile:{id:'mock'},batchSize:'1024x1024',imageConcurrency:2,accountId:'a',
+ const scope={ASSET_CATEGORIES:{prop:"道具"},activity,onImageAttached:()=>{},category:asset.category,project,assets:[asset],selectedIds:['p'],baselineIds:[],canEdit,showArchived:false,batchBusy:false,referencePreference:{updating:{current:updatingReferencePreference}},batchRunning:{current:false},batchProfile:{id:'mock'},batchSize:'1024x1024',imageConcurrency:2,accountId:'a',
   imagePlan:()=>selected.includes('p')?[{asset}]:[],generatingAssetIdsRef:{current:new Set()},stopImages:{current:false},setBatchKind:()=>{},setBatchError:()=>{},setBatchBusy:()=>{},setImageProgress:()=>{},setGeneratingAssetIds:()=>{},setBatchSelectedIds:fn=>selected=fn(selected),
   runArtImageBatch,...recovery,api:{collabListAssets:async()=>[{...asset,noReferenceImage:remoteNoReferenceImage}],mediaGenerateImage:async()=>{paid++;markStarted();if(wait)await wait;return {filePath:'C:/qa/image.png'};},collabAttachGeneratedAssetImage:async()=>({id:'saved',url:'https://example.test/saved.png'})},
   refresh:async()=>{},draftStore:{read:()=>null},readAssetReferenceChoice:()=>'',resolveAssetImageReference:()=>null,requiresAssetImageReference:()=>false,characterAppearanceIssue:()=>null,assetImageReferences:()=>[],buildImagePrompt:a=>a.description,projectCharacterComposition:()=>({}),readableCloudError:e=>e.message};
- const generate=new Function(...Object.keys(scope),handler+'\nreturn generateBatch;')(...Object.values(scope));
+ const generate=new Function(...Object.keys(scope),helper+'\n'+handler+'\nreturn generateBatch;')(...Object.values(scope));
  return {generate,get paid(){return paid;},get selected(){return selected;},release,paidStarted};
 }
 test('saved successes leave the selection even when a cloud refresh returns stale assets',async()=>{

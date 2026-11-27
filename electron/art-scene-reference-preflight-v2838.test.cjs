@@ -4,7 +4,6 @@ const fs=require('node:fs');
 const path=require('node:path');
 const ui=fs.readFileSync(path.join(__dirname,'../src/v06/CollabWorkspace.jsx'),'utf8').replace(/\r\n/g,'\n');
 const single=ui.slice(ui.indexOf('function AssetImageBox('),ui.indexOf('function ManualAssetDialog('));
-const batch=ui.slice(ui.indexOf('function ArtSection('),ui.indexOf('function AssetsSection('));
 const prelude=ui.slice(ui.indexOf('const assetReferenceKey ='),ui.indexOf('function AssetImageBox('));
 const declaration=(s,n)=>s.match(new RegExp(`\\bconst ${n}\\s*=[^;]+;`))[0];
 const entry=(s,n)=>s.match(new RegExp(`const ${n} = async \\([^)]*\\) => \\{[\\s\\S]*?\\n  \\};`))[0];
@@ -30,12 +29,12 @@ async function run(kind,{baseline=false,baseImage=false,cancel=false,recovering=
   const body=[prelude,declaration(single,'refAsset'),declaration(single,'referenceRequired'),declaration(single,'explicitlyNoReference'),entry(single,'generate'),'return generate;'];
   await new Function(...Object.keys(scope),body.join('\n'))(...Object.values(scope))();
  }else{
-  // Exercise the shipped batch generation callback independently of its outer
-  // dependency scheduler, which is covered separately by artImageBatch tests.
-  scope.draftStore={read:()=>null};scope.liveAssets=assets;scope.episode=1;scope.batchSize='1024x1024';
-  const start=batch.indexOf('generate:async (asset) => {')+'generate:async (asset) => {'.length;
-  const end=batch.indexOf('\n      }});',start);
-  try{await new Function(...Object.keys(scope),`${prelude}\nreturn async(asset)=>{${batch.slice(start,end)}\n};`)(...Object.values(scope))(asset);}catch(e){errors.push(e.message);}
+  const {assetImageActivity}=await import('../core/assetImageActivity.js');
+  const activity=assetImageActivity(crypto.randomUUID(),scope.accountId);
+  Object.assign(scope,{buildImagePrompt:core.buildImagePrompt});
+  const start=new Function(...Object.keys(scope),prelude+'\nreturn startWorkspaceImageBatch;')(...Object.values(scope));
+  await start({...scope,activity,jobs:[{asset}],label:'fixture',draftStore:{read:()=>null},concurrency:1});
+  errors.push(...activity.snapshot().batches.flatMap(batch=>batch.failures.map(row=>row.error)));
  }
  return {calls,errors};
 }

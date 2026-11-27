@@ -282,13 +282,20 @@ export function wardrobeDescription(baseline,description=''){
  const content = isCreatureAsset(baseline) ? text : referencedWardrobeContent(text, { keepSurfaceState: true });
  return `参考${baseline.name}；${content || '服装差异：待补充。'}`;
 }
+const hasReferenceImage = item => Boolean(item?.images?.some(image=>image.url)||item?.image_url);
+export const projectAssetReferenceOptions = (asset,assets=[]) =>
+  assets.filter(item=>item.id!==asset.id&&item.category===asset.category&&hasReferenceImage(item));
+export function normalizeAssetReferenceChoice(asset,assets,selectedId) {
+  const previous=selectedId&&assets?.find(item=>item.id===selectedId);
+  return previous&&previous.category!==asset.category?null:selectedId;
+}
 export const resolveAssetReference = (asset, assets, selectedId = null) => {
-  const hasImage = (item) => item.images?.some((image) => image.url) || item.image_url;
+  selectedId=normalizeAssetReferenceChoice(asset,assets,selectedId);
+  if (selectedId !== null) return projectAssetReferenceOptions(asset,assets||[]).find(item=>item.id===selectedId)||null;
   const peers=assetReferencePeers(asset,assets);
-  if (selectedId !== null) return (assets || []).find((item) => item.id !== asset.id && item.id === selectedId && hasImage(item)) || null;
   if (asset.category !== 'character' && (asset.category !== 'scene' || !sceneIdentity(asset.name))) return null;
-  const first = asset.category==='character'?characterBaselineAsset(asset,assets):peers.find(hasImage);
-  return first && first.id !== asset.id && hasImage(first) ? first : null;
+  const first = asset.category==='character'?characterBaselineAsset(asset,assets):peers.find(hasReferenceImage);
+  return first && first.id !== asset.id && hasReferenceImage(first) ? first : null;
 };
 
 export const usesCharacterPortraitReference = (asset, reference, mode = readAssetPrompt(asset).mode) => asset.category === 'character'

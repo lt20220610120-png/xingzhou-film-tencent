@@ -11,11 +11,15 @@ const commercialFixture = fixture.has('commercial-polish');
 const draftFixture = fixture.has('jianying');
 if(fixture.has('long-selects'))ep.title='第1集｜隔离测试：婚礼直播、冷链基地与投资决策的完整集名测试';
 const storyboard = fixture.has('storyboard-scroll') || commercialFixture || draftFixture ? await import('./storyboard-scroll.js') : null;
-const preferenceFixture = fixture.has('asset-reference-preference');
+const imageBatchFixture = fixture.has('asset-image-batch');
+const backgroundFixture = fixture.has('art-background');
+const preferenceFixture = fixture.has('asset-reference-preference')||imageBatchFixture;
 const shot = (label,ids) => ({label,generationConfig:{bindingAssetIds:ids}});
 const secondEpisode={...ep,id:'qa-episode-2',number:2,episodeNumber:2,title:'第2集',storyboardPrompts:[shot('2-1-1',['stamp','seal'])]};
 const preferenceEpisodes=[{...ep,storyboardPrompts:[shot('1-1-1',['truck','lamp','pen','archive']),shot('1-1-2',['pen'])]},secondEpisode];
-const project = { id: 'qa-project', name: '隔离协作项目', owner_name: 'qa', myRole: 'producer', storageMode: 'cloud', episodes: preferenceFixture?preferenceEpisodes:storyboard?.episodes || [ep], updated_at: '2026-11-23T00:00:00Z' };
+const storageMode=fixture.get('mode')==='local'?'local':'cloud';
+const project = { id: 'qa-project', name: '隔离协作项目', owner_name: 'qa', myRole: fixture.has('read-only')?'collaborator':'producer', storageMode, episodes: preferenceFixture?preferenceEpisodes:storyboard?.episodes || [ep], updated_at: '2026-11-23T00:00:00Z' };
+if(backgroundFixture)Object.assign(project,{style:'AI真人',script:'第一集\n1-1 码头 日 外\n'+ '工人把木箱抬到栈桥。'.repeat(1850)+'\n仓库墙上挂着一九八八年上海港装卸日历。'});
 const profiles = Array.from({length: 30}, (_, i) => ({ id: 'mock-'+i, name: '隔离模拟模型 '+i, model: 'mock-'+i, endpoint: 'https://example.invalid/v1', apiKey: 'isolated' }));
 if(fixture.has('long-selects'))Object.assign(profiles[0],{name:'测试 Fast DeepSeek-V4.1-Flash',model:'cn:deepseek-v4.1-flash-'+ 'extended-production-context-'.repeat(8)});
 const saved = { ...createInitialState(), apiProfiles: profiles, activeApiId: profiles[0].id, directorProjects: [director], skills: [{id:'qa-skill', name:'隔离规则', content:'测试'}] };
@@ -31,8 +35,16 @@ const preferenceRows=[
   prop('stamp','印章',2),prop('seal','印泥',2),
   {...prop('day','【李岚-便服】',1,adopted),category:'character'},
   {...prop('night','【李岚-工装】',1),category:'character'},
+  {...prop('studio','【影棚-内】',1,adopted),category:'scene'},
+  {...prop('studio-night','【影棚-夜-内】',1),category:'scene'},
+  {...prop('person','【林安-常服】',1,adopted),category:'character'},
 ];
-const preferenceKey='qa-fixture-reference-preference';
+if(imageBatchFixture){
+  preferenceRows.push(...Array.from({length:10},(_,i)=>prop('group-'+i,'模拟道具 '+i,1)));
+  Object.assign(preferenceRows.find(asset=>asset.id==='day'),{images:[],image_url:'',adoptedImageId:null});
+  Object.assign(saved,{mediaProfiles:[{id:'qa-image',kind:'image',name:'隔离模拟生图',model:'qa-image',endpoint:'https://example.invalid/v1',apiKey:'isolated'}],activeImageApiId:'qa-image'});
+}
+const preferenceKey='qa-fixture-reference-preference:'+storageMode+(imageBatchFixture?':batch':'');
 const readPreferenceRows=()=>JSON.parse(localStorage.getItem(preferenceKey)||JSON.stringify(preferenceRows));
 function writePreferenceRows(update) {
   const rows=readPreferenceRows().map(update);
@@ -57,6 +69,7 @@ const answers = {
 };
 if(preferenceFixture)Object.assign(answers,{
   collabListAssets:readPreferenceRows,
+  artReviewLoadLocal:{episodes:{}},
   collabSetAssetReferenceImagePreference:({assetIds,noReferenceImage})=>{
     const updatedIds=[],skippedIds=[];
     qa.operations.push({assetIds,noReferenceImage});
@@ -71,6 +84,52 @@ if(preferenceFixture)Object.assign(answers,{
     writePreferenceRows(row=>row.id===assetId?{...row,...updates,image_url:row.images.find(image=>image.id===updates.adoptedImageId).url,noReferenceImage:false}:row);
   },
 });
+if(imageBatchFixture){
+  const releases=new Map();
+  const albums=[];
+  const otherProject={...project,id:'qa-second-project',name:'第二个隔离项目',episodes:[ep]};
+  qa.imageRequests=[];
+  qa.savedImages=albums;
+  qa.releaseImage=id=>{const release=releases.get(id);if(!release)return false;releases.delete(id);release();return true;};
+  qa.pendingImages=()=>[...releases.keys()];
+  Object.assign(answers,{
+    collabListProjects:[project,otherProject],
+    collabGetProject:({projectId})=>projectId===project.id?project:otherProject,
+    collabListAssets:({projectId})=>projectId===project.id?readPreferenceRows():[],
+    mediaGenerateImage:async ({assetId,projectId,references})=>{
+      qa.imageRequests.push({assetId,projectId,references});
+      await new Promise(resolve=>releases.set(assetId,resolve));
+      if(qa.failImage===assetId)throw Error('隔离模拟：接口返回 503');
+      return {filePath:'C:/isolated/'+assetId+'.png'};
+    },
+    collabAttachGeneratedAssetImage:({projectId,assetId,filePath})=>{
+      if(projectId!==project.id||filePath!=='C:/isolated/'+assetId+'.png')throw Error('隔离结果关联错误');
+      const image={...sampleImage,id:'saved-'+assetId,url:sampleImage.url+'#'+assetId};
+      writePreferenceRows(row=>row.id===assetId?{...row,noReferenceImage:false,images:[...row.images||[],image],image_url:image.url,adoptedImageId:image.id}:row);
+      albums.push(assetId);
+      return image;
+    },
+  });
+}
+if(backgroundFixture){
+  let checkpoint={episodes:{}};
+  qa.backgroundCalls=[];
+  qa.backgroundCheckpoint=()=>checkpoint;
+  qa.backgroundMode='fail';
+  Object.assign(answers,{
+    artReviewLoadLocal:()=>checkpoint,
+    artReviewSaveLocal:({data})=>{checkpoint=structuredClone(data);},
+    collabUpdateProject:({updates})=>Object.assign(project,updates),
+    aiChat:p=>{
+      if(!p.artBackground)return {ok:false,error:'隔离验收：下游美术分析调用已拦截。'};
+      const input=JSON.parse(p.messages[1].content);
+      qa.backgroundCalls.push({input,correction:p.messages[0].content.includes('纠偏')});
+      if(qa.backgroundMode==='fail')return {ok:false,error:'模拟背景服务 503'};
+      if(input.untrustedScript)return JSON.stringify(input.untrustedScript.includes('一九八八年')?{era:'1988 年上海港，依据装卸日历'}:{background:'码头工人搬运木箱'});
+      return JSON.stringify({background:'上海港码头工人',era:'1988 年上海港',tone:'港口劳动纪实'});
+    },
+  });
+}
 if(commercialFixture){
   const voice = name => ({manual:{name,characterName:name,sceneIds:['1-1'],quote:'隔离样音。'}});
   const sample = {id:'qa-sample',kind:'audio',name:'隔离样音',url:'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='};
@@ -147,7 +206,9 @@ window.xingzhou = new Proxy(enumerableBridge, { get(_, key) {
   if (key.startsWith('on')) return () => () => {};
   return async (...args) => {
     qa.counts[key] = (qa.counts[key] || 0) + 1;
-    if (/^(?:aiChat|audioGenerate|generationSubmit|imageGenerate|videoGenerate|productionConnect)/.test(key) ||
+    if (/^(?:audioGenerate|generationSubmit|imageGenerate|videoGenerate|productionConnect)/.test(key) ||
+        key==='aiChat'&&!backgroundFixture ||
+        key==='mediaGenerateImage'&&!imageBatchFixture ||
         commercialFixture&&/^(?:generate|storyboardBatchStart|storyboardBatchResume|projectVideoShare)/i.test(key)) {
       qa.attemptedPaid.push(key);
       throw Error('隔离环境禁止上游请求');

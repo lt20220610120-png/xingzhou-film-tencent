@@ -109,16 +109,27 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     return publishing ? {...p,prompts:updated} : {...p,updates:updated[0]};
   }
   const attachGenerated = p => {
-    const key = `${account().id}:${p.projectId}:${p.assetId}:${p.filePath}`;
+    const owner = account().id;
+    const token = session().token || '';
+    const guard = () => {
+      if ((p.accountId!==undefined&&String(owner)!==String(p.accountId)) ||
+          String(session().account?.id||session().id||'')!==String(owner) || (session().token||'')!==token) {
+        throw new Error('账号已变化，已停止保存图片');
+      }
+    };
+    guard();
+    const key = `${owner}:${p.projectId}:${p.assetId}:${p.filePath}`;
     if (attaching.has(key)) return attaching.get(key);
     const work = (async () => {
       // Generated filenames are unique and retained during recovery. Reconcile a
       // previous successful record whose response was lost before uploading again.
-      const rows = await call('assets-list', {projectId:p.projectId});
+      const rows = await callGateway('assets-list', {projectId:p.projectId},token);
+      guard();
       const existing = rows.find(a=>a.id===p.assetId)?.images?.find(i=>i.filename===path.basename(p.filePath));
       if (existing) return existing;
-      const uploaded = await upload(p.projectId,p.filePath,'asset',session().token || '');
-      return call('asset-image-record',{projectId:p.projectId,assetId:p.assetId,episode:p.episode||0,...uploaded});
+      const uploaded = await upload(p.projectId,p.filePath,'asset',token);
+      guard();
+      return callGateway('asset-image-record',{projectId:p.projectId,assetId:p.assetId,episode:p.episode||0,...uploaded},token);
     })().finally(()=>attaching.delete(key));
     attaching.set(key,work); return work;
   };

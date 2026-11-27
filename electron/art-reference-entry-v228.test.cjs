@@ -54,12 +54,16 @@ async function fixture(kind,{cancel=false,baseImage=false,baseline=false,mode='s
     draftStore:{read:()=>null,save:async()=>{throw new Error('fixture has no draft');}},
     api:{collabListAssets:async()=>assets,mediaGenerateImage:async payload=>{calls.push(payload);return {};},collabAttachGeneratedAssetImage:async()=>{throw new Error('fixture must not attach');}},
   };
+  scope.activity=(await import('../core/assetImageActivity.js')).assetImageActivity(crypto.randomUUID(),scope.accountId);
+  scope.category=asset.category;
+  scope.onImageAttached=()=>{};
   await compileEntry(core,scope,kind)();
+  errors.push(...scope.activity.snapshot().batches.flatMap(batch=>batch.failures.map(row=>row.error)));
   const hint=singleSource.match(/\{(referenceRequired[^{}]+explicitlyNoReference)&&<small className="collab-ref-hint">([^<]+)<\/small>\}/);
   assert.ok(hint,'actual no-reference risk hint exists');
   const names=Object.keys({...core,...scope}),values=Object.values({...core,...scope});
   const riskVisible=new Function(...names,[referencePrelude,declaration(singleSource,'refAsset'),declaration(singleSource,'referenceRequired'),declaration(singleSource,'explicitlyNoReference'),`return Boolean(${hint[1]});`].join('\n'))(...values);
-  return {calls,errors,busyIds,locked:scope.generatingAssetIdsRef.current,riskNotice:riskVisible?hint[2]:''};
+  return {calls,errors,busyIds,locked:scope.activity.idsRef.current,riskNotice:riskVisible?hint[2]:''};
 }
 for(const kind of ['single','batch']){
   for(const mode of ['single','group','free']){

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {planArtImageBatch,runArtImageBatch,pendingCharacterBaselines,planAssetCategoryBatch} from './artImageBatch.js';
+import {reconcileAssetSelection} from './assetImages.js';
 const asset=(id,name,ep,extra={})=>({id,name,category:'character',first_episode:ep,episodes:[ep],...extra});
 test('whole plan deduplicates reuse, skips completed images and waits for baselines',()=>{
  const rows=[asset('v','【林舟-西服】',2),asset('b','【林舟-日常服】',1,{episodes:[1,2,3]}),asset('old','【安宁】',1,{images:[{id:'i',url:'stored'}]}),asset('b','【林舟-日常服】',1)];
@@ -32,6 +33,18 @@ test('reference-only batch follows declared roots, deduplicates people and skips
  assert(planAssetCategoryBatch(rows,{category:'character',selectedIds:['v','b','solo','later']}).some(j=>j.asset.id==='v'));
 });
 
+test('a historic cross-category selection preserves the required same-character batch dependency',()=>{
+ const rows=[asset('variant','【林舟-宴会】',2),asset('base','【林舟-日常】',1),asset('room','会厅',1,{category:'scene',image_url:'room.png'})];
+ const variant=planArtImageBatch(rows,{readReference:id=>id==='variant'?'room':null}).find(row=>row.asset.id==='variant');
+ assert.equal(variant.dependency,'base');
+});
+
+test('bulk restoring exempt rows reselects only ungenerated assets while preserving unaffected choices',()=>{
+ const before=[asset('skip','角色甲',1,{noReferenceImage:true}),asset('unchecked','角色乙',1),asset('old','角色丙',1,{noReferenceImage:true,images:[{id:'old-image'}]})];
+ const restored=before.map(item=>({...item,noReferenceImage:false}));
+ assert.deepEqual(reconcileAssetSelection([],before,restored),['skip']);
+});
+
 test('asset exemptions suppress default, explicitly selected, and reference-only batch dispatch',async()=>{
  const rows=[asset('skip','【张三】',1,{noReferenceImage:true}),asset('keep','【王五】',1),asset('prop','小道具',1,{category:'prop',noReferenceImage:true})];
  assert.deepEqual(planArtImageBatch(rows).map(j=>j.asset.id),['keep']);
@@ -40,4 +53,19 @@ test('asset exemptions suppress default, explicitly selected, and reference-only
  const calls=[];
  await runArtImageBatch(planArtImageBatch(rows),{generate:async item=>{calls.push(item.id);return {url:'mock'};}});
  assert.deepEqual(calls,['keep']);
+});
+
+test('unlimited mode launches all independent images without running a variant before the baseline',async()=>{
+ const rows=[asset('b','【林舟-日常】',1),asset('v','【林舟-宴会】',2),...Array.from({length:10},(_,i)=>asset('p'+i,'道具'+i,1,{category:'prop'}))];
+ const releases=new Map(),started=[];
+ const run=runArtImageBatch(planArtImageBatch(rows),{concurrency:Infinity,generate:a=>{
+  started.push(a.id);return new Promise(resolve=>releases.set(a.id,()=>resolve({url:a.id})));
+ }});
+ await new Promise(setImmediate);
+ assert.equal(started.length,11);assert(!started.includes('v'));
+ releases.get('b')();
+ await new Promise(setImmediate);
+ assert(started.includes('v'));
+ for(const release of releases.values())release();
+ assert.equal((await run).results.length,12);
 });

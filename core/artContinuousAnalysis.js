@@ -30,10 +30,11 @@ export const runContinuousArtAnalysis=args=>withStorageWork(async()=>{
   await checkpoint('retrying');job.retryAttempt=attempt;job.notice=`${label} · 自动补全第 ${attempt} 次，${delay/1000} 秒后重试：${text}`;onProgress?.();
   await (args.waitForRetry||waitForRetry)(delay,job);
  };
- let context,contextAttempt=0;
- while(!job.cancelled){
-  try{context=await ensureArtScriptContext({...args,store:scoped});break;}
-  catch(error){if(error.artCheckpointFailure||!continuous)throw error;await retry(error.message,++contextAttempt,'全剧背景');}
+ let context;
+ try{if(!job.cancelled)context=await ensureArtScriptContext({...args,store:scoped});}
+ catch(error){
+  if(error.code==='ART_BACKGROUND_INCOMPLETE')await scoped.setAnalysisRun({status:'paused',backgroundError:error.message,notes:[...notes],updatedAt:Date.now()});
+  throw error;
  }
  if(context&&!job.cancelled&&api.collabUpdateProject&&project.genre!==context.genre&&!context.cloudSynced){
   try{await api.collabUpdateProject({projectId:project.id,updates:{genre:context.genre}});await scoped.setContext({...context,cloudSynced:true});}

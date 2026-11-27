@@ -23,8 +23,11 @@ async function run(kind,{recovering=false,reference=false,local=false}={}){
  const body=kind==='single'?[prelude,declaration(single,'refAsset'),declaration(single,'referenceRequired'),declaration(single,'explicitlyNoReference'),entry(single,'generate'),'return generate;']:[prelude,declaration(batch,'imagePlan'),entry(batch,'generateBatch'),'return generateBatch;'];
  // Replace only the media request for recovered tasks: real recovery is separately covered.
  if(recovering)scope.requestAssetImage=async()=>{calls.push('recover');return {filePath:'old.png'};};
+ scope.activity=(await import('../core/assetImageActivity.js')).assetImageActivity(crypto.randomUUID(),scope.accountId);
+ scope.category=asset.category;
+ scope.onImageAttached=()=>{};
  const execute=new Function(...Object.keys(scope),body.join('\n'))(...Object.values(scope));
- await execute();return {calls,errors};
+ await execute();errors.push(...scope.activity.snapshot().batches.flatMap(batch=>batch.failures.map(row=>row.error)));return {calls,errors};
 }
 for(const kind of ['single','batch']){
  test(`${kind} accepts a wardrobe-only first card without face fields`,async()=>{const r=await run(kind);assert.equal(r.calls.length,1);assert.deepEqual(r.calls[0].references,[]);assert.match(r.calls[0].prompt,/白色实验室长褂、深灰长裤/);});

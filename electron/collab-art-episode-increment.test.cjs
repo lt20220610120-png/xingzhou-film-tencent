@@ -77,6 +77,6 @@ test('人物差异及场景时间资产在单张与批量生图前要求基准�
   assert.match(ui, /请先生成或选择人物基准参考图/);
   assert.match(ui, /明确不引用参考[^<]*不会锁定身份一致性/);
   assert.match(ui, /保持同地点布局，仅改变时间光线/);
-  const batch = ui.match(/const generateBatch[\s\S]*?if \(episode === null\)/)?.[0] || '';
+  const batch = ui.match(/function startWorkspaceImageBatch[\s\S]*?async function saveGeneratedAssetImage/)?.[0] || '';
   assert.match(batch, /requiresAssetImageReference/);
 });

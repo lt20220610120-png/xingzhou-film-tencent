@@ -326,6 +326,8 @@ const safeProviderDiagnostic=value=>{
 ipcMain.handle('ai-task-status',(_,p)=>aiTaskProgress.get(String(p?.taskId||''))||null);
 ipcMain.handle('ai-chat',async(event,payload)=>{
  const taskId=String(payload?.taskId||'');const controller=new AbortController();
+ let backgroundTimedOut=false;
+ const deadline=payload.artBackground===true?setTimeout(()=>{backgroundTimedOut=true;controller.abort();},180000):undefined;
  const revoke=()=>controller.abort();event?.securitySignal?.addEventListener('abort',revoke,{once:true});
  if(event?.securitySignal?.aborted)controller.abort();
  if(taskId){activeAiRequests.get(taskId)?.abort();activeAiRequests.set(taskId,controller)}
@@ -333,10 +335,10 @@ ipcMain.handle('ai-chat',async(event,payload)=>{
  catch(error){if(payload.resultEnvelope){
   const diagnostic=safeProviderDiagnostic(error.providerDiagnostic),{httpStatus}=error;
   const validStatus=Number.isInteger(httpStatus)&&httpStatus>=400&&httpStatus<=599;
-  return {ok:false,code:error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:error?.name==='AbortError'?'任务已停止':error.message,
+  return {ok:false,code:backgroundTimedOut?'ART_BACKGROUND_TIMEOUT':error?.name==='AbortError'?'STOPPED':String(error?.code||'FAILED'),error:backgroundTimedOut?'等待背景分析模型响应超时（180 秒）':error?.name==='AbortError'?'任务已停止':error.message,
    partialText:error.partialText||'',...(validStatus?{httpStatus}:{}),...(diagnostic?{providerDiagnostic:diagnostic}:{})};
  }if(error?.name==='AbortError')throw new Error('任务已停止');throw error}
- finally{event?.securitySignal?.removeEventListener('abort',revoke);if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
+ finally{if(deadline!==undefined)clearTimeout(deadline);event?.securitySignal?.removeEventListener('abort',revoke);if(taskId&&activeAiRequests.get(taskId)===controller){activeAiRequests.delete(taskId);aiTaskProgress.delete(taskId);}}
 });
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');
 ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
@@ -576,7 +578,15 @@ ipcMain.handle('collab-set-asset-reference-image-preference',(_,payload)=>collab
 
 ipcMain.handle('collab-generate-asset-image',async(event,payload)=>{const filePath=payload.provider==='libtv'?(await libtvDirect({...payload,kind:'image'},event.securitySignal)).filePath:require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?await completedFnkoFile({...payload,kind:'image'},event.securitySignal):await generateImage({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal});event.securitySignal?.throwIfAborted();return collabService.attachAssetImage({projectId:payload.projectId,assetId:payload.assetId,filePath})});
 ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'选择资产图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.attachAssetImage({...payload,filePath:r.filePaths[0]})});
-ipcMain.handle('collab-attach-generated-asset-image',async(_,payload)=>{await verifiedDataFile(payload.filePath,mediaDir());return collabService.attachGeneratedAssetImage(payload);});
+ipcMain.handle('collab-attach-generated-asset-image',async(event,payload)=>{
+ const owner=String(readCloudSession()?.account?.id||'');
+ const directory=getDataDir();
+ if(payload.accountId!==undefined&&String(payload.accountId)!==owner)throw Error('账号已变化，已停止保存图片');
+ await verifiedDataFile(payload.filePath,mediaDir());
+ event.securitySignal?.throwIfAborted();
+ if(owner!==String(readCloudSession()?.account?.id||'')||directory!==getDataDir()||directoryMigration)throw Error('账号或资料目录已变化，已停止保存图片');
+ return collabService.attachGeneratedAssetImage(payload);
+});
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));
 ipcMain.handle('collab-clear-asset-images',(_,payload)=>collabService.clearAssetImages(payload));
 ipcMain.handle('codex-local-catalog', event => require('./codex-catalog.cjs').readLocalCodexCatalog({signal:event?.securitySignal}));

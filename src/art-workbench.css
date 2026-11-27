@@ -141,6 +141,17 @@
 .asset-category-batch-controls button { height:36px; min-height:36px; box-sizing:border-box; margin:0; padding:0 12px; white-space:nowrap; flex-shrink:0; font-size:13px; font-weight:500; }
 .asset-category-batch-controls .asset-batch-primary { padding:0 15px; font-weight:600; }
 .asset-category-batch-status { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:8px 2px 2px; font-size:12px; color:var(--brand-ink-secondary,#4e596c); }
+.asset-image-batch-progress { display:grid; gap:6px; margin:8px 0; }
+.asset-image-batch-progress-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:6px 2px; color:var(--ui-ink-secondary); font-size:12px; }
+.asset-image-batch-progress-row details { min-width:0; max-width:100%; overflow-wrap:anywhere; }
+.asset-image-batch-progress-row summary { color:var(--ui-accent-text); cursor:pointer; }
+.asset-reference-preference-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:8px 2px; min-width:0; }
+.asset-reference-preference-actions button { min-height:36px; border-radius:8px; }
+.asset-reference-preference-count { font-size:13px; color:var(--ui-ink-secondary,#4e596c); }
+.art-background-recovery { display:grid; color:var(--ui-ink-body,#2d3748); }
+.art-background-recovery summary { cursor:pointer; }
+.art-background-recovery label { display:grid; gap:4px; margin:8px 0; }
+.art-background-recovery textarea { width:100%; min-height:88px; resize:vertical; box-sizing:border-box; }
 .asset-selection-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:6px; background:var(--brand-selected,#efeafb); color:var(--brand-text,#543e9e); font-weight:500; }
 .asset-selection-pill b { font-weight:700; }
 .asset-progress-pill { display:inline-flex; align-items:center; padding:3px 9px; border-radius:6px; background:#edf2f7; color:var(--brand-ink-body,#2d3748); font-weight:500; }

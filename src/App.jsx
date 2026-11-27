@@ -9,6 +9,7 @@ import {migrateDirectorReplies,retireDirectorReplies} from '../core/directorLega
 import {ProjectRecycleBin} from './components/ProjectRecycleBin.jsx';
 import {cleanupRecycle} from '../core/projectRecycle.js';
 import {commitDirectoryChange} from '../core/dataDirectoryCommit.js';
+import {beginAssetImageDirectorySwitch,finishAssetImageDirectorySwitch,pauseAssetImageBatches,revokeAssetImageActivities} from '../core/assetImageActivity.js';
 import {createPortal} from 'react-dom';
 import {flushEditing,interruptEditingComposition,settleEditing} from './editing.js';
 import {UserProfile} from './v06/UserProfile.jsx';
@@ -167,9 +168,11 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
   const handleSelectDir = async () => {
     if(selectingDirectory)return;
     setSelectingDirectory(true);setDirectoryError('');
-    let holding=false,prepared;
+    let holding=false,pausingImages=false,prepared;
     try {
       if(api.chooseDataDir && !await api.chooseDataDir())return;
+      pausingImages=true;
+      await beginAssetImageDirectorySwitch();
       const savedSnapshot = await beforeSelectDataDir?.();holding=true;
       prepared = await (api.applyDataDir?api.applyDataDir(savedSnapshot || state):api.selectDataDir(savedSnapshot || state));
       const result = prepared&&await commitDirectoryChange({snapshot:savedSnapshot||state,getState,prepared,api});
@@ -180,7 +183,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
         try { if(result.info?.dataDir)localStorage.setItem(STORAGE+'-data-dir',result.info.dataDir); } catch { /* disk remains primary */ }
       }
     }catch(e){if(prepared?.migrationId)await api.cancelDataDir?.({migrationId:prepared.migrationId});setDirectoryError(e.message||'切换资料位置失败');}
-    finally{if(holding)afterSelectDataDir?.();setSelectingDirectory(false);}
+    finally{if(holding)afterSelectDataDir?.();if(pausingImages)finishAssetImageDirectorySwitch();setSelectingDirectory(false);}
   };
 
   return (
@@ -327,6 +330,7 @@ function App() {
 
   useEffect(()=>{
     const beforeQuit=async()=>{
+      void pauseAssetImageBatches();
       if(!initialized||storageLoadError)return true;
       document.activeElement?.blur?.();interruptEditingComposition();await settleEditing();
       persistence.enqueue(stateRef.current);await persistence.flush();return true;
@@ -474,6 +478,7 @@ function App() {
 
   const handleLogout = () => setLogoutOpen(true);
   const performLogout = async () => {
+    revokeAssetImageActivities();
     dismissWorkspaceDialogs();window.dispatchEvent(new Event('xz-auth-ending'));
     setAiOpen(false);setAiAttachment(null);setLockedRole(null);
     const stopping=Promise.allSettled([quickGeneration.pauseAndFlush(),production?.pauseAll()]);
