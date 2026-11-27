@@ -43,6 +43,11 @@ app.whenReady().then(async()=>{
   const nav=label=>click('#app-sidebar button',label);
   const section=label=>click('.collab-rail button',label);
   const category=label=>click('.collab-cat-tabs button',label);
+  const openProject=async name=>{
+   await click('.collab-rail .collab-back','所有协作项目');
+   await wait(`(()=>{const heading=document.querySelector('.collab-project-card h3[title="${name}"]');const button=heading?.closest('article').querySelector('.primary');if(!button||button.disabled)return false;button.click();return true;})()`);
+   await wait(`document.querySelector('.collab-rail h2')?.textContent==='${name}'`);
+  };
   const generate=()=>click('.asset-batch-primary','一键生成',true);
   const count=(field,id)=>`waveThree.${field}.filter(v=>(v.assetId||v)===${JSON.stringify(id)}).length`;
   const release=async id=>assert.equal(await run(`waveThree.releaseImage(${JSON.stringify(id)})`),true);
@@ -70,6 +75,8 @@ app.whenReady().then(async()=>{
    await wait(count('imageRequests','studio-night')+'===1');
    await section('分镜');
    await section('视频池');
+   await openProject('第二个隔离项目');
+   assert.ok(await run("waveThree.pendingImages().includes('day')"));
    await nav('导演工作台');
    await release('day');
    await wait(count('imageRequests','night')+'===1');
@@ -79,6 +86,7 @@ app.whenReady().then(async()=>{
    await release(firstProp);
    await wait('waveThree.imageRequests.filter(x=>x.assetId!=="day"&&x.assetId!=="night"&&x.assetId!=="studio-night").length===2');
    await nav('项目协作');
+   await openProject('隔离协作项目');
    await section('资产');
    await wait("document.querySelector('.asset-image-batch-progress')?.innerText.includes('角色') || document.querySelector('.asset-image-batch-progress')?.innerText.includes('人物')");
    await click('.asset-image-batch-progress-row button','停止后续生成');
@@ -112,6 +120,15 @@ app.whenReady().then(async()=>{
    await nav('项目协作');
    await section('美术');
    await wait("document.querySelector('.asset-image-batch-progress')?.innerText.includes('美术 · 全剧图片')");
+   if(!await run("!!document.querySelector('.art-episode-picker')"))await click('.collab-episode-card','第 2 集',true);
+   await category('道具');
+   await click('.asset-reference-preference-actions button','一键取消无需参考图（1）');
+   await click('.collab-art-head-right button','一键生成（1）');
+   await wait("waveThree.pendingImages().includes('episode-only')");
+   await section('视频池');
+   await release('episode-only');
+   await section('美术');
+   await wait(count('savedImages','episode-only')+'===1');
    for(const width of sizes){
     win.setContentSize(width,900);
     await wait(`innerWidth===${width}`);
@@ -120,7 +137,7 @@ app.whenReady().then(async()=>{
    assert.deepEqual(await run('waveThree.attemptedPaid'),[]);
   }
   assert.deepEqual(external,[]);
-  console.log(JSON.stringify({modes:['local','cloud'],widths:sizes,parallelCategories:true,crossPage:true,unlimited:true,baseline:true,stop:true,errors:true,wholeProduction:true,paidCalls:0}));
+  console.log(JSON.stringify({modes:['local','cloud'],widths:sizes,parallelCategories:true,crossPage:true,crossProject:true,unlimited:true,baseline:true,stop:true,errors:true,wholeProduction:true,episodeProduction:true,paidCalls:0}));
  }catch(error){
   console.error(error);
   if(win&&!win.isDestroyed())console.error(await win.webContents.executeJavaScript('document.body.innerText.slice(0,2300)').catch(()=>null));

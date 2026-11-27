@@ -41,6 +41,7 @@ const preferenceRows=[
 ];
 if(imageBatchFixture){
   preferenceRows.push(...Array.from({length:10},(_,i)=>prop('group-'+i,'模拟道具 '+i,1)));
+  preferenceRows.push(prop('episode-only','单集测试道具',2,{noReferenceImage:true}));
   Object.assign(preferenceRows.find(asset=>asset.id==='day'),{images:[],image_url:'',adoptedImageId:null});
   Object.assign(saved,{mediaProfiles:[{id:'qa-image',kind:'image',name:'隔离模拟生图',model:'qa-image',endpoint:'https://example.invalid/v1',apiKey:'isolated'}],activeImageApiId:'qa-image'});
 }
