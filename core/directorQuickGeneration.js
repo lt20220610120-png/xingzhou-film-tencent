@@ -152,6 +152,7 @@ export function createQuickGenerationController({getContext,executeText,executeS
   };
   const execute=async run=>{
     const version=(versions.get(run.id)||0)+1;versions.set(run.id,version);
+    let finalCommitApplied=false;
     try {
       await assertCurrent(run,version);
       if(estimateScene)run.durationEstimateEnabled=true;
@@ -473,11 +474,12 @@ export function createQuickGenerationController({getContext,executeText,executeS
       }
       const current=()=>assertCurrent(run,version);
       await current();
-      const commit=async()=>{
+      const commit=async(final=false)=>{
         run.phase='ready-to-commit';await persist(run);await current();
         const result=await commitRun(clone(run));
-        await current();
         if(!result?.applied)throw error(result?.conflict||'结果与当前项目不一致，已保留草稿','STALE');
+        if(final)finalCommitApplied=true;
+        await current();
       };
       if(estimateScene){
         if(!run.durationRepair&&!run.durationEstimates)await commit();
@@ -490,14 +492,26 @@ export function createQuickGenerationController({getContext,executeText,executeS
           if(!expected||context.episode.prompts?.find(prompt=>prompt.id===run.promptIds[index])?.content!==expected)throw error('提示词已编辑，保留现稿，请按需重新估时','STALE');
         },commitProgress:()=>publishProgress(run,version)});
       }
-      await commit();
-      run.phase='completed';run.errors=[];run.pendingRequestId=null;await persist(run);
+      await commit(true);
+      run.phase='completed';run.errors=[];run.pendingRequestId=null;
+      if(run.durationRepair)delete run.durationRepair.originalCheckpoint;
+      await persist(run);
     }catch(e){
       if(versions.get(run.id)!==version)return clone(run);
       run.pendingRequestId=null;
-      const repairFailed=run.durationRepair&&!['ACCOUNT_CHANGED','PAUSED','STALE'].includes(e.code);
-      if(repairFailed)run.durationRepair.error='重分未完成，已保留首次提示词';
-      run.phase=repairFailed?'completed':['ACCOUNT_CHANGED','PAUSED'].includes(e.code)?'paused':e.code==='STALE'?'stale':e.code==='NEEDS_REVIEW'?'needs-review':'failed';
+      const repairFailed=run.durationRepair&&!finalCommitApplied&&!['ACCOUNT_CHANGED','PAUSED'].includes(e.code);
+      if(repairFailed){
+        const {originalCheckpoint,...repair}=run.durationRepair;
+        const failedCheckpoint=clone({...run,durationRepair:repair});
+        if(originalCheckpoint){
+          const revision=run.revision;
+          for(const key of Object.keys(run))delete run[key];
+          Object.assign(run,originalCheckpoint,{revision});
+        }
+        run.durationRepair={...repair,failedCheckpoint,error:'重分未完成，已保留首次提示词'};
+      }
+      if(finalCommitApplied&&run.durationRepair)delete run.durationRepair.originalCheckpoint;
+      run.phase=repairFailed||finalCommitApplied?'completed':['ACCOUNT_CHANGED','PAUSED'].includes(e.code)?'paused':e.code==='STALE'?'stale':e.code==='NEEDS_REVIEW'?'needs-review':'failed';
       run.errors=[{message:e.message||'生成失败',code:e.code||'FAILED',partialText:e.partialText||'',at:new Date().toISOString()}];
       try{await persist(run);}catch(saveError){run.errors.push({code:'SAVE_FAILED',message:saveError.message});emit();}
     }
@@ -527,13 +541,15 @@ export function createQuickGenerationController({getContext,executeText,executeS
         if(!currentPrompts.some(row=>row?.durationEstimate?.status==='estimated'&&row.durationEstimate.needsResegment))throw error('当前场景没有已确认超载的提示词');
         const originalPrompts=run.promptIds.map((id,index)=>({id,content:run.segmentDrafts[run.plan.segments[index].id]?.prompt?.content}));
         if(originalPrompts.some((row,index)=>!row.content||currentPrompts[index]?.content!==row.content))throw error('提示词已手动修改，保留现稿，请核对后使用分段工具','STALE');
-        run.durationRepair={minimumSegments:run.plan.segments.length+1,originalPrompts,originalPlanId:run.plan.id};
+        const originalCheckpoint=clone(run);
+        run.durationRepair={minimumSegments:run.plan.segments.length+1,originalPrompts,originalPlanId:run.plan.id,originalCheckpoint};
         run.previousPlans=[...(run.previousPlans||[]),clone(run.plan)];
         run.nextPlanId=`plan-${run.id}-duration-repair`;
         Object.assign(run,{phase:'planning',plan:null,segmentDrafts:{},promptIds:[],checks:{audited:false,ranges:{}},pauseRequested:false,
           sharedBaseline:'',lastPlanningOutput:'',editorialAssessment:null,durationEstimates:null,durationEstimatedAt:null,durationEstimateDispatched:false,auditWarnings:[]});
         delete run.durationEstimatesPartial;
-        runs.set(runId,run);await persist(run);
+        runs.set(runId,run);
+        try{await persist(run);}catch(failure){runs.set(runId,originalCheckpoint);emit();throw failure;}
         if(!isQuickRunActive(run))return clone(run);
         return await schedule(run);
       }finally{resegments.delete(runId);}

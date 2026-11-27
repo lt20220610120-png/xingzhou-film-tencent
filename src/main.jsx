@@ -3,6 +3,7 @@ import '../canvas-app/workspace-selects.js';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App, { RenderErrorBoundary } from './App.jsx';
+import {reportRendererIncident} from './runtimeIncident.js';
 import {SoftwareLicenseBoundary} from './v06/SoftwareLicense.jsx';
 import './styles.css';
 import './v09.css';
@@ -18,6 +19,8 @@ import './ui-refinement.css';
 
 const root = document.getElementById('root');
 if (root) {
+  window.addEventListener('error',()=>reportRendererIncident('uncaught'));
+  window.addEventListener('unhandledrejection',()=>reportRendererIncident('unhandled-rejection'));
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && event.target.closest?.('select:open')) {
       // Chromium closes the picker by default. Keep this Escape out of enclosing dialogs.

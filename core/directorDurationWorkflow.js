@@ -21,7 +21,15 @@ export function directorDurationTargets(project,{episodeId,sceneLabel,promptId,o
    const script=prompt.durationSourceScript||(segment?plan.sourceText.slice(segment.sourceStart,segment.sourceEnd):'');
    groups.get(key).prompts.push({id:prompt.id,content:prompt.content,label:prompt.label,script});
   }
-  result.push(...groups.values());
+  for(const target of groups.values()){
+   const occurrences=new Map();
+   for(const prompt of target.prompts){
+    const count=(occurrences.get(prompt.label)||0)+1;
+    occurrences.set(prompt.label,count);
+    if(count>1)prompt.estimateId=prompt.label+'#'+count;
+   }
+   result.push(target);
+  }
  }
  return result;
 }
@@ -31,7 +39,7 @@ export function applyDirectorDurationResult(project,target,estimates){
  const edits=new Map();
  for(const old of target.prompts){
   const current=episode?.prompts?.find(row=>row.id===old.id);
-  const estimate=estimates.get(old.label);
+  const estimate=estimates.get(old.estimateId||old.label);
   if(estimate&&current?.content===old.content){
    const {recommendedDurationSeconds,durationStatus,...body}=current;
    edits.set(old.id,{...body,...cardDuration(estimate,old.script),durationEstimatedAt:new Date().toISOString()});

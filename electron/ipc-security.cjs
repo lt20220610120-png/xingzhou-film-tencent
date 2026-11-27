@@ -1,5 +1,5 @@
 const { pathToFileURL } = require('node:url');
-const identityChanges = new Set(['auth-login', 'auth-register', 'auth-logout', 'auth-recover', 'auth-unlock-role']);
+const identityChanges = new Set(['auth-login', 'auth-register', 'auth-logout', 'auth-recover']);
 const onlineChannels = new Set(['ai-chat', 'test-ai-connection', 'discover-models', 'generation-submit', 'generation-refresh', 'media-generate-image', 'media-generate-video', 'media-retry-image-download', 'collab-generate-asset-image', 'collab-generate-video']);
 onlineChannels.add('audio-generate');
 for(const c of ['storyboard-batch-start','storyboard-batch-list','storyboard-batch-stop','storyboard-batch-resume','collab-delete-media'])onlineChannels.add(c);
@@ -9,7 +9,7 @@ onlineChannels.add('muse-local-connect');
 onlineChannels.add('codex-local-catalog');
 onlineChannels.add('libtv-test-connection');
 for(const c of ['like-status','like-pairing','like-bind','like-open-project'])onlineChannels.add(c);
-for(const channel of ['project-video-export','production-connect','production-chat','production-audit','production-work','production-archive','production-post'])onlineChannels.add(channel);
+for(const channel of ['project-video-export','project-jianying-draft','production-connect','production-chat','production-audit','production-work','production-archive','production-post'])onlineChannels.add(channel);
 const stringChannels = new Set(['app-access-stage','open-external', 'check-update', 'media-import-file', 'media-import-files']);
 for(const channel of ['generation-reference-list','generation-reference-cleanup'])onlineChannels.add(channel);
 for(const channel of ['libtv-projects','libtv-create-project','libtv-use-project','libtv-status','libtv-login','libtv-logout','libtv-models','libtv-model-schema','libtv-accounts','libtv-use-account','libtv-cancel-login'])onlineChannels.add(channel);
@@ -51,7 +51,20 @@ function protectWindow(win, { entryFile,isDev,allowUrl,allowFrameUrl,openExterna
   win.webContents.setWindowOpenHandler(details=>{if(projectPopup?.consume(details))return {action:'allow',overrideBrowserWindowOptions:{width:1360,height:900,minWidth:940,minHeight:660,autoHideMenuBar:true,backgroundColor:'#f7f6fc',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}}};const {url}=details;try{const safe=safeExternalUrl(url);Promise.resolve(openExternal?.(safe)).catch(()=>{});}catch{}return {action:'deny'};});
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
 }
-function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,getLicenseClient=()=>null,getLocalAccount=async()=>null,onIdentityChange=()=>{},isStorageLocked=()=>false }) {
+function ipcFailure(error){
+ const status=[error?.status,error?.httpStatus].find(status=>Number.isInteger(status)&&status>=400&&status<=599);
+ const code=typeof error?.code==='string'&&/^[a-z0-9_:-]{1,100}$/i.test(error.code)?error.code:undefined;
+ const category=error?.beforeSubmission===true?'before-submission'
+  :error?.category==='unconfirmed'?'unconfirmed'
+  :error?.name==='AbortError'?'cancelled'
+  :status>=400&&status<500&&![408,429].includes(status)?'rejected'
+  :error?.category==='unavailable'||[408,429,502,503,504].includes(status)?'unavailable':'failed';
+ return {__xingzhouIpcFailure:true,message:String(error?.message||'操作未完成').slice(0,2000),category,
+  ...(status?{status,httpStatus:status}:{}),...(code?{code}:{}),
+  ...(error?.beforeSubmission===true?{beforeSubmission:true}:{}),
+  ...(typeof error?.generationJobId==='string'&&/^[a-f\d-]{36}$/i.test(error.generationJobId)?{generationJobId:error.generationJobId}:{})};
+}
+function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,getLicenseClient=()=>null,getLocalAccount=async()=>null,onIdentityChange=()=>{},isStorageLocked=()=>false,structuredErrors=()=>false,onFailure=()=>{} }) {
   let epoch=0,transitions=0,onlineWork=0,closing=false;const active=new Set();
   const cancelActive=()=>{epoch++;for(const controller of active)controller.abort();};
   const invalidate=()=>{cancelActive();onIdentityChange();};
@@ -75,17 +88,21 @@ function createSecureIpc({ ipcMain,getWindow,entryFile,isDev,getAccessService,ge
             if(transitions)throw new Error('账号正在切换，请稍后使用联网生成');
             const service=getAccessService(),token=service?.token();
             const account=await getLocalAccount(channel,args[0]) || await service?.session();
-            if(expected!==epoch || !token || service.token()!==token)throw new Error('登录状态已变化，请重新操作');
-            if(!account?.id || account.banned===true){invalidate();throw new Error('请先登录有效账号，再使用联网生成');}
+            if(expected!==epoch || !token || service.token()!==token)throw Object.assign(new Error('登录状态已变化，请重新操作'),{status:401,code:'ACCOUNT_CHANGED'});
+            if(!account?.id || account.banned===true){invalidate();throw Object.assign(new Error('请先登录有效账号，再使用联网生成'),{status:401});}
             assertSender(event,getWindow(),{entryFile,isDev});
             controller=new AbortController();active.add(controller);event.securitySignal=controller.signal;
           }
           const result=await handler(event,...args);
-          if(controller && expected!==epoch)throw new Error('登录状态已变化，任务已停止');
+          if(controller && expected!==epoch)throw Object.assign(new Error('登录状态已变化，任务已停止'),{status:401,code:'ACCOUNT_CHANGED'});
           return result;
+        } catch(error) {
+          try { onFailure(channel,args[0],error); } catch {}
+          if(structuredErrors(channel))return ipcFailure(error);
+          throw error;
         } finally {if(online)onlineWork--;if(controller)active.delete(controller);if(identityChanges.has(channel)){transitions--;invalidate();}}
       });
     },
   };
 }
-module.exports={createSecureIpc,assertSender,trustedPage,validatePayload,safeExternalUrl,protectWindow,canvasPage};
+module.exports={createSecureIpc,assertSender,trustedPage,validatePayload,safeExternalUrl,protectWindow,canvasPage,ipcFailure};

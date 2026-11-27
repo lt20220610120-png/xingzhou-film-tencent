@@ -77,7 +77,7 @@ async function downloadToFile(url, destDir, ext,{verifyImage=false,fileName,sign
   if(verifyImage)await validateGeneratedImage(bytes);
   signal?.throwIfAborted();
   const temporary=file+'.'+crypto.randomBytes(4).toString('hex')+'.part';
-  try{await fs.promises.mkdir(destDir,{recursive:true});await fs.promises.writeFile(temporary,bytes,{signal});signal?.throwIfAborted();await fs.promises.rename(temporary,file);return file;}
+  try{await fs.promises.mkdir(destDir,{recursive:true});await fs.promises.writeFile(temporary,bytes,{signal});signal?.throwIfAborted();await require('./atomic-json.cjs').renameWithRetry(temporary,file,{signal});return file;}
   catch(error){await fs.promises.unlink(temporary).catch(()=>{});if(verifyImage)error.imageVerified=true;throw error;}
 }
 
@@ -88,9 +88,7 @@ function imageReceiptPath(receiptId, destDir) {
 
 const pendingImageDownloads = new Map();
 async function writeImageReceipt(file,receipt){
- const temporary=file+'.tmp';
- try{await fs.promises.writeFile(temporary,JSON.stringify(receipt),{mode:0o600});await fs.promises.rename(temporary,file);}
- finally{await fs.promises.unlink(temporary).catch(()=>{});}
+ await require('./atomic-json.cjs').writeJsonAtomic(file,receipt);
 }
 async function pendingImageSource(receiptId,destDir){
  let receipt;try{receipt=JSON.parse(await fs.promises.readFile(imageReceiptPath(receiptId,destDir),'utf8'));}catch{throw new Error('图片结果记录不存在，请检查本地资料目录');}
@@ -135,9 +133,12 @@ async function pruneImageDownloadReceipts(destDir,{now=Date.now()}={}){
   }catch(error){if(!['ENOENT','EPERM','EBUSY'].includes(error.code)&&!(error instanceof SyntaxError))throw error;}
  }
 }
-function retryImageDownload(receiptId, destDir) {
+function retryImageDownload(receiptId, destDir, {signal} = {}) {
+  signal?.throwIfAborted();
   const receiptPath = imageReceiptPath(receiptId, destDir);
-  if (pendingImageDownloads.has(receiptPath)) return pendingImageDownloads.get(receiptPath);
+  const active=pendingImageDownloads.get(receiptPath);
+  if(active&&!active.signal?.aborted&&active.signal===signal)return active.work;
+  if(active)return active.work.catch(()=>{}).then(()=>retryImageDownload(receiptId,destDir,{signal}));
   const work = (async () => {
     let receipt;
     try { receipt = JSON.parse(await fs.promises.readFile(receiptPath, 'utf8')); }
@@ -146,14 +147,15 @@ function retryImageDownload(receiptId, destDir) {
       // A stable filename closes the crash gap between writing bytes and sending
       // the IPC result. Never fetch or generate again if verified bytes exist.
       const fileName=`image-result-${receiptId}.png`,cached=path.join(destDir,fileName);
-      try{await validateGeneratedImage(await fs.promises.readFile(cached));return cached;}
+      try{await validateGeneratedImage(await fs.promises.readFile(cached,{signal}));signal?.throwIfAborted();return cached;}
       catch(error){if(!['ENOENT','IMAGE_CONTENT_INVALID'].includes(error.code))throw error;}
       if(!receipt.source)throw Error('已保存的本机图片不存在或损坏');
-      const filePath = await downloadToFile(receipt.source, destDir, 'png',{verifyImage:true,fileName});
+      const filePath = await downloadToFile(receipt.source, destDir, 'png',{verifyImage:true,fileName,signal});
       const {source,...metadata}=receipt;
       try{await writeImageReceipt(receiptPath,{...metadata,...(/^https?:\/\//i.test(source)?{source}:{}),verified:true,downloadedFile:fileName,verifiedAt:new Date().toISOString(),lastFailure:null});}catch{/* The stable file can be recovered without changing the original receipt. */}
       return filePath;
     } catch (cause) {
+      signal?.throwIfAborted();
       const reason=cause.status?'upstream':['IMAGE_CONTENT_INVALID','MEDIA_CONTENT_EMPTY'].includes(cause.code)?'invalid':isMediaNetworkError(cause)||isMediaNetworkError(cause.cause)?'network':'save';
       const unavailable=[401,403,404,410].includes(cause.status)||/不存在|已过期|not found|expired/i.test(cause.upstreamMessage||'');
       const advice=reason==='upstream'?(unavailable?'上游表示源图片不存在、过期或拒绝访问；这不是本地磁盘故障。可打开结果地址核对，仍不可用时主动放弃旧结果后再生成。':'上游结果地址下载失败，可稍后重试取回原图，或在浏览器核对。'):reason==='invalid'?'尚未确认生成了可显示的图片，请核对上游结果；不会把错误网页保存为图片。':reason==='network'?'请检查系统代理或网络；可在浏览器打开原结果后上传。':'请检查本地资料目录、磁盘空间或权限后继续保存。';
@@ -163,32 +165,32 @@ function retryImageDownload(receiptId, destDir) {
         cause, code: 'IMAGE_DOWNLOAD_PENDING', downloadReceiptId: receiptId, downloadReason:reason,httpStatus:cause.status,upstreamCode:cause.upstreamCode,imageVerified:verified,
       });
     }
-  })().finally(() => pendingImageDownloads.delete(receiptPath));
-  pendingImageDownloads.set(receiptPath, work);
+  })().finally(() => {if(pendingImageDownloads.get(receiptPath)?.work===work)pendingImageDownloads.delete(receiptPath);});
+  pendingImageDownloads.set(receiptPath, {work,signal});
   return work;
 }
 
-async function saveGeneratedImage(source, destDir) {
+async function saveGeneratedImage(source, destDir, {signal} = {}) {
   const receiptId = crypto.randomUUID();
   const receiptPath = imageReceiptPath(receiptId, destDir);
   await fs.promises.mkdir(path.dirname(receiptPath), { recursive: true });
   // Save the provider result before downloading it. No API key is recorded.
   await writeImageReceipt(receiptPath,{source,createdAt:new Date().toISOString()});
-  return retryImageDownload(receiptId, destDir);
+  return retryImageDownload(receiptId, destDir,{signal});
 }
 
-async function imageReferenceFile(reference, index) {
+async function imageReferenceFile(reference, index, signal) {
   if (reference.kind && reference.kind !== 'image') throw new Error('图片生成仅支持图片参考');
   const source = reference.filePath || reference.url || '';
   let bytes, mime = '';
   if (reference.filePath) {
-    bytes = await fs.promises.readFile(reference.filePath).catch(() => { throw new Error('参考图片无法读取，请重新选择图片'); });
+    bytes = await fs.promises.readFile(reference.filePath,{signal}).catch(() => { signal?.throwIfAborted();throw new Error('参考图片无法读取，请重新选择图片'); });
   } else if (/^data:image\/(png|jpeg|webp);base64,/i.test(source)) {
     mime = source.slice(5, source.indexOf(';')).toLowerCase();
     bytes = Buffer.from(source.slice(source.indexOf(',') + 1), 'base64');
   } else if (/^https?:\/\//i.test(source)) {
     // Reference hosts must never receive the generation provider's API key.
-    const downloaded = await readMediaBytes(source, { label: '参考图片读取' });
+    const downloaded = await readMediaBytes(source, { label: '参考图片读取',signal });
     mime = downloaded.mime;
     bytes = downloaded.bytes;
   } else throw new Error('参考图片缺少有效地址，请重新选择图片');
@@ -213,7 +215,7 @@ async function generateImage({ provider, endpoint, apiKey, model, prompt, size =
     const sizes={'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4','1152x768':'3:2','768x1152':'2:3'};
     const result=await require('./feituo-client.cjs').submit({kind:'image',apiKey,model,prompt,ratio:ratio||sizes[size]||'auto',references,signal});
     if(!result.resultUrls?.length)throw new Error('飞拓没有返回图片结果');
-    return saveGeneratedImage(result.resultUrls[0],destDir);
+    return saveGeneratedImage(result.resultUrls[0],destDir,{signal});
   }
   const base = normalizeBase(endpoint);
   if((await import('../core/videoProviderConfig.js')).isMuseLocal(endpoint)){size=ratio||({'1024x1024':'1:1','1280x720':'16:9','720x1280':'9:16','1024x768':'4:3','768x1024':'3:4'}[size])||'1:1';}
@@ -223,7 +225,7 @@ async function generateImage({ provider, endpoint, apiKey, model, prompt, size =
     body = new FormData();
     for (const [key, value] of Object.entries({ model: model.trim(), prompt: prompt.trim(), size, n: 1 })) body.append(key, String(value));
     for (const [index, reference] of references.entries()) {
-      const file = await imageReferenceFile(reference, index);
+      const file = await imageReferenceFile(reference, index,signal);
       body.append(references.length === 1 ? 'image' : 'image[]', file.blob, file.name);
     }
     // fetch adds the multipart boundary; GPT Image edits return base64 by default.
@@ -250,7 +252,7 @@ async function generateImage({ provider, endpoint, apiKey, model, prompt, size =
   const item = data?.data?.[0] || {};
   const url = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url || '';
   if (!url) throw new Error('接口已响应，但没有返回图片');
-  return await saveGeneratedImage(url, destDir);
+  return await saveGeneratedImage(url, destDir,{signal});
 }
 
 // ---------- 视频生成（火山方舟 Seedance 任务式 API，同时兼容一次性返回） ----------

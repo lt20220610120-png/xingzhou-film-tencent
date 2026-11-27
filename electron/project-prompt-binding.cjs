@@ -20,7 +20,7 @@ function createProjectPromptBinding({authorize,getProject,saveShared,localStore,
  }
  const ledgerData=(p,project)=>{
   const local=getLedger(p)||{},episodes={};
-  const sources=require('../cloud-backend/src/collab-episodes.cjs').numberedEpisodes(project.episodes);
+  const sources=require('../cloud-backend/src/collab-episodes.cjs').readableNumberedEpisodes(project.episodes);
   for(const [n,r]of Object.entries({...project.analysis_progress?._sharedPromptBinding?.reviewLedger?.episodes,...local.episodes}))if(r.status!=='empty'&&(project.bindingSources?typeof r.sourceContent==='string'&&createHash('sha256').update(r.sourceContent).digest('hex')===project.bindingSources[n]:r.sourceContent===sources.find(e=>e.number===Number(n))?.episode.content))episodes[n]=r;
   return {episodes};
  };
@@ -29,7 +29,7 @@ function createProjectPromptBinding({authorize,getProject,saveShared,localStore,
   let next;
   try{next=await saveShared(request);guard();}
   catch(error){
-   guard();if(!/未确认本次保存/.test(error.message))throw error;
+   guard();if(error.category!=='unconfirmed'&&!/未确认本次保存/.test(error.message))throw error;
    // Read only: never replay a model request or an ambiguous write.
    const recovered=await context(p).catch(()=>null);guard();
    const found=recovered?.project.analysis_progress?._sharedPromptBinding;
@@ -53,7 +53,7 @@ function createProjectPromptBinding({authorize,getProject,saveShared,localStore,
    // One-time migration is CAS-protected and never overwrites another member.
    if(!project.locked&&editors.includes(project.myRole)){
     try{return await persist({...p,baseRevision:0,data:local},ctx);}
-    catch(e){guard();if(e.status!==409&&!/记录.*更新/.test(e.message))throw e;const current=await getProject({projectId:p.projectId});guard();return {...current.analysis_progress._sharedPromptBinding,accountId:p.accountId};}
+    catch(e){guard();if(e.status!==409&&!/记录.*更新/.test(e.message))throw e;const current=await context(p);guard();return {...current.project.analysis_progress._sharedPromptBinding,accountId:p.accountId};}
    }
    guard();return local;
   },

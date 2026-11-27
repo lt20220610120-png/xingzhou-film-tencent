@@ -1,5 +1,14 @@
 const test=require('node:test');const assert=require('node:assert/strict');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
+test('structured desktop failures reconstruct status and outcome without serializing private fields',async()=>{
+ const {ipcFailure}=require('./ipc-security.cjs'),{desktopIpc}=await import('../core/desktopIpc.js');
+ const error=Object.assign(Error('版本已更新'),{status:409,code:'VERSION_CONFLICT',cause:new Error('private'),apiKey:'fixture private'});
+ const packet=structuredClone(ipcFailure(error));
+ assert.equal('cause' in packet,false);assert.equal('apiKey' in packet,false);
+ const api=desktopIpc({collabSave:async()=>packet,unsubscribe:()=>()=>true});
+ await assert.rejects(api.collabSave(),{message:'版本已更新',status:409,code:'VERSION_CONFLICT',category:'rejected'});
+ assert.equal(api.unsubscribe()(),true);
+});
 function fixture(service={token:()=>'',session:async()=>null}){
  const handlers=new Map(),entryFile=path.resolve('dist/index.html');const frame={url:pathToFileURL(entryFile).href};const win={isDestroyed:()=>false,webContents:{mainFrame:frame}};
  const guard=createSecureIpc({ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},getWindow:()=>win,entryFile,isDev:false,getAccessService:()=>service});

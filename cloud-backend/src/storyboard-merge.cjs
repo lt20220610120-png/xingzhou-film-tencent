@@ -1,5 +1,5 @@
 const {normalizeStoryboardEpisodes}=require('./storyboard-identity.cjs');
-const {episodeNumber,unitHeaders}=require('./collab-episodes.cjs');
+const {episodeNumber,unitHeaders,sceneHeadingPattern}=require('./collab-episodes.cjs');
 const {isDeepStrictEqual}=require('node:util');
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const {applySettings,settingsFor,generationDefaults}=require('./storyboard-settings.cjs');
@@ -131,7 +131,7 @@ function patchShot(episodes,payload) {
   if(!String(payload.shotId||'').trim())throw Object.assign(new Error('分镜编号缺失，请重新创建'),{status:400});
   if(!/^\d+-\d+$/.test(payload.scene||''))throw Object.assign(new Error('场景编号不合法'),{status:400});
   const number=episodeNumber(ep);
-  const scriptScenes=[...String(ep.content||'').matchAll(/^[ \t]*(?:#{1,6}[ \t]*)?(?:场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*(\d+)/gm)].map(m=>`${Number(m[1])}-${Number(m[2])}`);
+  const scriptScenes=[...String(ep.content||'').matchAll(new RegExp(sceneHeadingPattern,'gm'))].map(m=>`${Number(m[1])}-${Number(m[3])}`);
   const scenes=new Set(scriptScenes.length?scriptScenes:ep.prompts.map(p=>String(p.label||'').match(/^(\d+-\d+)-\d+$/)?.[1]).filter(Boolean));
   const hasNumberEvidence=scriptScenes.length||unitHeaders(ep.title).length||unitHeaders(ep.content).length||['episodeNumber','number','episode','episode_number'].some(key=>ep[key]!==undefined&&ep[key]!==null&&ep[key]!=='');
   if((hasNumberEvidence&&!number)||(number&&Number(payload.scene.split('-')[0])!==number)||(scenes.size&&!scenes.has(payload.scene)))

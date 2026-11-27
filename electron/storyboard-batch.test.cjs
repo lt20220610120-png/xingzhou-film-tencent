@@ -2,6 +2,27 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const tick=()=>new Promise(r=>setImmediate(r));
 async function fixture(t,overrides={}){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xz-sb-batch-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const jobs=[],sent=[];let account='a';const mod=require('./storyboard-batch.cjs');const q=mod.createStoryboardBatchQueue({directory:dir,owner:()=>account,loadJobs:()=>jobs,guard:async()=>{},submit:async(item,run)=>{sent.push(item.shotId);const job={id:'j'+item.shotId,projectId:'p',shotId:item.shotId,storyboardBatchRunId:run.id,storyboardBatchItemId:item.id,status:'submitted'};jobs.push(job);return job;},...overrides});return {q,jobs,sent,dir,switchAccount:()=>account='b'};}
 const items=()=>[1,2,3].map(n=>({shotId:'s'+n,label:`1-1-${n}`,value:{prompt:'原词'+n,references:[]}}));
+test('only explicitly unsent failures retry and the queue protects reference identity until dispatch',async t=>{
+ let f, attempts=[];
+ f=await fixture(t,{submit:async(item,run)=>{
+  attempts.push(item.shotId);
+  const first=attempts.filter(id=>id===item.shotId).length===1;
+  const job={id:'job-'+attempts.length,kind:'video',projectId:run.projectId,shotId:item.shotId,storyboardBatchRunId:run.id,storyboardBatchItemId:item.id,status:first?(item.shotId==='s1'?'failed':'uncertain'):'submitted',submissionAttempted:!first||item.shotId==='s2'};
+  f.jobs.push(job);
+  if(first)throw Object.assign(Error('fixture'),{beforeSubmission:item.shotId==='s1'});
+  return job;
+ }});
+ const planned=items().slice(0,2);
+ planned[0].value.references=[{id:'picker-alias',mediaId:'library-id',filePath:'fixture.mp4'}];
+ const run=f.q.start({projectId:'p',accountId:'a',items:planned});
+ assert.equal(f.q.usesMedia({id:'library-id'},'p'),true);
+ assert.equal(f.q.usesMedia({id:'library-id'},'other'),false);
+ await f.q.idle();
+ assert.equal(f.q.list({projectId:'p',accountId:'a'})[0].retryable,1);
+ f.q.resume({id:run.id,accountId:'a'});await f.q.idle();
+ assert.deepEqual(attempts,['s1','s2','s1']);
+ assert.equal(f.q.list({projectId:'p',accountId:'a'})[0].items[1].status,'uncertain');
+});
 test('settled queues roll over without removing an unresolved task or its original job',async t=>{
  const fixtureState=await fixture(t,{completedLimit:1});
  const {q,dir,jobs}=fixtureState;

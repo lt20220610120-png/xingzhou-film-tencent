@@ -35,9 +35,22 @@ function createOwnedWebBrowser({profileDir,url,name,loginOrigins=[],findBrowser:
  }
  async function closeBrowser(){
   const own=connection;connection=null;session=null;targetId=null;
-  if(own){try{await own.command('Browser.close',{},null,{timeout:5000});}catch{}own.disconnect();}
+  if(own){try{await own.command('Browser.close',{},null,{timeout:1000});}catch{}own.disconnect();}
   const process=child;child=null;visible=false;
-  if(process&&process.exitCode==null){await Promise.race([new Promise(r=>process.once('exit',r)),pause(1000)]);if(process.exitCode==null){process.kill();if(process.exitCode==null)await Promise.race([new Promise(r=>process.once('exit',r)),pause(5000)]);if(process.exitCode==null)throw new Error(`${name} 后台浏览器仍在退出，请稍后刷新连接`);}}
+  if(process&&process.exitCode==null&&process.signalCode==null){
+   const exited=new Promise(resolve=>process.once('exit',resolve));
+   const stillRunning=()=>process.exitCode==null&&process.signalCode==null;
+   await Promise.race([exited,pause(300)]);
+   if(stillRunning()){
+    process.kill();
+    await Promise.race([exited,pause(1000)]);
+    if(stillRunning()&&process.forceKill){
+     process.forceKill();
+     await Promise.race([exited,pause(700)]);
+    }
+    if(stillRunning())throw new Error(`${name} 后台浏览器仍在退出，请稍后刷新连接`);
+   }
+  }
  }
  async function ensure(signal){
   check(signal);if(closed)throw new Error(`${name} 服务已停止`);

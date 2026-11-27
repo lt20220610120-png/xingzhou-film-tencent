@@ -1,5 +1,5 @@
 import {importLegacyArtReview,isReviewCurrent,isSceneVerified,reviewSceneSignature,confirmPublishedUnassigned} from './artReview.js';
-import {listCollabEpisodes,inspectCollabEpisodes} from './collabEpisodes.js';
+import {inspectCollabEpisodes} from './collabEpisodes.js';
 import {artWorkflowState} from './artWorkflow.js';
 import {createTaskPool} from './asyncTaskPool.js';
 import {mergeSharedReviewLedger} from './sharedReviewLedger.js';
@@ -18,7 +18,7 @@ function limitReviewReplyHistory(record){
  const selected=history.toReversed().filter(entry=>!reviewReplyHistory.has(entry?.reason)||kept++<recentReplyLimit).reverse();
  return selected.length===history.length?record:{...record,history:selected};
 }
-const rejectedReviewRequest=error=>[400,409].includes(error?.status)||/核实版本与当前条目不同|本集正文已改变|场次编号或原文已改变|本集已有其他核实修改|核实清单必须保留|资产名称、类别或描述格式不正确|资产清单格式不正确|场景条目必须属于本集资产名单|前集核实版本格式不正确|尚未核实或细节待补齐|本集清单过大|请选择已核实场景|资产 .+ (?:类别相互矛盾|已存在于其他类别)/.test(String(error?.message||error));
+const rejectedReviewRequest=error=>error?.category==='rejected'||[400,409].includes(error?.status)||/核实版本与当前条目不同|本集正文已改变|场次编号或原文已改变|本集已有其他核实修改|核实清单必须保留|资产名称、类别或描述格式不正确|资产清单格式不正确|场景条目必须属于本集资产名单|前集核实版本格式不正确|尚未核实或细节待补齐|本集清单过大|请选择已核实场景|资产 .+ (?:类别相互矛盾|已存在于其他类别)/.test(String(error?.message||error));
 const retireRejectedReceipt=(record,error)=>{
  const next={...record,syncError:String(error?.message||error)};
  if(rejectedReviewRequest(error)&&record.cloudReceipt){
@@ -163,7 +163,10 @@ export function getArtReviewStore({api,projectId,accountId=''}){
    const recovered=await resolveReceipt(number);
    r={...r,version:recovered.version,published:recovered.published};
    if(recovered.writeId===r.writeId){r.publishRequest=recovered.publishRequest;r.uploadedWriteId=recovered.uploadedWriteId;r.pending=recovered.pending;}
-   if(!recovered.pending&&r.scenes.every(s=>reviewSceneSignature(s)===reviewSceneSignature(recovered.scenes.find(v=>v.id===s.id)))){r.pending=false;delete r.writeId;delete r.publishRequest;delete r.uploadedWriteId;}
+   if(!recovered.pending&&r.sourceContent===recovered.sourceContent&&r.scenes.length===recovered.scenes.length&&r.scenes.every(s=>{
+    const prior=recovered.scenes.find(v=>v.id===s.id);
+    return prior&&reviewSceneSignature(s)===reviewSceneSignature(prior);
+   })){r.pending=false;delete r.writeId;delete r.publishRequest;delete r.uploadedWriteId;}
    if(!r.pending&&ids.every(id=>r.published?.[id]?.signature===reviewSceneSignature(r.scenes.find(s=>s.id===id)))){progress('unchanged');return r;}
    let request=r.publishRequest;
    if(!request||JSON.stringify(request.sceneIds)!==JSON.stringify(ids)){

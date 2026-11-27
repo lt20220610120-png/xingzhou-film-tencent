@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
+const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
 if(pkg.version.includes('-private')&&process.env.XINGZHOU_PRIVATE_TRIAL!=='1')throw new Error('Private trial packaging requires XINGZHOU_PRIVATE_TRIAL=1');
@@ -10,16 +11,34 @@ const releaseRoot = path.join(root, 'release');
 let staging;
 const output = path.join(root, 'release', pkg.version);
 const installed = new Map();
-const developmentFolders = new Set(['coverage','test','tests','__tests__','fixtures','__fixtures__','.nyc_output','.playwright-mcp']);
+const developmentFolders = new Set(['coverage','test','tests','__tests__','fixtures','__fixtures__','.nyc_output','.playwright-mcp','.claude','.codex','.cursor','.github']);
+const developmentFile = /\.(?:test|spec|fixtures)\.(?:js|cjs|mjs|ts|tsx|json)$|\.(?:map|pdb|log)$/i;
+const localOverride = /^(?:\.(?:env|git)|(?:local|private)[-.].*override)|\.local\.(?:js|cjs|mjs|json)$/i;
 function copyTree(source,destination,skip=new Set()) {
   fs.mkdirSync(destination,{recursive:true});
   for(const entry of fs.readdirSync(source,{withFileTypes:true})) {
     if(skip.has(entry.name) || (entry.isDirectory() && developmentFolders.has(entry.name))
-      || /\.(?:test|spec|fixtures)\.(?:js|cjs|mjs|ts|tsx)$|\.(?:map|pdb|log)$/i.test(entry.name)) continue;
+      || developmentFile.test(entry.name) || localOverride.test(entry.name)) continue;
     const from=path.join(source,entry.name), to=path.join(destination,entry.name);
     if(entry.isDirectory()) copyTree(from,to,skip);
     else if(entry.isFile()) fs.copyFileSync(from,to);
     else throw new Error(`Unexpected symlink in staged files: ${from}`);
+  }
+}
+const runtimeSourceFolders = ['electron','core','world-simulation','canvas-app','browser-extension','build','cloud-backend/shared'];
+function copyRuntimeSources() {
+  const entries=execFileSync('git',['ls-files','-z','--',...runtimeSourceFolders],{cwd:root,encoding:'utf8'}).split('\0').filter(Boolean);
+  const developmentOnly=new Set(['world-simulation/README.md','world-simulation/RESEARCH.md','canvas-app/UPSTREAM.md']);
+  for(const relative of entries){
+    const parts=relative.split('/'),name=parts.pop();
+    if(parts.some(part=>developmentFolders.has(part))||developmentFile.test(name)||
+       relative.startsWith('core/builtin-skills/')||developmentOnly.has(relative)||
+       ['access-service.cjs','accessControl.cjs'].includes(name)||
+       localOverride.test(name))continue;
+    const source=path.join(root,relative),destination=path.join(staging,relative);
+    if(!fs.lstatSync(source).isFile())throw Error(`Invalid runtime source: ${relative}`);
+    fs.mkdirSync(path.dirname(destination),{recursive:true});
+    fs.copyFileSync(source,destination);
   }
 }
 function packageRoot(name, from) {
@@ -50,8 +69,8 @@ function copyDependency(name, from) {
   if (!fs.existsSync(path.join(root,'dist/index.html'))) throw new Error('Run npm run build before packaging');
   fs.mkdirSync(releaseRoot,{recursive:true});
   staging = fs.mkdtempSync(path.join(releaseRoot, `staging-${pkg.version}-`));
-  for (const folder of ['dist','electron','core','world-simulation','canvas-app','browser-extension','build']) copyTree(path.join(root,folder),path.join(staging,folder),new Set(['access-service.cjs','accessControl.cjs']));
-  copyTree(path.join(root,'cloud-backend/shared'),path.join(staging,'cloud-backend/shared'));
+  copyTree(path.join(root,'dist'),path.join(staging,'dist'));
+  copyRuntimeSources();
   const localProjectModules = ['storyboard-merge','storyboard-settings','storyboard-identity','prompt-duration','collab-episodes','project-media-policy','director-source','episode-identity-repair','image-composition','reference-upload-delete','art-review-repository','analysis-publication','prompt-binding'];
   fs.mkdirSync(path.join(staging,'cloud-backend/src'),{recursive:true});
   for (const name of localProjectModules) fs.copyFileSync(path.join(root,'cloud-backend/src',name+'.cjs'),path.join(staging,'cloud-backend/src',name+'.cjs'));

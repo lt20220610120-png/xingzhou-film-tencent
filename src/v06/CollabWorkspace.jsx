@@ -20,7 +20,7 @@ import {FormattedText,FormattedEditor} from '../components/FormattedText.jsx';
 import {canManageCloudProject} from '../../core/cloudRecycle.js';
 import { requestAssetImage, readAssetImageRecovery, clearAssetImageRecovery, assetImageRecoverySummary } from '../../core/assetImageRecovery.js';
 import {planAssetImageRecovery,runAssetImageRecoveryBatch,abandonAssetImageRecoveries} from '../../core/assetImageRecoveryBatch.js';
-import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch,pendingCharacterBaselines} from '../../core/artImageBatch.js';
+import {planArtImageBatch,planAssetCategoryBatch,runArtImageBatch,pendingCharacterBaselines,requiresWardrobeBaselineImage} from '../../core/artImageBatch.js';
 import CloudAssetImage from './CloudAssetImage.jsx';
 import {createDirectorSync} from '../../core/cloudTraffic.js';
 import { uniqueAssetImages, ungeneratedAssets, reconcileAssetSelection,visibleArtAssets,removeAssetImages } from '../../core/assetImages.js';
@@ -67,7 +67,7 @@ import { IMAGE_FORMATS, imageModelFormats, activeMediaProfile, videoModelCapabil
 import { createAssetDraftStore, readableCloudError } from '../../core/collabAssetDrafts.js';
 import { DeleteConfirm } from './DeleteConfirm.jsx';
 import { parseDirectorScenes, inferDirectorEpisodeNumber } from '../../core/scriptImport.js';
-import { collabEpisodeNumber, inspectCollabEpisodes, listCollabEpisodes } from '../../core/collabEpisodes.js';
+import { analysisEpisodes, collabEpisodeNumber, inspectCollabEpisodes } from '../../core/collabEpisodes.js';
 import '../art-workbench.css';
 import ArtWorkflowControl from './ArtWorkflowControl.jsx';
 import {artWorkflowState} from '../../core/artWorkflow.js';
@@ -125,7 +125,7 @@ async function startCollabArtAnalysis({ project, assets, genre, profile, api, re
   if(conflict)return conflict;
   if (!profile) throw new Error('请选择一个已配置的大语言模型');
   if (!profile.model?.trim()) throw new Error('当前模型配置缺少模型名称，请到「API 接口」编辑后保存模型名称');
-  const allEpisodes = listCollabEpisodes(project.episodes);
+  const allEpisodes = analysisEpisodes(project.episodes,targetEpisodeNumbers);
   if (!allEpisodes.length) throw new Error('没有识别到可分析的剧本分集，请先添加剧本分集');
   const scope = targetEpisodeNumbers?.length ? `第 ${targetEpisodeNumbers.join('、')} 集` : '全部分集';
   const job = { status: 'running', error: '', notice: `${scope}美术分析准备中…`, cancelled: false, taskId: '', targetEpisodeNumbers,activeEpisodes:[] };
@@ -366,7 +366,7 @@ function ForceEpisodeAnalysisDialog({ episodeNumber, onCancel, onConfirm }) {
 const assetReferenceKey = (projectId, assetId, accountId) => `xz-asset-reference:${accountId||'local'}:${projectId}:${assetId}`;
 const requiresCharacterReference = (asset, assets) => asset?.category === 'character'
   && isCharacterWardrobeVariant(asset, assets);
-const requiresAssetImageReference = (asset, assets) => requiresCharacterReference(asset, assets) || isSceneLightingVariant(asset, assets);
+const requiresAssetImageReference = (asset, assets) => requiresWardrobeBaselineImage(asset, assets) || isSceneLightingVariant(asset, assets);
 const missingAssetImageReferenceMessage = asset => asset?.category==='scene'
   ? '这是场景时间版本，请先生成或选择场景基准参考图；也可在参考选项中明确选择“不引用参考”。'
   : '这是人物差异造型，请先生成或选择人物基准参考图；也可在参考选项中明确选择“不引用参考”。';
@@ -494,7 +494,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
 
   return (
     <div className="collab-image-box">
-      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <button className="ghost" onClick={refresh}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
+      <div className="collab-panel-title"><ImageIcon size={15} /> 图片生成 <button className="ghost" onClick={()=>void refresh({assetsOnly:true,afterCurrent:true}).catch(e=>setError(e.message))}><RefreshCw size={13}/>刷新图片</button> <span className="collab-ep-badge">{images.length} 张</span></div>
       <div className="collab-image-preview">
         {selectedImage ? <button type="button" className="collab-asset-image-button" onClick={openOriginal} title="点击放大查看原图"><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={selectedImage} onResolved={recordRenewedImage} className="collab-asset-image" alt={asset.name} loading="lazy" /></button> : <div className="collab-asset-image empty"><ImageIcon size={23} /><span>等待第一张定稿</span></div>}
         {images.length > 1 && <div className="collab-image-thumbs" aria-label={`${asset.name} 图片历史`}>{images.map((image, index) => <button key={image.id || index} className={selectedImage?.id === image.id ? 'active' : ''} onClick={() => setSelectedImageId(image.id)} aria-label={`查看第 ${index + 1} 张图片`}><CloudAssetImage api={api} projectId={project.id} assetId={asset.id} image={image} alt={`${asset.name}-${index + 1}`} loading="lazy" /></button>)}</div>}
@@ -913,7 +913,6 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
   const exportImages = async (images, folderName, layout='flat') => { setExportChoiceOpen(false);setExportError('');setExporting(true); try { await api.collabExportImages({ archive: true, folderName, images,layout }); } catch (e) { setExportError(`导出失败：${e.message}`); }finally{setExporting(false);} };
   const analyzeEpisode=async(force=false)=>{
     if(analyzing||episode===null)return;
-    if(episodeIdentityError){setAnalysisError(episodeIdentityError);return;}
     if(!project.style){setAnalysisError('请先到「信息读取」选择画风');return;}
     setAnalysisError('');
     try{await startCollabArtAnalysis({project,assets,genre:project.genre,profile:analysisProfile,api,refresh,targetEpisodeNumbers:[episode],force,accountId});}
@@ -1001,7 +1000,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
         <div className="collab-art-exportbar"><b>全剧已生成 {projectImages.length} 张图片</b><button className="primary collab-add-episode-button" onClick={() => setAppendOpen(true)} disabled={!canEdit||Boolean(episodeIdentityError)}><Plus size={14}/> 添加集数</button><button className="secondary manual-add-button" onClick={() => setManualOpen(true)} disabled={!canEdit}><Plus size={14}/> 手动添加资产</button><button className="secondary" onClick={() => setExportChoiceOpen(true)} disabled={!projectImages.length||exporting}>{exporting?'正在导出…':'导出整部剧图片'}</button>{project.myRole === 'producer' && <button className="danger" onClick={clearProjectImages} disabled={!canEdit||clearingImages}>清除图片缓存</button>}</div>
         {exportChoiceOpen&&<ArtExportChoiceDialog versions={exportVersions} version={selectedExportVersion} onVersionChange={setExportVersion} loading={!availableExportBinding&&!exportBindingError} error={exportBindingError} exporting={exporting} onClose={()=>setExportChoiceOpen(false)} onChoose={layout=>{if(layout==='flat')void exportImages(projectImages,`${project.name}-全部美术图片`,'flat');else if(layout==='episode')void exportWithVoices(projectImages,`${project.name}-按集美术素材`,'episode');else if(layout==='scene')void exportWithVoices(projectImages,`${project.name}-按场景美术素材`,'scene');else askExport(exportPromptVersion);}}/>}
         {exportAudioChoice&&<ArtExportAudioDialog onClose={()=>setExportAudioChoice(null)} onChoose={includeAudio=>{const run=exportAudioChoice.run;setExportAudioChoice(null);void run(includeAudio);}}/>}
-        {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。可继续查看旧资产，但已禁止追加和付费分析。</div>}
+        {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。核对编号后可追加分集。</div>}
         {analysisJob?.notice && <div className="collab-notice">{analysisJob.notice}</div>}
         {analysisJob?.error && <div className="collab-error">{analysisJob.error}</div>}
         <AnalysisSyncDetails job={analysisJob}/>
@@ -1045,12 +1044,12 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
         <div><b><Sparkles size={15}/> 第 {episode} 集增量美术</b></div>
         <button className="secondary" onClick={onOpenReview}><ClipboardCheck size={14}/>清单核实</button>
         <ModelSelect profiles={analysisProfiles} value={analysisModelId} onChange={setAnalysisModelId} disabled={analyzing} label="本集分析模型"/>
-        <button className="primary" onClick={() => analyzeEpisode(false)} disabled={!canEdit||analyzing||Boolean(episodeIdentityError)}>{analyzing?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {analyzing?'分析中…':'生成本集 / 继续'}</button>
-        <button className="secondary collab-force-analysis" onClick={() => setForceConfirmOpen(true)} disabled={!canEdit||analyzing||Boolean(episodeIdentityError)}>重新生成本集美术</button>
+        <button className="primary" onClick={() => analyzeEpisode(false)} disabled={!canEdit||analyzing||!episodeDetails.has(episode)}>{analyzing?<Loader2 size={14} className="spin"/>:<Sparkles size={14}/>} {analyzing?'分析中…':'生成本集 / 继续'}</button>
+        <button className="secondary collab-force-analysis" onClick={() => setForceConfirmOpen(true)} disabled={!canEdit||analyzing||!episodeDetails.has(episode)}>重新生成本集美术</button>
         {analyzing&&<button className="danger" onClick={() => stopAnalysis({projectId:project.id,api,accountId})}><X size={14}/> 停止</button>}
       </div>
       {analysisError&&<div className="collab-error">{analysisError}</div>}
-      {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}。旧资产仍可查看，但付费分析已禁用。</div>}
+      {episodeIdentityError&&<div className="collab-error" role="alert">分集编号异常：{episodeIdentityError}</div>}
       {analysisJob?.error&&<div className="collab-error">{analysisJob.error}</div>}
       {analysisJob?.notice&&<div className="collab-notice">{analysisJob.notice}</div>}
       <div className="collab-art-head">
@@ -1989,7 +1988,7 @@ export function CollabWorkspace({ state, api, account, dataDirectory }) {
         {project.storageMode !== 'local' && section === 'art-review' ? <small className="collab-review-local-note"><Save size={14}/>清单本地保存 · 关联自动同步</small> : <button className="collab-refresh" disabled={manualRefreshing} onClick={async () => { setManualRefreshing(true); setRefreshNotice(''); try { await refreshProject({manual:true}); } finally { setManualRefreshing(false); } }}><RefreshCw size={14} /> {manualRefreshing ? '正在刷新…' : project.storageMode==='local'?'刷新本机资料':'刷新项目资料'}</button>}
         {refreshNotice && <small role="status" style={{padding:'0 12px 12px',lineHeight:1.6}}>{refreshNotice}</small>}
       </aside>
-      <main ref={stageRef} className={section === 'storyboard' ? 'collab-stage collab-stage--storyboard' : 'collab-stage'}>
+      <main ref={stageRef} data-runtime-storage-mode={project.storageMode==='local'?'local':'cloud'} className={section === 'storyboard' ? 'collab-stage collab-stage--storyboard' : 'collab-stage'}>
         <EpisodeIdentityPanel key={'identity:'+project.id} project={project} api={api} onProjectChange={applyProject} refresh={refreshProject}/>
         <PromptPublicationProgress key={'publication:'+account?.id+':'+project.id} api={api} accountId={account?.id} projectId={project.id} refresh={refreshProject}/>
         <div className="collab-storage-status" role="status">{project.storageMode==='local'?<><Save size={14}/>本机保存</>:project.localPreparing?<><RefreshCw size={14}/>正在准备本机项目副本</>:<><Users size={14}/>云端协作</>}{project.localPreparationError&&<span>{project.localPreparationError}</span>}</div>

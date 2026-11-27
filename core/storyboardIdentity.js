@@ -1,3 +1,5 @@
+import {sceneHeadingPattern} from './collabEpisodes.js';
+
 // Legacy director imports did not always assign IDs. Use the same deterministic
 // identities in the renderer and cloud so selecting and patching a row agree.
 const idText = value => value == null ? '' : String(value).trim();
@@ -9,7 +11,7 @@ const counts = rows => rows.reduce((map, row) => {
 
 function episodeAnchor(episode, index) {
   if (episode.kind === 'setting' || episode.title === '设定和小传') return 'setting';
-  const contentNumber = String(episode.content || '').match(/^\s*(?:场景\s*)?(\d+)\s*[-—－]\s*\d+/m)?.[1];
+  const contentNumber = String(episode.content || '').match(new RegExp(sceneHeadingPattern,'m'))?.[1];
   const titleNumber = String(episode.title || '').match(/(?:第\s*|Episode\s*|EP\s*)(\d+)/i)?.[1];
   return contentNumber || titleNumber || idText(episode.title) || `row-${index + 1}`;
 }

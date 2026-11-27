@@ -96,7 +96,18 @@ function spawnBackgroundBrowser(executable,args,{spawn=nativeSpawn,platform=proc
   child.once('exit',()=>{if(pending){clearTimeout(pending.timer);pending.reject(new Error('独立浏览器窗口已退出'));pending=null;}});
  }
  child.stderr?.on('data',chunk=>{child.startupError=String((child.startupError||'')+chunk).slice(-4096);});
- const kill=child.kill.bind(child);child.kill=()=>{if(child.stdin?.writable){child.stdin.end('stop\n');return true;}return kill();};
+ const kill=child.kill.bind(child);
+ // The browser may exit between checking writable and writing the stop command.
+ // A closed pipe is an expected state while unwinding the owned process tree.
+ let stopping=false;
+ child.stdin?.on?.('error',()=>{if(stopping&&child.exitCode==null)kill();});
+ child.kill=()=>{
+  if(stopping)return true;
+  stopping=true;
+  if(child.stdin?.writable&&!child.stdin.destroyed){child.stdin.end('stop\n');return true;}
+  return kill();
+ };
+ child.forceKill=kill;
  child.backgroundDesktop=desktop;return child;
 }
 module.exports={spawnBackgroundBrowser,windowsArgument};

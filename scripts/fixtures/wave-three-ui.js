@@ -8,8 +8,9 @@ const ep = { id: 'qa-episode', number: 1, episodeNumber: 1, title: '第1集', co
 const director = { id: 'qa-director', name: '隔离导演剧本', masterScript: text, episodes: [ep] };
 const fixture = new URLSearchParams(location.search);
 const commercialFixture = fixture.has('commercial-polish');
+const draftFixture = fixture.has('jianying');
 if(fixture.has('long-selects'))ep.title='第1集｜隔离测试：婚礼直播、冷链基地与投资决策的完整集名测试';
-const storyboard = fixture.has('storyboard-scroll') || commercialFixture ? await import('./storyboard-scroll.js') : null;
+const storyboard = fixture.has('storyboard-scroll') || commercialFixture || draftFixture ? await import('./storyboard-scroll.js') : null;
 const preferenceFixture = fixture.has('asset-reference-preference');
 const shot = (label,ids) => ({label,generationConfig:{bindingAssetIds:ids}});
 const secondEpisode={...ep,id:'qa-episode-2',number:2,episodeNumber:2,title:'第2集',storyboardPrompts:[shot('2-1-1',['stamp','seal'])]};
@@ -90,6 +91,23 @@ if(commercialFixture){
     generationList:({includeArchived}={})=>includeArchived?poolJobs:jobs,
   });
 }
+if(draftFixture){
+  const draftJobs = [
+    {id:'older-local',shotId:'scroll-1-1-1',createdAt:'2026-01-01T00:00:00Z'},
+    {id:'newer-local',shotId:'scroll-1-1-1',createdAt:'2026-01-02T00:00:00Z'},
+    {id:'different-episode',shotId:'scroll-2-1-1',createdAt:'2026-01-01T00:00:00Z'},
+  ].map(row=>({...row,projectId:project.id,kind:'video',status:'success'}));
+  qa.draftRequests=[];
+  Object.assign(answers,{
+    generationList:()=>draftJobs,
+    projectJianyingDraft:request=>{
+      qa.draftRequests.push(request);
+      if(qa.cancelDraft)return null;
+      if(qa.failDraft)throw Error('隔离目录不可写');
+      return {folder:'C:/隔离资料/测试剪映草稿',shots:1,voices:1,skipped:['1-1-2 视频尚未生成'],voiceNotes:['1-1-1 配音超出镜头，已按镜头长度截取']};
+    },
+  });
+}
 if(fixture.has('asset-image-delete')){
   const bridge=window.assetDeletionFixture;
   const active=await bridge.state();
@@ -116,7 +134,14 @@ if(fixture.has('storyboard-duration209')){
     storyboardBatchStart:p=>bridge.call('start',p),storyboardBatchList:p=>bridge.call('list',p),
   });
 }
-window.xingzhou = new Proxy({}, { get(_, key) {
+const enumerableBridge = Object.fromEntries([
+  ...Object.keys(answers),
+  'saveState', 'saveDirectorProjects', 'licenseRoute', 'licenseHeartbeat', 'onGenerationJobs',
+  'onGenerationMonitor', 'onAssetPreview', 'onUpdateProgress', 'onMediaTaskStatus',
+  'aiChat', 'audioGenerate', 'generationSubmit', 'imageGenerate', 'videoGenerate', 'productionConnect',
+  'storyboardBatchStart', 'storyboardBatchResume', 'projectVideoShare',
+].map(key=>[key,true]));
+window.xingzhou = new Proxy(enumerableBridge, { get(_, key) {
   if (typeof key !== 'string' || key === 'then') return undefined;
   if (key === 'onLicenseState') return callback => {qa.licenseChanged=callback;return ()=>{qa.licenseChanged=null;};};
   if (key.startsWith('on')) return () => () => {};

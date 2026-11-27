@@ -31,10 +31,9 @@ function nextPromptBinding(project,p,userId){
  if(reviews.length){
   const {numberedEpisodes}=require('./collab-episodes.cjs');
   const {validateReview}=require('./art-review-repository.cjs');
-  const episodes=new Map(numberedEpisodes(project.episodes).map(({number,episode})=>[number,episode]));
   for(const [key,record] of reviews){
    const number=Number(key);
-   const episode=episodes.get(number);
+   const episode=numberedEpisodes(project.episodes,{onlyNumber:number})[0]?.episode;
    if(!episode)fail('核实清单分集不存在');
    validateReview(record,episode,number);
   }

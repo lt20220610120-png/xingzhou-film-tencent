@@ -43,11 +43,13 @@ function headers(apiKey) {
   return { Authorization: `Bearer ${apiKey.trim()}`, 'X-Public-Model-Ids': '1' };
 }
 async function json(response) {
-  let data; try { data = await response.json(); } catch { throw new Error(`飞拓返回了非 JSON 响应（${response.status}）`); }
-  if (!response.ok || data.success === false) throw new Error(data.errorMessage || data.error?.message || data.error || `飞拓请求失败（${response.status}）`);
+  let data; try { data = await response.json(); } catch { throw Object.assign(new Error(`飞拓返回了非 JSON 响应（${response.status}）`),{httpStatus:response.status}); }
+  if (!response.ok || data.success === false) throw Object.assign(new Error(data.errorMessage || data.error?.message || data.error || `飞拓请求失败（${response.status}）`),{httpStatus:response.status});
   return data;
 }
 async function submit(input) {
+  let attempted=false;
+  try {
   const model = validate(input);
   const h = headers(input.apiKey);
   const sourceRefs=input.references || [];
@@ -80,9 +82,15 @@ async function submit(input) {
     h['Content-Type'] = 'application/json'; body = JSON.stringify(payload);
   }
   await input.beforePaidDispatch?.();
+  input.signal?.throwIfAborted();
+  attempted=true;
   const data = await json(await fetch(`${BASE}/api/open/v1/${model.kind}/generate`, { method: 'POST', headers: h, body, redirect:'error', signal: input.signal ? AbortSignal.any([input.signal,AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000)]) : AbortSignal.timeout(model.kind === 'image' ? 300000 : 120000) }));
   if (!data.jobId) throw new Error('提交响应缺少 jobId，请在飞拓任务日志核对后再操作');
   return data;
+  } catch(error) {
+    if(!attempted||[400,401,402,403,404,422,429].includes(error.httpStatus))error.beforeSubmission=true;
+    throw error;
+  }
 }
 async function status({ jobId, apiKey, signal }) {
   if (!jobId) throw new Error('缺少任务编号');

@@ -358,8 +358,16 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
       return {...row,...playback(rootPath(),source.localPath,saved.project.id),objectKey:source.objectKey||row.objectKey,mediaId:source.id,localUnavailable:false};
     });
   }
+  async function deleteManagedFile(projectId,localPath){
+    if(!localPath)return;
+    try{
+      const file=await trustedManagedPath(rootPath(),localPath,projectId);
+      await fsp.unlink(file);
+      await fsp.unlink(file+'.verified.json').catch(()=>{});
+    }catch(error){if(!['ENOENT','ENOTDIR'].includes(error.code))throw error;}
+  }
 
-  async function prepareShare({project, assets = [], media = []}, uploadContext) {
+  async function prepareShare({project, assets = [], media = []}, uploadContext, uploadProgress) {
     const projectId = projectIdentifier(project.id);
     const root = rootPath();
     const canonical = projectRows(assets,media,projectId);
@@ -416,9 +424,18 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     for (const {row,objectKey,filename} of planned.values()) {
       let key = objectKey || uploadedFiles.get(filename);
       if (!key) {
-        const result = await upload(projectId,filename,row.kind,uploadContext);
-        key = cloudKey(result?.objectKey,projectId);
-        if (!key) throw Error('素材上传回执不属于当前项目');
+        const stat=uploadProgress&&await fsp.stat(filename,{bigint:true});
+        const signature=stat&&[stat.size,stat.mtimeNs,stat.ctimeNs].join(':');
+        const known=uploadProgress?.get(row.localPath);
+        if(known?.signature===signature&&known?.kind===row.kind)key=cloudKey(known.objectKey,projectId);
+        if(!key){
+          const result = await upload(projectId,filename,row.kind,uploadContext);
+          key = cloudKey(result?.objectKey,projectId);
+          if (!key) throw Error('素材上传回执不属于当前项目');
+          const after=uploadProgress&&await fsp.stat(filename,{bigint:true});
+          if(after&&[after.size,after.mtimeNs,after.ctimeNs].join(':')!==signature)throw Error('素材在上传时已变化，请重试邀请');
+          await uploadProgress?.save(row.localPath,{signature,kind:row.kind,objectKey:key});
+        }
         uploadedFiles.set(filename,key);
       }
       const result = {...withoutSource(row),projectId,objectKey:key};
@@ -439,7 +456,7 @@ function createLocalProjectMedia({root, download, upload, resolveLocalReference}
     return {...scrubShare({project:addObjectKeys(projectWithIds),assets:sharedAssets,media:[...rows.values()]},projectId),unavailableCount:unavailable.size};
   }
 
-  return {storeFile,capture,materialize,resolveReferences,prepareShare};
+  return {storeFile,capture,materialize,resolveReferences,prepareShare,deleteManagedFile};
 }
 
 module.exports = {createLocalProjectMedia, projectMediaMime, adoptedLocalAssetImage: assetImage};

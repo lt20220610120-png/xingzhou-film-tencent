@@ -52,7 +52,7 @@ export class RenderErrorBoundary extends React.Component {
     this.state = { error: null };
   }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { console.error('[xingzhou-render-error]', error, info); }
+  componentDidCatch(error, info) { reportRendererIncident('render-error');console.error('[xingzhou-render-error]', error, info); }
   render() {
     if (!this.state.error) return this.props.children;
     return <div className="render-error-page">
@@ -65,8 +65,10 @@ export class RenderErrorBoundary extends React.Component {
   }
 }
 
+import {desktopIpc} from '../core/desktopIpc.js';
+import {reportRendererIncident} from './runtimeIncident.js';
 // API 对象：Electron 环境用 window.xingzhou，浏览器 fallback
-const api = window.xingzhou || {
+const api = desktopIpc(window.xingzhou) || {
   saveTxt: ({ name, content }) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));

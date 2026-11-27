@@ -35,7 +35,7 @@ function analysisRepository(pool){return {
    if(row.deleted_at || String(row.genre||'').includes('[RECYCLE_UNTIL:'))throw Object.assign(new Error('项目已删除，请先恢复'),{status:410});
    const n=Number(p.episodeNumber);
    if(!Number.isInteger(n)||n<1||n>10000)throw Object.assign(new Error('分集编号无效'),{status:400});
-   const matches=numberedEpisodes(row.episodes).filter(entry=>entry.number===n);
+   const matches=numberedEpisodes(row.episodes,{onlyNumber:n});
    if(matches.length!==1||String(matches[0].episode.content||'')!==p.sourceContent)fail('本集原文已修改，分析结果已保存在本机，请同步最新剧本后继续');
    const parsed=parsePublicationOutput(p.output,n);
    const checked=validatePublicationAssets(p.assets,parsed,n);

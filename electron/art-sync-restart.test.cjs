@@ -6,10 +6,11 @@ const path=require('node:path');
 const ui=fs.readFileSync(path.join(__dirname,'../src/v06/CollabWorkspace.jsx'),'utf8').replace(/\r\n/g,'\n');
 test('analysis completion retains local candidates without a cloud refresh or implicit publication',async()=>{
  const match=ui.match(/async function startCollabArtAnalysis\([\s\S]*?\n}\n/);assert.ok(match);
+ const {analysisEpisodes}=await import('../core/collabEpisodes.js');
  let analyzed=0,refreshed=0;const jobs=new Map(),progress=[];
- const context={collabAnalysisJobs:jobs,collabAnalysisRuns:new Map(),notifyBindingSaved:()=>{},analysisChanged:key=>progress.push(key),analysisJobKey:(accountId,id)=>accountId+':'+id,listCollabEpisodes:()=>[{episodeNumber:1}],runAnalysis:async({onProgress})=>{analyzed++;onProgress();return {pending:1,completed:1,published:0,pendingEpisodes:[1],errors:[]};},artSyncNotice:()=> '本机已保存',readableCloudError:e=>e.message};
+ const context={collabAnalysisJobs:jobs,collabAnalysisRuns:new Map(),notifyBindingSaved:()=>{},analysisChanged:key=>progress.push(key),analysisJobKey:(accountId,id)=>accountId+':'+id,analysisEpisodes,runAnalysis:async({onProgress})=>{analyzed++;onProgress();return {pending:1,completed:1,published:0,pendingEpisodes:[1],errors:[]};},artSyncNotice:()=> '本机已保存',readableCloudError:e=>e.message};
  vm.createContext(context);vm.runInContext(match[0]+';globalThis.run=startCollabArtAnalysis;',context);
- const result=await context.run({project:{id:'p',genre:'都市'},accountId:'a',profile:{id:'model',model:'mock'},api:{},assets:[],genre:'都市',refresh:async()=>{refreshed++}});
+ const result=await context.run({project:{id:'p',genre:'都市',episodes:[{episodeNumber:1},{episodeNumber:2},{episodeNumber:2}]},targetEpisodeNumbers:[1],accountId:'a',profile:{id:'model',model:'mock'},api:{},assets:[],genre:'都市',refresh:async()=>{refreshed++}});
  assert.equal(analyzed,1);assert.deepEqual(progress,['a:p','a:p','a:p']);assert.equal(refreshed,0);assert.equal(result.published,0);assert.equal(result.pending,1);assert.equal(result.status,'completed');
 });
 test('restored persisted ledger distinguishes local complete from synced episodes and shows exact failures',async()=>{

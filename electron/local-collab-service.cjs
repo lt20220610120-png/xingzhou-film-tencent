@@ -9,6 +9,8 @@ const { applyEpisodeIdentityChange, composeEpisodeIdentityScript, filterRemovedD
 const { validateImageComposition } = require('../cloud-backend/src/image-composition.cjs');
 const { publishedReferenceUses } = require('../cloud-backend/src/reference-upload-delete.cjs');
 const {parseAssetReferencePreference} = require('../cloud-backend/shared/asset-reference-preference.cjs');
+const {KEY:promptBindingKey,bindingReceipt}=require('../cloud-backend/src/prompt-binding.cjs');
+const {matchesMediaReference}=require('./reference-upload-guard.cjs');
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const accountFolder = id => createHash('sha256').update(String(id)).digest('hex');
@@ -49,7 +51,7 @@ function adoptAssetImage(asset, image) {
   asset.updated_at = time();
 }
 
-function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, isStorageLocked = () => false, projectBusy = () => false, adoptedVoices = () => ({}) }) {
+function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, isStorageLocked = () => false, projectBusy = () => false, adoptedVoices = () => ({}), activeMediaReference=()=>false, retainedMedia=()=>[], onMediaCleanupError=()=>{} }) {
   const queues = new Map(), imports = new Map(), importResults = new Map(), transfers = new Set(), indexReads = new Map(), preparingProjects = new Map();
   let presence;
   const freshness=10000;
@@ -206,6 +208,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const result = await apply(record, current);
       record.project.updated_at = time();
       await save(current, record);
+      if(record.removedMedia?.length)await cleanRemovedMedia(record,current);
       return result;
     });
   }
@@ -243,10 +246,37 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     const cloudIds = [];
     record.media = record.media.filter(row => {
       if (!removing(row)) return true;
+      // Non-enumerable so the cleanup list is never written as a live reference.
+      if(!record.removedMedia)Object.defineProperty(record,'removedMedia',{value:[]});
+      record.removedMedia.push(row);
       if (row.objectKey) cloudIds.push(row.id);
       return false;
     });
     record.deletedMediaIds = [...new Set([...(record.deletedMediaIds || []), ...cloudIds])];
+  }
+  async function cleanRemovedMedia(record,current){
+    const projectId=record.project.id, media=mediaFor(current);
+    if(!media.deleteManagedFile)return;
+    try{
+      const [external,managed]=await Promise.all([retainedMedia(current,projectId),view(current,record)]);
+      assertScope(current,true);
+      for(const row of record.removedMedia){
+        if(!row.localPath||activeMediaReference(projectId,row))continue;
+        // Include reference IDs as well as all disk and object identities.
+        const materialized=view(current,{project:{id:projectId},assets:[],media:[row]}).media[0];
+        const used=value=>{
+          if(typeof value==='string')return matchesMediaReference(materialized,{id:value,filePath:value,url:value,objectKey:value,localPath:value});
+          return value&&typeof value==='object'&&Object.values(value).some(used);
+        };
+        if(!used([managed.project,managed.assets,managed.media,record.messages,record.tasks,adoptedVoices(current,projectId),external])){
+          assertScope(current,true);
+          await media.deleteManagedFile(projectId,row.localPath);
+        }
+      }
+    }catch(cause){onMediaCleanupError(cause);}
+  }
+  function requireMediaMutable(projectId,row){
+    if(activeMediaReference(projectId,row))throw error('素材仍被生成队列使用，请处理原任务后再删除',409);
   }
   function assetIn(record, id) {
     const asset = record.assets.find(row => row.id === id);
@@ -301,11 +331,16 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       await save(current, record);
       transfers.add(key(current, id));
       try {
+        if(unknown){
+          const receipt=await readShareReceipt(current,record);
+          if(receipt)return await finishShare(current,record,receipt);
+        }
         const prepared = await cloud.prepareLocalShare({ projectId: id, revision: record.share.revision ?? record.cloudRevision ?? null, requestId, invitation });
         assertScope(current, true);
         let completed = prepared.completed;
         if (!completed) {
           if(unknown&&prepared.revision!==record.share.revision)throw error('原邀请的云端版本已变化',409);
+          if(record.share.revision!==prepared.revision)delete record.share.uploads;
           record.share.revision = prepared.revision;
           record.share.committing = unknown;
           await save(current, record);
@@ -313,7 +348,13 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
           const voices = adoptedVoices(current, id);
           if (Object.keys(voices).length) snapshot.project.analysis_progress = { ...snapshot.project.analysis_progress, _sharedVoiceProfiles: voices };
           const uploadContext = prepared.pending === true ? {localShareRequestId:requestId} : undefined;
-          const {unavailableCount,...bundle} = await mediaFor(current).prepareShare(snapshot, uploadContext);
+          const {unavailableCount,...bundle} = await mediaFor(current).prepareShare(snapshot, uploadContext, {
+            get:localPath=>record.share.uploads?.[localPath],
+            async save(localPath, receipt){
+              record.share.uploads={...record.share.uploads,[localPath]:receipt};
+              await save(current,record);
+            },
+          });
           record.share.unavailableCount = unavailableCount || 0;
           record.share.committing = true;
           await save(current, record);
@@ -405,6 +446,17 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const current = scope(), id = payload.projectId || payload.id;
       let record = await stored(current, id);
       assertScope(current);
+      if (payload.bindingContext === true) {
+        if (!record || record.shared) {
+          const context=await cloud.getProject({...payload,projectId:id});
+          assertScope(current);
+          return context;
+        }
+        const {project}=record, saved=project.analysis_progress?.[promptBindingKey];
+        const bindingSources=Object.fromEntries(numberedEpisodes(project.episodes).map(({number,episode})=>[number,createHash('sha256').update(episode.content||'').digest('hex')]));
+        return {id,myRole:project.myRole,locked:project.locked,deleted_at:project.deleted_at,bindingSources,
+          ...(saved&&payload.knownBindingRevision===saved.revision?{bindingUnchanged:true}:{analysis_progress:{[promptBindingKey]:saved||null}})};
+      }
       if ((payload.retryLocal===true||payload.recoverShare===true)&&record?.share?.committing&&!record.shared) record=await serial(current,id,async()=>{
         const latest=await stored(current,id);
         if(latest?.share?.committing&&!latest.shared){
@@ -420,7 +472,8 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const k = key(current, id);
       if (imports.has(k) && preparingProjects.has(k)) return { ...preparingProjects.get(k), storageMode:'cloud', localPreparing:true };
       let state;
-      if (!record?.shared && UUID.test(String(id || '')) && !imports.has(k) && !importResults.get(k)?.permanent) {
+      const retryPreparation=payload.retryLocal===true;
+      if ((!record?.shared||retryPreparation) && UUID.test(String(id || '')) && !imports.has(k) && (retryPreparation||!importResults.get(k)?.permanent)) {
         try { state = await cloud.localProjectState({ projectId: id, includeProject: true }); }
         catch (cause) {
           if (cause.code === 'LOCAL_PROJECT_SHARED' || [403, 423].includes(cause.status)) importResults.set(k, { at: Date.now(), permanent: true });
@@ -429,7 +482,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       assertScope(current);
       const project = state?.project || await cloud.getProject({ projectId: id });
       assertScope(current);
-      if (!record?.shared) beginLocalPreparation(current, project, payload.retryLocal === true, state);
+      if (!record?.shared||retryPreparation&&state) beginLocalPreparation(current, project, retryPreparation, state);
       return { ...project, storageMode: 'cloud', localPreparing: imports.has(k), localPreparationError: importResults.get(k)?.message };
     },
     async resolveLocalReferences(projectId, references) {
@@ -483,7 +536,16 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
         const image = asset.images?.find(row => row.id === changes.adoptedImageId);
         if (!image) throw error('请选择本资产的图片', 404);
         adoptAssetImage(asset, image);
-      } else for (const field of ['name','description']) if (typeof changes[field] === 'string') asset[field] = changes[field];
+      } else {
+        if (typeof changes.name === 'string') {
+          const name=changes.name.trim();
+          if (!name) throw error('请填写资产名称');
+          if (record.assets.some(row=>row.id!==asset.id&&String(row.name).trim()===name)) throw error('已有同名资产',409);
+          asset.name=name;
+        }
+        if (typeof changes.description === 'string') asset.description=changes.description;
+        asset.updated_at=time();
+      }
       return asset;
     }),
     setAssetReferenceImagePreference: p => write('setAssetReferenceImagePreference', p, async record => {
@@ -521,8 +583,10 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     attachGeneratedAssetImage: p => addFile('attachGeneratedAssetImage', p, true),
     deleteAssetImage: p => write('deleteAssetImage', p, record => {
       const asset = assetIn(record, p.assetId);
-      if (!p.imageId || !asset.images?.some(image => image.id === p.imageId)) throw error('图片不存在，或不属于此资产', 404);
+      const image=p.imageId&&asset.images?.find(image=>image.id===p.imageId);
+      if (!image) throw error('图片不存在，或不属于此资产', 404);
       const wasAdopted = adoptedLocalAssetImage(asset)?.id === p.imageId;
+      requireMediaMutable(record.project.id,{...image,assetId:asset.id,wasAdopted});
       asset.images = asset.images.filter(image => image.id !== p.imageId);
       removeMedia(record, row => row.kind === 'asset-image' && row.id === p.imageId && (row.assetId ?? row.asset_id) === asset.id);
       if (wasAdopted || (!asset.images.length && !asset.image_url)) adoptAssetImage(asset, asset.images.at(-1));
@@ -531,6 +595,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     clearAssetImages: p => write('clearAssetImages', p, record => {
       const allAssets = p.assetId === undefined;
       const assets = allAssets ? record.assets : [assetIn(record, p.assetId)];
+      for(const asset of assets)for(const image of asset.images||[])requireMediaMutable(record.project.id,{...image,assetId:asset.id,wasAdopted:adoptedLocalAssetImage(asset)?.id===image.id});
       removeMedia(record, row => row.kind === 'asset-image' && (allAssets || (row.assetId ?? row.asset_id) === p.assetId));
       for (const asset of assets) {
         asset.images = [];
@@ -544,12 +609,19 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     deleteMedia: p => write('deleteMedia', p, (record, current) => {
       const row = record.media.find(item => item.id === p.mediaId);
       if (!row) throw error('素材不存在', 404);
+      const asset=row.kind==='asset-image'&&record.assets.find(item=>item.id===(row.assetId||row.asset_id));
+      const wasAdopted=asset&&adoptedLocalAssetImage(asset)?.id===row.id;
+      requireMediaMutable(record.project.id,{...row,wasAdopted});
       if (p.purpose === 'reference-upload') {
         const owned = row.userId === current.account.id && !row.assetId && /^参考素材\s/.test(row.note || '');
         const protectedUse = publishedReferenceUses(record.project, { ...row, object_path: row.objectKey || row.filePath });
         if (!owned || protectedUse) throw error('只能删除自己上传且未采用的参考素材', 403);
       }
       removeMedia(record, item => item.id === p.mediaId);
+      if(asset){
+        asset.images=(asset.images||[]).filter(image=>image.id!==row.id);
+        if(wasAdopted)adoptAssetImage(asset,asset.images.at(-1));
+      }
       return { ok: true };
     }),
     listMembers: p => read('listMembers', p, (record, { account }) => [{ id: account.id, user_id: account.id, username: account.username, display_name: record.project.owner_name, role: 'producer', created_at: record.project.created_at }]),
@@ -558,14 +630,16 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const current = scope();
       if (await this.isLocal(p.projectId)) throw error('本机项目只有负责人');
       const result = await cloud.removeMember(p);
-      await serial(current, p.projectId, async () => {
-        const record = await stored(current, p.projectId);
-        if (record?.shared) {
-          const project = await cloud.getProject(p);
-          importResults.delete(key(current, p.projectId));
-          beginLocalPreparation(current, project, true);
-        }
-      }).catch(() => {});
+      const k=key(current,p.projectId);
+      try {
+        assertScope(current,true);
+        const state=await cloud.localProjectState({projectId:p.projectId,includeProject:true});
+        assertScope(current,true);
+        if(state?.project)beginLocalPreparation(current,state.project,true,state);
+      } catch(cause) {
+        const permanent=cause.code==='LOCAL_PROJECT_SHARED'||[403,423].includes(cause.status);
+        importResults.set(k,{at:Date.now(),permanent,...(!permanent?{message:'本机副本尚未准备好，请刷新项目重试'}:{})});
+      }
       return result;
     },
     updateMemberRole: p => write('updateMemberRole', p, () => { throw error('本机项目只有负责人'); }),
@@ -579,7 +653,8 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     savePromptBinding:p=>write('savePromptBinding',p,(record,current)=>{
       const {KEY,nextPromptBinding}=require('../cloud-backend/src/prompt-binding.cjs');
       const next=nextPromptBinding(record.project,p,current.account.id);
-      record.project.analysis_progress={...record.project.analysis_progress,[KEY]:next};return next;
+      record.project.analysis_progress={...record.project.analysis_progress,[KEY]:next};
+      return p.ackOnly===true?bindingReceipt(record.project.id,next):next;
     }),
     ...Object.fromEntries(['publishAnalysis','saveArtReview','publishArtReview'].map(method => [method, p => write(method, p, (record, current) => require('./local-project-art.cjs').applyLocalArt(record, method, p, current.account.id))])),
   };

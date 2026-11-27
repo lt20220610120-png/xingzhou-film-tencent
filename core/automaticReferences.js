@@ -4,7 +4,7 @@ import {assetHasAdoptedImage} from './assetReferencePolicy.js';
 import {numberedReferences,isProjectGenerationReference} from './generationReferences.js';
 import {referenceForAssetCard} from './assetImageSlot.js';
 
-const ALIAS=/@(image|audio|video)\d+(?!\d)/g;
+const ALIAS=/@(image|audio|video|asset-image)\d+(?!\d)/g;
 const FIELD_CATEGORY={人物:'character',场景:'scene',道具:'prop',音色:'audio'};
 const TIME_OR_POSITION=/^(?:凌晨|清晨|黎明|早晨|上午|中午|午后|下午|黄昏|傍晚|白天|晚上|深夜|午夜|日|夜|晨|内|外)$/;
 const normalizeName=text=>String(text||'').normalize('NFKC').toLowerCase().replace(/q版的/g,'q版').replace(/的/g,'').replace(/[\s【】\[\]（）()·•]/g,'');
@@ -13,14 +13,15 @@ export const generationReferenceKey=ref=>`${ref.kind}:${ref.id||ref.filePath||re
 // Only the four subject fields inside 基础设定 participate. Descriptive commas
 // belong to the current entry; semicolons/newlines outside parentheses begin another.
 function basicSubjects(prompt) {
- const marker=/[【\[]基础设定[】\]]/.exec(prompt);
+ const marker=/[【\[]基础(?:设定|信息)[】\]]/.exec(prompt);
  if(!marker)return [];
  const start=marker.index+marker[0].length;
  const tail=prompt.slice(start),heading=/\n[ \t]*[【\[][^\r\n【】\[\]]+[】\]]/.exec(tail);
  const block=tail.slice(0,heading?.index??tail.length);
- const fields=[...block.matchAll(/(?:^|\n)[ \t]*(人物|场景|道具|音色)[ \t]*[：:]/g)];
+ const fields=[...block.matchAll(/(?:^|\n)[ \t]*(人物|场景|道具|音色|声音|限制|说明)[ \t]*[：:]/g)];
  const subjects=[];
  fields.forEach((field,i)=>{
+  if(!Object.hasOwn(FIELD_CATEGORY,field[1]))return;
   const from=field.index+field[0].length,to=fields[i+1]?.index??block.length;
   let segmentStart=from,depth=0;
   const consume=end=>{
@@ -34,7 +35,7 @@ function basicSubjects(prompt) {
    const head=segment.slice(offset).split(/[，,（(。.!！：:@]/)[0].trim();
    if(!head||/^(?:无|没有|暂无|无其他|限制|说明)/.test(head))return;
    const headStart=start+segmentStart+offset;
-   subjects.push({field:field[1],name:head,start:headStart,end:headStart+head.length});
+   subjects.push({field:field[1],name:head,start:headStart,end:headStart+head.length,fieldEnd:start+to});
   };
   for(let p=from;p<to;p++) {
    const char=block[p];
@@ -160,7 +161,7 @@ export function matchBasicReferences(value,candidates=value.references||[],{allo
   const subject=updatedSubjects[i],found=matched.get(subjects[i])||[];
   if(subject.field==='音色')continue;
   if(!found.length)continue;
-  const rest=prompt.slice(subject.end);
+  const rest=prompt.slice(subject.end,subject.fieldEnd);
   const group=/^[ \t]*[（(]参考[ \t]*((?:@(?:image|audio|video)\d+\s*)*|@)[）)]/.exec(rest);
   const direct=!group&&/^(?:[ \t]*@(?:image|audio|video)\d+)+/.exec(rest);
   const existing=(group?.[1]||direct?.[0]||'').match(ALIAS)||[];

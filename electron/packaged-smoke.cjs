@@ -46,7 +46,7 @@ module.exports = function configurePackagedSmoke(app) {
           return;
         }
         report.likeConnectorBridge=await win.webContents.executeJavaScript("['likeStatus','likePairing','likeBind','likeOpenProject','likeExtensionFolder'].every(k=>typeof window.xingzhou[k]==='function')");if(!report.likeConnectorBridge)throw Error('Like connector preload bridge missing');
-        report.adminWorkflowGate=await win.webContents.executeJavaScript(`(async()=>{const api=window.xingzhou;const bridge=['adminWorkflowList','adminWorkflowCreate','adminWorkflowAction','adminWorkflowFolder','adminWorkflowOpen'].every(k=>typeof api[k]==='function');let denied=0;for(const action of [()=>api.adminWorkflowList(),()=>api.adminWorkflowCreate({}),()=>api.adminWorkflowAction({id:'fake',action:'start'}),()=>api.promptArtSave({})]){try{await action();}catch{denied++;}}return {bridge,denied,associationDisabled:!(await api.promptArtStatus()).enabled};})()`);
+        report.adminWorkflowGate=await win.webContents.executeJavaScript(`(async()=>{const api=window.xingzhou;const bridge=['adminWorkflowList','adminWorkflowCreate','adminWorkflowAction','adminWorkflowFolder','adminWorkflowOpen'].every(k=>typeof api[k]==='function');let denied=0;for(const action of [()=>api.adminWorkflowList(),()=>api.adminWorkflowCreate({}),()=>api.adminWorkflowAction({id:'fake',action:'start'}),()=>api.promptArtSave({})]){try{if((await action())?.__xingzhouIpcFailure===true)denied++;}catch{denied++;}}return {bridge,denied,associationDisabled:!(await api.promptArtStatus()).enabled};})()`);
         if(!report.adminWorkflowGate.bridge||report.adminWorkflowGate.denied!==4||!report.adminWorkflowGate.associationDisabled)throw Error('Administrator workflow gate failed');
         report.importedBindingBridge=await win.webContents.executeJavaScript("typeof window.xingzhou.promptArtImageInputs==='function'");
         if(!report.importedBindingBridge)throw Error('Imported image binding bridge missing');
@@ -162,7 +162,9 @@ module.exports = function configurePackagedSmoke(app) {
         const startupLog=path.join(app.getPath('userData'),'startup.log');
         const startupText=fs.existsSync(startupLog)?fs.readFileSync(startupLog,'utf8'):'';
         report.startupHealth={clean:!/(?:^|\n).*?(?:ready Error|Cannot find module|fallback-window)/.test(startupText)};
-        report.projectService=await win.webContents.executeJavaScript(`(async()=>{try{const rows=await window.xingzhou.collabListProjects();return{initialized:Array.isArray(rows)};}catch(error){const message=String(error?.message||error);return{initialized:/请先登录|登录账号|授权/.test(message)&&!/undefined|Cannot find module|尚未初始化/.test(message),message};}})()`);
+        report.projectService=await win.webContents.executeJavaScript(`(async()=>{try{const rows=await window.xingzhou.collabListProjects();if(rows?.__xingzhouIpcFailure===true)throw Error(rows.message);return{initialized:Array.isArray(rows)};}catch(error){const message=String(error?.message||error);return{initialized:/请先登录|登录账号|授权/.test(message)&&!/undefined|Cannot find module|尚未初始化/.test(message),message};}})()`);
+        report.jianyingDraft={module:typeof require('./jianying-draft.cjs').exportJianyingDraft==='function',bridge:await win.webContents.executeJavaScript("typeof window.xingzhou.projectJianyingDraft==='function'")};
+        if(!report.jianyingDraft.module||!report.jianyingDraft.bridge)throw Error('Jianying draft export is missing');
         report.workBuddy.statusCall=await win.webContents.executeJavaScript(`(async()=>{try{const status=await window.xingzhou.workBuddyStatus();return{initialized:!!status&&typeof status==='object'};}catch(error){const message=String(error?.message||error);return{initialized:/管理员账号登录|授权|登录已失效/.test(message)&&!/尚未初始化|undefined|Cannot find module/.test(message),message};}})()`);
         for (let attempt=0;attempt<30;attempt++) {
           await new Promise(resolve => setTimeout(resolve,250));

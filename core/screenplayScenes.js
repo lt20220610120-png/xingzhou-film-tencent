@@ -1,12 +1,14 @@
+import {sceneHeadingPattern} from './collabEpisodes.js';
+
 const text=v=>typeof v==='string'?v:'';
 export const screenplayCharacterCount=value=>Array.from(text(value).replace(/\s/g,'')).length;
 
 /** A view of the original text; offsets preserve every character for local editing. */
 export function splitScreenplayScenes(value){
- const raw=text(value),headings=[...raw.matchAll(/^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?(\d+)[ \t]*[-－—–][ \t]*(\d+)[ \t]+([^\r\n]+)$/gm)];
+ const raw=text(value),headings=[...raw.matchAll(new RegExp(sceneHeadingPattern+'[ \\t：:]+([^\\r\\n]+)$','gm'))];
  const scenes=headings.map((m,i)=>{
-  const start=m.index,end=headings[i+1]?.index??raw.length,header=m[3].replace(/\*\*[ \t]*$/,'').trim();
-  return {id:`${Number(m[1])}-${Number(m[2])}`,episodeNumber:Number(m[1]),sceneNumber:Number(m[2]),header,start,end,text:raw.slice(start,end),body:raw.slice(start+m[0].length,end).trim()};
+  const start=m.index,end=headings[i+1]?.index??raw.length,header=m[4].replace(/\*\*[ \t]*$/,'').trim();
+  return {id:`${Number(m[1])}-${Number(m[3])}`,episodeNumber:Number(m[1]),sceneNumber:Number(m[3]),header,start,end,text:raw.slice(start,end),body:raw.slice(start+m[0].length,end).trim()};
  });
  return {prefix:raw.slice(0,headings[0]?.index??raw.length),scenes};
 }

@@ -10,12 +10,19 @@ function createLocalMediaHandler(getDataDir,allowFile=()=>true){
  return async request=>{
   if(!['GET','HEAD'].includes(request.method))return new Response(null,{status:405,headers:{allow:'GET, HEAD'}});
   let file;
-  try{file=path.resolve(decodeURIComponent(request.url.replace(/^xzmedia:\/\/(?:local\/)?/,'').replace(/^\//,'')));}catch{return new Response(null,{status:400});}
   try{
-   const root=await fs.promises.realpath(getDataDir());
-   if(!inside(path.resolve(getDataDir()),file))return new Response(null,{status:403});
+   const prefix=/^xzmedia:\/\/(?:local\/|\/)/i;
+   if(!prefix.test(request.url))return new Response(null,{status:400});
+   const decoded=decodeURIComponent(request.url.replace(prefix,''));
+   if(!path.isAbsolute(decoded))return new Response(null,{status:400});
+   file=path.resolve(decoded);
+  }catch{return new Response(null,{status:400});}
+  try{
+   const directory=getDataDir();
+   const root=await fs.promises.realpath(directory);
+   if(!inside(path.resolve(directory),file))return new Response(null,{status:403});
    file=await fs.promises.realpath(file);
-   if(!inside(root,file)||!allowFile(file,root))return new Response(null,{status:403});
+   if(directory!==getDataDir()||!inside(root,file)||!allowFile(file,root))return new Response(null,{status:403});
    const stat=await fs.promises.stat(file);
    if(!stat.isFile())return new Response(null,{status:404});
    const headers={'content-type':types[path.extname(file).toLowerCase()]||'application/octet-stream','accept-ranges':'bytes','content-length':String(stat.size)};
@@ -42,6 +49,24 @@ function createLocalMediaHandler(getDataDir,allowFile=()=>true){
   }catch(error){return new Response(null,{status:['ENOENT','ENOTDIR'].includes(error.code)?404:500});}
  };
 }
+async function audioExportExtension(file) {
+ const handle=await fs.promises.open(file,'r');
+ try {
+  const header=Buffer.alloc(12);
+  await handle.read(header,0,header.length,0);
+  const signature=header.toString('ascii',0,4);
+  if((signature==='RIFF'||signature==='RF64')&&header.toString('ascii',8,12)==='WAVE')return '.wav';
+  if(signature==='fLaC')return '.flac';
+  if(signature==='OggS')return '.ogg';
+  if(header.toString('ascii',4,8)==='ftyp')return '.m4a';
+  if(header.toString('ascii',0,3)==='ID3')return '.mp3';
+  if(header[0]===0xff&&(header[1]&0xf6)===0xf0)return '.aac';
+  if(header[0]===0xff&&(header[1]&0xe0)===0xe0&&(header[1]&0x06)!==0)return '.mp3';
+  const extension=path.extname(file).toLowerCase();
+  if(types[extension]?.startsWith('audio/'))return extension;
+  throw Error('无法识别这份音频的格式，请刷新样音后重试');
+ }finally{await handle.close();}
+}
 async function exportMediaFile({filePath,url,kind,filename},{showSaveDialog,downloadToFile,mediaDir,dataDir}){
  const verify=dataDir?file=>require('./workspace-file.cjs').verifiedDataFile(file,dataDir()):async file=>file;
  if(filePath){
@@ -54,7 +79,8 @@ async function exportMediaFile({filePath,url,kind,filename},{showSaveDialog,down
   filePath=await verify(await downloadToFile(url,mediaDir(),kind==='image'?'png':kind==='audio'?'wav':'mp4'));
  }
  if(!filePath||!fs.existsSync(filePath)||!fs.statSync(filePath).isFile())throw new Error('素材文件不存在');
- const sourceExt=path.extname(filePath).toLowerCase(),ext=types[sourceExt]?sourceExt:kind==='image'?'.png':kind==='audio'?'.wav':'.mp4';
+ const sourceExt=path.extname(filePath).toLowerCase();
+ const ext=kind==='audio'?await audioExportExtension(filePath):types[sourceExt]?sourceExt:kind==='image'?'.png':'.mp4';
  const withExtension=name=>{
   const current=path.extname(name).toLowerCase();
   return current===ext?name:(types[current]?name.slice(0,-current.length):name)+ext;

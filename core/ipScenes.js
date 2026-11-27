@@ -1,3 +1,5 @@
+import {sceneHeadingPattern} from './collabEpisodes.js';
+
 // Unlike the director's display parser this editor must preserve every byte
 // outside the edited scene, including the episode title and CRLF separators.
 const lineEnding = text => text.match(/\r\n|\n|\r/)?.[0] || '\n';
@@ -53,8 +55,8 @@ export function applyIPDisplayEdit(source, editedDisplay) {
 
 export function splitIPScenes(text) {
  const source=String(text||'');
- const matches=[...source.matchAll(/^[ \t]*(?:#{1,6}[ \t]*)?(?:[【\[]?[ \t]*场景[ \t]*)?(\d+)[ \t]*[-—－][ \t]*(\d+)(?=[ \t:：.【\]】]|$)[^\r\n]*/gm)];
- return matches.map((m,i)=>({id:`${m[1]}-${m[2]}:${i}`,label:`${m[1]}-${m[2]}`,title:m[0].replace(/^[ \t]*#{1,6}[ \t]*/,''),start:m.index,end:matches[i+1]?.index??source.length,content:source.slice(m.index,matches[i+1]?.index??source.length)}));
+ const matches=[...source.matchAll(new RegExp(sceneHeadingPattern+'[^\\r\\n]*','gm'))];
+ return matches.map((m,i)=>({id:`${m[1]}-${m[3]}:${i}`,label:`${m[1]}-${m[3]}`,title:m[0].replace(/^[ \t]*#{1,6}[ \t]*/,''),start:m.index,end:matches[i+1]?.index??source.length,content:source.slice(m.index,matches[i+1]?.index??source.length)}));
 }
 export function replaceIPScene(text,sceneId,content,{preserveLineEndings=false}={}) {
  const source=String(text||''),scene=splitIPScenes(source).find(s=>s.id===sceneId);

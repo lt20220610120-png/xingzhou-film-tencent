@@ -2,16 +2,19 @@
 // scriptImport.js — 剧本分集导入
 // ============================================================
 
+import {sceneHeadingPattern} from './collabEpisodes.js';
+
 const episodeHeading = /^(?:第\s*[零〇一二两三四五六七八九十百千万\d]+\s*(?:[集章节幕部]|回(?!合))|(?:Episode\s+|EP\s*)\d+\b)/i;
 const explicitEpisodeHeading = (line) => /^【[^】]+】$/.test(line) && episodeHeading.test(line.slice(1,-1).trim());
+const heading = new RegExp(sceneHeadingPattern);
+const sceneHeadingInText = new RegExp(sceneHeadingPattern, 'm');
 
 export const parseDirectorScenes = (text, episodeNumber = 1) => {
   const source = String(text || '').replace(/\r\n?/g, '\n').trim();
   if (!source) return [];
   const lines = source.split('\n');
-  const heading = /^\s*(?:场景\s*)?(\d+)\s*[-—－]\s*(\d+)\s*[：:]?\s*(.*)$/;
   const starts = [];
-  lines.forEach((line, index) => { const match = line.match(heading); if (match) starts.push({ index, sourceSceneNumber: Number(match[2]) }); });
+  lines.forEach((line, index) => { const match = line.match(heading); if (match) starts.push({ index, sourceSceneNumber: Number(match[3]) }); });
   if (!starts.length) return [{ label: `${episodeNumber}-1`, content: source }];
   const preface = lines.slice(0, starts[0].index).join('\n').trim();
   const scenes = [];
@@ -21,7 +24,9 @@ export const parseDirectorScenes = (text, episodeNumber = 1) => {
     const body = lines.slice(from, starts[sourceIndex + 1]?.index ?? lines.length).join('\n').trim();
     scenes.push({ content: body });
   });
-  return scenes.filter(scene => scene.content).map((scene, sceneIndex) => ({ label: `${Number(episodeNumber)}-${sceneIndex + 1}`, content: scene.content.replace(/^(\s*(?:场景\s*)?)\d+\s*([-—－])\s*\d+/m, `$1${Number(episodeNumber)}$2${sceneIndex + 1}`) }));
+  return scenes.filter(scene => scene.content).map((scene, sceneIndex) => ({ label: `${Number(episodeNumber)}-${sceneIndex + 1}`,
+    content: scene.content.replace(sceneHeadingInText, (prefix, _episode, dash) =>
+      prefix.replace(/\d+[ \t]*[-—－–][ \t]*\d+$/, () => String(Number(episodeNumber)) + dash + String(sceneIndex + 1))) }));
 };
 
 // 协作分镜是导演工作台的只读镜像：保留导演端已有的集号、场景号和原文，绝不重编号。
@@ -29,9 +34,8 @@ export const parseDirectorScenesReadonly = (text, fallbackEpisodeNumber = 1) => 
   const source = String(text || '').replaceAll(String.fromCharCode(13, 10), '\n').replaceAll(String.fromCharCode(13), '\n').trim();
   if (!source) return [];
   const lines = source.split('\n');
-  const heading = /^\s*(?:场景\s*)?(\d+)\s*[-—－]\s*(\d+)\s*[：:]?\s*(.*)$/;
   const starts = [];
-  lines.forEach((line, index) => { const match = line.match(heading); if (match) starts.push({ index, label: `${Number(match[1])}-${Number(match[2])}` }); });
+  lines.forEach((line, index) => { const match = line.match(heading); if (match) starts.push({ index, label: `${Number(match[1])}-${Number(match[3])}` }); });
   if (!starts.length) return [{ label: `${Number(fallbackEpisodeNumber)}-1`, content: source }];
   const preface = lines.slice(0, starts[0].index).join('\n').trim();
   return starts.map((start, index) => {
@@ -41,7 +45,7 @@ export const parseDirectorScenesReadonly = (text, fallbackEpisodeNumber = 1) => 
 };
 
 export const inferDirectorEpisodeNumber = (episode, fallback = 1) => {
-  const contentMatch = String(episode?.content || '').match(/^\s*(?:场景\s*)?(\d+)\s*[-—－]\s*\d+/m);
+  const contentMatch = String(episode?.content || '').match(sceneHeadingInText);
   return contentMatch ? Number(contentMatch[1]) : Number(fallback);
 };
 

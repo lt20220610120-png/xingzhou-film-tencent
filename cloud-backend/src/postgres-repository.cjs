@@ -24,13 +24,30 @@ async function protectedObject(client, project, media) {
 }
 
 function createRepository(databaseUrl, deps = {}) {
-  const pool = deps.pool || new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000 });
+  const pool = deps.pool || new Pool({connectionString: databaseUrl, max: deps.poolSize ?? 16, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000});
   async function transaction(work){const client=await pool.connect();try{await client.query('begin');const value=await work(client);await client.query('commit');return value;}catch(error){await client.query('rollback');throw error;}finally{client.release();}}
   const select = 'id, username, display_name, email, roles, active_role, is_admin, is_producer, banned, created_at, avatar_data, bio, profile_tags, password_hash';
   return {
     ...require('./local-project-share.cjs').createLocalShareRepository(pool),
     ...require('./software-license-repository.cjs').extendLicenseRepository(pool),
     ...require('./win-ai-repository.cjs').extendWinAIRepository(pool),
+    async pruneExpiredBusinessRecords(){
+      const queries = [
+        'delete from app_sessions where id in (select id from app_sessions where expires_at<=now() order by expires_at limit 250 for update skip locked)',
+        'delete from email_codes where email in (select email from email_codes where expires_at<=now() order by expires_at limit 250 for update skip locked)',
+        // The full CRDT state includes the delta committed in the same transaction.
+        // Retain receipt IDs indefinitely so reconnects can still deduplicate old submissions.
+        `with expired as (
+          select ctid from director_live_updates
+          where created_at<now()-interval '30 days' and octet_length(delta)>0
+            and exists(select 1 from director_live_documents d where d.project_id=director_live_updates.project_id)
+          order by created_at limit 250 for update skip locked
+        ) update director_live_updates set delta='\\x'::bytea where ctid in(select ctid from expired)`,
+      ];
+      const counts = [];
+      for (const query of queries) counts.push((await pool.query(query)).rowCount);
+      return counts;
+    },
     async updateProfile(id,p){const r=await pool.query('update app_users set display_name=$2,bio=$3,profile_tags=$4,avatar_data=$5,updated_at=now() where id=$1 returning '+select,[id,p.displayName,p.bio,p.tags,p.avatar]);return r.rows[0]||null;},
     async findUser(username) { const r = await pool.query(`select ${select} from app_users where username=$1 limit 1`, [username]); return r.rows[0] || null; },
     async findEmail(email) { const r = await pool.query('select id from app_users where email=$1 limit 1', [email]); return r.rows[0] || null; },
@@ -174,7 +191,8 @@ function createRepository(databaseUrl, deps = {}) {
     }); },
     async findMedia(id,uid) {
       if (!id) return null;
-      const r=await pool.query(`select media.* from collab_media media join collab_projects p on p.id=media.project_id where media.id::text=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) and ${VISIBLE_PROJECT_SQL} limit 1`,[id,uid]); return r.rows[0]||null;
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id || '')) return null;
+      const r=await pool.query(`select media.* from collab_media media join collab_projects p on p.id=media.project_id where media.id=$1 and (p.owner_id=$2 or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=$2)) and ${VISIBLE_PROJECT_SQL} limit 1`,[id,uid]); return r.rows[0]||null;
     },
     async deleteMedia(id,uid,pid) {
       pid ||= (await this.findMedia(id,uid))?.project_id;

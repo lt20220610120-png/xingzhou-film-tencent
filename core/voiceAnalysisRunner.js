@@ -1,4 +1,4 @@
-import {listCollabEpisodes} from './collabEpisodes.js';
+import {analysisEpisodes} from './collabEpisodes.js';
 import {voiceAnalysisMessages,validateEpisodeVoices} from './characterVoices.js';
 import {requestArtModel} from './artModelQueue.js';
 export async function ensureEpisodeVoices({episode,store,api,profile,job={},onProgress=()=>{}}){
@@ -33,7 +33,7 @@ export async function ensureEpisodeVoices({episode,store,api,profile,job={},onPr
 export async function readProjectVoices({project,store,api,profile,job={},onProgress=()=>{},targetEpisodeNumbers}){
  if(!profile)throw Error('请选择对白读取模型');
  const result={done:0,skipped:0,errors:[]};
- for(const episode of listCollabEpisodes(project.episodes).filter(ep=>!targetEpisodeNumbers?.length||targetEpisodeNumbers.includes(ep.episodeNumber))){
+ for(const episode of analysisEpisodes(project.episodes,targetEpisodeNumbers)){
   if(job.cancelled)break;
   try{
    const outcome=await ensureEpisodeVoices({episode,store,api,profile,job,onProgress});

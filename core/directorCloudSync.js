@@ -1,5 +1,5 @@
 /** One save per project in flight, independent of the page currently selected. */
-export function createDirectorCloudSync({getContext,updateProject,acknowledge,onConflict=()=>{},delayMs=900,manualOnly=false}){
+export function createDirectorCloudSync({getContext,updateProject,acknowledge,onConflict=()=>{},onBusyChange=()=>{},delayMs=900,manualOnly=false}){
  const dirty=new Set(),timers=new Map(),inFlight=new Map();let disposed=false,epoch=0;
  const flush=(id,submission)=>{
   if(inFlight.has(id))return inFlight.get(id);
@@ -23,8 +23,14 @@ export function createDirectorCloudSync({getContext,updateProject,acknowledge,on
     }catch(error){if(!disposed&&version===epoch&&getContext().accountId===accountId){onConflict({projectId:id,message:error.message||'云端保存失败'});throw error;}return;}
    }
    return {acknowledged};
-  })().finally(()=>{if(inFlight.get(id)===task)inFlight.delete(id);});
-  inFlight.set(id,task);return task;
+  })().finally(()=>{
+   if(inFlight.get(id)!==task)return;
+   inFlight.delete(id);
+   if(!inFlight.size)onBusyChange();
+  });
+  inFlight.set(id,task);
+  if(inFlight.size===1)onBusyChange();
+  return task;
  };
  return {
   enqueue(id){if(disposed)return;dirty.add(id);if(inFlight.has(id))return;clearTimeout(timers.get(id));timers.set(id,setTimeout(()=>{timers.delete(id);flush(id).catch(()=>{});},delayMs));},

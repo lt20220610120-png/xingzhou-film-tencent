@@ -1,4 +1,4 @@
-const {numberedEpisodes,ensureCollabDomain}=require('./collab-episodes.cjs');
+const {numberedEpisodes,ensureCollabDomain,sceneHeadingPattern}=require('./collab-episodes.cjs');
 const {mergePublicationOutput}=require('./analysis-publication.cjs');
 const fail=(message,status=409)=>{throw Object.assign(Error(message),{status});};
 const signature=s=>JSON.stringify([s.id,s.source,s.items.map(i=>[i.id,i.category,i.name,i.description,i.ready,...(i.detailStatus?[i.detailStatus]:[])])]);
@@ -6,7 +6,8 @@ const verified=s=>Boolean(s.approval?.signature===signature(s));
 function sourceScenes(content,number){
  const source=String(content||'').replace(/\r\n?/g,'\n').trim(),lines=source.split('\n'),starts=[];
  if(!source)return [];
- lines.forEach((line,index)=>{const match=line.match(/^\s*(?:场景\s*)?(\d+)\s*[-—－]\s*(\d+)\s*[：:]?\s*(.*)$/);if(match)starts.push({index,id:`${Number(match[1])}-${Number(match[2])}`});});
+ const heading = new RegExp(sceneHeadingPattern);
+ lines.forEach((line,index)=>{const match=line.match(heading);if(match)starts.push({index,id:`${Number(match[1])}-${Number(match[3])}`});});
  if(!starts.length)return [{id:`${number}-1`,source}];
  const preface=lines.slice(0,starts[0].index).join('\n').trim();
  return starts.map((s,i)=>({id:s.id,source:(i===0&&preface?preface+'\n\n':'')+lines.slice(s.index,starts[i+1]?.index??lines.length).join('\n').trim()}));
@@ -37,7 +38,7 @@ async function lockProject(client,pid,uid){
  if(row.owner_id!==uid&&!(await client.query("select 1 as ok from collab_members where project_id=$1 and user_id=$2 and role in ('producer','artist','artist_collaborator') limit 1",[pid,uid])).rows[0])return null;
  return ensureCollabDomain(client,row,uid);
 }
-const getEpisode=(row,number)=>{const match=numberedEpisodes(row.episodes).find(e=>e.number===number);if(!match)fail('本集不存在，请刷新核对');return match.episode;};
+const getEpisode=(row,number)=>{const [match]=numberedEpisodes(row.episodes,{onlyNumber:number});if(!match)fail('本集不存在，请刷新核对');return match.episode;};
 const reviewedOutput=(entries,number)=>{
  return `### 第${number}集\n`+Object.entries({character:'人物',scene:'场景',prop:'道具'}).map(([key,title])=>`${title}：\n${[...entries.values()].filter(i=>i.category===key).map(i=>`- ${i.name} ${i.description}`).join('\n')||'- 无'}`).join('\n');
 };

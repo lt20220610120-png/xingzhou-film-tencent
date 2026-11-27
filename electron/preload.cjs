@@ -7,6 +7,7 @@ function libtvInvoke(channel,payload,fallback='LibTV 操作未完成，请重试
 }
 const mediaInvoke=(channel,payload)=>payload?.provider==='libtv'?libtvInvoke(channel,payload):ipcRenderer.invoke(channel,payload);
 contextBridge.exposeInMainWorld('xingzhou',{
+ reportRendererIncident:(operation,mode)=>ipcRenderer.invoke('renderer-runtime-incident',{operation,mode}),
  appAccessStage:stage=>ipcRenderer.invoke('app-access-stage',stage),closeAccessWindow:()=>ipcRenderer.invoke('app-access-close'),
  audioGenerationContext:()=>ipcRenderer.invoke('audio-generation-context'),audioGenerate:payload=>ipcRenderer.invoke('audio-generate',payload),audioResultsList:()=>ipcRenderer.invoke('audio-results-list'),audioResultSave:p=>ipcRenderer.invoke('audio-result-save',p),audioResultRetain:p=>ipcRenderer.invoke('audio-result-retain',p),audioResultDelete:p=>ipcRenderer.invoke('audio-result-delete',p),audioResultsClear:()=>ipcRenderer.invoke('audio-results-clear'),
   licenseCheck:()=>ipcRenderer.invoke('license-check'),
@@ -60,6 +61,9 @@ contextBridge.exposeInMainWorld('xingzhou',{
  storyboardBatchStart:p=>ipcRenderer.invoke('storyboard-batch-start',p),storyboardBatchList:p=>ipcRenderer.invoke('storyboard-batch-list',p),storyboardBatchStop:p=>ipcRenderer.invoke('storyboard-batch-stop',p),storyboardBatchResume:p=>ipcRenderer.invoke('storyboard-batch-resume',p),
  generationList:p=>ipcRenderer.invoke('generation-list',p),generationSubmit:p=>mediaInvoke('generation-submit',p),generationRefresh:p=>libtvInvoke('generation-refresh',p,'读取生成结果失败，请重试'),generationRecorded:p=>ipcRenderer.invoke('generation-recorded',p),
  projectVideoExport:p=>ipcRenderer.invoke('project-video-export',p),
+ projectJianyingDraft:p=>ipcRenderer.invoke('project-jianying-draft',p).catch(error=>{
+  throw Error(String(error?.message||'导出未完成').replace(/^(?:(?:Error invoking remote method '[^']+':|Error:)\s*)+/,''));
+ }),
  projectVideoDelete:p=>ipcRenderer.invoke('project-video-delete',p),
  projectVideoShare:p=>ipcRenderer.invoke('project-video-share',p),
  onProductionAgentTool:handler=>{const listener=(_,request)=>handler(request);ipcRenderer.on('production-agent-tool',listener);return()=>ipcRenderer.removeListener('production-agent-tool',listener);},onProductionChatDelta:handler=>{const listener=(_,payload)=>handler(payload);ipcRenderer.on('production-chat-delta',listener);return()=>ipcRenderer.removeListener('production-chat-delta',listener);},productionAgentToolResult:p=>ipcRenderer.invoke('production-agent-tool-result',p),

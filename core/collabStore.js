@@ -1,6 +1,9 @@
 import {isCreatureAsset,creaturePromptPrefix} from './artSubjectType.js';
 import {reuseCharacterCostumes} from './characterCostumeReuse.js';
 import {CHARACTER_REFERENCE_LEAD,filterReferencedWardrobe} from './characterWardrobePrompt.js';
+import {chineseEpisodeNumber} from './collabEpisodes.js';
+import episodeTitle from '../cloud-backend/shared/episode-title.json' with {type:'json'};
+import artRules from '../cloud-backend/shared/art-asset-rules.json' with {type:'json'};
 // ============================================================
 // collabStore.js — 项目协作领域逻辑（纯函数）
 // 身份权限 / 美术清单解析 / 资产复用识别
@@ -339,40 +342,32 @@ export const groupCharacterAssets = (assets) => {
 
 // ---------- Agent 输出解析 ----------
 // 支持结构：### 第N集 → 人物：/场景：/道具： → - 【资产名】（首次/复用自第X集）描述
-const chineseNumber = (value) => {
-  if (/^\d+$/.test(value)) return Number(value);
-  const digits = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  const units = { 十: 10, 百: 100, 千: 1000 };
-  let total = 0;
-  let digit = 0;
-  for (const char of value) {
-    if (char in digits) digit = digits[char];
-    else if (char in units) { total += (digit || 1) * units[char]; digit = 0; }
-    else return 0;
-  }
-  return total + digit;
-};
+const artEpisodeTitle = new RegExp('^(?:'+episodeTitle.chineseLabel+'|'+episodeTitle.englishLabel+')','i');
+const reuseEpisode = new RegExp('复用(?:自)?'+episodeTitle.chineseLabel);
 const episodeNumberFromHeader = (line) => {
   const clean = String(line || '').replace(/^#{1,6}\s*/, '').trim();
-  const chinese = clean.match(/^第\s*([\d零〇一二两三四五六七八九十百千]+)\s*集(?:\s+.*)?$/);
-  if (chinese) return chineseNumber(chinese[1]);
-  const ep = clean.match(/^(?:EP|Episode)\s*0*(\d+)(?:\s+.*)?$/i);
-  return ep ? Number(ep[1]) : 0;
+  const match = clean.match(artEpisodeTitle);
+  return match ? chineseEpisodeNumber(match[1] || match[2]) : 0;
 };
-const CAT_HEAD = /^(人物|场景|道具)[：:]\s*$/;
+const CAT_HEAD = /^(?:#{1,6}\s*)?(人物|场景|道具)[：:]\s*$/;
 const OVERVIEW_HEAD = /^#{0,6}\s*(人物|场景|道具)总览/;
 const ENTRY = /^[-*•]\s*【([^】]+)】\s*(.*)$/;
 const CAT_KEY = { 人物: 'character', 场景: 'scene', 道具: 'prop' };
 // Explicit absence beats invented human/object fields; names/VO labels alone do not.
-const HARD_NON_VISUAL_ASSET = /(?:仅|只有|只以)(?:声音|画外音)|只闻其声|未(?:实际|实体)?出镜|未见(?:实际|实体)?出镜|不(?:实际|实体)?出镜|无实体(?:形象)?|不存在可见实体|无画面/;
-const NON_VISUAL_CHARACTER = /不生成(?:形象)?资产|不输出人物资产|不生成人物(?:形象|资产)?|仅提及|仅被提及|仅声音|声音出场|仅画外|画外音|只闻其声|(?:系统|机械|电话|电子)音|\bV\.?O\.?\b|\bO\.?S\.?\b|旁白|无法确认|未见出镜|未出镜|无实体(?:形象)?|不存在可见实体|无画面|脑海中?响起/iu;
-const VISIBLE_CHARACTER = /实际出镜|实体出镜|画面(?:中)?出现|拟人(?:化)?角色|具有人形|群演|换装/;
-const stripNegatedVisibleTerms = (value) => String(value || '').replace(/(?:不具有人形|无需换装|无须换装|不换装|未换装|非拟人(?:化)?角色|不是拟人(?:化)?角色|(?:未见|未|不)(?:实际|实体)?出镜)/g, '');
+const HARD_NON_VISUAL_ASSET = new RegExp(artRules.nonvisualAsset);
+const NON_VISUAL_CHARACTER = new RegExp(artRules.nonvisualCharacter,'iu');
+const VISIBLE_CHARACTER = new RegExp(artRules.visibleCharacter);
+const ANTHROPOMORPHIC_CHARACTER = new RegExp(artRules.anthropomorphicCharacter);
+const NEGATED_CHARACTER = new RegExp(artRules.negatedCharacter,'g');
+const stripNegatedVisibleTerms = (value) => String(value || '').replace(NEGATED_CHARACTER, '');
 const positiveVisibleCharacter = (value) => VISIBLE_CHARACTER.test(stripNegatedVisibleTerms(value));
-const positiveAnthropomorphicCharacter = (value) => /拟人(?:化)?角色|具有人形/.test(stripNegatedVisibleTerms(value));
-const HUMAN_DESCRIPTION = /脸型|五官|眉眼|鼻型|鼻梁|唇形|发型|发色|身材|体态|肤色|肤质|服装|妆造|人物参考图/g;
-const HUMAN_FIELD = /(?:脸型(?:与)?五官|脸型|五官|眉眼|鼻型|鼻梁|唇形|发型(?:发色)?|发色|身材(?:比例|体态)?|体态|肤色(?:肤质)?|肤质|服装(?:与鞋履)?|穿着|妆造(?:与固定配饰)?)[：:]([^；;\n。！？]+)/g;
-const OBJECT_VISUAL_DESCRIPTION = /外观[：:]|材质[：:]|尺寸[：:]|大小感[：:]|屏幕|英寸|边框|玻璃面板|金属机身|机身|科技界面|提示界面|来电界面|界面|UI|面板|矩形|智能手机|设备主体|按键|镜头|接口|型号|图标|提示框/gi;
+const positiveAnthropomorphicCharacter = (value) => ANTHROPOMORPHIC_CHARACTER.test(stripNegatedVisibleTerms(value));
+const HUMAN_DESCRIPTION = new RegExp(artRules.humanDescription,'g');
+const HUMAN_FIELD = new RegExp(artRules.humanField,'g');
+const OBJECT_VISUAL_DESCRIPTION = new RegExp(artRules.objectVisualDescription,'gi');
+const INAPPLICABLE_HUMAN_FIELD = new RegExp(artRules.inapplicableHumanField,'i');
+const OBJECT_LIKE_HUMAN_FIELD = new RegExp(artRules.objectLikeHumanField,'i');
+const CONTINUATION_FIELD = new RegExp(artRules.continuationField);
 // Recognized fields distinguish repeated identity from wardrobe/body differences.
 const CHARACTER_DIFFERENCE_FIELDS = '(?:服装与鞋履|服装总体|服装总轮廓|服装层次|分层服装(?:细节)?|服装差异|服装|穿着|妆造与固定配饰|妆造差异|妆造|妆发差异|妆发|发型(?:变化|差异)|发式(?:变化|差异)|配饰与随身(?:物|道具)|配饰(?:差异)?|随身物|状态差异|可见状态|伤情|伤口|做旧|破损|污损|【(?:内层|中层|外层|下装|足饰)】)';
 const CHARACTER_IDENTITY_FIELDS = '(?:身份与依据|资产身份|脸型骨相(?:与五官)?|脸型(?:与)?五官|脸型|五官|眉眼|鼻唇(?:与耳部)?|鼻型|鼻梁|唇形|肤质与辨识点|肤色肤质|发型与发饰|发型(?:发色)?|发色|身形(?:与肤质|比例)|身材(?:比例|体态)?|稳定气质)';
@@ -414,8 +409,7 @@ const humanVisualEvidence = (description) => {
   const text = String(description || '');
   const fields = [...text.matchAll(HUMAN_FIELD)];
   if (fields.length) {
-    const applicable = fields.filter(([, value]) => !/^(?:不适用|无|不存在|非人物|N\/?A)/i.test(value.trim())
-      && !/(?:英寸|矩形|机身|屏幕|界面|面板|设备|手机壳)/i.test(value));
+    const applicable = fields.filter(([, value]) => !INAPPLICABLE_HUMAN_FIELD.test(value.trim()) && !OBJECT_LIKE_HUMAN_FIELD.test(value));
     const hasWardrobeOrMakeup = applicable.some(([field]) => /^(?:服装|穿着|妆造)/.test(field));
     const objectEvidence = new Set(text.match(OBJECT_VISUAL_DESCRIPTION) || []).size;
     return applicable.length >= 2 || (hasWardrobeOrMakeup && objectEvidence < 2);
@@ -426,7 +420,7 @@ const misplacedVisualProp = (description) => {
   if (positiveAnthropomorphicCharacter(description) || humanVisualEvidence(description)) return false;
   return new Set(String(description || '').match(OBJECT_VISUAL_DESCRIPTION) || []).size >= 2;
 };
-const CHARACTER_ATTRIBUTE_FRAGMENT = /^(?:肤色|肤质|肤色偏|发型|发色|短[黑棕褐]?发|长[黑棕褐]?发|头发|身材|体态|服装|穿着|妆造|牛仔裤|旧胶鞋|胶鞋|鞋履|鞋子|裤子|裙子|外套|短袖|长袖|配饰|状态|伤痕|伤口)(?:偏深|偏浅|略显凌乱|和|与|及|[、，,])?/i;
+const CHARACTER_ATTRIBUTE_FRAGMENT = new RegExp(artRules.characterAttributeFragment,'i');
 const isCharacterAttributeFragment = name => {
   const value=String(name||'').replace(/^【|】$/g,'').trim();
   return value.length<=36&&CHARACTER_ATTRIBUTE_FRAGMENT.test(value);
@@ -521,7 +515,7 @@ export const parseArtAnalysis = (text) => {
     if (catMatch) { currentCat = CAT_KEY[catMatch[1]]; lastEntry = null; continue; }
     if (!currentEp || !currentCat) continue;
     if(/^[-*•]?\s*无[（(]/.test(line)){lastEntry=null;continue;}
-    const fieldLine=/^(?:[-*•]\s*)?【(?:内层|中层|外层|下装|足饰|推断|待确认)】/.test(line);
+    const fieldLine=CONTINUATION_FIELD.test(line);
     const entryMatch = fieldLine ? null : line.match(ENTRY);
     if (entryMatch && currentCat==='character' && isCharacterAttributeFragment(entryMatch[1])) {
       if (lastEntry) {
@@ -533,7 +527,7 @@ export const parseArtAnalysis = (text) => {
     if (entryMatch) {
       const name = `【${entryMatch[1].trim()}】`;
       const rest = entryMatch[2] || '';
-      const reuseMatch = rest.match(/复用(?:自)?第\s*(\d+)\s*集/);
+      const reuseMatch = rest.match(reuseEpisode);
       const metadataReference = rest.match(/^（[^）]*?(参考【[^】]+】)[^）]*）/)?.[1] || '';
       const description = rest.replace(/^（[^）]*）\s*/, '').trim();
       // Classification waits for all continuation fields, not just the entry head.
@@ -543,7 +537,7 @@ export const parseArtAnalysis = (text) => {
         category: entryCategory,
         episode: currentEp,
         ...( ['character', 'prop'].includes(entryCategory) ? { _characterEvidence: reuseMatch ? rest : (rest.match(/^（[^）]*）/)?.[0] || '') } : {}),
-        reuseOf: reuseMatch ? Number(reuseMatch[1]) : 0,
+        reuseOf: reuseMatch ? chineseEpisodeNumber(reuseMatch[1]) || 0 : 0,
         description: reuseMatch ? '' : [metadataReference, description].filter(Boolean).join('；'),
       };
       ensureEp(currentEp)[entryCategory].push(lastEntry);

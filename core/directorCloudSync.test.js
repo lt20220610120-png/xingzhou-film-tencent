@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import {createDirectorCloudSync} from './directorCloudSync.js';
 import {acknowledgeDirectorCloudSave} from './directorCloudProjects.js';
 
+test('cloud list reconciliation can resume after the final upload settles, including on failure', async () => {
+ const project={id:'local',cloudProjectId:'cloud',name:'项目',masterScript:'B',episodes:[],cloudBase:{name:'项目',script:'A',episodes:[]}};
+ let reject;
+ const pending=new Promise((_,fail)=>{reject=fail;});
+ const visible=[];
+ const sync=createDirectorCloudSync({
+  getContext:()=>({accountId:'a',projects:[project]}),updateProject:()=>pending,acknowledge:()=>{},
+  onBusyChange:()=>visible.push(sync.isSaving())
+ });
+ const upload=sync.flush('local');
+ assert.deepEqual(visible,[true]);
+ reject(Error('模拟上传失败'));
+ await assert.rejects(upload,/模拟上传失败/);
+ assert.deepEqual(visible,[true,false]);
+});
+
 test('background cloud save uses latest project, serializes in-flight edits and never overwrites typing',async()=>{
  let projects=[{id:'local',cloudProjectId:'cloud',name:'项目',masterScript:'B',episodes:[],cloudBase:{name:'项目',script:'A',episodes:[]}}],resolve;
  const calls=[],pending=new Promise(done=>{resolve=done;});

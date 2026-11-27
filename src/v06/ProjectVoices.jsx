@@ -3,7 +3,7 @@ import {AudioLines,Plus} from 'lucide-react';
 import {existingVoiceSelection} from '../../core/voiceSelection.js';
 import AddCharacterVoiceDialog from './AddCharacterVoiceDialog.jsx';
 import React,{useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
-import {listCollabEpisodes} from '../../core/collabEpisodes.js';
+import {analysisEpisodes} from '../../core/collabEpisodes.js';
 import {getArtReviewStore} from '../../core/artReviewPersistence.js';
 import {projectVoiceRoster,episodeVoiceRoster,setVoiceCandidate,voiceStageLabels} from '../../core/characterVoices.js';
 import {readProjectVoices} from '../../core/voiceAnalysisRunner.js';
@@ -75,7 +75,7 @@ export default function ProjectVoices({project,assets,api,state,accountId,canEdi
   }).catch(error=>{if(/账号|资料目录|权限|锁定|project_access_denied/.test(error.message))generationQueue.stop();});
  };
 
- const voiceEpisodes=listCollabEpisodes(project.episodes),episodeNumber=voiceEpisodes.some(ep=>String(ep.episodeNumber)===episodeScope)?Number(episodeScope):null;
+ const voiceEpisodes=analysisEpisodes(project.episodes),episodeNumber=voiceEpisodes.some(ep=>String(ep.episodeNumber)===episodeScope)?Number(episodeScope):null;
  const scopeCards=current=>episodeNumber?episodeVoiceRoster(project,current,episodeNumber):projectVoiceRoster(project,current).characters.filter(c=>all||c.major);
  const roster=projectVoiceRoster(project,ledger),eligible=scopeCards(ledger),profiles=useMemo(()=>(state.mediaProfiles||[]).filter(p=>p.kind==='audio'),[state.mediaProfiles]);
  const matchesFilter=(c,id)=>{const p=ledger.voiceProfiles?.[c.key]||{};return id==='all'||id==='ungenerated'&&!p.candidates?.length&&!p.confirmed||id==='unadopted'&&Boolean(p.candidates?.length)&&!p.confirmed;};

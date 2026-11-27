@@ -9,6 +9,7 @@ const { handleAction } = require('./collab.cjs');
 const { handleAdminAction } = require('./admin.cjs');
 const { createCosSigner } = require('./cos.cjs');
 const { handleMediaAction } = require('./media.cjs');
+const {createRuntimeMonitor,cloudGatewayIncident}=require('./runtime-monitor.cjs');
 
 const PUBLIC_ACTIONS = new Set(['login', 'register', 'send-email-code', 'recover']);
 const LARGE_PROJECT_COMPRESSION = {
@@ -24,7 +25,8 @@ function acceptsEncoding(header, encoding) {
 
 function createServer(env = process.env, deps = {}) {
   const config = readConfig(env);
-  const repository = deps.repository || createRepository(config.databaseUrl);
+  const repository = deps.repository || createRepository(config.databaseUrl, {poolSize:config.poolSize});
+  const monitor=deps.runtimeMonitor||createRuntimeMonitor({dsn:env.RUNTIME_MONITOR_DSN,version:env.RUNTIME_MONITOR_VERSION});
   const licensing=repository.licenseState?require('./software-license-service.cjs').createLicenseService(repository):null;
   const licenseTraffic=new Map();
   const mailer = deps.mailer !== undefined ? deps.mailer : createMailer(env);
@@ -74,7 +76,10 @@ function createServer(env = process.env, deps = {}) {
           response.end(JSON.stringify({ error: '项目数据过大或压缩内容无效，请精简后重试' }));
           return;
         }
+        let authenticated=false;
         const send = (result) => {
+          const operation=authenticated&&cloudGatewayIncident(payload?.action,result.status);
+          if(operation)monitor.cloud({operation,status:result.status});
           let data = Buffer.from(JSON.stringify(result.body));
           const rawBytes=data.length;
           // An opt-in POST protocol, not HTTP 304: authenticate and read current
@@ -161,6 +166,11 @@ function createServer(env = process.env, deps = {}) {
           const user = await repository.findBySession(tokenHash(bearer));
           if (!user) return send({ status: 401, body: { error: '请先登录账号' } });
           if (user.banned) return send({ status: 403, body: { error: '账号已被停用' } });
+          authenticated=true;
+          if(action==='runtime-incident'){
+            if(monitor.enabled)monitor.client(payload.incident);
+            return send({status:202,body:{ok:true}});
+          }
           const license=licensing?await licensing.authorize(action,payload,bearer,user):null;
           if(licensing&&action.startsWith('admin-license-'))return send({status:200,body:await licensing.admin(action,payload,user)});
           if(Array.isArray(user.roles)&&user.roles.length===0&&!user.is_admin&&!user.is_producer&&!['logout','win-ai-entry','profile-update','unlock'].includes(action))return send({status:403,body:{error:'当前账号可使用 Win AI；影视工作权限需由管理员开通'}});
@@ -196,7 +206,19 @@ function createServer(env = process.env, deps = {}) {
     response.end(JSON.stringify({ error: 'not_found' }));
   });
   let referenceTimer;
-  if(referenceStore){server.on('listening',()=>{const clean=()=>referenceStore.prune().catch(()=>{});clean();referenceTimer=setInterval(clean,3600*1000);referenceTimer.unref();});server.on('close',()=>clearInterval(referenceTimer));}
+  if(referenceStore){server.on('listening',()=>{const clean=()=>referenceStore.prune().catch(()=>{});clean();referenceTimer=setInterval(clean,10*60*1000);referenceTimer.unref();});server.on('close',()=>clearInterval(referenceTimer));}
+  if(repository.pruneExpiredBusinessRecords){
+    let maintenanceTimer, running=false;
+    const clean=async()=>{
+      if(running)return;
+      running=true;
+      try { await repository.pruneExpiredBusinessRecords(); }
+      catch(error) { (deps.logger||console).error('business_record_cleanup_failed',{code:error.code||'unknown'}); }
+      finally { running=false; }
+    };
+    server.on('listening',()=>{maintenanceTimer=setInterval(clean,10*60*1000);maintenanceTimer.unref();});
+    server.on('close',()=>clearInterval(maintenanceTimer));
+  }
   if(cosSigner?.signDelete&&repository.cleanupAssetImages){
     let cleanupTimer,running=false;
     const clean=async()=>{
@@ -214,7 +236,9 @@ function createServer(env = process.env, deps = {}) {
 
 if (require.main === module) {
   const config = readConfig();
-  createServer().listen(config.port, '0.0.0.0', () => {
+  const monitor=createRuntimeMonitor({dsn:process.env.RUNTIME_MONITOR_DSN,version:process.env.RUNTIME_MONITOR_VERSION});
+  process.on('uncaughtExceptionMonitor',()=>monitor.cloud({operation:'uncaught'}));
+  createServer(process.env,{runtimeMonitor:monitor}).listen(config.port, '0.0.0.0', () => {
     process.stdout.write(`xingzhou-cloud-backend listening on ${config.port}\n`);
   });
 }

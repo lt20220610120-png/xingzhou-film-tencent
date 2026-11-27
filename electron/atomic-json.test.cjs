@@ -27,5 +27,6 @@ test('a JSON library over 120 MB saves in a child with a 64 MB V8 heap',{timeout
 test('state worker preserves shrink backups and recovers after a message-clone failure',async t=>{
  const root=fixture(t),file=path.join(root,'projects.json'),writer=require('./state-writer.cjs');
  await writer.writeStateAsync(file,[{id:1},{id:2}],{backup:true});await writer.writeStateAsync(file,[{id:1}],{backup:true});assert.equal(JSON.parse(fs.readFileSync(path.join(root,'projects.backup.json'))).length,2);
- await assert.rejects(writer.writeStateAsync(file,{bad(){}}));await writer.writeStateAsync(file,[{id:3}],{backup:true});await writer.flushStateWrites();assert.equal(writer.hasPendingStateWrites(),false);assert.deepEqual(JSON.parse(fs.readFileSync(file)),[{id:3}]);
+ await assert.rejects(writer.writeStateAsync(file,{bad(){}}));await writer.flushStateWrites();
+ await writer.writeStateAsync(file,[{id:3}],{backup:true});await writer.flushStateWrites();assert.equal(writer.hasPendingStateWrites(),false);assert.deepEqual(JSON.parse(fs.readFileSync(file)),[{id:3}]);
 });

@@ -8,15 +8,19 @@ const batch=ui.slice(ui.indexOf('function ArtSection('),ui.indexOf('function Ass
 const prelude=ui.slice(ui.indexOf('const assetReferenceKey ='),ui.indexOf('function AssetImageBox('));
 const declaration=(s,n)=>s.match(new RegExp(`\\bconst ${n}\\s*=[^;]+;`))[0];
 const entry=(s,n)=>s.match(new RegExp(`const ${n} = async \\([^)]*\\) => \\{[\\s\\S]*?\\n  \\};`))[0];
-async function run(kind,{baseline=false,baseImage=false,cancel=false,recovering=false}={}){
+async function run(kind,{baseline=false,baseImage=false,cancel=false,recovering=false,wardrobe=false}={}){
  const core=await import('../core/collabStore.js'),refs=await import('../core/generationReferences.js');
- const raw='### 第1集\n人物：\n- 无\n场景：\n- 【神话擂台-外】（首次）空间布局：圆形擂台中央石台、两侧阶梯观众席；材质：灰色石材。\n- 【神话擂台-日-外】（首次）空间布局：不应重新设计；时间/光线：白日直射光。\n道具：\n- 无';
+ const {requiresWardrobeBaselineImage}=await import('../core/artImageBatch.js');
+ const raw=wardrobe
+  ?'### 第1集\n人物：\n- 【阿禾】脸型：方脸；服装：白衬衫。\n- 【阿禾-雨衣】参考【阿禾】；服装：蓝色雨衣。\n场景：\n- 无\n道具：\n- 无'
+  :'### 第1集\n人物：\n- 无\n场景：\n- 【神话擂台-外】（首次）空间布局：圆形擂台中央石台、两侧阶梯观众席；材质：灰色石材。\n- 【神话擂台-日-外】（首次）空间布局：不应重新设计；时间/光线：白日直射光。\n道具：\n- 无';
  const assets=core.normalizeArtAssets(core.buildAssetRows(core.parseArtAnalysis(raw)).map((a,i)=>({...a,id:i?'day':'base',images:[]})));
  if(baseImage)assets[0].images=[{id:'first',url:'https://example.test/arena.png'}];
- assert.equal(assets[1].description,'时间/光线：白日直射光。');
+ if(wardrobe)assets[0].noReferenceImage=true;
+ else assert.equal(assets[1].description,'时间/光线：白日直射光。');
  const asset=assets[baseline?0:1],calls=[],errors=[];
  const readRecovery=()=>recovering?{receiptId:'old-result'}:null;
- const scope={...core,...refs,asset,assets,refId:cancel?'':null,project:{id:'scene-test',style:''},accountId:'a',pendingImage:readRecovery(),
+ const scope={...core,...refs,requiresWardrobeBaselineImage,asset,assets,refId:cancel?'':null,project:{id:'scene-test',style:''},accountId:'a',pendingImage:readRecovery(),
   localStorage:{getItem:()=>cancel?'':null},readAssetImageRecovery:readRecovery,clearAssetImageRecovery:()=>{},
   requestAssetImage:async(api,p,a,payload)=>{calls.push(recovering?'recover':payload);return {filePath:'saved.png'};},
   api:{collabAttachGeneratedAssetImage:async()=>({id:'attached',url:'https://example.test/saved.png'})},
@@ -35,6 +39,13 @@ async function run(kind,{baseline=false,baseImage=false,cancel=false,recovering=
  }
  return {calls,errors};
 }
+
+test('batch wardrobe generates without an exempt baseline’s image when no reference is selected',async()=>{
+ const result=await run('batch',{wardrobe:true});
+ assert.deepEqual(result.errors,[]);
+ assert.equal(result.calls.length,1);
+ assert.deepEqual(result.calls[0].references,[]);
+});
 for(const kind of ['single','batch']){
  test(`${kind} scene lighting variant without a base image makes zero paid calls`,async()=>{const r=await run(kind);assert.equal(r.calls.length,0);assert.match(r.errors.join('\n'),/场景基准参考图/);});
  test(`${kind} scene lighting variant sends the actual base image`,async()=>{const r=await run(kind,{baseImage:true});assert.equal(r.calls.length,1);assert.equal(r.calls[0].references[0].assetId,'base');});

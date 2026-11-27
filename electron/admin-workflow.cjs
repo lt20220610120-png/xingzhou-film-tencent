@@ -1,11 +1,17 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const safe=value=>String(value||'未命名').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,90)||'未命名';
 const {sha256File}=require('./file-digest.cjs');
+const {atomic,readHistoryJson}=require('./generation-job-storage.cjs');
 function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,mediaRoot,onActivity=()=>{},clock=()=>Date.now()}){
  const runs=new Map(),busy=new Map();fs.mkdirSync(root,{recursive:true});
  const file=id=>path.join(root,`${id}.json`);
- const save=run=>{run.updatedAt=new Date(clock()).toISOString();fs.writeFileSync(file(run.id)+'.tmp',JSON.stringify(run));fs.renameSync(file(run.id)+'.tmp',file(run.id));return run;};
- for(const name of fs.readdirSync(root).filter(n=>/^[a-f0-9-]+\.json$/.test(n))){const run=JSON.parse(fs.readFileSync(path.join(root,name),'utf8'));if(run.status==='running'){run.status='paused';run.message='软件重新启动，请检查后继续；原任务不会重复提交';}runs.set(run.id,run);}
+ const save=run=>{run.updatedAt=new Date(clock()).toISOString();atomic(file(run.id),run);return run;};
+ for(const name of fs.readdirSync(root).filter(n=>/^[a-f0-9-]+\.json$/.test(n))){
+  const run=readHistoryJson(path.join(root,name),run=>run?.id===name.slice(0,-5)&&typeof run.accountId==='string'&&Array.isArray(run.items),null);
+  if(!run)continue;
+  if(run.status==='running'){run.status='paused';run.message='软件重新启动，请检查后继续；原任务不会重复提交';}
+  runs.set(run.id,run);
+ }
  const owner=async()=>{const a=await authorize();if(!a?.id||a.isAdmin!==true||a.banned)throw Error('仅有效管理员可使用工作流');return String(a.id);};
  const get=async id=>{const accountId=await owner(),run=runs.get(id);if(!run||run.accountId!==accountId)throw Error('找不到当前管理员的工作流');return run;};
  const publicRun=run=>{const {book,...out}=run;return structuredClone(out);};
@@ -105,7 +111,7 @@ function createWorkflowEngine({root,authorize,prepare,submit,refresh,listJobs,me
    runs.set(id,run);save(run);return publicRun(run);
   },
   async action({id,action,itemId}){const run=await get(id);if(action==='start'){const {workflowPreflightIssues}=await import('../core/workflowPreflight.js');const issues=workflowPreflightIssues(run.settings);if(issues.length)throw Error(issues.join('；'));setStatus(run,'running');run.message='工作流已启动';}else if(action==='pause'){setStatus(run,'paused');run.message='已暂停，已提交的上游任务仍保留';}else if(action==='retry'){const item=run.items.find(i=>i.id===itemId);if(!item||item.status!=='blocked')throw Error('仅生成前被拦截的条目可重新检查；已提交项不能自动重发');item.status='queued';item.error='';}else throw Error('未知操作');save(run);return publicRun(run);},
-  pauseAll(){for(const run of runs.values())if(run.status==='running'){setStatus(run,'paused');run.message='身份或环境变化，已暂停';save(run);}},
+  pauseAll(){const errors=[];for(const run of runs.values())if(run.status==='running'){setStatus(run,'paused');run.message='身份或环境变化，已暂停';try{save(run);}catch(error){errors.push(error);}}if(errors.length)throw new AggregateError(errors,'部分工作流暂停记录未保存');},
   async assertDispatch(id,signal){const run=runs.get(id);if(!run)throw Error('工作流已停止');await guard(run,signal);},
   async pump(){for(const run of runs.values())if(run.status==='running')await tick(run.id);},tick,
   async output(id){return (await get(id)).outputDir;}

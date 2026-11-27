@@ -23,8 +23,12 @@ export function cleanStoryboardReferenceValue(value,projectId) {
  const orderChanged=references.length!==refs.length||refs.some((ref,index)=>ref.kind!==mapped[index].kind);
  if(!orderChanged)return mapped===refs&&removed===removedSlots&&baseline?.references===baselineSlots?value:{...value,references:mapped,...recovery};
  const order=items=>numberedReferences(items).map(ref=>({key:generationReferenceKey(ref),alias:ref.alias}));
+ const keyChanges=new Map(refs.map((ref,index)=>[generationReferenceKey(ref),generationReferenceKey(mapped[index])]));
+ const prior=value.autoReferenceOrder||order(mapped);
+ const before=[...prior,...order(refs).filter(row=>!prior.some(existing=>existing.alias===row.alias))]
+  .map(row=>({...row,key:keyChanges.get(row.key)||row.key}));
  const after=order(references);
- return {...value,...recovery,references,prompt:remapGenerationAliases(value.prompt,value.autoReferenceOrder||order(refs),after),autoReferenceOrder:after,autoReferenceSignature:null};
+ return {...value,...recovery,references,prompt:remapGenerationAliases(value.prompt,before,after),autoReferenceOrder:after,autoReferenceSignature:null};
 }
 
 export function storyboardReferencePreviews(references,assets,media,projectId) {

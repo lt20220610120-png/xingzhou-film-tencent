@@ -82,3 +82,6 @@
 .storyboard-scene-import-status{margin:0;color:#655383;font-size:12px}
 .storyboard-reference-actions>button:focus-visible{outline:2px solid #9c82c6;outline-offset:2px}
 .collab-shot-card .generation-references figure:has([data-empty-asset-slot]){display:none}
+.storyboard-save-actions{flex-wrap:wrap;align-items:center}
+.collab-stage .storyboard-save-actions .jianying-draft-export{height:36px;min-height:36px}
+.collab-sb-navigation>.jianying-draft-action{margin-top:10px}

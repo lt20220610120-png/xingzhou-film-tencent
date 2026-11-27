@@ -1,7 +1,7 @@
 import {runArtReviewAnalysis,fillArtReviewDetails} from './artReviewRunner.js';
 import {ensureEpisodeVoices} from './voiceAnalysisRunner.js';
 import {applyArtReviewCandidate,decodeReviewJson,reviewRoster,isReviewCurrent} from './artReview.js';
-import {listCollabEpisodes} from './collabEpisodes.js';
+import {analysisEpisodes} from './collabEpisodes.js';
 import {summarizeArtReview} from './artReviewPersistence.js';
 import {createTaskPool} from './asyncTaskPool.js';
 import {getPromptDistributionService,sceneReadyForPromptDistribution} from './promptDistributionService.js';
@@ -103,7 +103,7 @@ export function getArtDistributionController(options){
   async activate(next={}){control.configure(next);if(!config.profile)throw Error('请选择分发模型');await prepare();paused=false;service?.resume();emit();},
   async autoAssociate({versionId,isStopped=()=>false}={}){
    const errors=[];await prepare();
-   for(const episode of listCollabEpisodes(config.project.episodes)){
+   for(const episode of analysisEpisodes(config.project.episodes)){
     if(isStopped())break;
     const record=config.store.snapshot().episodes[episode.episodeNumber];
     if(!record)continue;
@@ -125,7 +125,7 @@ export function getArtDistributionController(options){
    job.promise=processEpisode(episode,job,settings).then(errors=>{if(!job.cancelled)notice=errors.length?errors[0]:`第 ${number} 集已有清单分发完成`;return errors;}).finally(()=>{if(jobs.get(number)===job)jobs.delete(number);emit();});
    return job.promise;
   },
-  async start(next={}){const {versionId,...options}=next;await control.activate(options);const episodes=listCollabEpisodes(config.project.episodes);const results=await Promise.all(episodes.map(episode=>control.enqueueEpisode(episode,{versionId,rescan:true})));return results.flat();},
+  async start(next={}){const {versionId,...options}=next;await control.activate(options);const episodes=analysisEpisodes(config.project.episodes);const results=await Promise.all(episodes.map(episode=>control.enqueueEpisode(episode,{versionId,rescan:true})));return results.flat();},
   // Refresh resolves deterministic matches; only a new explicit run requests a model.
   async refresh(next={}){
    control.configure(next);if(paused||!config.profile)return [];
@@ -143,8 +143,7 @@ export async function runArtAnalysisPipeline(args){
  const {project,api,store,profile,job={},accountId='',onProgress}=args;
  const errors=[],pending=[];job.activeEpisodes||=[];job.taskIds||=[];
  const control=getArtDistributionController({...args,projectId:project.id});await control.activate();
- let episodes=listCollabEpisodes(project.episodes).sort((a,b)=>a.episodeNumber-b.episodeNumber);
- if(args.targetEpisodeNumbers?.length)episodes=episodes.filter(e=>args.targetEpisodeNumbers.includes(e.episodeNumber));
+ let episodes=analysisEpisodes(project.episodes,args.targetEpisodeNumbers).sort((a,b)=>a.episodeNumber-b.episodeNumber);
  if(!args.targetEpisodeNumbers?.length&&store.snapshot().workflow==='guided'&&!args.detailsOnly){const next=artWorkflowState(store.snapshot(),project);episodes=next.phase==='generate'?episodes.filter(e=>e.episodeNumber===next.episodeNumber):[];}
  for(const episode of episodes){
   if(job.cancelled)break;const number=episode.episodeNumber;

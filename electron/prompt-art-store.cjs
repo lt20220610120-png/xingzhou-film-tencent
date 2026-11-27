@@ -1,6 +1,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
+const {atomicWriteSync}=require('./atomic-json.cjs');
 
 function createPromptArtStore(root,accountId){
  const folder=path.join(root,'prompt-art-bindings');
@@ -27,7 +28,7 @@ function createPromptArtStore(root,accountId){
    if(typeof sceneDistributionAttempts!=='object'||Array.isArray(sceneDistributionAttempts)||Object.values(sceneDistributionAttempts).some(row=>!row||typeof row.stamp!=='string'||!['running','failed','done'].includes(row.status)))throw Error('自动分发记录格式无效');
    const next={schema:2,accountId:account,enabled:Boolean(data.enabled),snapshot:data.snapshot,decisions:data.decisions||{},versions,sceneDistributionAttempts,selectedVersionId:data.selectedVersionId||'',revision:(previous?.revision||0)+1,updatedAt:new Date().toISOString()};
    const content=JSON.stringify(next);if(content.length>32*1024*1024)throw Error('关联记录过大，请分集核对');
-   fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(file+'.tmp',content,'utf8');fs.renameSync(file+'.tmp',file);return next;
+   atomicWriteSync(file,content);return next;
   },
   list(payload){
    const account=String(accountId()||'');if(!account||String(payload?.accountId)!==account)throw Error('账号已变化');

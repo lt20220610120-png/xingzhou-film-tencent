@@ -187,7 +187,7 @@ async function processReferencePhase(entries,signal,abort,withReferenceSlot,work
  if(firstError)throw firstError;
  if(signal.aborted)throw stopped();
 }
-function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,fetchFn=fetch,readReference,network,clock=Date.now,
+function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,fetchFn=fetch,readReference,network,clock=Date.now,onCredentialError=()=>{},
  readAttemptTimeout=READ_ATTEMPT_TIMEOUT,retryDelays=PREPARE_RETRY_DELAYS}={}){
  const networkSettingsFile=path.join(root,'network-settings.json');
  let settings={mode:'system',proxyUrl:''};
@@ -215,9 +215,11 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
  const ownerKey=id=>{if(typeof id!=='string'||!id)throw Error('请先登录行舟影视账号');return digest(id).slice(0,32);};
  const session=id=>{const key=ownerKey(id);if(!sessions.has(key)){const dir=path.join(root,'accounts',key);fs.mkdirSync(dir,{recursive:true});sessions.set(key,{key,dir,leases:0,runs:0,login:null,pendingLogin:false});}return sessions.get(key);};
  const canEncrypt=()=>{if(!safeStorage?.isEncryptionAvailable())throw Error('系统凭据加密暂不可用，无法连接 LibTV');};
- function unseal(s){canEncrypt();const plain=path.join(s.dir,'credentials.json'),sealed=path.join(s.dir,'credentials.enc');if(!fs.existsSync(plain)&&fs.existsSync(sealed))fs.writeFileSync(plain,safeStorage.decryptString(fs.readFileSync(sealed)),{mode:0o600});}
- function seal(s){if(s.leases)return;const plain=path.join(s.dir,'credentials.json');if(!fs.existsSync(plain))return;canEncrypt();const bytes=safeStorage.encryptString(fs.readFileSync(plain,'utf8'));fs.writeFileSync(path.join(s.dir,'credentials.enc.tmp'),bytes,{mode:0o600});fs.renameSync(path.join(s.dir,'credentials.enc.tmp'),path.join(s.dir,'credentials.enc'));fs.unlinkSync(plain);}
- const accountRoot=path.join(root,'accounts');if(fs.existsSync(accountRoot)&&safeStorage?.isEncryptionAvailable())for(const entry of fs.readdirSync(accountRoot,{withFileTypes:true}))if(entry.isDirectory()&&!entry.isSymbolicLink()&&/^[a-f0-9]{32}$/.test(entry.name)){const s={key:entry.name,dir:path.join(accountRoot,entry.name),leases:0,runs:0,login:null,pendingLogin:false};sessions.set(entry.name,s);seal(s);}
+ const {atomicWriteSync}=require('./atomic-json.cjs');
+ function unseal(s){canEncrypt();const plain=path.join(s.dir,'credentials.json'),sealed=path.join(s.dir,'credentials.enc');if(!fs.existsSync(plain)&&fs.existsSync(sealed))atomicWriteSync(plain,safeStorage.decryptString(fs.readFileSync(sealed)));}
+ function seal(s){if(s.leases)return;const plain=path.join(s.dir,'credentials.json');if(!fs.existsSync(plain))return;canEncrypt();const bytes=safeStorage.encryptString(fs.readFileSync(plain,'utf8'));atomicWriteSync(path.join(s.dir,'credentials.enc'),bytes);fs.unlinkSync(plain);}
+ const credentialFailure=error=>{try{onCredentialError(error);}catch{}};
+ const accountRoot=path.join(root,'accounts');if(fs.existsSync(accountRoot)&&safeStorage?.isEncryptionAvailable())for(const entry of fs.readdirSync(accountRoot,{withFileTypes:true}))if(entry.isDirectory()&&!entry.isSymbolicLink()&&/^[a-f0-9]{32}$/.test(entry.name)){const s={key:entry.name,dir:path.join(accountRoot,entry.name),leases:0,runs:0,login:null,pendingLogin:false};sessions.set(entry.name,s);try{seal(s);}catch(error){credentialFailure(error);}}
  function clearMetadata(scope,prefix='',completedOnly=false){
   for(const [key,entry] of scope.metadata||[]){
    if(key.startsWith(prefix)&&(!completedOnly||entry.expiresAt!==null&&!entry.borrowers)){scope.metadata.delete(key);entry.controller.abort(stopped());}
@@ -339,7 +341,7 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
   }finally{
     if(route?.routeReport)options.onRoute?.(route.routeReport());
    route?.dispose?.();
-   if(leased&&!--s.leases){try{seal(s);}finally{s.resolveIdle();s.resolveIdle=null;}}
+   if(leased&&!--s.leases){try{seal(s);}catch(error){credentialFailure(error);}finally{s.resolveIdle();s.resolveIdle=null;}}
   }
  }
  const hasCredential=s=>fs.existsSync(path.join(s.dir,'credentials.enc'))||fs.existsSync(path.join(s.dir,'credentials.json'));
@@ -632,11 +634,15 @@ function createLibTVService({root,safeStorage,runCLI,ensureBinary,openExternal,f
     for(const child of [...children]){child.once('close',()=>{if(!--left){clearTimeout(timer);resolve();}});try{child.kill();}catch{}}
    });
    const leases=[...sessions.values()].map(s=>s.idle).filter(Boolean);
-   const phases=await Promise.allSettled([exiting,Promise.resolve().then(()=>oldTransport?.close?.()),installation?.work.catch(()=>{}),...leases,...tests,...preparing]);
+   // Begin stopping connections immediately; any slow transport can finish
+   // independently once the child has released its credential lease.
+   const connection=Promise.resolve().then(()=>oldTransport?.close?.()).catch(error=>credentialFailure(error));
+   const phases=await Promise.allSettled([exiting,installation?.work.catch(()=>{}),...leases,...tests,...preparing]);
    const results=await Promise.allSettled([
     ...[...sessions.values()].map(s=>Promise.resolve().then(()=>{if(!s.leases)seal(s);})),
    ]);
    const failure=[...phases,...results].find(result=>result.status==='rejected');
+   void connection;
    if(failure)throw failure.reason;
   },
   hasRunning:()=>[...sessions.values()].some(s=>s.runs>0||s.leases>0||s.pendingLogin||s.switching),

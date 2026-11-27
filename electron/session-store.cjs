@@ -1,4 +1,5 @@
-const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');
+const fs=require('node:fs');const path=require('node:path');
+const {atomicWriteSync}=require('./atomic-json.cjs');
 const {isDeepStrictEqual}=require('node:util');
 function createSessionStore(directory,safeStorage) {
  const file=path.join(directory,'cloud-session.json');
@@ -17,9 +18,7 @@ function createSessionStore(directory,safeStorage) {
    try{if(stamp()===cached.stamp)return;}catch{}
   }
   const encrypted=safeStorage.encryptString(JSON.stringify(value)).toString('base64');
-  fs.mkdirSync(directory,{recursive:true});const temporary=file+'.'+crypto.randomUUID()+'.tmp';
-  try{fs.writeFileSync(temporary,JSON.stringify({version:2,encrypted}),{flag:'wx',mode:0o600});fs.renameSync(temporary,file);remember(value,stamp());}
-  finally{try{fs.unlinkSync(temporary);}catch{}}
+  atomicWriteSync(file,JSON.stringify({version:2,encrypted}));remember(value,stamp());
  }
  function read(){
   try{

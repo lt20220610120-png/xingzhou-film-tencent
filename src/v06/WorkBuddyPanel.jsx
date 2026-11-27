@@ -273,12 +273,30 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
     window.addEventListener('resize', schedule);
     window.addEventListener('scroll', schedule, true);
     // Native content sits above DOM dialogs. Hide it while a visible app modal exists.
+    const modalSelector = '[aria-modal="true"], .veil, .drawer-veil, .role-lock-veil, .global-ai, .role-switch-menu';
+    const candidates = new Set(document.querySelectorAll(modalSelector));
     const checkModal = () => {
-      const blocked = Array.from(document.querySelectorAll('[aria-modal="true"], .veil, .drawer-veil, .role-lock-veil, .global-ai, .role-switch-menu'))
-        .some(node => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden');
+      const blocked = [...candidates].some(node => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden');
       if (blocked !== modalBlocked.current) { modalBlocked.current = blocked; schedule(); }
     };
-    const dialogs = new MutationObserver(checkModal);
+    const dialogs = new MutationObserver(records => {
+      let changed = false;
+      for (const {type, target, addedNodes, removedNodes} of records) {
+        if (type === 'attributes') {
+          if (target.matches(modalSelector)) { candidates.add(target); changed = true; }
+          else if (candidates.delete(target) || [...candidates].some(node => target.contains(node))) changed = true;
+          continue;
+        }
+        for (const node of removedNodes) if (node.nodeType === Node.ELEMENT_NODE) {
+          for (const candidate of candidates) if (node.contains(candidate)) { candidates.delete(candidate); changed = true; }
+        }
+        for (const node of addedNodes) if (node.nodeType === Node.ELEMENT_NODE) {
+          if (node.matches(modalSelector)) { candidates.add(node); changed = true; }
+          for (const candidate of node.querySelectorAll(modalSelector)) { candidates.add(candidate); changed = true; }
+        }
+      }
+      if (changed) checkModal();
+    });
     dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'aria-modal'] });
     checkModal(); schedule();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', schedule); window.removeEventListener('scroll', schedule, true); };

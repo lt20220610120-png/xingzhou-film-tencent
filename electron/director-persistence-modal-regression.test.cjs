@@ -41,10 +41,13 @@ test('danger-link 绝对定位只允许作用在项目协作卡片内，不得�
   assert.match(css, /\.collab-project-card \.danger-link\{[^}]*position:absolute/);
 });
 
-test('删除单个本地导演项目不能连带清空其他本地项目', () => {
+test('删除单个本地导演项目不能连带清空其他本地项目', async () => {
   const ui = read('src/v06/DirectorWorkspace.jsx');
-  assert.match(ui, /p\.id !== id && \(!target\?\.cloudProjectId \|\| p\.cloudProjectId !== target\.cloudProjectId\)/);
-  assert.doesNotMatch(ui, /p\.id !== id && p\.cloudProjectId !== target\?\.cloudProjectId\)/);
+  const {deleteDirectorProject}=await import('../core/projectStore.js');
+  const first={id:'first',name:'一',episodes:[]},second={id:'second',name:'二',episodes:[]};
+  const result=deleteDirectorProject({directorProjects:[first,second]},first.id);
+  assert.deepEqual(result.directorProjects,[second]);
+  assert.match(ui,/setState\(s=>deleteDirectorProject\(s,id\)\)/);
 });
 
 test('上传/导入新项目后必须同步 masterDraft，防止保存总剧本时串台或清空', () => {

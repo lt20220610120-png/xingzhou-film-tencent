@@ -16,7 +16,7 @@ export function storyboardDurationPolicy(model, caps, resolution) {
  const durations=supportedOptions(model.durationByResolution?.[resolution] || model.durations);
  const range=model.durationRange || caps.durationRange;
  return {supportedDurations:durations.length?durations:null,
-  ...(!durations.length&&integerSeconds(range?.min)&&integerSeconds(range?.max)&&range.min<=range.max?{durationRange:{min:range.min,max:range.max}}:{})};
+  ...(integerSeconds(range?.min)&&integerSeconds(range?.max)&&range.min<=range.max?{durationRange:{min:range.min,max:range.max}}:{})};
 }
 
 export function storyboardDurationMode(value) {
@@ -28,7 +28,8 @@ export function storyboardDurationMode(value) {
 export function alignStoryboardDuration(recommended, {supportedDurations,durationRange}={}, maximum=3600) {
  if(!Number.isFinite(recommended)||recommended<=0||recommended>maximum)return null;
  const options=supportedOptions(supportedDurations);
- const seconds=options.length?options.find(value=>value>=recommended):Math.max(Math.ceil(recommended),durationRange?.min||1);
+ const minimum=Math.max(Math.ceil(recommended),durationRange?.min||1);
+ const seconds=options.length?options.find(value=>value>=minimum):minimum;
  return seconds!==undefined&&seconds<=Math.min(maximum,durationRange?.max||3600)?seconds:null;
 }
 
@@ -44,7 +45,7 @@ export function storyboardEstimateIssue(timing) {
 export function storyboardTimingForDraft(timing, value, baseContent=timing?.content) {
  if(!timing)return {};
  const same=sameStoryboardTimingText(baseContent,timing.generationConfig,value.prompt,value);
- if(same||typeof baseContent!=='string')return timing;
+ if(same||typeof baseContent!=='string'||timing.durationEstimate?.status==='pending')return timing;
  if(timing.durationEstimate)return {...timing,durationEstimate:{...timing.durationEstimate,status:'needs-review'}};
  if(recommendedPromptDuration(timing)!==null)return {...timing,durationStatus:'needs-review'};
  return timing;

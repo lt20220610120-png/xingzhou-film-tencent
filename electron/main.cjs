@@ -51,6 +51,20 @@ const { createWorkBuddyUpdater } = require('./workbuddy-update.cjs');
 const { createWorkBuddyPanel, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 const isDev = !app.isPackaged;
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
+const {desktopRuntimeMonitor,ipcIncident}=require('./runtime-monitor.cjs');
+const reportRuntime=desktopRuntimeMonitor({
+ version:app.getVersion?.(),enabled:!isDev&&!isPackagedSmoke,
+ token:()=>accessService?.token(),
+ send:(incident,token)=>require('./cloud-access-service.cjs').gateway('runtime-incident',{incident},token,{timeoutMs:2000,singleAttempt:true}),
+});
+function reportIpcIncident(channel,payload,error){
+ const incident=ipcIncident(channel,payload,error);
+ if(!incident||isDev||isPackagedSmoke)return;
+ void Promise.resolve().then(async()=>{
+  if(payload?.projectId&&collabService)incident.mode=await collabService.isLocal(payload.projectId)?'local':'cloud';
+  reportRuntime('main',incident.operation,incident);
+ }).catch(()=>{});
+}
 let productionHost;
 let storyboardBatchHost=null,storyboardBatchRoot='';
 let identityCleanup;
@@ -70,7 +84,10 @@ function stopIdentityWork(){
  const pending=identityCleanup;
  void pending.finally(()=>{if(identityCleanup===pending)identityCleanup=null;});
 }
-const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,getLocalAccount:localIpcAccount,isStorageLocked:()=>directoryMigration,onIdentityChange:stopIdentityWork});
+const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,getLocalAccount:localIpcAccount,isStorageLocked:()=>directoryMigration,onIdentityChange:stopIdentityWork,onFailure:reportIpcIncident,structuredErrors:channel=>/^(?:collab-|prompt-art-|storyboard-batch-)/.test(channel)||['generation-submit','generation-refresh','media-generate-image','media-generate-video','media-retry-image-download'].includes(channel)});
+ipcMain.handle('renderer-runtime-incident',(_,{operation,mode}={})=>{
+ if(['uncaught','unhandled-rejection','render-error'].includes(operation))reportRuntime('renderer',operation,{mode});
+});
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
@@ -85,7 +102,7 @@ async function fetchLibTVInstaller(url,options,settings){
  options.signal?.throwIfAborted();
  return downloader.fetch(url,options);
 }
-const getLibTV=()=>libtvService||(libtvService=require('./libtv-service.cjs').createLibTVService({root:path.join(app.getPath('userData'),'libtv'),safeStorage,openExternal:url=>shell.openExternal(url),fetchFn:fetchLibTVInstaller}));
+const getLibTV=()=>libtvService||(libtvService=require('./libtv-service.cjs').createLibTVService({root:path.join(app.getPath('userData'),'libtv'),safeStorage,openExternal:url=>shell.openExternal(url),fetchFn:fetchLibTVInstaller,onCredentialError:()=>appendStartupLog('LibTV 凭据保存暂未完成，退出时将重试')}));
 let likeConnector;
 const getLike=()=>likeConnector||(likeConnector=require('./like-connector.cjs').createLikeConnector({root:path.join(app.getPath('userData'),'like-connector'),safeStorage,getOwner:()=>readCloudSession()?.account?.id,allowedRoots:()=>[getDataDir()]}));
 for(const[channel,action]of Object.entries({'like-status':s=>s.status(),'like-pairing':s=>s.pairing(),'like-bind':(s,p)=>s.bind(p)}))ipcMain.handle(channel,async(_,p)=>{const service=getLike();await service.start();return action(service,p||{});});
@@ -167,8 +184,11 @@ function secureMainWindow(win){
  protectWindow(win,{projectPopup:projectWindowTickets,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,allowFrameUrl:canvasPage,openExternal:url=>shell.openExternal(url)});
  if(!isDev){win.setMenu(null);win.setMenuBarVisibility(false);}
 }
-process.on('uncaughtException',(error)=>appendStartupLog(`uncaughtException ${error?.stack||error}`));
-process.on('unhandledRejection',(error)=>appendStartupLog(`unhandledRejection ${error?.stack||error}`));
+process.on('uncaughtException',(error)=>{reportRuntime('main','uncaught');appendStartupLog(`uncaughtException ${error?.stack||error}`);});
+process.on('unhandledRejection',(error)=>{reportRuntime('main','unhandled-rejection');appendStartupLog(`unhandledRejection ${error?.stack||error}`);});
+app.on('render-process-gone',(_event,contents,details)=>{
+ if(contents===mainWindow?.webContents&&details.reason!=='clean-exit')reportRuntime('renderer','renderer-exit');
+});
 const applyAccessStage=require('./access-window.cjs').createAccessWindowController();
 ipcMain.handle('app-access-stage',(_,stage)=>applyAccessStage(mainWindow,stage));
 ipcMain.handle('app-access-close',()=>mainWindow?.close());
@@ -260,9 +280,10 @@ async function applyDataDirectory(currentState){
 }
 async function commitDataDirectory({migrationId}={}){
  if(!preparedDirectory||migrationId!==preparedDirectory.id)throw new Error('资料目录迁移已失效，请重新选择');
- const {next,currentState,migration}=preparedDirectory;
- await migration.commit?.();
- ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE()+'.writing',JSON.stringify({dataDir:next},null,2),'utf8');fs.renameSync(CONFIG_FILE()+'.writing',CONFIG_FILE());
+ const prepared=preparedDirectory;
+ const {next,currentState,migration}=prepared;
+ if(!prepared.committed){await migration.commit?.();prepared.committed=true;}
+ await require('./atomic-json.cjs').writeJsonAtomic(CONFIG_FILE(),{dataDir:next});
  const previousMuse=museProfile(providerCache);
  activeDataDirectory=next;providerCache=undefined;stateBackupLoads.clear();collabService?.clearLocalPresence();
  preparedDirectory=null;directoryMigration=false;
@@ -430,7 +451,7 @@ ipcMain.handle('admin-disable-invite',(_,payload)=>accessService.adminDisableInv
 let collabService;
 function readCloudSession(){ return accessService?.readSession() || null; }
 const localProviderMetadata = new Set(['libtv-status','libtv-models','libtv-model-schema','libtv-projects','libtv-use-project','ai-chat','test-ai-connection']);
-const localProjectChannels = new Set(['media-generate-image','media-generate-video','media-retry-image-download','generation-submit','collab-generate-asset-image','collab-generate-video','audio-generate','project-video-export','project-video-delete','collab-delete-media','storyboard-batch-start','storyboard-batch-list','storyboard-batch-stop','storyboard-batch-resume']);
+const localProjectChannels = new Set(['media-generate-image','media-generate-video','media-retry-image-download','generation-submit','collab-generate-asset-image','collab-generate-video','audio-generate','project-video-export','project-jianying-draft','project-video-delete','collab-delete-media','storyboard-batch-start','storyboard-batch-list','storyboard-batch-stop','storyboard-batch-resume']);
 async function localIpcAccount(channel, payload = {}) {
   const cached = readCloudSession()?.account;
   if (!cached?.id || cached.banned || !collabService) return null;
@@ -484,6 +505,13 @@ function createProjectCollab() {
     cloud, getSession:readCloudSession, getDirectory:getDataDir, isStorageLocked:()=>directoryMigration,
     projectBusy:id=>storyboardBatchHost?.hasActive() || jobs().list({includeArchived:true}).some(row=>row.projectId===id&&['preparing','submitting','submitted','downloading','running'].includes(row.status)),
     adoptedVoices:(scope,id)=>adoptedLocalVoices(scope.account,id),
+    activeMediaReference(projectId,row){
+      if(currentStoryboardBatch().usesMedia(row,projectId))return true;
+      const {matchesMediaReference}=require('./reference-upload-guard.cjs');
+      return jobs().list({includeArchived:true,includePreparing:true}).some(job=>job.projectId===projectId&&['preparing','submitting','submitted','downloading','running','uncertain'].includes(job.status)&&job.references?.some(ref=>matchesMediaReference(row,ref,{assetSlot:row.wasAdopted===true})));
+    },
+    retainedMedia:async(scope,id)=>[jobs().list({includeArchived:true}),artReviewStore().load({projectId:id,accountId:scope.account.id}),await fs.promises.readFile(dataFile(scope.directory),'utf8').then(text=>JSON.parse(text.replace(/^\uFEFF/,''))).catch(error=>{if(error.code!=='ENOENT')throw error;return {};} )],
+    onMediaCleanupError:()=>appendStartupLog('项目素材记录已删除，本机字节暂未清理'),
     mediaFor:scope=>createLocalProjectMedia({
       root:scope.root,
       async download(row) {
@@ -546,7 +574,7 @@ ipcMain.handle('collab-list-assets',(_,payload)=>collabService.listAssets(payloa
 ipcMain.handle('collab-update-asset',(_,payload)=>collabService.updateAsset(payload));
 ipcMain.handle('collab-set-asset-reference-image-preference',(_,payload)=>collabService.setAssetReferenceImagePreference(payload));
 
-ipcMain.handle('collab-generate-asset-image',async(event,payload)=>{const filePath=payload.provider==='libtv'?(await libtvDirect({...payload,kind:'image'},event.securitySignal)).filePath:require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?await completedFnkoFile({...payload,kind:'image'},event.securitySignal):await generateImage({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal});return collabService.attachAssetImage({projectId:payload.projectId,assetId:payload.assetId,filePath})});
+ipcMain.handle('collab-generate-asset-image',async(event,payload)=>{const filePath=payload.provider==='libtv'?(await libtvDirect({...payload,kind:'image'},event.securitySignal)).filePath:require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?await completedFnkoFile({...payload,kind:'image'},event.securitySignal):await generateImage({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal});event.securitySignal?.throwIfAborted();return collabService.attachAssetImage({projectId:payload.projectId,assetId:payload.assetId,filePath})});
 ipcMain.handle('collab-upload-asset-image',async(_,payload)=>{const r=await dialog.showOpenDialog({title:'选择资产图片',properties:['openFile'],filters:[{name:'图片文件',extensions:['png','jpg','jpeg','webp']}]});if(r.canceled||!r.filePaths[0])return null;return collabService.attachAssetImage({...payload,filePath:r.filePaths[0]})});
 ipcMain.handle('collab-attach-generated-asset-image',async(_,payload)=>{await verifiedDataFile(payload.filePath,mediaDir());return collabService.attachGeneratedAssetImage(payload);});
 ipcMain.handle('collab-delete-asset-image',(_,payload)=>collabService.deleteAssetImage(payload));
@@ -662,7 +690,7 @@ ipcMain.handle('collab-record-generated-media',async(_,payload)=>{
 ipcMain.handle('collab-delete-media',async(_,payload)=>{
  if(payload.purpose==='reference-upload'){
   const accountId=String(readCloudSession()?.account?.id||'');const media=(await collabService.listMedia({projectId:payload.projectId})).find(m=>m.id===payload.mediaId);
-  require('./reference-upload-guard.cjs').assertReferenceUploadDelete({accountId:payload.accountId,currentAccountId:accountId,media,ledger:artReviewStore().load({projectId:payload.projectId,accountId}),jobs:jobs().list({includeArchived:true}),batchUsesMedia:storyboardBatchHost?.usesMedia(payload.mediaId)});
+  require('./reference-upload-guard.cjs').assertReferenceUploadDelete({accountId:payload.accountId,currentAccountId:accountId,media,ledger:artReviewStore().load({projectId:payload.projectId,accountId}),jobs:jobs().list({includeArchived:true}),batchUsesMedia:media&&currentStoryboardBatch().usesMedia(media,payload.projectId)});
  }
  return collabService.deleteMedia(payload);
 });
@@ -685,7 +713,7 @@ const prepareVideoReferences=require('./niney-reference-upload.cjs').createNiney
   },
 });
 require('./feituo-client.cjs').configurePublicImagePreparation(prepareVideoReferences.publicImages);
-const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),beforeDispatch:async input=>{input.signal?.throwIfAborted();await storyboardBatchHost?.assertDispatch(input);if(input.adminWorkflow)await workflowEngine.assertDispatch(input.workflowRunId,input.signal);else await productionHost.assertSubmission(input);},libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release});
+const generationManagers=createGenerationManagers({beforeSubmit:()=>licenseClient.requireActive(),beforeDispatch:async input=>{input.signal?.throwIfAborted();await storyboardBatchHost?.assertDispatch(input);if(input.adminWorkflow)await workflowEngine.assertDispatch(input.workflowRunId,input.signal);else await productionHost.assertSubmission(input);},libtvService:getLibTV,likeService:getLike,prepareVideoReferences,referenceLifecycle:prepareVideoReferences.release,onHistoryIsolated:()=>appendStartupLog('已隔离无法读取的生成历史，原文件保留')});
 const jobs=()=>generationManagers(mediaDir());
 async function manageGenerationReferences(action,payload={}){
  const session=readCloudSession();if(!session?.token||!session.account?.id)throw Error('请先登录行舟账号');
@@ -710,7 +738,7 @@ ipcMain.handle('generation-clear',async(_,p={})=>{
  if(!owner||owner!==readCloudSession()?.account?.id)throw Error('账号已变化，未清理生成记录');
  const ids=new Set(accountGenerationJobs(false).map(job=>job.id));
  if(!Array.isArray(p.ids)||p.ids.some(id=>!ids.has(id)))throw Error('生成记录不属于当前账号');
- return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths)]});
+ return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths),...currentStoryboardBatch().retainedPaths()]});
 });
 ipcMain.handle('generation-list',(_,p={})=>accountGenerationJobs(p.includeArchived===true));
 const libtvProgressOperations=require('./libtv-preparation-progress.cjs').createLibTVProgressOperations();
@@ -765,7 +793,7 @@ async function submitGeneration(event,p,progress){
  }
  if(p.bindingOrigin==='imported')await require('./imported-binding-media.cjs').verifiedImportedImages(input.references,mediaDir());
  if(event.securitySignal?.aborted)throw Error('登录状态已变化，未提交生成');
- }catch(error){throw Error('前置引用核验失败，尚未提交生成：'+error.message);}
+ }catch(error){throw Object.assign(Error('前置引用核验失败，尚未提交生成：'+error.message),{beforeSubmission:true,status:error.status,code:error.code});}
  return jobs().submit({...input,adminWorkflow:event.workflow===true,referenceAccountId:String(readCloudSession()?.account?.id||''),accountId,signal:event.securitySignal,onLibTVProgress:progress?.report,onLibTVCommitted:progress?.commit});
 }
 ipcMain.handle('generation-submit',async(event,p)=>{
@@ -794,7 +822,7 @@ const workflowFolders=new Set();
 function currentWorkflow(){
  const root=path.join(getDataDir(),'admin-workflows');
  if(workflowEngine&&workflowRoot===root)return workflowEngine;
- workflowEngine?.pauseAll();workflowRoot=root;
+ try{workflowEngine?.pauseAll();}catch{appendStartupLog('旧目录后台工作流暂停记录未保存');}workflowRoot=root;
  workflowEngine=require('./admin-workflow.cjs').createWorkflowEngine({root,authorize:workflowAdmin,onActivity:(id,running)=>adminAwake.set(id,running),mediaRoot:mediaDir,listJobs:()=>jobs().list({includeArchived:true}),
   prepare:async(run,item,guard,save,signal)=>{
    await guard();const state=await providerSettings(),{generationMediaProfiles}=await import('../core/canvasStore.js'),profile=generationMediaProfiles(state,'video').find(p=>p.id===run.settings.profileId),ai=state.apiProfiles?.find(p=>p.id===run.settings.aiProfileId);
@@ -840,7 +868,7 @@ function startWorkflowTimer(){
   const {generationMediaProfiles}=await import('../core/canvasStore.js');
   return generationMediaProfiles(await providerSettings(),'video');
  },currentOwner:()=>directoryMigration?null:readCloudSession()?.account,authorize:async()=>{if(directoryMigration)return null;try{await licenseClient?.requireActive();return readCloudSession()?.account;}catch{return null;}}});
- const tick=()=>{const activeWorkflow=workflowEngine;if(activeWorkflow)void activeWorkflow.pump().catch(()=>activeWorkflow.pauseAll());void videoMonitor.pump().catch(()=>{});};workflowTimer=setInterval(tick,5000);workflowTimer.unref();void tick();
+ const tick=()=>{const activeWorkflow=workflowEngine;if(activeWorkflow)void activeWorkflow.pump().catch(()=>activeWorkflow.pauseAll()).catch(()=>appendStartupLog('后台工作流暂停记录未保存'));void videoMonitor.pump().catch(()=>{});};workflowTimer=setInterval(tick,5000);workflowTimer.unref();void tick();
 }
 
 const {createProductionAwake}=require('./production-awake.cjs'),{powerSaveBlocker}=require('electron');
@@ -853,17 +881,17 @@ for(const action of ['list','save','choose','discover','agentHelp','testTopaz','
 ipcMain.handle('generation-recorded',(_,p)=>{if(!accountGenerationJobs(true).some(job=>job.id===p?.id))throw Error('生成记录不属于当前账号');return jobs().markRecorded(p);});
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});
 async function libtvDirect(payload,signal){const input=await renewImageReferences(payload);if(input.kind==='image'&&!input.ratio){input.ratio=({'1280x720':'16:9','720x1280':'9:16','1024x1024':'1:1','1024x768':'4:3','768x1024':'3:4'})[input.size]||input.size||'16:9';}const job=await jobs().submit({...input,accountId:await libtvAccountId(payload.projectId),signal});try{return await jobs().waitForCompletion(job.id,signal);}catch(e){if(input.kind==='image')return{pendingGeneration:{id:job.id},error:e.message};throw e;}}
-const fnkoDirect=(payload,signal)=>require('./fnko-direct.cjs').runFnkoDirect(payload,signal,{jobs:jobs(),renewImageReferences});
+const fnkoDirect=(payload,signal)=>require('./fnko-direct.cjs').runFnkoDirect({...payload,referenceAccountId:String(readCloudSession()?.account?.id||'')},signal,{jobs:jobs(),renewImageReferences});
 async function completedFnkoFile(payload,signal){const result=await fnkoDirect(payload,signal);if(result.filePath)return result.filePath;throw Error((result.error||'任务仍在处理')+'；原任务已保存在生成结果中，请刷新原任务，不要重新提交。');}
 ipcMain.handle('media-generate-image',async(event,payload)=>{try{if(payload.provider==='libtv')return libtvDirect({...payload,kind:'image'},event.securitySignal);if(require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint))return fnkoDirect({...payload,kind:'image'},event.securitySignal);return {filePath:await generateImage({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal})}}catch(error){if(error.downloadReceiptId)return imageDownloadFailure(error);throw error}});
-ipcMain.handle('media-retry-image-download',async(_,payload)=>{try{return {filePath:await retryImageDownload(payload.receiptId,mediaDir())}}catch(error){if(error.downloadReceiptId)return imageDownloadFailure(error);throw error}});
+ipcMain.handle('media-retry-image-download',async(event,payload)=>{try{return {filePath:await retryImageDownload(payload.receiptId,mediaDir(),{signal:event.securitySignal})}}catch(error){if(error.downloadReceiptId)return imageDownloadFailure(error);throw error}});
 ipcMain.handle('media-open-image-result',async(_,payload)=>{const source=await require('./media-service.cjs').pendingImageSource(payload.receiptId,mediaDir());await shell.openExternal(safeExternalUrl(source));return true;});
 ipcMain.handle('media-generate-video',async(event,payload)=>payload.provider==='libtv'?libtvDirect({...payload,kind:'video'},event.securitySignal):require('./fnko-client.cjs').isFnkoEndpoint(payload.endpoint)?({filePath:await completedFnkoFile({...payload,kind:'video'},event.securitySignal)}):({filePath:await generateVideo({...await renewImageReferences(payload),destDir:mediaDir(),signal:event.securitySignal,onStatus:s=>{if(!event.sender.isDestroyed())event.sender.send('media-task-status',{nodeId:payload.nodeId,status:s})}})}));
 ipcMain.handle('media-import-file',async(_,kind)=>(await importMediaFiles({dialog,destDir:mediaDir(),kind}))[0] || null);
 ipcMain.handle('media-import-files',async(_,kind)=>importMediaFiles({dialog,destDir:mediaDir(),kind,multiple:true}));
 ipcMain.handle('generation-import-episode-media',async(_,payload={})=>importEpisodeMedia({dialog,destDir:mediaDir(),mode:payload.mode,episode:payload.episode,promptLabel:payload.promptLabel}));
 ipcMain.handle('generation-import-episode-files',async(_,payload={})=>importEpisodeFiles({dialog,destDir:mediaDir(),kind:payload.kind,episode:payload.episode}));
-ipcMain.handle('generation-delete-book-media',async(_,payload={})=>deleteEpisodeMedia({destDir:mediaDir(),paths:payload.paths,retainedPaths:[...generationRetainedPaths(payload.retainedPaths),...generationRetainedPaths(jobs().list({includeArchived:true}))]}));
+ipcMain.handle('generation-delete-book-media',async(_,payload={})=>deleteEpisodeMedia({destDir:mediaDir(),paths:payload.paths,retainedPaths:[...generationRetainedPaths(payload.retainedPaths),...generationRetainedPaths(jobs().list({includeArchived:true})),...currentStoryboardBatch().retainedPaths()]}));
 ipcMain.handle('media-export-file',async(_ ,input)=>exportMediaFile(input,{showSaveDialog:options=>dialog.showSaveDialog(options),downloadToFile:require('./media-service.cjs').downloadToFile,mediaDir,dataDir:getDataDir}));
 ipcMain.handle('project-video-export',async(_,p)=>{
  const account=await projectAccount(p.projectId);if(!account?.id)throw Error('请先登录');
@@ -872,6 +900,34 @@ ipcMain.handle('project-video-export',async(_,p)=>{
  const guard=async()=>{const current=await projectAccount(p.projectId);if(current?.id!==account.id)throw Error('账号已切换，下载已停止');await collabService.getProject({projectId:project.id});};
  await guard();const media=await collabService.listMedia({projectId:project.id});
  return require('./project-video-export.cjs').exportProjectVideos({project,ids:p.ids,jobs:jobs().list({includeArchived:true}),media,folder:result.filePaths[0],mediaRoot:project.storageMode==='local'?getDataDir():mediaDir(),download:require('./media-service.cjs').downloadToFile,guard});
+});
+ipcMain.handle('project-jianying-draft',async(event,p)=>{
+ const account=await projectAccount(p.projectId);
+ if(!account?.id)throw Error('请先登录');
+ const dataDir=getDataDir(),signal=event.securitySignal;
+ const project=await collabService.getProject({projectId:p.projectId});
+ if(!project||project.deleted_at)throw Error('项目不存在或不可访问');
+ const check=()=>{
+  if(signal?.aborted||String(readCloudSession()?.account?.id)!==String(account.id)||getDataDir()!==dataDir)throw Error('项目资料或账号已切换，导出已停止');
+ };
+ const media=await collabService.listMedia({projectId:project.id});
+ const jobsAtStart=jobs().list({includeArchived:true});
+ const writer=require('./jianying-draft.cjs'),selection={ids:p.ids,episode:p.episode,shotId:p.shotId,scopeShotIds:p.scopeShotIds};
+ const scope=writer.draftSelections(project,jobsAtStart,media,selection);
+ if(!scope.some(row=>row.videos.some(video=>video.filePath)))return writer.exportJianyingDraft({
+  project,jobs:jobsAtStart,media,selection,dataDir,probe:async()=>null,guard:check,
+ });
+ const target=await dialog.showOpenDialog({title:'选择剪映草稿位置',properties:['openDirectory','createDirectory']});
+ if(target.canceled||!target.filePaths[0])return null;
+ check();
+ const probe=await require('./jianying-media-probe.cjs').createJianyingMediaProbe({BrowserWindow,dataDir});
+ try{
+  return await writer.exportJianyingDraft({
+   project,jobs:jobsAtStart,media,selection,folder:target.filePaths[0],dataDir,probe:probe.read,
+   guard:()=>check(),
+   beforePublish:async()=>{check();const current=await collabService.getProject({projectId:project.id});if(!current||current.deleted_at)throw Error('项目已删除或不可访问');check();},
+  });
+ } finally{probe.close();}
 });
 ipcMain.handle('project-video-delete',async(event,p)=>{
  const account=await projectAccount(p.projectId);if(!account?.id)throw Error('请先登录');
@@ -930,10 +986,10 @@ const quitHandler=createGeminiQuitHandler({
  getService:()=>({close:()=>closeDesktopResources({
   like:()=>likeConnector?.stop(),gemini:()=>geminiWebService?.close(),
   chatgpt:()=>chatgptWebService?.close(),winAI:()=>winAiPanel?.close(),workBuddy:()=>workBuddyPanel?.close(),
-  admin:()=>workflowEngine?.pauseAll(),production:()=>productionHost?.stop(),storyboard:()=>storyboardBatchHost?.stopAll(),
+  admin:()=>workflowEngine?.pauseAll(),production:()=>productionHost?.stop({identityChange:true}),storyboard:()=>storyboardBatchHost?.stopAll(),
   productionWakeLock:()=>productionAwake.clear(),adminWakeLock:()=>adminAwake.clear(),
  },name=>appendStartupLog('退出清理失败：'+name))}),
  finishCriticalCleanup:()=>closeDesktopResources({libtv:()=>libtvService?.close()},name=>appendStartupLog('退出清理失败：'+name)),
- isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit(),
+ timeoutMs:2000,isUpdating:()=>!!workBuddyPanel?.isUpdating(),quit:()=>app.quit(),
 });
 app.on('before-quit',quitHandler);

@@ -37,6 +37,23 @@ test('maintenance keeps inline recovery when a completed image has different byt
  assert.deepEqual(fs.readFileSync(file),png);
 });
 function setup(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'image2852-')),old=globalThis.fetch;t.after(()=>{globalThis.fetch=old;fs.rmSync(dir,{recursive:true,force:true});});return dir;}
+test('identity cancellation interrupts result downloads and leaves the original receipt for retry',async t=>{
+ const dir=setup(t),controller=new AbortController();
+ let acknowledge;
+ const began=new Promise(resolve=>acknowledge=resolve);
+ globalThis.fetch=async(url,options)=>{
+  if(options.method==='POST')return Response.json({data:[{url:'https://result.invalid/image'}]});
+  acknowledge(options.signal);
+  return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));
+ };
+ const work=generateImage({endpoint:'https://provider.invalid/v1',model:'image',prompt:'test',destDir:dir,signal:controller.signal});
+ const rejected=assert.rejects(work,{name:'AbortError'});
+ const downloadSignal=await began;
+ controller.abort();
+ assert.equal(downloadSignal.aborted,true);
+ await rejected;
+ assert.equal(fs.readdirSync(path.join(dir,'.pending-image-downloads')).length,1);
+});
 test('477 reports the actual upstream missing-image response instead of blaming local disk; one paid POST',async t=>{
  const dir=setup(t);let posts=0,reads=0;
  globalThis.fetch=async(u,o)=>{if(o?.method==='POST'){posts++;return Response.json({data:[{url:'https://result.invalid/missing'}]});}reads++;return Response.json({error:{code:'image_download_failed',message:'源图片不存在或已过期，无法下载'}},{status:477});};

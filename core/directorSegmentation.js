@@ -2,11 +2,12 @@ import { validateDirectorSegmentTiming, extractDirectorVisualBeats } from './dir
 import { directorSpeechBoundary, completeDialogueNeedsNextClip } from './directorSpeechBoundaries.js';
 import { validWholeSceneCompression, effectiveDirectorDurationLimit } from './directorDurationPolicy.js';
 import { isDirectorQuotedAt, parseDirectorDialogues } from './directorDialogue.js';
+import {sceneHeadingPattern} from './collabEpisodes.js';
 
 /** Source offsets are UTF-16 half-open offsets in sourceText, never in the user's original draft. */
 export const NONFINAL_DURATION_RATIO = 0.85;
 const MARKER = /^[\t ]*[（(]\d+[）)][\t ]*$/;
-const HEADER = /^[\t ]*(?:场景\s*)?\d+\s*[-—－]\s*\d+(?!\d)(?!\s*[-—－]\s*\d)/;
+const HEADER = new RegExp(sceneHeadingPattern);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const meaningfulState = value => (typeof value === 'string' && Boolean(value.trim())) || (object(value) && Object.keys(value).length > 0);
 const issue = (code, message, segmentIndex, evidence) => ({ code, message, ...(segmentIndex ? { segmentIndex } : {}), ...(evidence !== undefined ? { evidence } : {}) });

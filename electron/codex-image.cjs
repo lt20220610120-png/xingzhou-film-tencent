@@ -58,7 +58,7 @@ async function generateCodexImage(input, {createClient=createAgentClient,spawnPr
     if(!completed)throw Error('Codex 没有返回内置生图结果，请确认本机 Codex 已启用生图且账号可用');
     const bytes=await imageBytes(completed.item,completed.threadId,codexDir);
     if(!bytes?.length)throw Error('Codex 已生成图片，但本机未收到可保存的图片文件');
-    return await saveGeneratedImage('data:image/png;base64,'+bytes.toString('base64'),destDir);
+    return await saveGeneratedImage('data:image/png;base64,'+bytes.toString('base64'),destDir,{signal});
   } finally {
     signal?.removeEventListener('abort',abort);
     client?.close();

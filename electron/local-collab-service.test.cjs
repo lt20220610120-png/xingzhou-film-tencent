@@ -39,6 +39,85 @@ function fixture(t, overrides = {}, mediaOverrides = {}) {
 
 const source = { name: '单人制作', episodes: [{ id: 'e1', title: '第一集', prompts: [{ id: 's1', label: '1-1-1', content: '原稿' }] }] };
 
+test('prompt binding context avoids full-project reads and local import work', async t => {
+  const remoteId=randomUUID(), requests=[];
+  const f=fixture(t,{getProject:p=>{requests.push(p);return {id:remoteId,myRole:'producer',bindingUnchanged:true};}});
+  const service=f.setup(), {id}=await service.createProject(source);
+  const local=await service.getProject({projectId:id,bindingContext:true});
+  assert.equal(local.myRole,'producer');
+  assert.equal(local.bindingSources[1].length,64);
+  assert.equal(local.episodes,undefined);
+  const payload={projectId:remoteId,bindingContext:true,knownBindingRevision:4};
+  assert.equal((await service.getProject(payload)).bindingUnchanged,true);
+  assert.deepEqual(requests,[payload]);
+  assert.deepEqual(f.calls,['getProject']);
+});
+
+test('local asset rename rejects an existing name immediately and preserves the asset', async t => {
+  const f=fixture(t), service=f.setup(), {id:projectId}=await service.createProject(source);
+  const first=await service.createAsset({projectId,name:'甲'});
+  await service.createAsset({projectId,name:'乙'});
+  await assert.rejects(service.updateAsset({projectId,assetId:first.id,updates:{name:' 乙 ',description:'未保存'}}),{status:409});
+  assert.equal((await service.listAssets({projectId})).find(row=>row.id===first.id).name,'甲');
+});
+
+test('a failed local rehome after removing the last collaborator can be retried by refresh',async t=>{
+  let stateAvailable=false,shared;
+  const f=fixture(t,{
+    prepareLocalShare:()=>({revision:'r1'}),
+    commitLocalShare:p=>{shared={...p.project,owner_id:'owner',myRole:'producer'};return {project:shared,member:{id:'other'}};},
+    removeMember:()=>({ok:true}),
+    getProject:()=>shared,
+    localProjectState:()=>{if(!stateAvailable)throw Error('offline');return {revision:'r2',updatedAt:shared.updated_at,project:shared};},
+    listAssets:()=>[],listMedia:()=>[],listTasks:()=>[],listMessages:()=>[],
+  });
+  const service=f.setup(),{id:projectId}=await service.createProject(source);
+  await service.addMember({projectId,username:'other',role:'artist'});
+  await service.removeMember({projectId,memberId:'other'});
+  assert.match((await service.getProject({projectId})).localPreparationError,/刷新/);
+  stateAvailable=true;
+  assert.equal((await service.getProject({projectId,retryLocal:true})).localPreparing,true);
+  await service.waitForLocalPreparation(projectId);
+  assert.equal((await service.getProject({projectId})).storageMode,'local');
+});
+
+test('first share reuses the completed upload after restart and deletes only unreferenced managed bytes', async t => {
+  const {createLocalProjectMedia}=require('./local-project-media.cjs');
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'xz-share-progress-'));
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const image=path.join(directory,'fixture.png');
+  fs.writeFileSync(image,'image fixture');
+  let signed=0,failSecond=true,commits=0;
+  const setup=()=>createLocalCollabService({
+    getDirectory:()=>directory,getSession:()=>({token:'fixture',account:{id:'owner',username:'owner',isProducer:true}}),
+    mediaFor:scope=>createLocalProjectMedia({root:scope.root,upload:async(id,file)=>{
+      signed++;
+      if(signed===2&&failSecond)throw Error('transfer interrupted');
+      return {objectKey:`projects/${id}/image/upload-${signed}.png`};
+    }}),
+    cloud:{prepareLocalShare:async()=>({revision:'revision',pending:true}),commitLocalShare:async p=>{commits++;return {project:p.project,member:{id:'member'}};}},
+  });
+  const service=setup(),{id:projectId}=await service.createProject(source);
+  const {id:assetId}=await service.createAsset({projectId,name:'资产'});
+  const deleted=await service.attachAssetImage({projectId,assetId,filePath:image});
+  const retained=await service.attachAssetImage({projectId,assetId,filePath:image});
+  await service.updateProject({projectId,updates:{episodes:[{id:'e1',title:'第1集',storyboardPrompts:[{id:'s1',generationConfig:{references:[{kind:'image',mediaId:retained.id,filePath:retained.filePath}]}}]}]}});
+  await service.deleteMedia({projectId,mediaId:deleted.id});
+  assert.equal(fs.existsSync(deleted.filePath),false);
+  await service.deleteMedia({projectId,mediaId:retained.id});
+  assert.equal(fs.existsSync(retained.filePath),true);
+  assert.equal((await service.listAssets({projectId}))[0].adoptedImageId,null);
+  await service.attachAssetImage({projectId,assetId,filePath:image});
+  await service.attachAssetImage({projectId,assetId,filePath:image});
+  const invitation={projectId,username:'other',role:'artist'};
+  await assert.rejects(service.addMember(invitation),/interrupted/);
+  assert.equal(commits,0);
+  failSecond=false;
+  await setup().addMember(invitation);
+  assert.equal(signed,3);
+  assert.equal(commits,1);
+});
+
 test('local asset deletion keeps the exact card, chooses the newest survivor and persists through restart', async t => {
   const f = fixture(t), service = f.setup(), { id: projectId } = await service.createProject(source);
   const first = await service.createAsset({ projectId, name: '旧妆造' });

@@ -32,6 +32,21 @@ const estimated=(limit,seconds)=>({version:'2.0.0',status:'estimated',maxDuratio
  needsResegment:seconds>35,capacityStatus:seconds>35?'超载需重分':'正常',reason:seconds>35?'需重新划分片段并重新生成提示词。':'模拟。',
  breakdown:{speechSeconds:seconds-2,nonparallelActionSeconds:1,pauseBufferSeconds:1}});
 
+test('a failed resegment keeps the original completed plan, draft IDs and estimate checkpoint',async()=>{
+ const fixture=setup({auto:true,estimateScene:async({segments,maxDurationSeconds})=>new Map(segments.map(row=>[row.id,estimated(maxDurationSeconds,36)])),
+  generate:(options,call)=>{if(call>1)throw Error('重分模型失败');return options.expectedLabels.map(label=>label+'\n首轮正文').join('\n\n');}});
+ const first=await fixture.controller.start(fixture.context());
+ assert.equal(first.phase,'completed');
+ const repaired=await fixture.controller.resegment(first.id);
+ assert.equal(repaired.phase,'completed');
+ assert.ok(repaired.durationRepair.error);
+ const stored=fixture.records.get(first.id);
+ assert.deepEqual(stored.plan,first.plan);
+ assert.deepEqual(stored.promptIds,first.promptIds);
+ assert.deepEqual(stored.durationEstimates,first.durationEstimates);
+ assert.deepEqual(stored.segmentDrafts,first.segmentDrafts);
+});
+
 test('manual scene estimates the completed bodies once and can repair pending records without modifying cuts or text',async()=>{
  const est=[];
  const f=setup({estimateScene:async options=>{

@@ -3,7 +3,8 @@ const {lockDirectorReferences} = require('./director-source.cjs');
 const {isPendingLocalShare} = require('./project-media-policy.cjs');
 const {chineseDigits,chineseUnits,metadataKeys,chineseLabel,englishLabel,markdownHeading,sceneNumber} = require('../shared/episode-title.json');
 const EPISODE_LABEL = new RegExp(chineseLabel + '|' + englishLabel, 'gi');
-const SCENE = new RegExp('^[ \\t]*' + markdownHeading + sceneNumber, 'gim');
+const sceneHeadingPattern = '^[ \\t]*' + markdownHeading + sceneNumber;
+const SCENE = new RegExp(sceneHeadingPattern, 'gim');
 const isSetting = episode => episode.kind === 'setting' || episode.title === '设定和小传';
 const conflict = message => Object.assign(new Error(message), {status: 409,code:'EPISODE_IDENTITY_CONFLICT'});
 const invalid = message => Object.assign(new Error(message), {status: 400});
@@ -83,13 +84,23 @@ function episodeNumber(episode) {
   numbers.push(...Array.from(String(episode.content||'').matchAll(SCENE), match=>Number(match[1])));
   return numbers.length && numbers.every(n=>Number.isInteger(n)&&n>0&&n<=10000&&n===numbers[0]) ? numbers[0] : 0;
 }
-function numberedEpisodes(episodes = []) {
+function numberedEpisodes(episodes = [], {onlyNumber} = {}) {
   const seen=new Set();
-  return (Array.isArray(episodes)?episodes:[]).filter(ep=>ep&&!isSetting(ep)).map(episode=>{
+  return (Array.isArray(episodes)?episodes:[]).filter(ep=>ep&&!isSetting(ep)).flatMap(episode=>{
     const number=episodeNumber(episode);
+    if(onlyNumber!==undefined&&number!==onlyNumber)return [];
     if(!number||seen.has(number))throw Object.assign(invalid('分集编号无法可靠解析、相互矛盾或重复，请核对原文编号'),{code:'EPISODE_IDENTITY_CONFLICT'});
-    seen.add(number); return {episode,number};
+    seen.add(number); return [{episode,number}];
   });
+}
+
+function readableNumberedEpisodes(episodes) {
+  const groups=new Map();
+  for(const episode of Array.isArray(episodes)?episodes:[]){
+    const number=episodeNumber(episode);
+    if(number)groups.set(number,groups.has(number)?null:episode);
+  }
+  return [...groups].flatMap(([number,episode])=>episode?[{number,episode}]:[]);
 }
 
 function episodeText(episode) {
@@ -153,4 +164,4 @@ function composeDirectorScript(script, current = [], incoming = []) {
   return sections.filter(section=>section.text).reduce((text,section)=>text+(text&&!text.endsWith('\n\n')?'\n\n':'')+section.text,'');
 }
 
-module.exports = {parseNumber, unitHeaders, episodeNumber, numberedEpisodes, appendArtEpisodeSnapshot, composeDirectorScript, publicGenre, collabGenre, editableCollab, ensureCollabDomain};
+module.exports = {parseNumber, sceneHeadingPattern, unitHeaders, episodeNumber, numberedEpisodes, readableNumberedEpisodes, appendArtEpisodeSnapshot, composeDirectorScript, publicGenre, collabGenre, editableCollab, ensureCollabDomain};

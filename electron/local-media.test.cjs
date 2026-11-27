@@ -46,6 +46,21 @@ test('format filters preserve original MOV, audio and image types, including can
  }
 });
 
+test('a single voice sample uses its actual audio extension even when a cache file has an image extension',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-export-voice-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const input=path.join(root,'cached.png'),output=path.join(root,'voice.png');
+ const audio=Buffer.from('RIFF\x0c\x00\x00\x00WAVEfmt \x00\x00\x00\x00','binary');
+ fs.writeFileSync(input,audio);
+ let options;
+ const saved=await exportMediaFile({filePath:input,kind:'audio',filename:'样音.png'},{
+  showSaveDialog:async value=>{options=value;return {filePath:output};},mediaDir:()=>root
+ });
+ assert.equal(options.defaultPath,'样音.wav');
+ assert.deepEqual(options.filters[0].extensions,['wav']);
+ assert.equal(saved,path.join(root,'voice.wav'));
+ assert.deepEqual(fs.readFileSync(saved),audio);
+});
+
 test('adding a missing extension never silently overwrites another saved video',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-export-exists-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  const source=path.join(root,'source.mp4'),dest=path.join(root,'1-6-1.mp4');fs.writeFileSync(source,'new');fs.writeFileSync(dest,'keep');

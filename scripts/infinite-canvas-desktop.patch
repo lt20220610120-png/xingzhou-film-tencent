@@ -1,0 +1,43 @@
+diff --git a/web/index.html b/web/index.html
+--- a/web/index.html
++++ b/web/index.html
+@@ -13,6 +13,19 @@
+                 document.documentElement.style.colorScheme = t;
+             } catch (e) {}
+         </script>
++        <script>
++            const reportCanvasRoute = () => window.parent !== window && window.parent.postMessage({ type: 'xingzhou-canvas-route', hash: window.location.hash || '#/canvas' }, '*');
++            window.addEventListener('hashchange', reportCanvasRoute);
++            window.addEventListener('popstate', reportCanvasRoute);
++            ['pushState', 'replaceState'].forEach(method => {
++                const original = history[method];
++                history[method] = function(...args) { const result = original.apply(this, args); reportCanvasRoute(); return result; };
++            });
++            if (!window.location.hash) history.replaceState(null, '', '#/canvas');
++            window.addEventListener('load', reportCanvasRoute);
++        </script>
++        <link rel="stylesheet" href="/workspace-controls.css" />
++        <script type="module" src="/workspace-selects.js"></script>
+     </head>
+     <body class="bg-background text-foreground antialiased">
+         <div id="root"></div>
+diff --git a/web/src/router.tsx b/web/src/router.tsx
+--- a/web/src/router.tsx
++++ b/web/src/router.tsx
+@@ -1,4 +1,4 @@
+-import { createBrowserRouter, Outlet } from "react-router-dom";
++import { createBrowserRouter, createHashRouter, Outlet } from "react-router-dom";
+ 
+ import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
+ import UserLayout from "@/layouts/user-layout";
+@@ -11,7 +11,9 @@
+ import PromptsPage from "@/pages/prompts";
+ import VideoPage from "@/pages/video";
+ 
+-export const router = createBrowserRouter([
++const createRouter = window.location.protocol === "xzapp:" ? createHashRouter : createBrowserRouter;
++
++export const router = createRouter([
+     {
+         element: (
+             <UserLayout>

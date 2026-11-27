@@ -5,7 +5,8 @@ const { chineseDigits, chineseUnits, metadataKeys, legacyChineseLabel, legacyEng
 const LABEL = new RegExp(legacyChineseLabel + '|\\b' + legacyEnglishLabel + '\\b', 'gi');
 const HEADING = new RegExp('^[ \\t]*' + markdownHeading + '(?:' + legacyChineseLabel + '|' + legacyEnglishLabel + '\\b)', 'gim');
 const HEADING_PREFIX = new RegExp('^[ \\t]*' + markdownHeading + '(?:' + legacyChineseLabel + '|' + legacyEnglishLabel + ')', 'i');
-const SCENE = new RegExp('^[ \\t]*' + sceneNumber + '\\b', 'gim');
+export const sceneHeadingPattern = '^[ \\t]*' + markdownHeading + sceneNumber;
+const SCENE = new RegExp(sceneHeadingPattern, 'gim');
 
 const positiveInteger = (value) => {
   const number = Number(value);
@@ -16,6 +17,7 @@ export function chineseEpisodeNumber(value) {
   const source = String(value || '').trim();
   if (/^\d+$/.test(source)) return positiveInteger(source);
   if (!source || !/^[零〇一二两三四五六七八九十百千万]+$/.test(source)) return null;
+  if (!/[十百千万]/.test(source)) return positiveInteger([...source].map(character => chineseDigits[character]).join(''));
   let total = 0;
   let section = 0;
   let digit = 0;
@@ -111,6 +113,15 @@ export function inspectCollabEpisodes(episodes) {
   }
   issues.sort((a,b)=>a.rows[0].index-b.rows[0].index);
   return {episodes:valid,error:issues.map(issue=>issue.message).join('；'),issues};
+}
+
+export function analysisEpisodes(episodes, targets) {
+  const available = inspectCollabEpisodes(episodes).episodes;
+  if (!targets?.length) return available;
+  const requested = new Set(targets.map(Number));
+  const selected = available.filter(episode => requested.has(episode.episodeNumber));
+  if (selected.length !== requested.size) throw identityError('所选分集编号存在冲突或已变化，请核对所选分集');
+  return selected;
 }
 
 export function nextCollabEpisodeNumber(episodes) {

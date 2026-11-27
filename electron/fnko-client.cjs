@@ -2,10 +2,17 @@ const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('n
 const isFnkoEndpoint=value=>{try{return new URL(value).origin==='https://fanke2026.xyz';}catch{return false;}};
 function createFnkoClient(deps={}){
  const fetchFn=deps.fetchFn||require('./win-ai-api-fetch.cjs').winAIFetch;
- const readReference=deps.readReference|| (async ref=>ref.filePath?{bytes:await fs.readFile(ref.filePath),mime:({'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4','.aac':'audio/aac','.flac':'audio/flac','.ogg':'audio/ogg'})[path.extname(ref.filePath).toLowerCase()]||(typeof ref.mime==='string'?ref.mime:'')}:require('./media-network.cjs').readMediaBytes(ref.url,{timeoutMs:120000}));
+ const referenceMime=ref=>({'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime','.mp3':'audio/mpeg','.wav':'audio/wav','.m4a':'audio/mp4','.aac':'audio/aac','.flac':'audio/flac','.ogg':'audio/ogg'})[path.extname(ref.filePath).toLowerCase()]||(typeof ref.mime==='string'?ref.mime:'');
+ const readReference=deps.readReference|| (async (ref,signal)=>ref.filePath?{bytes:await fs.readFile(ref.filePath,{signal}),mime:referenceMime(ref)}:require('./media-network.cjs').readMediaBytes(ref.url,{timeoutMs:120000,signal}));
+ const referenceLimit=ref=>(ref.kind==='image'?10:25)*1024*1024;
+ function verifyReference(ref,size,mime,limit){
+  if(!mime?.startsWith(ref.kind+'/'))throw Error('参考素材格式与类型不一致');
+  if(!size)throw Error('参考素材为空');
+  if(limit&&size>referenceLimit(ref))throw Error('参考素材超出上传体积限制');
+ }
  const base=input=>{const u=new URL(input.endpoint);if(u.username||u.password||!isFnkoEndpoint(u.href))throw Error('FT连接地址无效');const p=u.pathname.includes('/api/open/v1')?'/api/open/v1':u.pathname.includes('/api/feituo/v1')?'/api/feituo/v1':'/v1';return u.origin+p;};
  const auth=input=>{if(!input.apiKey?.trim())throw Error('请先填写本站新API Key；旧FT Key不能用于新站');return {Authorization:'Bearer '+input.apiKey.trim()};};
- const json=async(response,key)=>{let data;try{data=await response.json();}catch{throw Error(`FT返回非JSON响应（${response.status}）`);}if(!response.ok||data.success===false){const e=Error(`FT请求失败（${response.status}）：${String(data.errorMessage||data.error?.message||data.error||'请检查Key、权限、额度或目录版本').replaceAll(key||'\u0000','[密钥已隐藏]').slice(0,350)}`);e.httpStatus=response.status;throw e;}return data;};
+ const json=async(response,key)=>{let data;try{data=await response.json();}catch{throw Object.assign(Error(`FT返回非JSON响应（${response.status}）`),{httpStatus:response.status});}if(!response.ok||data.success===false){const e=Error(`FT请求失败（${response.status}）：${String(data.errorMessage||data.error?.message||data.error||'请检查Key、权限、额度或目录版本').replaceAll(key||'\u0000','[密钥已隐藏]').slice(0,350)}`);e.httpStatus=response.status;throw e;}return data;};
  const signal=input=>input.signal?AbortSignal.any([input.signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(120000);
  async function models(input){const r=await json(await fetchFn(base(input)+'/models',{headers:auth(input),redirect:'error',signal:signal(input)}),input.apiKey);const rows=r.data||r.models;if(!Array.isArray(rows))throw Error('FT未返回有效模型目录');return rows;}
  function decode(data){
@@ -29,6 +36,11 @@ function createFnkoClient(deps={}){
    for(const [k,cap] of [['image','maxImages'],['video','maxVideos'],['audio','maxAudios']])if(caps[cap]!=null&&refs.filter(r=>r.kind===k).length>caps[cap])throw Error('参考素材数量超出目录限制');
    if(refs.some(r=>!['image','video','audio'].includes(r.kind)))throw Error('参考素材类型无效');
    if(kind==='image'&&refs.some(r=>r.kind!=='image'))throw Error('图片接口只接受图片参考');
+   for(const ref of refs){
+    if(ref.filePath){
+     if(!deps.readReference){const info=await fs.stat(ref.filePath);verifyReference(ref,info.isFile()?info.size:0,referenceMime(ref),native);}
+    }else {let url;try{url=new URL(ref.url);}catch{}if(!url||!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('参考素材地址无效');}
+   }
    if(refs.filter(r=>['image','video'].includes(r.kind)).length<(Number(model.capabilities?.minVisualReferences??model.min_visual_refs)||0))throw Error('此模型需要图片或视频参考');
    if(caps.audioRequiresImage&&refs.some(r=>r.kind==='audio')&&!refs.some(r=>r.kind==='image'))throw Error('此模型的音频参考需要同时提供图片');
    for(const [field,allowed] of [['ratio',caps.ratios],['resolution',caps.resolutions],['duration',caps.durationByResolution?.[input.resolution]||caps.durations]])if((field!=='duration'||kind==='video')&&allowed?.length&&!allowed.includes(field==='duration'?Number(input[field]):input[field]))throw Error(`所选${field}不在当前模型目录规格中，请刷新参数`);
@@ -40,8 +52,7 @@ function createFnkoClient(deps={}){
     body.pricingVersion??=0;if(kind==='video')body.tokenPricingVersion??=0;
     body.assetIds=[];if(kind==='video'){body.videoAssetIds=[];body.audioAssetIds=[];}
     for(const ref of refs){
-     const {bytes,mime}=await readReference(ref);if(!mime||!mime.startsWith(ref.kind+'/'))throw Error('参考素材格式与类型不一致');
-     if(bytes.length>(ref.kind==='image'?10:25)*1024*1024)throw Error('参考素材超出上传体积限制');
+     const {bytes,mime}=await readReference(ref,input.signal);verifyReference(ref,bytes.length,mime,true);
      const form=new FormData();form.append('file',new Blob([bytes],{type:mime}),ref.filePath?path.basename(ref.filePath):ref.name||'reference.'+({image:'png',video:'mp4',audio:'wav'}[ref.kind]));
      const uploaded=await json(await fetchFn(b+'/assets',{method:'POST',headers:auth(input),body:form,redirect:'error',signal:signal(input)}),input.apiKey);
      if(!uploaded.id)throw Error('上传未返回本账号素材ID');body[ref.kind==='image'?'assetIds':ref.kind+'AssetIds'].push(uploaded.id);
@@ -53,9 +64,11 @@ function createFnkoClient(deps={}){
    let requestBody;
    if(!native&&refs.some(r=>r.filePath)){
     const form=new FormData();for(const [key,value] of Object.entries(body))if(!key.endsWith('Urls'))form.append(key,String(value));
-    for(const ref of refs){const {bytes,mime}=await readReference(ref);form.append(ref.kind+'s',new Blob([bytes],{type:mime}),ref.filePath?path.basename(ref.filePath):ref.name||'reference.'+({image:'png',video:'mp4',audio:'wav'}[ref.kind]));}requestBody=form;
+    for(const ref of refs){const {bytes,mime}=await readReference(ref,input.signal);verifyReference(ref,bytes.length,mime,false);form.append(ref.kind+'s',new Blob([bytes],{type:mime}),ref.filePath?path.basename(ref.filePath):ref.name||'reference.'+({image:'png',video:'mp4',audio:'wav'}[ref.kind]));}requestBody=form;
    }else{headers['Content-Type']='application/json';requestBody=JSON.stringify(body);}
    const suffix=openai?(kind==='video'?'/videos':'/images/generations'):`/${kind}/generate`;
+   await input.beforePaidDispatch?.();
+   input.signal?.throwIfAborted();
    attempted=true;const data=await json(await fetchFn(b+suffix,{method:'POST',headers,body:requestBody,redirect:'error',signal:signal(input)}),input.apiKey),result=decode(data);
    if(!result.jobId&&!result.resultUrls.length)throw Error('提交未返回任务编号，请核对原幂等编号，不自动重发');
    if(!result.jobId&&result.resultUrls.length)result.status='success';return result;
@@ -86,7 +99,11 @@ function createFnkoClient(deps={}){
   if(!response.ok)throw Error(`结果尚未就绪或链接失效（${response.status}），请重新查询原任务，不要重新生成`);
   const mime=response.headers.get('content-type')||'';if(mime&&!(input.kind==='image'?/^(image\/|application\/octet-stream)/:/^(video\/|application\/octet-stream)/).test(mime))throw Error('结果并非所需类型的媒体文件');
   const bytes=Buffer.from(await response.arrayBuffer());if(!bytes.length)throw Error('结果下载返回空文件，保留原任务继续下载');
-  const file=path.join(dir,`fnko-${Date.now()}-${crypto.randomUUID()}.${input.kind==='image'?'png':'mp4'}`);await fs.mkdir(dir,{recursive:true});await fs.writeFile(file,bytes);return file;
+  const file=path.join(dir,`fnko-${Date.now()}-${crypto.randomUUID()}.${input.kind==='image'?'png':'mp4'}`),temporary=file+'.part';
+  try{
+   input.signal?.throwIfAborted();await fs.mkdir(dir,{recursive:true});await fs.writeFile(temporary,bytes,{signal:input.signal});
+   await require('./atomic-json.cjs').renameWithRetry(temporary,file,{signal:input.signal});return file;
+  }finally{await fs.unlink(temporary).catch(()=>{});}
  }
  async function generateImage(input){
   let result=await submit({...input,kind:'image',ratio:input.ratio||'auto',idempotencyKey:input.idempotencyKey||crypto.randomUUID()});

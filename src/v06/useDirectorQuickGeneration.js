@@ -41,7 +41,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   const durationStatus=useRef(new Map());
   const estimateRunner=useRef(null);
   const manualControllerRef=useRef(null);
-  const batchControllerRef=useRef(null),cloudSyncRef=useRef(null),cloudScheduledRef=useRef(new Map());
+  const batchControllerRef=useRef(null),cloudSyncRef=useRef(null);
   if(!controllerRef.current){
     const getContext=target=>{
       const current=stateRef.current;
@@ -137,6 +137,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
   const batchController=batchControllerRef.current;
   if(!cloudSyncRef.current)cloudSyncRef.current=createDirectorCloudSync({
     manualOnly:true,
+    onBusyChange:progress.publish,
     getContext:()=>({accountId:accountRef.current,projects:stateRef.current.directorProjects||[]}),
     updateProject:args=>api.directorCollabPublishVersion(args),
     acknowledge:({cloud,submitted,projectId})=>setState(current=>({...current,directorProjects:acknowledgeDirectorCloudSave(current.directorProjects||[],cloud,submitted).map(p=>p.id===projectId?{...p,cloudSyncError:''}:p)})),
@@ -147,7 +148,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     if(!initialized||!accountId)return;
     let live=true;
     Promise.all([controller.restore(),manualController.restore(),batchController.restore()]).catch(e=>{if(live)setRestoreError(e.message);});
-    return()=>{live=false;for(const active of durationTasks.current.values())active.abort();durationTasks.current.clear();durationStatus.current.clear();cloudSync.pause();cloudScheduledRef.current.clear();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
+    return()=>{live=false;for(const active of durationTasks.current.values())active.abort();durationTasks.current.clear();durationStatus.current.clear();cloudSync.pause();batchController.pauseAll().catch(()=>{});controller.pauseAll().catch(()=>{});manualController.pauseAll().catch(()=>{});};
   },[accountId,initialized]);
   // Editing is local. Only an explicit upload publishes a captured version.
   useEffect(()=>{controller.activate();manualController.activate();batchController.activate();cloudSync.activate();return()=>{batchController.dispose();controller.dispose();manualController.dispose();cloudSync.dispose();};},[]);
@@ -208,10 +209,10 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
           if(current())report({succeeded:status.succeeded+applied.filter(prompt=>prompt.durationEstimate?.status==='estimated').length,
             failed:status.failed+applied.filter(prompt=>prompt.durationEstimate?.status==='pending').length});
         };
-        const estimates=await estimateRunner.current({segments:prompts.map(p=>({id:p.label,prompt:p.content,script:p.script})),maxDurationSeconds:target.limit,
+        const estimates=await estimateRunner.current({segments:prompts.map(p=>({id:p.estimateId||p.label,prompt:p.content,script:p.script})),maxDurationSeconds:target.limit,
           snapshot:{accountId:account,profileId,estimateProfileId},taskId:`director-duration-manual-${crypto.randomUUID()}`,signal:worker.signal,onEstimates,
           onProgress:({retryId})=>{
-            const original=prompts.find(prompt=>prompt.label===retryId);
+            const original=prompts.find(prompt=>(prompt.estimateId||prompt.label)===retryId);
             if(!current()||original&&!latestProject()?.episodes.find(ep=>ep.id===target.episodeId)?.prompts?.some(prompt=>prompt.id===original.id&&prompt.content===original.content))worker.abort();
             worker.signal.throwIfAborted();
             report({retryId:retryId||null});
@@ -267,7 +268,7 @@ export function useDirectorQuickGeneration({state,stateRef,setState,api,accountI
     getSceneRun:(projectId,episodeId,sceneLabel)=>{const project=stateRef.current.directorProjects?.find(p=>p.id===projectId),activeId=project?.episodes?.find(e=>e.id===episodeId)?.activeSceneGenerationRuns?.[sceneLabel]?.runId;const row=summaries().runs.filter(run=>run.kind!=='manual-scene'&&(!activeId||run.id===activeId)&&run.snapshot.projectId===projectId&&run.snapshot.episodeId===episodeId&&run.snapshot.sceneLabel===sceneLabel&&sameDirectorEdition(project,run.snapshot)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];return row?controller.get(row.id):null;},
     pauseAndFlush:async()=>{for(const active of durationTasks.current.values())active.abort();await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.flush();return stateRef.current;},
     prepareDirectorySwitch:async()=>{if(storageWorkBusy()||durationTasks.current.size||directorJobs.entries().some(([,j])=>j.status==='running')||[...(stateRef.current.fruitProjects||[]),...(stateRef.current.scriptProjects||[])].some(p=>(p.creator?.records||[]).some(r=>r.status==='running')))throw new Error('仍有创作任务正在运行，请任务完成后再切换资料目录');directorySwitchRef.current=true;directoryEpochRef.current++;try{await batchController.pauseAll();await controller.pauseAll();await manualController.pauseAll();cloudSync.pause();persistence.enqueue(stateRef.current);await persistence.suspendAfterFlush();return stateRef.current;}catch(e){directorySwitchRef.current=false;throw e;}},
-    finishDirectorySwitch:()=>{directoryEpochRef.current++;try{persistence.resume(stateRef.current);cloudScheduledRef.current.clear();window.dispatchEvent(new Event('xz-storage-changed'));}finally{directorySwitchRef.current=false;}},
+    finishDirectorySwitch:()=>{directoryEpochRef.current++;try{persistence.resume(stateRef.current);window.dispatchEvent(new Event('xz-storage-changed'));}finally{directorySwitchRef.current=false;}},
     get active(){const current=summaries();return durationTasks.current.size>0||current.runs.some(isQuickRunActive)||current.batches.some(isDirectorBatchActive);},
   };
   },[accountId,restoreError,progress,controller,manualController,batchController,cloudSync,persistence,stateRef,setState]);

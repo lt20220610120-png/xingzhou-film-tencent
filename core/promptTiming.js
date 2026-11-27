@@ -10,6 +10,7 @@ const validTiming = (prompt) => validSeconds(prompt?.recommendedDurationSeconds)
 
 export function markPromptTimingStale(prompt,{previous=prompt}={}) {
   const estimate=savedDurationEstimate(prompt);
+  if(estimate?.status==='pending')return prompt;
   if(estimate){
     const {recommendedDurationSeconds,...saved}=prompt;
     return {...saved,durationStatus:'needs-review',durationEstimate:{...estimate,status:'needs-review'}};

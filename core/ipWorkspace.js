@@ -2,6 +2,7 @@ import { normalizeCreatorProject, buildCreatorText } from './creatorWorkspace.js
 import { episodeSourceRanges, validateSourceRanges, rangeChapters } from './ipSourceRanges.js';
 import { normalizeReadConcurrency } from './ipReading.js';
 import {checkpointIPEdition,startIPEdition,restoreIPEdition,removeIPEdition,retainIPWorkingDraft} from './ipEditions.js';
+import {sceneHeadingPattern} from './collabEpisodes.js';
 export {ipEditionRecords} from './ipEditions.js';
 
 let sequence=0;
@@ -252,9 +253,9 @@ export function restoreRetiredIPEpisode(state,id,episodeId){return mutateIP(stat
 });}
 export function ipBodyCount(p){return p.episodes.filter(e=>e.type==='episode').reduce((n,e)=>n+String(e.scriptText||'').replace(/^\s*#{0,2}\s*第[^\n]*集[^\n]*$/gm,'').replace(/^#{1,6}\s+/gm,'').replace(/\s/g,'').length,0);}
 export function inspectIPScript(content,number){
- const headings=[...String(content).matchAll(/^\s*(?:#{1,6}\s*)?(?:场景\s*)?(\d+)\s*[-－]\s*(\d+)\s+([^\n]+)/gm)],issues=[];
+ const headings=[...String(content).matchAll(new RegExp(sceneHeadingPattern,'gm'))],issues=[];
  if(!headings.length)issues.push('机械检查：未识别到集—场编号，请核对场景头');
- else if(headings.some((h,i)=>Number(h[1])!==number||Number(h[2])!==i+1))issues.push(`机械检查：场号应为 ${number}-1、${number}-2，按本集连续编号`);
+ else if(headings.some((h,i)=>Number(h[1])!==number||Number(h[3])!==i+1))issues.push(`机械检查：场号应为 ${number}-1、${number}-2，按本集连续编号`);
  const count=ipBodyCount({episodes:[{type:'episode',scriptText:content}]});
  if(count<1000)issues.push(`篇幅提示：本集正文 ${count} 个非空白字符，低于常见 1000 字预算；回查原文是否漏掉有效场面，不为凑字新增剧情`);
  return issues;

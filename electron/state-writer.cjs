@@ -58,7 +58,7 @@ if(!isMainThread){
   parentPort.postMessage({id,ok:true});
  }catch(e){parentPort.postMessage({id,error:e.message,code:e.code});}});
 }else{
- let worker=null,seq=0;const pending=new Map();let chain=Promise.resolve();
+ let worker=null,seq=0,inFlight=0;const pending=new Map();let chain=Promise.resolve();
  function writeStateAsync(file,data,{backup=false,epochBackup=false,directorFile}={}){const work=chain.catch(()=>{}).then(()=>new Promise((resolve,reject)=>{
   if(!worker){const instance=new Worker(__filename);worker=instance;
    const failed=error=>{for(const [id,p] of pending)if(p.instance===instance){p.reject(error);pending.delete(id);}if(worker===instance)worker=null;};
@@ -67,7 +67,7 @@ if(!isMainThread){
   }
   const id=++seq;pending.set(id,{resolve,reject,instance:worker});worker.ref();
   try{worker.postMessage({id,file,data,backup,epochBackup,directorFile});}catch(error){pending.delete(id);if(!pending.size)worker.unref();reject(error);}
- }));chain=work;return work;}
- async function flushStateWrites(){let observed;do{observed=chain;await observed;}while(chain!==observed);}
- module.exports={writeStateAsync,flushStateWrites,hasPendingStateWrites:()=>pending.size>0};
+ }));inFlight++;chain=work;work.then(()=>inFlight--,()=>inFlight--);return work;}
+ async function flushStateWrites(){let observed;while(inFlight&&observed!==chain){observed=chain;await observed;}}
+ module.exports={writeStateAsync,flushStateWrites,hasPendingStateWrites:()=>inFlight>0};
 }

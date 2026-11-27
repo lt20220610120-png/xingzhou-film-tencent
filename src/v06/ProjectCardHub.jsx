@@ -16,7 +16,14 @@ export function ProjectCardHub({
   const isDirector = !!onUpload && !!library;
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
-  const trash=async()=>{if(deleting||!deleteTarget)return;setDeleting(true);setDeleteError('');try{await onDelete?.(deleteTarget.id);setDeleteTarget(null);}catch(e){setDeleteError(e.message||'项目未能移入回收站，请重试');}finally{setDeleting(false);}};
+  const deletingRef=useRef(false);
+  const trash=async()=>{
+    if(deletingRef.current||!deleteTarget)return;
+    deletingRef.current=true;setDeleting(true);setDeleteError('');
+    try{await onDelete?.(deleteTarget.id);setDeleteTarget(null);}
+    catch(error){setDeleteError(error.message||'项目未能移入回收站，请重试');}
+    finally{deletingRef.current=false;setDeleting(false);}
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const groupMemoryKey = `xz-cardhub-group-${kind}`;
   const readGroup = () => {

@@ -157,7 +157,8 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
         const text=await response.text();
         let data;try{data=text?JSON.parse(text):null;}catch{
           forbidden ||= response.status===403;
-          throw Object.assign(new Error('云端返回异常，请稍后重试'),{transient:true});
+          const status=response.status;
+          throw Object.assign(new Error('云端返回异常，请稍后重试'),{status,transient:status<400||status===403||status>=500});
         }
         if (![502,503,504].includes(response.status)) activeUrl=url;
         if(!response.ok)throw Object.assign(new Error(data?.error || `云端请求失败（${response.status}）`),{status:response.status,...(typeof data?.code==='string'?{code:data.code}:{}),transient:[502,503,504].includes(response.status)});
@@ -178,7 +179,9 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       const preConnection=!response&&!error.timeout&&failedBeforeConnection(error);
       if(index+1<attempts.length&&(retryable||preConnection))continue;
       if(action==='session'&&forbidden)throw Object.assign(new Error('云端暂时无法验证登录状态'),{status:403,transient:true});
-      throw new Error(licensePreflight?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
+      throw Object.assign(new Error(licensePreflight?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作'),{
+        category:retryable?'unavailable':'unconfirmed',code:error.timeout?'CLOUD_TIMEOUT':'CLOUD_UNAVAILABLE',status:error.status||(error.timeout?504:undefined),
+      });
     } finally {clearTimeout(timer);}
   }
   throw new Error(NETWORK_ERROR);

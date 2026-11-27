@@ -19,21 +19,21 @@ function createGenerationManagers(options={}) {
 }
 function createGenerationJobs(dir,options={}) {
   const file = path.join(dir, 'generation-jobs.json');
-  const {readJobs,atomic}=require('./generation-job-storage.cjs');
+  const {createJobHistory}=require('./generation-job-storage.cjs');
+  const {read,write}=createJobHistory(file,{onIsolated:options.onHistoryIsolated});
   // 2.8.32's local-URL guard ran before the paid POST but its catch called it
   // uncertain. Correct only that exact legacy case, never a real remote task.
   if(fs.existsSync(file)){
-    const rows=readJobs(file);let changed=false;
+    const rows=read();let changed=false;
     const repaired=rows.map(job=>{let niney=false;try{niney=new URL(job.endpoint).hostname==='9yapi.shop';}catch{}
       if(fnko.isFnkoEndpoint(job.endpoint)&&job.status==='uncertain'&&!job.jobId&&!job.url&&/^FT请求失败[（(]402[）)]/.test(String(job.error))){changed=true;return {...job,status:'failed',submissionAttempted:false,warning:'上游明确余额拒绝，未创建生成任务；充值后可继续。'};}
       if(niney&&job.status==='uncertain'&&!job.jobId&&!job.url&&String(job.error).includes('9Y 视频只接受公网 HTTPS 素材地址')&&job.references?.some(r=>r.filePath&&!/^https:\/\//i.test(r.url||''))){changed=true;return {...job,status:'failed',submissionAttempted:false,error:'参考素材尚未完成上传，生成请求未发出；可复用此条目后重新生成。'};}return job;
     });
-    if(changed){atomic(file,repaired);}
+    if(changed)write(repaired);
   }
-  const read = () => { if (!fs.existsSync(file)) return []; return readJobs(file); };
   const canLink=(url,endpoint)=>{try{const address=new URL(url);return ['https:','http:'].includes(address.protocol)&&!address.username&&!address.password&&!(address.pathname.endsWith('/content')&&endpoint&&address.origin===new URL(endpoint).origin);}catch{return false;}};
   const linkResult=(job,urls,persist=save)=>urls?.every(url=>canLink(url,job.endpoint))&&job.kind==='video'&&!job.storyboardBatchRunId&&!job.workflowRunId&&job.autoDownload!==true&&urls?.length?persist({...job,status:'success',url:urls[0],urls,storage:'link',warning:'',error:''}):null;
-  const save = (job,base) => { const rows = read(); const index = rows.findIndex(r => r.id === job.id); if(index<0&&base)throw Error('任务记录已移除'); if (index < 0) rows.unshift(job); else { if(base)job={...rows[index],...Object.fromEntries(Object.entries(job).filter(([key,value])=>!Object.is(value,base[key])))}; if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive,projectVideoDeleted:rows[index].projectVideoDeleted}; rows[index] = job; } fs.mkdirSync(dir,{recursive:true}); atomic(file,rows); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
+  const save = (job,base) => { const rows = [...read()]; const index = rows.findIndex(r => r.id === job.id); if(index<0&&base)throw Error('任务记录已移除'); if (index < 0) rows.unshift(job); else { if(base)job={...rows[index],...Object.fromEntries(Object.entries(job).filter(([key,value])=>!Object.is(value,base[key])))}; if(rows[index].archived)job={...job,archived:true,archivedAt:rows[index].archivedAt,clearedWhileActive:rows[index].clearedWhileActive,projectVideoDeleted:rows[index].projectVideoDeleted}; rows[index] = job; } write(rows); if(['success','failed'].includes(job.status))Promise.resolve().then(()=>options.referenceLifecycle?.(job)).catch(()=>{}); return job; };
   const inFlight = new Map();
   const libtvRunning=new Map();
   const libtvPreparing=new Map();
@@ -69,7 +69,7 @@ function createGenerationJobs(dir,options={}) {
       ...(includePreparing===true?libtvPreparing.values():[]),
       ...read().filter(j=>includeArchived===true||!j.archived),
     ],
-    hideProjectVideos({projectId,ids}){const selected=new Set(ids),rows=read();let count=0;for(const job of rows)if(job.projectId===projectId&&job.kind==='video'&&selected.has(job.id)){job.archived=true;job.projectVideoDeleted=true;job.archivedAt=new Date().toISOString();count++;}if(count)atomic(file,rows);return count;},
+    hideProjectVideos({projectId,ids}){const selected=new Set(ids),archivedAt=new Date().toISOString();let count=0;const rows=read().map(job=>{if(job.projectId!==projectId||job.kind!=='video'||!selected.has(job.id))return job;count++;return {...job,archived:true,projectVideoDeleted:true,archivedAt};});if(count)write(rows);return count;},
     async waitForCompletion(id,signal){signal?.throwIfAborted();if(libtvRunning.has(id))await libtvRunning.get(id);signal?.throwIfAborted();const job=read().find(r=>r.id===id);if(job?.status!=='success')throw Error(job?.warning||job?.error||'LibTV 原任务已保留，请在图视生成结果中刷新或打开原画布');return job;},
     archive({id}) {const job=read().find(j=>j.id===id);if(!job)return; if(['submitting','submitted','downloading'].includes(job.status))throw new Error('运行中的任务请等待完成后移除');save({...job,archived:true});},
     clear({ ids = [], retainedPaths = [], includeActive = false } = {}) {
@@ -116,7 +116,7 @@ function createGenerationJobs(dir,options={}) {
           if (error.code !== 'ENOENT') throw error;
         }
       }
-       atomic(file,remaining);
+       write(remaining);
       } catch (error) {
         for (const item of backups) {
           if (!fs.existsSync(item.target)) {
@@ -195,7 +195,8 @@ function createGenerationJobs(dir,options={}) {
       if(fnko.isFnkoEndpoint(endpoint)){
         save(job);
         try{
-          if(options.beforeDispatch)await dispatchGuard();const result=await fnko.submit({...input,idempotencyKey:job.id});
+          if(options.beforeDispatch)await dispatchGuard();
+          const result=await fnko.submit({...input,idempotencyKey:job.id,beforePaidDispatch:options.beforeDispatch?dispatchGuard:undefined});
           const saved=save({...job,jobId:result.jobId,status:result.status==='failed'?'failed':result.status==='success'?'downloading':'submitted',url:result.videoUrl,urls:result.resultUrls,error:result.errorMessage,costYuan:result.costYuan,nextPollAt:Date.now()+30000});
           if(result.status==='success'&&result.resultUrls?.length){const linked=linkResult(saved,result.resultUrls);if(linked)return linked;try{const files=[];for(const url of result.resultUrls)files.push(await fnko.download({...saved,apiKey,url,signal},dir));return save({...saved,status:'success',filePath:files[0],files});}catch{return save({...saved,warning:'原任务已完成，下载未完成；刷新仅下载原结果，不重新生成。'});}}
           return saved;
@@ -213,7 +214,7 @@ function createGenerationJobs(dir,options={}) {
       }
       if (input.model?.startsWith('ft-')||ftHost) {
         if(new URL(input.endpoint).origin !== 'https://feituokuajing.com')throw new Error('飞拓模型必须使用 https://feituokuajing.com 接口');
-        client.validate(input);
+        try{client.validate(input);}catch(error){error.beforeSubmission=true;throw error;}
         save(job);
         try {
           const result = await client.submit({...input,referenceTaskId:job.id,beforePaidDispatch:options.beforeDispatch?dispatchGuard:undefined});
@@ -298,7 +299,7 @@ function createGenerationJobs(dir,options={}) {
         if(generic&&!job.jobId&&job.url&&job.status==='downloading'){const linked=linkRefresh(job,[job.url]);if(linked)return linked;
           try{const filePath=await require('./video-provider.cjs').download({...job,signal},apiKey,dir);return saveRefresh({...job,status:'success',filePath,warning:''});}catch{return saveRefresh({...job,warning:'结果地址下载暂未完成，请稍后重试下载'});}
         }
-        if(job.downloadReceiptId){try{const filePath=await retryImageDownload(job.downloadReceiptId,dir);return saveRefresh({...job,status:'success',filePath,downloadReceiptId:null,error:'',warning:''});}catch(error){return saveRefresh({...job,warning:error.message});}}
+        if(job.downloadReceiptId){try{const filePath=await retryImageDownload(job.downloadReceiptId,dir,{signal});return saveRefresh({...job,status:'success',filePath,downloadReceiptId:null,error:'',warning:''});}catch(error){return saveRefresh({...job,warning:error.message});}}
         if (!job.jobId || (job.status === 'success' && job.filePath) || job.status === 'failed') return job;
         try {
           if(job.kind==='image' && job.urls?.length) {const files=[];for(const url of job.urls)files.push(await downloadToFile(url,dir,'png',{signal}));return saveRefresh({...job,status:'success',filePath:files[0],files,warning:''});}

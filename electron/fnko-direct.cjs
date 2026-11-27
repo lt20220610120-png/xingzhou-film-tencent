@@ -1,7 +1,7 @@
 // Both canvas and art use the persisted generation-job identity, including uncertain POSTs.
 async function runFnkoDirect(payload,signal,{jobs,renewImageReferences=async p=>p,wait=(ms,signal)=>require('node:timers/promises').setTimeout(ms,undefined,{signal})}){
- const input=await renewImageReferences(payload);
- if(input.firstFramePath&&!input.references?.length)input.references=[{kind:'image',filePath:input.firstFramePath}];
+ const request=payload.firstFramePath&&!payload.references?.length?{...payload,references:[{kind:'image',filePath:payload.firstFramePath}]}:payload;
+ const input=await renewImageReferences(request);
  if(!input.ratio)input.ratio=({'1280x720':'16:9','720x1280':'9:16','1024x1024':'1:1','1024x768':'4:3','768x1024':'3:4'})[input.size]||'auto';
  let job;
  try{

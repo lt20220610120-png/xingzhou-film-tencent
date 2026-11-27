@@ -29,6 +29,26 @@ test('unchanged bulk update does not create a new upload or local write',async()
  assert.equal(f.localWrites.length,before);assert.equal(f.saveCalls.length,1);assert.equal(f.publishCalls.length,1);
 });
 
+test('publication uploads a changed source scene set without requiring another scene’s approval',async()=>{
+ const f=fixture();await f.store.load(f.project);await f.store.update(1,()=>approved(1));await f.store.publish(1,['1-1','1-2']);
+ const updated={...episode(1),content:episode(1).content+'\n\n1-3 门外 日 外\n人物打开门。'};
+ f.project.episodes=[updated];await f.store.load(f.project);
+ const next=editArtReview(newArtReview(updated),{type:'roster-upsert',sceneIds:['1-3'],item:{category:'prop',name:'【新道具】',description:'木头',ready:true}});
+ await f.store.update(1,()=>editArtReview(next,{type:'approve',sceneId:'1-3'}));
+ await f.store.publish(1,['1-3']);
+ assert.equal(f.publishCalls.at(-1).sceneIds[0],'1-3');
+});
+
+test('the cloud can confirm a healthy episode when a separate episode number is duplicated',async()=>{
+ const f=fixture({count:2});
+ f.project.episodes.push({...episode(2),title:'第二集 旧版'});
+ await f.store.load(f.project);await f.store.update(1,()=>approved(1));
+ const saved=await f.store.publish(1,['1-1']);
+ assert.ok(saved.published['1-1']);
+ assert.deepEqual(f.publishCalls.map(call=>call.episodeNumber),[1]);
+ assert.equal(f.project.analysis_progress[2],undefined);
+});
+
 test('updating one review preserves untouched records and no-op refresh skips a disk write',async()=>{
  const f=fixture({count:2});await f.store.load(f.project);
  const before=f.store.snapshot();

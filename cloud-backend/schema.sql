@@ -81,6 +81,9 @@ create table if not exists email_codes (
   created_at timestamptz not null default now()
 );
 create index if not exists collab_media_project_idx on collab_media(project_id, kind, created_at);
+create index if not exists collab_media_id_text_idx on collab_media((id::text));
+create index if not exists app_sessions_expiry_idx on app_sessions(expires_at);
+create index if not exists email_codes_expiry_idx on email_codes(expires_at);
 
 create table if not exists collab_asset_image_cleanup (
   project_id uuid not null,
@@ -103,6 +106,7 @@ CREATE TABLE IF NOT EXISTS director_live_updates (
  delta bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(project_id,update_id)
 );
+CREATE INDEX IF NOT EXISTS director_live_updates_expiry_idx ON director_live_updates(created_at) WHERE octet_length(delta)>0;
 
 create table if not exists director_project_versions (
  id uuid primary key default gen_random_uuid(),

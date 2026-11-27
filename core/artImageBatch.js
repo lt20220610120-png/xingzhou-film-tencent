@@ -1,7 +1,11 @@
 import {withStorageWork} from './storageWork.js';
 import {assetHasImages} from './assetImages.js';
 import {assetSkipsReferenceImage} from './assetReferencePolicy.js';
-import {assetReferencePeers,characterBaselineAsset} from './collabStore.js';
+import {assetReferencePeers,characterBaselineAsset,isCharacterWardrobeVariant} from './collabStore.js';
+
+export function requiresWardrobeBaselineImage(asset,assets) {
+ return isCharacterWardrobeVariant(asset,assets)&&!assetSkipsReferenceImage(characterBaselineAsset(asset,assets));
+}
 
 export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()=>null,includeGenerated=false,categoryOrder=false}={}){
  const unique=[...new Map(assets.filter(a=>['character','scene','prop'].includes(a.category)).map(a=>[a.id,a])).values()];
@@ -9,7 +13,7 @@ export function planArtImageBatch(assets,{readReference=()=>null,readRecovery=()
   const selected=readReference(asset.id),recovery=readRecovery(asset.id);
   const peers=assetReferencePeers(asset,unique);
   const base=selected?peers.find(a=>a.id===selected):asset.category==='character'?characterBaselineAsset(asset,unique):asset.category==='scene'?peers[0]:null;
-  return {asset,...(categoryOrder?{categoryOrder:true}:{}),dependency:!recovery&&selected!==''&&base&&base.id!==asset.id&&!assetHasImages(base)?base.id:null};
+  return {asset,...(categoryOrder?{categoryOrder:true}:{}),dependency:!recovery&&selected!==''&&base&&base.id!==asset.id&&!assetHasImages(base)&&!assetSkipsReferenceImage(base)?base.id:null};
  });
 }
 

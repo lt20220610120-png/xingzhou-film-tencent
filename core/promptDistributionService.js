@@ -7,12 +7,12 @@ import {runBindingRepair} from './importedArtBinding.js';
 import {getArtModelQueue,requestArtModel} from './artModelQueue.js';
 import {createTaskPool} from './asyncTaskPool.js';
 import {taskPriority} from './taskPriority.js';
-import {listCollabEpisodes} from './collabEpisodes.js';
+import {analysisEpisodes} from './collabEpisodes.js';
 import {storyboardPublicationPayload} from './storyboardPublication.js';
 import {automaticEntryAssociation,calibratedEntryAssociation} from './automaticArtAssociation.js';
 
 export function sceneReadyForPromptDistribution(project,ledger,sceneId){
- const number=Number(sceneId.split('-')[0]),episode=listCollabEpisodes(project.episodes).find(e=>e.episodeNumber===number),record=ledger.episodes?.[number];
+ const number=Number(sceneId.split('-')[0]),episode=analysisEpisodes(project.episodes).find(e=>e.episodeNumber===number),record=ledger.episodes?.[number];
  const scene=record?.scenes.find(s=>s.id===sceneId);
  return Boolean(episode&&isReviewCurrent(record,episode)&&record.status!=='empty'&&record.status!=='inventory-pending'&&scene?.mappingReady&&scene.items.length&&scene.items.every(i=>!needsArtReviewDetails(i)||isArtDetailDeferred(record,i)));
 }

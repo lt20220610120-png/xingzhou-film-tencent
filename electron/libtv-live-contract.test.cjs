@@ -16,6 +16,17 @@ function fixture(t,{project={projectMeta:{uuid:'real-canvas-uuid'}},detailName='
  t.after(async()=>{await service.close();fs.rmSync(root,{recursive:true,force:true});});
  return{service,calls,input:{libtvOwnerKey:owner,kind:'image',model:'lib-image-2.5-f',prompt:'A white ceramic teacup.',ratio:'16:9',references:[],id:'new-task'}};
 }
+test('an intermittent credential save failure does not replace a confirmed result',async t=>{
+ let failures=0,once=true;
+ const storage={...safeStorage,encryptString(value){
+  if(once){once=false;throw Error('temporary lock');}
+  return safeStorage.encryptString(value);
+ }};
+ const f=fixture(t,{options:{safeStorage:storage,onCredentialError:()=>failures++}});
+ const result=await f.service.status('alice');
+ assert.equal(result.loggedIn,true);assert.equal(failures,1);
+ await f.service.close();
+});
 test('actual CLI projectMeta.uuid response continues to create and track the image node without running it',async t=>{
  const f=fixture(t,{detailName:'Lib Image 2.5 Fast'}),task=await f.service.prepare('alice',f.input);
  assert.equal(task.libtvProjectId,'real-canvas-uuid');assert.equal(task.libtvNodeId,'real-node-key');

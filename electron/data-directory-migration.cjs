@@ -1,10 +1,13 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+const {fileURLToPath,pathToFileURL}=require('node:url');
+const {renameWithRetry}=require('./atomic-json.cjs');
 const rebuiltCaches=new Set(['.cloud-image-cache','.cloud-preview-cache']);
 const exists=async p=>{try{await fs.lstat(p);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}};
 const inside=(root,p)=>{const rel=path.relative(root,p);return rel!==''&&!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel);};
 function rewritePaths(value,source,target){
  if(typeof value==='string'){
   if(/^xzmedia:\/\/(?:local\/|\/)/.test(value)){try{const p=decodeURIComponent(value.replace(/^xzmedia:\/\/(?:local\/|\/)/,''));if(inside(source,p))return 'xzmedia://local/'+encodeURIComponent(path.join(target,path.relative(source,p)));}catch{}return value;}
+  if(/^file:\/\//i.test(value)){try{const p=fileURLToPath(value);if(inside(source,p))return pathToFileURL(path.join(target,path.relative(source,p))).href;}catch{}return value;}
   return path.isAbsolute(value)&&inside(source,path.resolve(value))?path.join(target,path.relative(source,value)):value;
  }
  if(Array.isArray(value))return value.map(v=>rewritePaths(v,source,target));
@@ -35,7 +38,18 @@ async function prepareDataDirectory(source,target,currentState,{deferCommit=fals
    if(stat.isDirectory()){await fs.mkdir(to);for(const name of await fs.readdir(from))await copy(path.join(from,name),path.join(to,name));return;}
    if(!stat.isFile())throw new Error('资料文件类型异常，未切换目录');
    sources.push({file:from,size:stat.size,time:stat.mtimeMs});
-   if(from.endsWith('.json')){let value;try{value=JSON.parse((await fs.readFile(from,'utf8')).replace(/^\uFEFF/,''));}catch{throw new Error('资料文件无法解析，未切换资料目录');}await fs.writeFile(to,JSON.stringify(rewritePaths(value,old,next)),'utf8');}
+   if(from.endsWith('.json')){
+    const bytes=await fs.readFile(from);
+    let value;
+    try{value=JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''));}
+    catch{
+     const relative=path.relative(old,from).split(path.sep).join('/');
+     if(!/^(?:画布素材\/(?:generation-jobs\.json|storyboard-batch-queue\/batches\.json)|admin-workflows\/[a-f0-9-]+\.json|production-runs\/[^/]+\/[a-f0-9-]{36}\.json)$/i.test(relative))throw new Error('资料文件无法解析，未切换资料目录');
+     await fs.writeFile(to+'.corrupt-'+crypto.randomUUID()+'.bak',bytes,{flag:'wx'});
+     return;
+    }
+    await fs.writeFile(to,JSON.stringify(rewritePaths(value,old,next)),'utf8');
+   }
    else {await fs.copyFile(from,to);const statAfter=await fs.stat(from);if(statAfter.size!==stat.size||statAfter.mtimeMs!==stat.mtimeMs||(await fs.stat(to)).size!==stat.size)throw new Error('素材在迁移时发生变化，请停止生成后重试');}
   }
   for(const name of entries)if(await exists(path.join(old,name)))await copy(path.join(old,name),path.join(stage,name));
@@ -48,7 +62,7 @@ async function prepareDataDirectory(source,target,currentState,{deferCommit=fals
     for(const item of sources){const s=await fs.stat(item.file);if(s.size!==item.size||s.mtimeMs!==item.time)throw new Error('资料在迁移时发生变化，请停止编辑或生成后重试');}
     // Commit the main state last. Cancelled preparation never becomes a workspace.
     const names=(await fs.readdir(stage)).sort((a,b)=>a==='xingzhou-data.json'?1:b==='xingzhou-data.json'?-1:a.localeCompare(b));
-    for(const name of names){const dest=path.join(next,name);if(await exists(dest))throw new Error('目标目录内容已变化，迁移停止');await fs.rename(path.join(stage,name),dest);created.push(dest);}
+    for(const name of names){const dest=path.join(next,name);if(await exists(dest))throw new Error('目标目录内容已变化，迁移停止');await renameWithRetry(path.join(stage,name),dest);created.push(dest);}
    }catch(e){for(const dest of created.reverse())if(inside(next,dest))await fs.rm(dest,{recursive:true,force:true});throw e;}
    finally{settled=true;if(inside(next,stage))await fs.rm(stage,{recursive:true,force:true});}
   }

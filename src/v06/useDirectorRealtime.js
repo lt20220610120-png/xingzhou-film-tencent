@@ -18,8 +18,26 @@ export function useDirectorRealtime({project,accountId,active,api,setState,getPr
    flush:()=>{if(disposed||latest.current.accountId!==accountId||latest.current.projectId!==id||isEditingComposing())return false;flushEditing();return true;},
    status:(stage,message='',receipt)=>{if(!disposed&&receipt)latest.current.setState(s=>({...s,directorProjects:s.directorProjects.map(p=>p.id===id?{...p,cloudRole:receipt.myRole,cloudLocked:receipt.locked,cloudLiveNeedsRepair:Boolean(receipt.repairRequired)}:p)}));if(!disposed)setNotice(n=>n.stage===stage&&n.message===message?n:{stage,message});},
   });current.current=engine;
-  engine.start().catch(()=>{});const timer=setInterval(()=>{engine.sync().catch(()=>{});},1000);
-  return()=>{disposed=true;clearInterval(timer);if(current.current===engine)current.current=null;engine.stop().catch(()=>{});};
+  let timer;
+  const poll=()=>{
+   if(disposed)return;
+   void engine.sync().catch(()=>{});
+   timer=setTimeout(poll,document.hidden||!document.hasFocus()?15000:1000);
+  };
+  const reschedule=()=>{clearTimeout(timer);poll();};
+  engine.start().catch(()=>{});
+  timer=setTimeout(poll,document.hidden||!document.hasFocus()?15000:1000);
+  document.addEventListener('visibilitychange',reschedule);
+  window.addEventListener('focus',reschedule);
+  window.addEventListener('blur',reschedule);
+  return()=>{
+   disposed=true;clearTimeout(timer);
+   document.removeEventListener('visibilitychange',reschedule);
+   window.removeEventListener('focus',reschedule);
+   window.removeEventListener('blur',reschedule);
+   if(current.current===engine)current.current=null;
+   engine.stop().catch(()=>{});
+  };
  },[accountId,project?.cloudProjectId,active,directoryEpoch]);
  useEffect(()=>{current.current?.capture();},[project]);
  const adoptRestored=async cloud=>{

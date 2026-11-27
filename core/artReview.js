@@ -89,9 +89,11 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
   next.sourceContent=String(episode.content||'');next.scenes=sourceReviewScenes(episode);
  }
  if(next.inventory||next.rawOutput)next.history.push({at:Date.now(),reason:'新候选',inventory:next.inventory,rawOutput:next.rawOutput});
+ const replacedByScene=new Map(next.scenes.map(scene=>[scene.id,new Set((scene.removed||[]).filter(row=>row.replaced).map(row=>reviewAssetKey(row.item)))]));
+ const replaced=new Set([...replacedByScene.values()].flatMap(keys=>[...keys]));
  const excluded=new Set((next.excludedUnassigned||[]).map(reviewAssetKey)),assets=new Map(reviewRoster(next).map(i=>[reviewAssetKey(i),clone(i)])),warnings=[...decoded.warnings],used=new Set(),seenScenes=new Set();
  const editStamp=i=>JSON.stringify(i?[i.id,i.name,i.category,i.description,i.note,i.ready,i.manual,i.manualSceneIds]:null),requested=requestRoster?new Map(requestRoster.map(i=>[reviewAssetKey(i),i])):null;
- for(const item of decoded.items)if(!excluded.has(reviewAssetKey(item))){const key=reviewAssetKey(item),old=assets.get(key);if(requested&&old?.manual&&editStamp(old)!==editStamp(requested.get(key)))continue;assets.set(key,mergeCard(old,item));}
+ for(const item of decoded.items)if(!excluded.has(reviewAssetKey(item))){const key=reviewAssetKey(item),old=assets.get(key);if(!old&&replaced.has(key)||requested&&old?.manual&&editStamp(old)!==editStamp(requested.get(key)))continue;assets.set(key,mergeCard(old,item));}
  next.roster=[...assets.values()];
  const mapping=new Map();
  for(const row of decoded.mapping){
@@ -104,7 +106,8 @@ export function applyArtReviewCandidate(record,episode,decoded,{rawOutput='',tas
   const row=mapping.get(s.id),incoming=[];let validMapping=Boolean(row)&&Array.isArray(row.assets);
   for(const ref of Array.isArray(row?.assets)?row.assets:[]){
    if(typeof ref!=='string'&&(!ref||typeof ref!=='object'||typeof ref.name!=='string'||!ART_REVIEW_CATEGORIES[ref.category])){validMapping=false;warnings.push(`场景 ${s.id} 的资产引用格式无效，需补齐对应`);continue;}
-   const key=typeof ref==='string'?[...assets.keys()].find(k=>k.endsWith('\u0000'+canonicalReviewName(ref))):`${ref.category}\u0000${canonicalReviewName(ref.name)}`;
+   const key=typeof ref==='string'?[...assets.keys(),...replaced].find(k=>k.endsWith('\u0000'+canonicalReviewName(ref))):`${ref.category}\u0000${canonicalReviewName(ref.name)}`;
+   if(replacedByScene.get(s.id).has(key))continue;
    const item=assets.get(key);
    if(item&&!incoming.some(i=>reviewAssetKey(i)===key))incoming.push(clone(item));else if(!item&&!excluded.has(key)){validMapping=false;warnings.push(`场景 ${s.id} 引用了清单中不存在的条目 ${typeof ref==='string'?ref:ref.name||''}`);}
   }
@@ -170,13 +173,33 @@ export function editArtReview(record,action,actor=''){
   const index=s.items.findIndex(i=>i.id===action.itemId);if(index<0)throw Error('条目已不存在');
   s.removed.push({item:s.items.splice(index,1)[0],index,at:Date.now()});s.approval=null;
  }else if(action.type==='undo'){
-  const r=s.removed.pop();if(r&&!s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(r.item)))s.items.splice(r.index,0,r.item);s.approval=null;
+  const r=s.removed.pop();
+  if(r&&!s.items.some(i=>reviewAssetKey(i)===reviewAssetKey(r.item))){
+   const replaced=r.replaced&&s.items.find(i=>i.id===(r.replacementId||r.item.id));
+   if(replaced){
+    s.items.splice(s.items.indexOf(replaced),1,r.item);
+    const replacedKey=reviewAssetKey(replaced);
+    if(!next.scenes.some(scene=>scene.items.some(i=>reviewAssetKey(i)===replacedKey))){
+     next.roster=next.roster.filter(i=>reviewAssetKey(i)!==replacedKey);
+     next.unassigned=next.unassigned.filter(i=>reviewAssetKey(i)!==replacedKey);
+    }
+   }else s.items.splice(r.index,0,r.item);
+  }
+  s.approval=null;
  }else if(action.type==='upsert'){
   const i=action.item;if(!Object.keys(ART_REVIEW_CATEGORIES).includes(i.category)||!reviewName(i.name).trim())throw Error('请填写资产名称与正确类别');
   const old=s.items.find(v=>v.id===action.itemId),copy={...i,id:old?.id||identity(),name:canonicalReviewName(i.name),manual:true};
   if(s.items.some(v=>v.id!==old?.id&&reviewAssetKey(v)===reviewAssetKey(copy)))throw Error('本场已存在同名条目');
-  if(old){s.items.splice(s.items.indexOf(old),1,copy);if(reviewAssetKey(old)!==reviewAssetKey(copy))s.removed.push({item:old,index:s.items.length,at:Date.now(),replaced:true});}else s.items.push(copy);
-  s.approval=null;next.roster=next.roster.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));next.roster.push(clone(copy));next.unassigned=next.unassigned.filter(v=>reviewAssetKey(v)!==reviewAssetKey(copy));
+  const oldKey=old&&reviewAssetKey(old),newKey=reviewAssetKey(copy);
+  const oldStillUsed=old&&next.scenes.some(scene=>scene!==s&&scene.items.some(item=>reviewAssetKey(item)===oldKey));
+  if(oldStillUsed&&oldKey!==newKey)copy.id=identity();
+  if(old){
+   const index=s.items.indexOf(old);
+   s.items.splice(index,1,copy);
+   if(oldKey!==newKey)s.removed.push({item:old,index,at:Date.now(),replaced:true,replacementId:copy.id});
+  }else s.items.push(copy);
+  const retain=v=>reviewAssetKey(v)!==newKey&&(oldStillUsed||reviewAssetKey(v)!==oldKey);
+  s.approval=null;next.roster=next.roster.filter(retain);next.roster.push(clone(copy));next.unassigned=next.unassigned.filter(retain);
  }else if(action.type==='add-existing'){
   if(!ART_REVIEW_CATEGORIES[action.category]||!Array.isArray(action.itemIds)||!action.itemIds.length)throw Error('请选择本集同类清单条目');
   const selected=[...new Set(action.itemIds)].map(id=>next.roster.find(i=>i.id===id));

@@ -42,7 +42,7 @@ import { splitFullScript, parseMasterScript, parseDirectorScenes, replaceMasterS
 import { getSceneVision, buildScenePromptRecords, promptsForScene, creativePromptsForScene, splitNumberedPromptOutput,buildCreativeSceneSubmission } from '../../core/directorCreative.js';
 import { executeSkillWithAi } from '../../core/skillExecution.js';
 import { buildSkillManifest } from '../../core/skillContext.js';
-import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, mergeCloudEpisodes, directorCloudManagementRows, detachUnavailableDirector } from '../../core/directorCloudProjects.js';
+import { reconcileDirectorCloudProjects, removeDirectorCloudProjection, canManageDirectorCollab, directorCloudManagementRows, detachUnavailableDirector } from '../../core/directorCloudProjects.js';
 import { DirectorQuickControls, DirectorQuickProgress } from './DirectorQuickControls.jsx';
 import { DEFAULT_DIRECTOR_PACE, normalizeDirectorPace } from '../../core/directorDurationPolicy.js';
 import {normalizeVideoDurationLimit} from '../../core/videoDurationEstimator.js';
@@ -93,24 +93,36 @@ function ProjectCards({ deleteDetail, projects, groups, library, onOpen, onDelet
 
 function DirectorCollabDialog({ project, cloudProject, canManage, api, onClose, onChanged }) {
   const [members, setMembers] = useState([]); const [username, setUsername] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const [removing,setRemoving]=useState(null), removal=useRef(false);
   const load = useCallback(async () => { if (!cloudProject?.id) return; try { setMembers(await api.directorListMembers({ projectId: cloudProject.id }) || []); } catch (e) { setError(e.message); } }, [cloudProject?.id]);
   React.useEffect(() => { load(); }, [load]);
   const invite = async () => { if (!username.trim()) return; setBusy(true); try { await api.directorAddMember({ projectId: cloudProject.id, username }); setUsername(''); await load(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
-  return createPortal(<div className="veil director-collab-veil"><div className="modal director-collab-dialog"><h2>{cloudProject ? '管理导演协作' : '开启导演协作'}</h2><p>《{project.name}》是独立的云端导演文档，不会出现在“项目协作”列表。</p>{cloudProject ? <><div className={`collab-lock-state ${cloudProject.locked ? 'locked' : ''}`}>{cloudProject.locked ? <Lock size={16}/> : <Unlock size={16}/>} {cloudProject.locked ? '项目已锁定，所有人均不可编辑' : '项目允许协作者共同编辑'}</div>{canManage && <button className="secondary" onClick={async () => { setBusy(true); try { await api.directorCollabSetLocked({ projectId: cloudProject.id, locked: !cloudProject.locked }); await onChanged(); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>{cloudProject.locked ? '解除锁定' : '锁住整个项目'}</button>}<div className="director-collab-invite"><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入已注册用户的账号" disabled={!canManage}/><button className="primary" onClick={invite} disabled={!canManage || busy || !username.trim()}><Users size={14}/>邀请协作者</button></div><div className="director-collab-members">{members.map((m) => <div key={m.id}><span>{m.display_name || m.username} · {m.role === 'producer' ? '制片' : '协作者'}</span>{canManage && m.role !== 'producer' && <button className="danger" onClick={async () => { await api.directorRemoveMember({ projectId: cloudProject.id, memberId: m.id }); await load(); }}>踢出</button>}</div>)}</div></> : <p>{canManage ? '开启后可持续邀请多人，已有成员不会被重置。' : '只有管理员授予制片身份后，才能开启导演协作。'}</p>}{error && <div className="collab-error">{error}</div>}<div className="modal-actions"><button className="ghost" onClick={onClose}>关闭</button>{!cloudProject && canManage && <button className="primary" disabled={busy} onClick={async () => { setBusy(true); try { await onChanged('create'); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>开启导演协作</button>}</div></div></div>, document.body);
+  const remove=async member=>{
+    if(removal.current||!canManage||!cloudProject?.id||member.role==='producer')return;
+    removal.current=true;setRemoving(member.id);setError('');
+    try{
+      await api.directorRemoveMember({projectId:cloudProject.id,memberId:member.id});
+      setMembers(rows=>rows.filter(row=>row.id!==member.id));
+      await load();
+    }catch(error){setError(error.message||'未能移除协作者，请重试');}
+    finally{removal.current=false;setRemoving(null);}
+  };
+  return createPortal(<div className="veil director-collab-veil"><div className="modal director-collab-dialog"><h2>{cloudProject ? '管理导演协作' : '开启导演协作'}</h2><p>《{project.name}》是独立的云端导演文档，不会出现在“项目协作”列表。</p>{cloudProject ? <><div className={`collab-lock-state ${cloudProject.locked ? 'locked' : ''}`}>{cloudProject.locked ? <Lock size={16}/> : <Unlock size={16}/>} {cloudProject.locked ? '项目已锁定，所有人均不可编辑' : '项目允许协作者共同编辑'}</div>{canManage && <button className="secondary" onClick={async () => { setBusy(true); try { await api.directorCollabSetLocked({ projectId: cloudProject.id, locked: !cloudProject.locked }); await onChanged(); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>{cloudProject.locked ? '解除锁定' : '锁住整个项目'}</button>}<div className="director-collab-invite"><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入已注册用户的账号" disabled={!canManage}/><button className="primary" onClick={invite} disabled={!canManage || busy || !username.trim()}><Users size={14}/>邀请协作者</button></div><div className="director-collab-members">{members.map((m) => <div key={m.id}><span>{m.display_name || m.username} · {m.role === 'producer' ? '制片' : '协作者'}</span>{canManage && m.role !== 'producer' && <button className="danger" disabled={removing!==null} onClick={()=>void remove(m)}>{removing===m.id?'正在移除…':'踢出'}</button>}</div>)}</div></> : <p>{canManage ? '开启后可持续邀请多人，已有成员不会被重置。' : '只有管理员授予制片身份后，才能开启导演协作。'}</p>}{error && <div className="collab-error" role="alert">{error}</div>}<div className="modal-actions"><button className="ghost" onClick={onClose}>关闭</button>{!cloudProject && canManage && <button className="primary" disabled={busy} onClick={async () => { setBusy(true); try { await onChanged('create'); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>开启导演协作</button>}</div></div></div>, document.body);
 }
 
 function DirectorCloudManager({ projects, onBack, onDelete, onRefresh, verified, loadError }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const inFlight=useRef(false);
   const owned = projects;
   const kind=deleteTarget?.kind, recycleLocal=kind==='local'&&deleteTarget.recycleLocal;
   const confirm=async()=>{
-    if(!deleteTarget||busy)return;
-    setBusy(true);setError('');
+    if(!deleteTarget||inFlight.current)return;
+    inFlight.current=true;setBusy(true);setError('');
     try{await onDelete(deleteTarget);setDeleteTarget(null);}
     catch(e){setError(e.message||'操作未完成，请刷新后重试');}
-    finally{setBusy(false);}
+    finally{inFlight.current=false;setBusy(false);}
   };
   return <main className="director-cloud-manager">
     <header><div><span className="eyebrow">导演工作台 · 独立云端</span><h1>云端管理</h1></div><div className="director-cloud-actions"><button className="secondary" onClick={onRefresh} disabled={busy}><RefreshCw size={16}/>刷新</button><button className="secondary" onClick={onBack}><ArrowLeft size={16}/> 返回导演工作台</button></div></header>
@@ -982,12 +994,12 @@ const subscribeNothing=()=>()=>{};
 const initialProgressRevision=()=>0;
 export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration, active = true }) {
   useSyncExternalStore(active?quickGeneration?.subscribe||subscribeNothing:subscribeNothing,active?quickGeneration?.getRevision||initialProgressRevision:initialProgressRevision,initialProgressRevision);
+  const cloudSaving=quickGeneration?.isCloudSaving?.()===true;
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
   const projectMemory=`xz-director-last-project:${accountId}`,paneMemory=`xz-director-last-pane:${accountId}`;
   const [selectedProjectId, setSelectedProjectId] = useState(() => readRemembered(projectMemory,null));
   const [activePane, setActivePane] = useState(() => readRemembered(paneMemory,'master')); // 'master' | episodeId
   const [repairOpen,setRepairOpen]=useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
   const [cloudProjects, setCloudProjects] = useState([]);
   const [cloudLoaded,setCloudLoaded]=useState(false);
   const [collaborationProjects, setCollaborationProjects] = useState([]);
@@ -1099,12 +1111,12 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     return () => { clearInterval(timer); cloudRequestRef.current += 1; };
   }, [active, loadCloudProjects, selectedProjectId]);
   React.useEffect(()=>{
-    if(quickGeneration?.isCloudSaving())return;
+    if(!active||cloudSaving)return;
     setState(current=>{
       const directorProjects=reconcileDirectorCloudProjects(current.directorProjects||[],cloudProjects);
       return directorProjects===current.directorProjects?current:{...current,directorProjects};
     });
-  },[cloudProjects]);
+  },[active,cloudProjects,cloudSaving]);
   const cloudForProject = (project) => cloudProjects.find((p) => p.id === project.cloudProjectId || p.analysis_output === project.id);
   const changeCollab = async (mode) => { if (!collabTarget) return; if (mode === 'create') { const dp = collabTarget.project; const episodes = dp.episodes || []; const cloud = await api.directorCollabCreateProject({ name: dp.name, directorProjectId: dp.id, script: dp.masterScript || '', episodes }); setState((s) => updateDirectorProject(s, dp.id, { cloudProjectId: cloud.id, cloudRole: 'producer', cloudBase:{name:cloud.name,script:cloud.script||'',episodes:cloud.episodes||[]},cloudUpdatedAt:cloud.updated_at })); setCollabTarget({ project: { ...dp, cloudProjectId: cloud.id }, cloud: { ...cloud, locked: false } }); } await loadCloudProjects(); };
   const refreshDirectorCloud = async () => {
@@ -1257,19 +1269,10 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   // 处理删除项目
   const handleDeleteProject = async (id) => {
     const target = directorProjects.find((project) => project.id === id);
-    if(target&&!target.cloudProjectId&&!isLocalRecyclableDirector(target))throw new Error('该项目关联云端协作，请使用云端项目管理。');
+    if(!target||!isLocalRecyclableDirector(target))throw Error('项目已变化，或已关联云端协作，请刷新后重试');
     const jobPrefix=JSON.stringify([accountId,id]).slice(0,-1)+',';
     if(directorJobs.entries().some(([key,job])=>key.startsWith(jobPrefix)&&job.status==='running')||quickGeneration?.isProjectBatchActive(id)||quickGeneration?.runs.some(run=>run.snapshot.projectId===id&&isQuickRunActive(run)))throw new Error('本项目仍在生成，请先停止任务或等待完成，再移入回收站。');
-    if (target?.cloudProjectId) {
-      try {
-        await api.directorCollabDeleteProject({ projectId: target.cloudProjectId });
-        setCloudProjects((rows) => rows.filter((row) => row.id !== target.cloudProjectId));
-      } catch (error) {
-        await showNotice(`删除云端导演项目失败：${error.message || '网络连接异常'}`);
-        return;
-      }
-    }
-    setState(s=>target?.cloudProjectId?{...s,directorProjects:s.directorProjects.filter((p) => p.id !== id && (!target?.cloudProjectId || p.cloudProjectId !== target.cloudProjectId))}:deleteDirectorProject(s,id));
+    setState(s=>deleteDirectorProject(s,id));
     if (selectedProjectId === id) {
       setSelectedProjectId(null);
       setActivePane('master');
@@ -1413,18 +1416,6 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
       {/* 添加集数弹窗：任何页面（总剧本/分集）点击“添加集数”都能立即弹出 */}
       {active && addEpisodeOpen && createPortal(<div className="veil"><div className="modal add-episode-dialog"><h2>添加第 {directorEpisodeCount(selectedProject) + 1} 集</h2><textarea value={newEpisodeContent} onChange={(e) => setNewEpisodeContent(e.target.value)} placeholder="请输入本集剧本内容…"/><div className="modal-actions">{addEpisodeError&&<p role="alert">{addEpisodeError}</p>}<button className="ghost" disabled={addingEpisode} onClick={() => setAddEpisodeOpen(false)}>取消</button><button className="primary" disabled={addingEpisode||!newEpisodeContent.trim()} onClick={addEpisodeFromDialog}>{addingEpisode?'正在添加…':'确定并识别'}</button></div></div></div>, document.body)}
 
-      {/* 删除确认 */}
-      <DeleteConfirm
-        open={!!deleteTarget}
-        title="删除导演项目"
-        name={deleteTarget?.name}
-        detail={recycleDeleteDetail(state)} confirmLabel="移入回收站"
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          handleDeleteProject(deleteTarget.id);
-          setDeleteTarget(null);
-        }}
-      />
     </div>
   );
 }

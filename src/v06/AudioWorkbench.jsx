@@ -21,7 +21,7 @@ export function AudioWorkbench({profile}){
   }catch(e){if(alive.current)setError(e.message);}finally{if(alive.current)setBusy(false);}
  };
  const save=async item=>{try{setError('');if(window.xingzhou?.audioResultSave&&item?.id)await window.xingzhou.audioResultSave({id:item.id});else if(item)await window.xingzhou.mediaExportFile({...item,kind:'audio'});if(alive.current){await loadResults();setNotice('已保存语音结果');}}catch(e){if(alive.current)setError(e.message);}};
- const exportResult=async item=>{try{setError('');const file=await window.xingzhou.mediaExportFile({...item,kind:'audio'});if(file&&alive.current)setNotice('已导出 WAV');}catch(e){if(alive.current)setError(e.message);}};
+ const exportResult=async item=>{try{setError('');const file=await window.xingzhou.mediaExportFile({...item,kind:'audio'});if(file&&alive.current)setNotice('已导出语音');}catch(e){if(alive.current)setError(e.message);}};
  const remove=async item=>{try{setError('');if(window.xingzhou?.audioResultDelete&&item?.id)await window.xingzhou.audioResultDelete({id:item.id});if(alive.current){if(result?.id===item.id)setResult(null);await loadResults();setNotice('已删除这条语音结果');}}catch(e){if(alive.current)setError(e.message);}};
  const clearAll=async()=>{try{setError('');if(window.xingzhou?.audioResultsClear)await window.xingzhou.audioResultsClear();if(alive.current){setResult(null);setResults([]);setNotice('已清理全部语音结果');}}catch(e){if(alive.current)setError(e.message);}};
  return <section className="audio-workbench" aria-label="语音生成工作台">

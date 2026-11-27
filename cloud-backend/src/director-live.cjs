@@ -9,9 +9,17 @@ function directorLiveRepository(pool){
  const validate=doc=>{if(!doc||typeof doc.name!=='string'||doc.name.length>500||typeof doc.script!=='string'||doc.script.length>8000000||!Array.isArray(doc.episodes)||doc.episodes.length>2000||doc.episodes.some(e=>!e||typeof e.id!=='string'||typeof e.content!=='string')||Buffer.byteLength(JSON.stringify(doc))>16*1024*1024)throw error(413,'协作文档超出允许范围');};
  function evict(id){const entry=cache.get(id);cache.delete(id);entry?.doc.destroy();}
  async function load(client,row,store){const {Y,seedDocument}=await shared;let entry=cache.get(row.id);
-  if(!store){const d=seedDocument(documentOf(row)),state=Buffer.from(Y.encodeStateAsUpdate(d));store=(await client.query('insert into director_live_documents(project_id,state) values($1,$2) returning *',[row.id,state])).rows[0];entry={doc:d,revision:String(store.revision)};}
-  if(!entry||entry.revision!==String(store.revision)){const r=store.state?store:(await client.query('select * from director_live_documents where project_id=$1',[row.id])).rows[0];evict(row.id);const d=new Y.Doc();Y.applyUpdate(d,new Uint8Array(r.state));entry={doc:d,revision:String(r.revision)};}
-  cache.delete(row.id);cache.set(row.id,entry);if(cache.size>20)evict(cache.keys().next().value);return entry;
+  if(!store){
+   const source=(await client.query('select name,script,episodes,style from collab_projects where id=$1',[row.id])).rows[0];
+   const baseline=documentOf(source),d=seedDocument(baseline),state=Buffer.from(Y.encodeStateAsUpdate(d));
+   try{
+    store=(await client.query('insert into director_live_documents(project_id,state) values($1,$2) returning revision,checkpoint_at',[row.id,state])).rows[0];
+    await checkpoint(client,row,row.owner_id,row.owner_name,baseline,'baseline');
+   }catch(error){d.destroy();throw error;}
+   entry={doc:d,revision:String(store.revision)};
+  }
+  if(!entry||entry.revision!==String(store.revision)){const r=(await client.query('select state,revision from director_live_documents where project_id=$1',[row.id])).rows[0];evict(row.id);const d=new Y.Doc();Y.applyUpdate(d,new Uint8Array(r.state));entry={doc:d,revision:String(r.revision)};}
+  cache.delete(row.id);cache.set(row.id,entry);if(cache.size>20)evict(cache.keys().next().value);return {entry,store};
  }
  async function checkpoint(client,row,uid,name,document,status='accepted'){
   await client.query('insert into director_project_versions(project_id,author_id,author_name,submission_id,status,document) values($1,$2,$3,$4,$5,$6)',[row.id,String(uid),name||'',crypto.randomUUID(),status,JSON.stringify(document)]);
@@ -26,16 +34,15 @@ function directorLiveRepository(pool){
   async syncDirectorLive(pid,p,uid,name){const {Y,readDocument,documentProtocol,documentEpoch,LIVE_PROTOCOL,repairLegacyDocument,assertCompatibleUpdate,flattenDocument}=await shared;const client=await pool.connect();
    try{await client.query('BEGIN');
     // Membership and lock checks precede every migration, repair and write.
-    const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
+    const row=(await client.query('select id,owner_id,owner_name,genre,deleted_at from collab_projects where id=$1 for update',[pid])).rows[0];
     if(!directorRow(row))throw error(403,'项目已删除或不可访问');
     const owner=String(row.owner_id)===String(uid);
     if(!owner&&!(await client.query('select 1 as ok from collab_members where project_id=$1 and user_id=$2',[pid,uid])).rows.length)throw error(403,'您已不在协作项目中，本地修改仍保留');
     const locked=String(row.genre||'').includes('[PROJECT_LOCKED]'),role={locked,myRole:owner?'producer':'collaborator'};
     if(p.protocol!==LIVE_PROTOCOL)throw error(426,'多人协作协议已升级，请所有成员更新至 2.8.35 或以上；本地创作仍保留');
     if((p.update||p.repair==='apply')&&locked)throw error(423,'制片已锁定项目，本地修改仍保留');
-    let store=(await client.query('select project_id,revision,checkpoint_at from director_live_documents where project_id=$1',[pid])).rows[0];
-    const initialized=!store,entry=await load(client,row,store);store=store||(await client.query('select project_id,revision,checkpoint_at from director_live_documents where project_id=$1',[pid])).rows[0];
-    if(initialized)await checkpoint(client,row,row.owner_id,row.owner_name,documentOf(row),'baseline');
+    const metadata=(await client.query('select revision,checkpoint_at from director_live_documents where project_id=$1',[pid])).rows[0];
+    const {entry,store}=await load(client,row,metadata);
     if(documentProtocol(entry.doc)!==LIVE_PROTOCOL){
      const inspection=entry.inspection||(entry.inspection=repairLegacyDocument(entry.doc));
      if(inspection.needed){

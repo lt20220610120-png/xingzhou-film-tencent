@@ -159,7 +159,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'project-get' && payload.bindingContext===true) {
     const row=await repo.getProject(projectId,user.id);if(!row)return NOT_FOUND;
     const view=await attachRole(row,user,repo),saved=row.analysis_progress?._sharedPromptBinding;
-    const bindingSources=Object.fromEntries(require('./collab-episodes.cjs').numberedEpisodes(row.episodes).map(({number,episode})=>[number,require('node:crypto').createHash('sha256').update(episode.content||'').digest('hex')]));
+    const bindingSources=Object.fromEntries(require('./collab-episodes.cjs').readableNumberedEpisodes(row.episodes).map(({number,episode})=>[number,require('node:crypto').createHash('sha256').update(episode.content||'').digest('hex')]));
     return ok({id:row.id,myRole:view.myRole,locked:view.locked,deleted_at:row.deleted_at||view.deleted_at,bindingSources,...(saved&&payload.knownBindingRevision===saved.revision?{bindingUnchanged:true}:{analysis_progress:{_sharedPromptBinding:saved||null}})});
   }
   if (action === 'project-get' && payload.shotReceipt===true) {

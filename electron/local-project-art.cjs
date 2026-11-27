@@ -165,7 +165,7 @@ function applyLocalArt(record, action, payload, accountId) {
   }
   const number = Number(payload.episodeNumber);
   if (!Number.isInteger(number) || number < 1) fail('分集编号无效', 400);
-  const episode = numberedEpisodes(project.episodes).find(entry => entry.number === number)?.episode;
+  const episode = numberedEpisodes(project.episodes, {onlyNumber:number})[0]?.episode;
   const previous = project.analysis_progress?.[number] || {};
   if (action === 'publishAnalysis') return publishAnalysis(record, payload, number, episode, previous);
   if (action !== 'saveArtReview' && action !== 'publishArtReview') fail('本地美术操作无效', 400);
