@@ -2,21 +2,25 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {codeFromCLI,failure}=require('./libtv-network-error.cjs');
 const source=path.join(__dirname,'libtv-network.cjs'),network=fs.existsSync(source)?require(source):{};
 function create(options={}){assert.equal(typeof network.createLibTVNetwork,'function');return network.createLibTVNetwork({resolveProxy:async()=> 'DIRECT',probe:async()=>{},...options});}
-test('command setup creates no system-rule resolution or synthetic connections; actual command host is resolved and cached',async t=>{
+test('actual command hosts resolve system settings without probes and pick up proxy changes on the next command',async t=>{
  const seen=[],probes=[];
- const n=create({resolveProxy:async url=>{seen.push(url);return 'DIRECT';},probe:async row=>probes.push(row),
+ let proxy='DIRECT';
+ const n=create({resolveProxy:async url=>{seen.push(url);return proxy;},probe:async row=>probes.push(row),
   connect:()=>{const stream=new (require('node:stream').PassThrough)();queueMicrotask(()=>stream.emit('connect'));return stream;}});
  t.after(()=>n.close());
  const first=await n.environment();
  assert.equal(first.env.NODE_USE_ENV_PROXY,'1');
  assert.deepEqual(seen,[]);
  assert.equal(await requestTunnel(first,'api.liblib.tv'),200);
+ assert.equal(await requestTunnel(first,'api.liblib.tv'),200);
+ assert.deepEqual(seen,['https://api.liblib.tv']);
  first.dispose();
+ proxy='PROXY localhost:7897';
  const second=await n.environment();
  assert.equal(await requestTunnel(second,'api.liblib.tv'),200);
- assert.deepEqual(seen,['https://api.liblib.tv']);
+ assert.deepEqual(seen,['https://api.liblib.tv','https://api.liblib.tv']);
  assert.deepEqual(probes,[]);
- assert.deepEqual(second.routeReport(),{route:'direct',source:'direct'});
+ assert.deepEqual(second.routeReport(),{route:'http',source:'system-proxy'});
  second.dispose();
 });
 test('ordinary system mode opts bundled Node fetch into the scoped proxy tunnel',async()=>{const n=create({resolveProxy:async()=> 'PROXY 127.0.0.1:7897'});try{const result=await n.environment();assert.equal(result.env.NODE_USE_ENV_PROXY,'1');assert(result.env.HTTPS_PROXY.startsWith('http://'));}finally{await n.close();}});

@@ -9,7 +9,7 @@ test('desktop login uses the licensed gateway and the retired alias returns 404'
   const repository = {
     licenseState: async () => ({ exempt: true }),
     findUser: async name => { lookups++; return name === account.username ? account : null; },
-    createSession: async () => 'fixture-session',
+    createLicensedSession: async () => ({token:'fixture-session',user:account,state:{exempt:true}}),
   };
   const server = createServer({ API_SECRET: 'fixture', DATABASE_URL: 'postgres://fixture' }, { repository, mailer: null, cosSigner: null });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

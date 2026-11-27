@@ -38,7 +38,7 @@ export default function StoryboardBatchPanel({api,project,accountId,episodeId,sc
    const items=storyboardBatchItems({project,scope,episodeId,sceneId,settings,assets,media,binding,accountId,readDraft,skipUnavailable:true});
    if(!items.length)throw Error('当前范围没有分镜');
    const drafts=new Map(items.filter(item=>!item.skipUnsavedDraft).map(item=>{
-    const key=storyboardDraftKey(project.id,{id:item.shotId,storyboardPublicationId:item.publicationId});
+    const key=storyboardDraftKey(project.id,{id:item.shotId,storyboardPublicationId:item.publicationId},accountId);
     return [item.shotId,{key,before:JSON.stringify(readDraft(key))}];
    }));
    setPending({items,drafts,scope,episodeId,sceneId});

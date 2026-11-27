@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Shot} from '../../src/v06/StoryboardWorkbench.jsx';
+import {GenerationComposer} from '../../src/v06/GenerationComposer.jsx';
 import {invalidateLibTVReads} from '../../src/v06/libtvReads.js';
 import '../../src/styles.css';
 import '../../src/collab.css';
@@ -35,9 +36,14 @@ const shot={id:'fixture-shot',label:'1-1-1',content:'片段（参考@image1 @ima
 const episode={id:'fixture-episode',storyboardPrompts:[shot]};
 const project={id:'fixture-project',storageMode:'local',episodes:[episode]};
 const media=[];
-const fixture=window.libTV201Fixture={projects:0,schemas:0,failProjects:false,failSchema:false};
+const fixture=window.libTV201Fixture={projects:0,schemas:0,forcedSchemas:0,failProjects:false,failSchema:false};
 const api={
- async libtvModelSchema(){fixture.schemas++;if(fixture.failSchema)throw Error("Error invoking remote method 'libtv-model-schema': Error: LibTV 读取模型失败（ECONNRESET）");return model;},
+ async libtvModelSchema({refresh}){
+  fixture.schemas++;
+  if(refresh){fixture.forcedSchemas++;await new Promise(resolve=>setTimeout(resolve,150));}
+  if(fixture.failSchema)throw Error("Error invoking remote method 'libtv-model-schema': Error: LibTV 读取模型失败（ECONNRESET）");
+  return model;
+ },
  async libtvProjects(){fixture.projects++;if(fixture.failProjects)throw Error("Error invoking remote method 'libtv-projects': Error: LibTV 读取项目失败（TLS_TIMEOUT）");return {projects:[{id:'fixture-canvas',name:'已核验画布'}],selectedId:'fixture-canvas'};},
  async collabPatchStoryboard({updates}){return {storyboardReceipt:{shot:{...shot,...updates}}};},
  async collabResolveAssetImage(){return {url:imageURL};},
@@ -68,7 +74,9 @@ function Fixture(){
  };
  const loadMedia=async()=>{setTasks(await window.preflightFixture.list());};
  useEffect(()=>{void loadMedia();},[]);
- return <main className="collab-stage collab-stage--storyboard"><Shot
+ return <main className="collab-stage collab-stage--storyboard">
+ <GenerationComposer state={state} accountId="fixture-owner" api={api} value={savedShot.generationConfig} settingsOnly onChange={()=>{}}/>
+ <Shot
   key={revision} shot={savedShot} episode={episode} epNumber={1} scene="1-1" project={project}
   api={api} state={state} assets={assets} media={media} tasks={tasks}
   canEdit loadMedia={loadMedia} onProjectChange={()=>{}} accountId="fixture-owner"

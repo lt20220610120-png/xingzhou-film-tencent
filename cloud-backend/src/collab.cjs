@@ -79,9 +79,12 @@ function storyboardReceipt(row,payload) {
   return {id:row.id,storyboardReceipt:{episodeId:episode.id,shot,publicationId:shot.storyboardPublicationId||'',separate:Boolean(episode.storyboardPrompts)}};
 }
 
-async function handleAction(action, payload, user, repo, signer = null, imagePreview = null) {
+async function handleAction(action, payload, user, repo, signer = null, imagePreview = null, {readOnly=false} = {}) {
   if (!user) return { status: 401, body: { error: '请先登录账号' } };
   const projectId = payload.projectId || payload.id;
+  if (action === 'project-restore' && (typeof projectId !== 'string' || !projectId.trim())) {
+    return {status:400,body:{error:'缺少要恢复的项目编号'}};
+  }
   const producer = user.is_producer === true || user.is_admin === true;
 
   if (action === 'producer-status') return ok({ isProducer: producer });
@@ -123,6 +126,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
   if (action === 'project-local-share-prepare') localShareMethod = 'prepareLocalProjectShare';
   if (action === 'project-local-share') localShareMethod = 'shareLocalProject';
   if (action === 'project-local-share-receipt') localShareMethod = 'localProjectShareReceipt';
+  if (action === 'project-local-share-recover') localShareMethod = 'recoverLocalProjectShare';
   if (localShareMethod) {
     if (typeof repo[localShareMethod] !== 'function') return STATE_UNAVAILABLE;
     try {
@@ -164,7 +168,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     return receipt?ok(receipt):NOT_FOUND;
   }
   if (action === 'project-get') {
-    try {const r = repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id); return ordinaryCollab(r) ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
+    try {const r = !readOnly && repo.refreshDirectorPrompts ? await repo.refreshDirectorPrompts(projectId,user.id) : await repo.getProject(projectId, user.id); return ordinaryCollab(r) ? ok(await attachRole(r, user, repo)) : NOT_FOUND;}
     catch(error){if(error.status)return {status:error.status,body:{error:error.message}};throw error;}
   }
   if (action === 'episode-identity-resolve') {
@@ -286,7 +290,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     const aliasesOf = row => [row.id,'cloud-'+row.id,row.analysis_output].filter(Boolean);
     const aliases = [...new Set(rows.flatMap(aliasesOf))];
     let links = [];
-    try { links = (await repo.listCollabLinks(aliases)) || []; } catch { return {status:503,body:{error:'暂时无法确认云端项目关联，请稍后刷新'}}; }
+    try { links = (await repo.listCollabLinks(aliases,user.id)) || []; } catch { return {status:503,body:{error:'暂时无法确认云端项目关联，请稍后刷新'}}; }
     const linksById = new Map();
     for (const link of links) {
       const keys = new Set([link.director_project_id,...[...String(link.genre||'').matchAll(/\[COLLAB_SOURCE:([^\]]+)\]/g)].map(match=>match[1])]);
@@ -318,7 +322,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
       });
     }
     if(payload.associations!==undefined){
-      try{return ok({projects:out,associations:await repo.directorAssociationStates(payload.associations)});}
+      try{return ok({projects:out,associations:await repo.directorAssociationStates(payload.associations,user.id)});}
       catch(error){return {status:error.status||503,body:{error:error.status?error.message:'暂时无法核验本地项目的云端关联'}};}
     }
     return ok(out);
@@ -353,7 +357,7 @@ async function handleAction(action, payload, user, repo, signer = null, imagePre
     const pid = payload.directorProjectId || projectId;
     const r = guard(await repo.addDirectorMember(pid, payload, user.id, action === 'director-member-add' ? 'director' : 'collab'));
     if (!r) return DENY;
-    if (r.error === 'user_not_found') return { status: 404, body: { error: '账号不存在，请确认对方已注册' } };
+    if (r.error === 'user_not_found') return { status: 404, body: { error: '账号不存在、已停用或没有影视项目权限' } };
     return ok(r);
   }
   if (action === 'director-member-remove' || action === 'member-remove') {

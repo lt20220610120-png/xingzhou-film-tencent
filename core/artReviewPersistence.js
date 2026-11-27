@@ -3,8 +3,10 @@ import {listCollabEpisodes,inspectCollabEpisodes} from './collabEpisodes.js';
 import {artWorkflowState} from './artWorkflow.js';
 import {createTaskPool} from './asyncTaskPool.js';
 import {mergeSharedReviewLedger} from './sharedReviewLedger.js';
+import {bindingStorageEpoch,subscribeBindingStorage} from './projectBindingCache.js';
 
 const stores=new Map();
+subscribeBindingStorage(()=>stores.clear());
 const fullyPublished=record=>Boolean(record?.scenes?.length&&record.scenes.every(scene=>record.published?.[scene.id]?.signature===reviewSceneSignature(scene)));
 const hasLocalDraft=record=>Boolean(record?.pending||record&&record.status!=='empty'&&!fullyPublished(record));
 const reviewReplyHistory=new Set(['批量补齐信息卡回包','并发逐场模型对应回包','完整模型回包','自动逐场对应回包']);
@@ -28,15 +30,17 @@ const retireRejectedReceipt=(record,error)=>{
 export function getArtReviewStore({api,projectId,accountId=''}){
  const key=`${accountId}:${projectId}`;
  if(stores.has(key))return stores.get(key);
- let ledger={episodes:{}},loaded=false,episodes=[],chain=Promise.resolve();const listeners=new Set(),cloudLanes=new Map(),cloudPool=createTaskPool(4);
+ const storageEpoch=bindingStorageEpoch();
+ const assertScope=()=>{if(storageEpoch!==bindingStorageEpoch())throw Error('资料目录已变化，请重新读取核实清单');};
+ let ledger={episodes:{}},loaded=false,episodes=[],chain=Promise.resolve(),dataScope;const listeners=new Set(),cloudLanes=new Map(),cloudPool=createTaskPool(4);
  const notify=()=>listeners.forEach(fn=>{try{fn();}catch{}});
- const enqueue=fn=>{const promise=chain.then(fn);chain=promise.catch(()=>{});return promise;};
+ const enqueue=fn=>{const promise=chain.then(()=>{assertScope();return fn();});chain=promise.catch(()=>{});return promise;};
  // Different episodes overlap network waits. The same episode keeps its receipt
  // and baseVersion in one ordered lane; local checkpoint writes remain atomic.
  const enqueueCloud=(number,fn)=>{const previous=cloudLanes.get(number)||Promise.resolve(),promise=previous.catch(()=>{}).then(()=>cloudPool.run(fn));cloudLanes.set(number,promise);promise.finally(()=>{if(cloudLanes.get(number)===promise)cloudLanes.delete(number);}).catch(()=>{});return promise;};
  const patchRecord=(number,reduce)=>enqueue(()=>persistRecord(number,reduce(structuredClone(ledger.episodes[number]))));
  // Do not expose an edit or cloud acknowledgement until its local checkpoint succeeds.
- const persist=async next=>{try{await api.artReviewSaveLocal({projectId,...(accountId?{accountId}:{}),data:next});}catch(error){error.artCheckpointFailure=true;throw error;}ledger=next;notify();};
+ const persist=async next=>{try{assertScope();await api.artReviewSaveLocal({projectId,...(accountId?{accountId}:{}),...(dataScope?{dataScope}:{}),data:next});assertScope();}catch(error){error.artCheckpointFailure=true;throw error;}ledger=next;notify();};
  const persistRecord=async(number,record)=>{
   const saved=limitReviewReplyHistory(record);
   await persist({...ledger,episodes:{...ledger.episodes,[number]:saved}});
@@ -91,7 +95,13 @@ export function getArtReviewStore({api,projectId,accountId=''}){
   setAnalysisRun(value){return enqueue(()=>persist({...ledger,analysisRun:structuredClone(value)}));},
   setWorkflow(mode){return enqueue(async()=>{if(!['automatic','guided','auto-publish'].includes(mode))throw Error('未知美术分析方式');if(ledger.workflow!==mode)await persist({...ledger,workflow:mode});});},
   async load(project,assets=[]){return enqueue(async()=>{
-   const next=mergeSharedReviewLedger(loaded?ledger:await api.artReviewLoadLocal({projectId,...(accountId?{accountId}:{})}),project);next.episodes||={};
+   let local=ledger;
+   if(!loaded){
+    const result=await api.artReviewLoadLocal({projectId,...(accountId?{accountId}:{}),includeStorageScope:true});
+    assertScope();
+    if(result?.dataScope){dataScope=result.dataScope;local=result.ledger;}else local=result;
+   }
+   const next=mergeSharedReviewLedger(local,project);next.episodes||={};
    for(const [n,p]of Object.entries(project.analysis_progress||{}))if(p.review){
     const local=next.episodes[n];
     // Old pending checkpoints and unpublished results remain local, even when a

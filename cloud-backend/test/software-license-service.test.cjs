@@ -14,3 +14,14 @@ test('已过期账号可读取导出，但不能写入或新生成',async()=>{co
 test('解绑后原设备有历史证明则保留收尾，新设备不能借令牌读取',async()=>{const f=fixture();f.repo.licenseState=async()=>({knownDevice:true,grant:{device_key:null,previous_device_key:f.publicKey,expires_at:'2099-01-01'}});await f.service.authorize('session',f.proof('session',{},'t'),'t',{id:'new'});const b=fixture();b.repo.licenseState=async()=>({knownDevice:false,grant:{device_key:null,previous_device_key:'other',expires_at:'2099-01-01'}});await assert.rejects(b.service.authorize('session',b.proof('session',{},'t'),'t',{id:'new'}));});
 test('撤销也不能让未知设备凭会话读取资料',async()=>{const f=fixture();f.repo.licenseState=async()=>({knownDevice:false,grant:{device_key:'different',revoked:true,expires_at:'2099-01-01'}});await assert.rejects(f.service.authorize('project-get',f.proof('project-get',{},'t'),'t',{id:'new'}));});
 test('换机绑定后历史设备仍可收尾，但不能提交新任务',async()=>{const f=fixture();f.repo.licenseState=async()=>({knownDevice:true,grant:{device_key:'replacement',expires_at:'2099-01-01'}});await f.service.authorize('session',f.proof('session',{},'t'),'t',{id:'new'});const b=fixture();b.repo.licenseState=f.repo.licenseState;await assert.rejects(b.service.authorize('project-create',b.proof('project-create',{},'t'),'t',{id:'new'}));});
+test('read-only settlement allows member and receipt reads while refusing writes', async () => {
+  const user={id:'new'};
+  for (const action of ['director-members-list','project-local-state','project-local-share-receipt']) {
+    const f=fixture(); f.repo.licenseState=async()=>({knownDevice:true,grant:{device_key:null,expires_at:'2000-01-01'}});
+    assert.equal((await f.service.authorize(action,f.proof(action,{},'t'),'t',user)).allowed,false);
+  }
+  for (const action of ['profile-update','generation-reference-cleanup','generation-reference-release','protected-skill-cancel','project-local-share-recover']) {
+    const f=fixture(); f.repo.licenseState=async()=>({knownDevice:true,grant:{device_key:null,expires_at:'2000-01-01'}});
+    await assert.rejects(f.service.authorize(action,f.proof(action,{},'t'),'t',user),{status:403});
+  }
+});

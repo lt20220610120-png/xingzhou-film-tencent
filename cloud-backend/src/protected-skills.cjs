@@ -2,6 +2,8 @@ const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('n
 const dns=require('node:dns/promises'),net=require('node:net'),https=require('node:https');
 const {requestChat}=require('../shared/ai-service.cjs');
 const {createWinAITransport}=require('../shared/win-ai-transport.cjs');
+const modelAgent=new https.Agent({keepAlive:true,maxSockets:8,maxTotalSockets:32,maxFreeSockets:4,timeout:30000});
+let protectedPinnedTransport;
 const names=new Set(['video-prompt-fast-v8-2','video-prompt-vertical-creator-v2','video-prompt-horizontal-creator']);
 const trustedRoutes=new Map([['https://api.openai.com',['/v1']],['https://api.deepseek.com',['','/v1']],['https://api.anthropic.com',['/v1']],['https://winai.xingzhoufilm.cn',['/v1']]]);
 function trustedEndpoint(value){
@@ -27,12 +29,12 @@ async function endpointAddresses(value){
 async function protectedFetch(value,init={}){
  if(new URL(value).origin==='https://winai.xingzhoufilm.cn'){
   trustedEndpoint(value.replace(/\/v1\/models$/, '/v1'));
-  const transport=createWinAITransport({session:{cookies:{get:async()=>[],set:async()=>{},remove:async()=>{}}}});
-  return transport(new Request(value,init));
+  protectedPinnedTransport??=createWinAITransport({session:{cookies:{get:async()=>[],set:async()=>{},remove:async()=>{}}}});
+  return protectedPinnedTransport(new Request(value,init));
  }
  const rows=await endpointAddresses(value),url=new URL(value);
  return new Promise((resolve,reject)=>{
-  const request=https.request(url,{method:init.method||'GET',headers:init.headers,signal:init.signal,lookup:(_host,options,done)=>options.all?done(null,rows):done(null,rows[0].address,rows[0].family)},response=>{
+  const request=https.request(url,{method:init.method||'GET',headers:init.headers,signal:init.signal,agent:modelAgent,lookup:(_host,options,done)=>options.all?done(null,rows):done(null,rows[0].address,rows[0].family)},response=>{
    let size=0;const chunks=[];
    response.on('data',bytes=>{size+=bytes.length;if(size>8*1024*1024)request.destroy(Error('模型输出过大'));else chunks.push(bytes);});
    response.on('error',reject);response.on('aborted',()=>reject(Error('模型响应中断')));

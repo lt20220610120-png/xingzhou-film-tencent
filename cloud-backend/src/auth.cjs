@@ -9,17 +9,19 @@ const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('h
 const newToken = () => crypto.randomUUID() + '-' + crypto.randomUUID();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-async function login(payload, repository, authorize) {
+async function login(payload, repository, establishSession) {
   const username = String(payload?.username || '').trim().toLowerCase();
   const password = String(payload?.password || '');
   if (!username || !password) return { status: 400, body: { error: '请输入账号和密码' } };
   let user;
   try { user = await repository.findUser(username); } catch { return { status: 503, body: { error: '账号服务暂时不可用' } }; }
   if (!user || user.banned || !verifyPassword(password, user.password_hash)) return { status: 401, body: { error: '账号或密码不正确' } };
-  if(authorize)await authorize(user);
-  const token = await repository.createSession(user.id, newToken(), user.password_hash);
-  if(!token)return {status:401,body:{error:'账号状态已变化，请重新登录'}};
-  return { status: 200, body: { token, account: publicAccount(user) } };
+  const rawToken = newToken();
+  const result = establishSession
+    ? await establishSession(user,rawToken)
+    : {token:await repository.createSession(user.id,rawToken,user.password_hash)};
+  if(!result?.token)return {status:401,body:{error:'账号状态已变化，请重新登录'}};
+  return { status: 200, body: { token:result.token, account:publicAccount(result.account||user), ...(result.license?{license:result.license}:{}) } };
 }
 
 async function sendEmailCode(payload, repository, mailer) {

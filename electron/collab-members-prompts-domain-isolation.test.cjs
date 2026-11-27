@@ -18,10 +18,12 @@ test('项目协作支持美术和协作者复合身份并合并权限', () => {
   const store = read('core/collabStore.js');
   const ui = read('src/v06/CollabWorkspace.jsx');
   const repository = read('cloud-backend/src/repository-extras.cjs');
+  const {SHARE_ROLES}=require('../cloud-backend/src/project-media-policy.cjs');
   assert.match(store, /artist_collaborator/);
   assert.match(store, /artist_collaborator:[^\n]*info[^\n]*art[^\n]*assets[^\n]*storyboard[^\n]*group/);
   assert.match(ui, /美术 \+ 协作者/);
-  assert.match(repository, /async addDirectorMember[\s\S]*'artist_collaborator'[\s\S]*on conflict\(project_id,user_id\) do update set role/);
+  assert.ok(SHARE_ROLES.includes('artist_collaborator'));
+  assert.match(repository, /async addDirectorMember[\s\S]*SHARE_ROLES\.includes\(p\.role\)[\s\S]*on conflict\(project_id,user_id\) do update set role=excluded\.role where collab_members\.role<>'producer'/);
 });
 
 test('制片邀请页面展示成员并可踢出，移出后成员记录消失', () => {

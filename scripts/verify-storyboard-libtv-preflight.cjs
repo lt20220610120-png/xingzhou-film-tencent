@@ -106,7 +106,7 @@ app.whenReady().then(async()=>{
   const cardCount=()=>run(()=>document.querySelectorAll('.generation-result-grid article').length);
   const imageChips=()=>run(()=>[...document.querySelectorAll('.reference-alias')].map(el=>el.textContent.trim()).filter(value=>value.startsWith('@image')));
   const submissionMode=value=>run(value=>{
-   const select=document.querySelector('[aria-label="LibTV 提交方式"]');
+   const select=document.querySelector('.generation-controls [aria-label="LibTV 提交方式"]');
    select.value=value;
    select.dispatchEvent(new Event('change',{bubbles:true}));
   },value);
@@ -137,10 +137,18 @@ app.whenReady().then(async()=>{
   await wait(()=>[...document.querySelectorAll('.generation-controls [role=status]')].some(el=>el.textContent.includes('模型参数暂未刷新')));
   assert.ok(await run(()=>[...document.querySelectorAll('.generation-controls button')].some(el=>el.textContent.trim()==='生成视频'&&!el.disabled)));
   assert.equal(await run(()=>document.querySelector('.generation-controls [role=alert]')),null);
-  await run(()=>{libTV201Fixture.failSchema=false;[...document.querySelectorAll('.generation-controls button')].find(el=>el.textContent.trim()==='重试').click();});
+  const retrySchema=selector=>run(selector=>[...document.querySelectorAll(selector+' button')].find(el=>el.textContent.trim()==='重试').click(),selector);
+  await retrySchema('.storyboard-defaults');
+  await wait(()=>[...document.querySelectorAll('.storyboard-defaults [aria-busy=true],.generation-controls [aria-busy=true]')].filter(el=>el.textContent.includes('正在刷新模型参数')&&el.querySelector('button').disabled).length===2);
+  await wait(()=>document.querySelector('.storyboard-defaults [aria-busy=false]')?.textContent.includes('ECONNRESET'));
+  assert.equal(await run(()=>libTV201Fixture.forcedSchemas),1);
+  assert.doesNotMatch(await run(()=>document.querySelector('.storyboard-defaults [aria-busy=false]').textContent),/Error invoking remote method/);
+  await run(()=>{libTV201Fixture.failSchema=false;});
+  await retrySchema('.generation-controls');
+  await wait(()=>libTV201Fixture.forcedSchemas===2&&document.querySelector('.generation-controls [aria-busy=true]')?.textContent.includes('正在刷新模型参数'));
   await wait(()=>![...document.querySelectorAll('.generation-controls [role=status]')].some(el=>el.textContent.includes('模型参数暂未刷新')));
   await run(()=>libTV201Fixture.changeNetwork());
-  await wait(()=>libTV201Fixture.projects===4&&libTV201Fixture.schemas===4);
+  await wait(()=>libTV201Fixture.projects===4&&libTV201Fixture.schemas===5);
   const probes=[['account','TLS_TIMEOUT',1280],['upload','ECONNRESET',1600]];
   for(const [step,code,width] of probes){
    win.setContentSize(width,900);

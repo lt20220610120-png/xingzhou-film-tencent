@@ -311,11 +311,11 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     await quickGeneration?.saveLocal?.();
   };
   const [directorModelId,setDirectorModelId,directorProfile]=useWindowModel(`director-model:${accountId}:${project.id}:${episode.id}`,state.apiProfiles||[],state.activeApiId);
-  const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, readRemembered('xz-director-mode', 'creative'));
+  const [savedMode, setMode] = useRememberedState(`xz-director-mode:${accountId}:${project.id}`, 'creative');
   const mode = ['creative', 'quick', 'history'].includes(savedMode) ? savedMode : 'creative';
   const [legacySkillId] = useState(() => {
     try {
-      const lastId = localStorage.getItem('xz-last-used-skill');
+      const lastId = localStorage.getItem(`xz-last-used-skill:${accountId}`);
       return state.skills?.some((skill) => skill.id === lastId) ? lastId : state.skills?.[0]?.id || '';
     } catch { return state.skills?.[0]?.id || ''; }
   });
@@ -349,7 +349,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     const skill=skills.find(item=>item.id===id);
     if(!skill)return;
     setState(s=>updateDirectorProject(s,project.id,{lastUsedSkillId:skill.id,lastUsedSkill:skill.name}));
-    rememberPreference('xz-last-used-skill',skill.id);
+    rememberPreference(`xz-last-used-skill:${accountId}`,skill.id);
   };
 
   const segments = React.useMemo(()=>parseDirectorScenes(episode.content,episodeNumber),[episode.content,episodeNumber]);
@@ -462,7 +462,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     setRunning(true);
     try {
       const skillId = currentSkill?.id;
-      if (skillId) {try{rememberPreference('xz-last-used-skill', skillId);}catch{}}
+      if (skillId) rememberPreference(`xz-last-used-skill:${accountId}`,skillId);
       const preamble = buildProjectPreamble(project);
       const finalInput = preamble ? `${preamble}\n\n${inputText}` : inputText;
       const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId, input: finalInput, assistantRole: '行舟影视导演提示词助手' });
@@ -496,7 +496,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     if (!scene?.content?.trim() || !vision.trim()) return;
     markSceneRunning(sceneLabel, true);
     try {
-      if (currentSkill.id) {try{rememberPreference('xz-last-used-skill', currentSkill.id);}catch{}}
+      if (currentSkill.id) rememberPreference(`xz-last-used-skill:${accountId}`,currentSkill.id);
       const preamble = buildProjectPreamble(project);
       const sourceText = buildCreativeSceneSubmission({sceneLabel,sceneText:scene.content,vision,preamble});
       const result = await executeSkillWithAi({ api, state, profile:directorProfile||{}, skillId: currentSkill.id, input: sourceText, assistantRole: '行舟影视导演提示词助手' });
@@ -532,7 +532,7 @@ function EpisodeDirector({ project, episode, episodeNumber, state, setState, api
     markSceneRunning(sceneLabel, true);
     try {
       const skillId = currentSkill?.id;
-      if (skillId) {try{rememberPreference('xz-last-used-skill', skillId);}catch{}}
+      if (skillId) rememberPreference(`xz-last-used-skill:${accountId}`,skillId);
       if(!quickGeneration?.startManualScene)throw new Error('生成服务尚未就绪，请稍后重试');
       const result=await quickGeneration.startManualScene({project,episode,sceneLabel,inputText,skill:currentSkill,profile:directorProfile,estimateProfileId,maxDurationSeconds:quickSettings.maxDurationSeconds});
       if(result.phase!=='completed')throw new Error(result.errors?.map(e=>e.message).join('；')||'本场尚未完成，已返回内容已保留');
@@ -983,11 +983,13 @@ const initialProgressRevision=()=>0;
 export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 'local', quickGeneration, active = true }) {
   useSyncExternalStore(active?quickGeneration?.subscribe||subscribeNothing:subscribeNothing,active?quickGeneration?.getRevision||initialProgressRevision:initialProgressRevision,initialProgressRevision);
   // 记住上次打开的项目与面板：离开导演工作台再回来时不再退回主页面。
-  const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem('xz-director-last-project') || null);
-  const [activePane, setActivePane] = useState(() => localStorage.getItem('xz-director-last-pane') || 'master'); // 'master' | episodeId
+  const projectMemory=`xz-director-last-project:${accountId}`,paneMemory=`xz-director-last-pane:${accountId}`;
+  const [selectedProjectId, setSelectedProjectId] = useState(() => readRemembered(projectMemory,null));
+  const [activePane, setActivePane] = useState(() => readRemembered(paneMemory,'master')); // 'master' | episodeId
   const [repairOpen,setRepairOpen]=useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [cloudProjects, setCloudProjects] = useState([]);
+  const [cloudLoaded,setCloudLoaded]=useState(false);
   const [collaborationProjects, setCollaborationProjects] = useState([]);
   const [cloudManagement,setCloudManagement]=useState({verified:false,error:""});
   const [cloudManagerOpen, setCloudManagerOpen] = useState(false);
@@ -1010,13 +1012,14 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   cloudActiveRef.current = active;
 
   const directorProjects=React.useMemo(()=>{
-    const ids=new Set(),cloudIds=new Set();
+    const ids=new Set(),cloudIds=new Set(),visibleCloud=new Set(cloudProjects.map(row=>row.id));
     return (state.directorProjects||[]).filter(project=>{
+      if(project.sourceType==='cloud'&&!visibleCloud.has(project.cloudProjectId))return false;
       const duplicate=ids.has(project.id)||project.cloudProjectId&&cloudIds.has(project.cloudProjectId);
       ids.add(project.id);if(project.cloudProjectId)cloudIds.add(project.cloudProjectId);
       return !duplicate;
     });
-  },[state.directorProjects]);
+  },[state.directorProjects,cloudProjects]);
   const directorProjectsRef=useRef(directorProjects);directorProjectsRef.current=directorProjects;
   const directorGroups = state.directorGroups || [];
   const scriptLibrary = state.scriptLibrary || [];
@@ -1035,19 +1038,20 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
 
   // 记忆持久化：选中项目/面板变化时写入，项目已不存在时清理记忆避免卡在空白页。
   React.useEffect(() => {
-    if (selectedProjectId && selectedProject) rememberPreference('xz-director-last-project', selectedProjectId);
-    if (!selectedProjectId) localStorage.removeItem('xz-director-last-project');
-  }, [selectedProjectId, selectedProject]);
+    if (selectedProjectId && selectedProject) rememberPreference(projectMemory, selectedProjectId);
+    if (!selectedProjectId) localStorage.removeItem(projectMemory);
+  }, [selectedProjectId, selectedProject,projectMemory]);
   React.useEffect(() => {
-    if (activePane) rememberPreference('xz-director-last-pane', activePane);
+    if (activePane) rememberPreference(paneMemory, activePane);
     if (selectedProjectId && activePane) rememberPreference(`xz-director-pane:${accountId}:${selectedProjectId}`, activePane);
-  }, [activePane, selectedProjectId, accountId]);
+  }, [activePane, selectedProjectId, accountId,paneMemory]);
   React.useEffect(() => {
-    if (selectedProjectId && directorProjects.length && !selectedProject) {
-      localStorage.removeItem('xz-director-last-project');
+    const waitsForCloud=!cloudLoaded&&(state.directorProjects||[]).some(project=>project.id===selectedProjectId&&project.sourceType==='cloud');
+    if (selectedProjectId && !selectedProject && !waitsForCloud && (directorProjects.length||cloudLoaded)) {
+      localStorage.removeItem(projectMemory);
       setSelectedProjectId(null);
     }
-  }, [selectedProjectId, selectedProject, directorProjects.length]);
+  }, [selectedProjectId, selectedProject, directorProjects.length,projectMemory,cloudLoaded,state.directorProjects]);
   const activeEpisode = selectedProject?.episodes?.find((ep) => ep.id === activePane);
   useEffect(()=>{if(!selectedProject||activePane==='master'||activeEpisode)return;const canonical=selectedProject.episodes?.find(ep=>ep.id.repeat(2)===activePane);setActivePane(canonical?.id||'master');},[selectedProject?.id,selectedProject?.episodes,activePane,activeEpisode]);
 
@@ -1057,22 +1061,32 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
     if(refreshCloud)setCloudManagement({verified:false,error:""});
     try {
       const associations=directorProjectsRef.current.filter(p=>p.collaborationProjectId&&!p.cloudProjectId&&p.sourceType!=='cloud').slice(0,200).map(p=>({projectId:p.id,collaborationProjectId:p.collaborationProjectId}));
-      const [response, collaborationRows, producer] = await Promise.all([
+      const [directorResult, collaborationResult, producerResult] = await Promise.allSettled([
         api.directorCollabListProjects({associations}),
         api.collabListProjects?.({refreshCloud}) || Promise.resolve([]),
         api.collabIsProducer(),
       ]);
       if (!cloudActiveRef.current || requestId !== cloudRequestRef.current) return;
+      if(directorResult.status==='rejected')throw directorResult.reason;
+      const response=directorResult.value;
+      const collaborationRows=collaborationResult.status==='fulfilled'?collaborationResult.value:null;
+      const producer=producerResult.status==='fulfilled'?producerResult.value:null;
       const rows=Array.isArray(response)?response:response?.projects;
-      if(!Array.isArray(rows)||!Array.isArray(collaborationRows))throw new Error('云端关联返回格式异常');
+      if(!Array.isArray(rows))throw new Error('云端导演项目返回格式异常');
       setCloudProjects(previous=>sameJson(previous,rows)?previous:rows);
-      setCollaborationProjects(previous=>sameJson(previous,collaborationRows)?previous:collaborationRows);
-      setState(current=>{
+      setCloudLoaded(true);
+      if(Array.isArray(collaborationRows)){
+       setCollaborationProjects(previous=>sameJson(previous,collaborationRows)?previous:collaborationRows);
+       setState(current=>{
         const directorProjects=reconcileDirectorLinks(current.directorProjects||[],collaborationRows,Array.isArray(response?.associations)?response.associations:[]);
         return directorProjects===current.directorProjects?current:{...current,directorProjects};
-      });
-      setIsProducer(producer);
-      if(refreshCloud)setCloudManagement({verified:true,error:''});
+       });
+      }
+      if(producer!==null)setIsProducer(producer);
+      if(refreshCloud){
+       if(!Array.isArray(collaborationRows))throw collaborationResult.reason||Error('云端关联返回格式异常');
+       setCloudManagement({verified:true,error:''});
+      }
       return {rows,collaborationRows,producer};
     } catch(error) {
       if(refreshCloud&&requestId===cloudRequestRef.current)setCloudManagement({verified:false,error:'云端项目未能核验：'+error.message});
@@ -1081,7 +1095,7 @@ export function DirectorWorkspace({ state, setState, api, onAttach, accountId = 
   React.useEffect(() => {
     if (!active) return;
     loadCloudProjects();
-    const timer = setInterval(()=>{if(!selectedProjectId&&!cloudManagerRef.current)return loadCloudProjects();}, 60000);
+    const timer = setInterval(()=>{if(!directorProjectsRef.current.some(project=>project.id===selectedProjectId)&&!cloudManagerRef.current)return loadCloudProjects();}, 60000);
     return () => { clearInterval(timer); cloudRequestRef.current += 1; };
   }, [active, loadCloudProjects, selectedProjectId]);
   React.useEffect(()=>{

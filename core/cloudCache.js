@@ -1,7 +1,7 @@
 // Only replaceable cloud snapshots expire. Asset drafts, paid analysis checkpoints
 // and generated media live in separate stores and are never cleaned here.
-export function createCloudCache(storage,accountId,now=()=>Date.now()){
- const prefix='xz-cloud-snapshot:',scope=prefix+encodeURIComponent(accountId||'local')+':',ttl=7*86400000;
+export function createCloudCache(storage,accountId,now=Date.now,directory=''){
+ const prefix='xz-cloud-snapshot:',scope=prefix+encodeURIComponent(accountId||'local')+':'+(directory?encodeURIComponent(directory)+':':''),ttl=7*86400000;
  const expired=value=>!value||!Number.isFinite(value.savedAt)||now()-value.savedAt>ttl;
  try{for(const key of Object.keys(storage)){
    if(key.startsWith('xz-collab-cache-')){storage.removeItem(key);continue;}

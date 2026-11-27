@@ -161,7 +161,7 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
       if (!active(generation)) return;
       setRelease(next);
       setNotice(next.available ? `发现控制面板新版本 ${next.latestVersion}，可更新面板与预构建网页。` : '控制面板已是官方最新版本。');
-    } catch (reason) { await showError(reason, generation); }
+    } catch (reason) { if (active(generation)) setError(readableError(reason)); }
     finally { if (active(generation)) setBusy(''); }
   };
   const requestUpdate = async () => {
@@ -256,14 +256,16 @@ export function WorkBuddyPanel({ account, active: panelActive = true }) {
   }, [panelActive, account?.id, account?.isAdmin, account?.banned, invoke]);
 
   useEffect(() => {
+    if (!panelActive) return;
     const generation = lifetime.current;
     const unsubscribe = window.xingzhou?.onWorkBuddyState?.(next => {
       if (next?.closed === true) markDisconnected(next.error, generation);
     });
     return () => { if (typeof unsubscribe === 'function') unsubscribe(); };
-  }, [account?.id, account?.isAdmin, account?.banned, markDisconnected]);
+  }, [panelActive, account?.id, account?.isAdmin, account?.banned, markDisconnected]);
 
   useEffect(() => {
+    if (!panelActive) return;
     let frame;
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => {const host=hostRef.current;if(activeRef.current&&host?.getClientRects().length){const height=Math.max(260,Math.floor(window.innerHeight-host.getBoundingClientRect().top-12))+'px';if(host.style.getPropertyValue('--workbuddy-view-height')!==height)host.style.setProperty('--workbuddy-view-height',height);}actions.current.syncBounds();}); };
     const observer = new ResizeObserver(schedule);

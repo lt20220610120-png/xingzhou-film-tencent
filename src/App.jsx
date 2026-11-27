@@ -1,5 +1,6 @@
 import { dismissWorkspaceDialogs, setWorkspaceDialogsEnabled } from './components/workspace-dialog.js';
 import {upgradeMuseProfiles} from '../core/museLocal.js';
+import {bindingStorageEpoch,subscribeBindingStorage} from '../core/projectBindingCache.js';
 import {LogoutConfirm} from './components/LogoutConfirm.jsx';
 import {SettingsUtilityCards} from './components/SettingsUtilityCards.jsx';
 import './temporary-references.css';
@@ -154,7 +155,7 @@ const api = window.xingzhou || {
   collabGetStats: () => Promise.reject(new Error('桌面应用中才可使用项目协作')),
 };
 
-function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir, afterSelectDataDir }) {
+function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir, afterSelectDataDir, onDataDirectoryChange }) {
   const [storageInfo, setStorageInfo] = useState(null);
   const [selectingDirectory, setSelectingDirectory] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
@@ -172,6 +173,7 @@ function SettingsPage({ state, setState, getState=()=>state, beforeSelectDataDir
       const result = prepared&&await commitDirectoryChange({snapshot:savedSnapshot||state,getState,prepared,api});
       if (result) {
         setStorageInfo(result.info);
+        onDataDirectoryChange(result.info?.dataDir||'');
         if (result.state) setState(stateForDataDirectory(result.state,result.directorProjects));
         try { if(result.info?.dataDir)localStorage.setItem(STORAGE+'-data-dir',result.info.dataDir); } catch { /* disk remains primary */ }
       }
@@ -262,6 +264,8 @@ function App() {
   const initialCanvasRoute = useRef(canvasRoute);
   useEffect(() => { if (nav === 'canvas') setCanvasVisited(true); }, [nav]);
   const [account, setAccount] = useState(null);
+  const [dataDirectory,setDataDirectory]=useState('');
+  const directoryEpoch=useSyncExternalStore(subscribeBindingStorage,bindingStorageEpoch);
   useEffect(() => {
     setWorkspaceDialogsEnabled(Boolean(role && account?.id));
     return () => setWorkspaceDialogsEnabled(false);
@@ -345,6 +349,7 @@ function App() {
   const loadSavedState = useCallback(async () => {
     try {
       const [saved, directorProjects, info] = await Promise.all([api.loadState(), api.loadDirectorProjects?.() || Promise.resolve(null), api.storageInfo()]);
+      setDataDirectory(info.dataDir||'');
       const cachedDirectory=localStorage.getItem(STORAGE+'-data-dir');
       const recoverRecycle=!cachedDirectory||cachedDirectory===info.dataDir;
       persistence.seed(mergeDirectorSnapshot(saved,directorProjects));
@@ -467,14 +472,17 @@ function App() {
 
   const handleLogout = () => setLogoutOpen(true);
   const performLogout = async () => {
-    await quickGeneration.pauseAndFlush();
-    await api.authLogout();
-    setLogoutOpen(false);
-    setAccount(null);
-    setRole(null);
-    setRegisterRole(null);
-    setVisitedWorkspaces({});setCanvasVisited(false);rolePages.current={creator:'fruit',director:'director'};
-    localStorage.removeItem('xz-role');
+    dismissWorkspaceDialogs();window.dispatchEvent(new Event('xz-auth-ending'));
+    setAiOpen(false);setAiAttachment(null);setLockedRole(null);
+    const stopping=Promise.allSettled([quickGeneration.pauseAndFlush(),production?.pauseAll()]);
+    try{await api.authLogout();}
+    finally{
+      await stopping;
+      setLogoutOpen(false);setAccount(null);setRole(null);setRegisterRole(null);
+      setVisitedWorkspaces({});setCanvasVisited(false);setCreatorDestination(null);setCreatorSection({});
+      rolePages.current={creator:'fruit',director:'director'};
+      localStorage.removeItem('xz-role');
+    }
   };
 
   if (!authReady) return <div className="app-loading"><BrandLogo /><span>正在读取账号权限…</span></div>;
@@ -555,10 +563,10 @@ function App() {
         {(visitedWorkspaces.apis||nav==='apis')&&<WorkspacePresence active={!!role&&nav==='apis'}><ApiLibrary state={state} setState={setState}/></WorkspacePresence>}
         {!!role&&nav==='winai'&&<WinAIWorkspace key={account?.id} account={account}/>}
         {(visitedWorkspaces.recycle||nav==='recycle')&&<WorkspacePresence active={!!role&&nav==='recycle'}><SaveStatusOutlet store={saveStatus}>{status=><ProjectRecycleBin state={state} setState={setState} saveStatus={status} onNavigate={setNav}/>}</SaveStatusOutlet></WorkspacePresence>}
-        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={getState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch}/></WorkspacePresence>}
+        {(visitedWorkspaces.settings||nav==='settings')&&<WorkspacePresence active={!!role&&nav==='settings'}><SettingsPage state={state} setState={setState} getState={getState} beforeSelectDataDir={quickGeneration.prepareDirectorySwitch} afterSelectDataDir={quickGeneration.finishDirectorySwitch} onDataDirectoryChange={setDataDirectory}/></WorkspacePresence>}
         {account?.isAdmin && (visitedWorkspaces.admin || nav === 'admin') && <WorkspacePresence active={!!role&&nav==='admin'}><AdminPanel key={account.id} account={account} state={state} setState={setState} production={production} onNavigate={setNav} active={!!role&&nav==='admin'}/></WorkspacePresence>}
         {(visitedWorkspaces.generation || nav === 'generation') && <WorkspacePresence active={!!role&&nav==='generation'}><GenerationWorkspace key={account?.id} state={state} setState={setState} getState={getState} saveLocal={saveLocal} api={api} account={account} /></WorkspacePresence>}
-        {(visitedWorkspaces.collab || nav === 'collab') && <WorkspacePresence active={!!role&&nav==='collab'}><CollabWorkspace key={account?.id} state={state} api={api} account={account} /></WorkspacePresence>}
+        {(visitedWorkspaces.collab || nav === 'collab') && <WorkspacePresence active={!!role&&nav==='collab'}><CollabWorkspace key={JSON.stringify([account?.id,dataDirectory,directoryEpoch])} state={state} api={api} account={account} dataDirectory={dataDirectory} /></WorkspacePresence>}
         {(canvasVisited || nav === 'canvas') && <div className="canvas-preserved" hidden={nav !== 'canvas'}>{window.xingzhou
           ? <iframe ref={canvasFrameRef} className="canvas-embed" src={`xzapp://canvas/index.html?v=${packageInfo.version}${initialCanvasRoute.current}`} title="无限画布" allow="clipboard-read; clipboard-write" />
           : <CanvasWorkspace state={state} setState={setState} api={api} />}</div>}

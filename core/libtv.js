@@ -8,8 +8,11 @@ export const libtvEnum=property=>list(property).map(v=>typeof v==='object'?v.val
 const unsafe=new Set(['__proto__','prototype','constructor']);
 export function libtvModel(raw,kind=raw.modality){
  const schema=raw.schema||{},p=schema.properties||{},items=p.modeType?.items||{};
- const durations=libtvEnum(p.duration).map(Number);
- if(!durations.length&&Number.isFinite(p.duration?.min)&&Number.isFinite(p.duration?.max)&&p.duration.max<=3600&&p.duration.max-p.duration.min<=3600)for(let n=p.duration.min;n<=p.duration.max;n+=p.duration.step||1)durations.push(n);
+ const durations=libtvEnum(p.duration).map(Number).filter(Number.isFinite);
+ const {min,max,step=1}=p.duration||{};
+ if(!durations.length&&[min,max,step].every(Number.isFinite)&&min>0&&min<=max&&max<=3600&&step>0&&(max-min)/step<=3600){
+  for(let n=min;n<=max;n+=step)durations.push(n);
+ }
  const maxima=keys=>Math.max(0,...keys.map(k=>Number(items[k]?.[1]||0)));
  return {id:raw.modelKey||raw.id,name:raw.modelName||raw.name||raw.modelKey,kind,schema,
   ratios:libtvEnum(p.ratio),resolutions:libtvEnum(p.resolution),durations,

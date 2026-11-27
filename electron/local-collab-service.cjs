@@ -115,7 +115,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
   function assertEditable(record) {
     if (record.project.deleted_at) throw error('项目已删除，请先恢复', 410);
     if (record.project.locked) throw error('项目已锁定，暂不可编辑', 423);
-    if (record.share?.committing) throw error('云端邀请结果待确认，请回到邀请页重试原邀请', 409);
+    if (record.share?.committing) throw error('云端邀请结果待确认，请到邀请协作页核验', 409);
   }
   async function recordIds(current) {
     let entries;
@@ -270,6 +270,19 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
     assertScope(current,true);
     return receipt?.completed || null;
   }
+  async function recoverShare(current, record) {
+    const completed=await readShareReceipt(current,record);
+    if(completed)return {member:await finishShare(current,record,completed)};
+    const {requestId,revision,invitation}=record.share;
+    const outcome=await cloud.recoverLocalShare({projectId:record.project.id,requestId,revision,invitation});
+    assertScope(current,true);
+    if(outcome?.completed)return {member:await finishShare(current,record,outcome.completed)};
+    if(outcome?.released!==true || !Object.hasOwn(outcome,'revision'))throw error('云端尚未确认上一条邀请，请稍后再核验',409);
+    record.cloudRevision=outcome.revision;
+    record.share=null;
+    await save(current,record);
+    return {released:true};
+  }
   async function share(payload) {
     const current = scope(), id = payload.projectId;
     return serial(current, id, async () => {
@@ -284,6 +297,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       }
       record.share ||= { requestId: randomUUID(), invitation };
       const requestId = record.share.requestId;
+      const unknown = record.share.committing === true;
       await save(current, record);
       transfers.add(key(current, id));
       try {
@@ -291,8 +305,9 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
         assertScope(current, true);
         let completed = prepared.completed;
         if (!completed) {
+          if(unknown&&prepared.revision!==record.share.revision)throw error('原邀请的云端版本已变化',409);
           record.share.revision = prepared.revision;
-          record.share.committing = false;
+          record.share.committing = unknown;
           await save(current, record);
           const snapshot = view(current, record);
           const voices = adoptedVoices(current, id);
@@ -308,7 +323,7 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
               ? directorSource.cloudProjectId : undefined;
             completed = await cloud.commitLocalShare({ projectId: id, revision: prepared.revision, requestId, invitation, ...bundle, directorCloudProjectId, deletedMediaIds:record.deletedMediaIds || [] });
           } catch (cause) {
-            if (cause.status >= 400 && cause.status < 500 && ![408,429].includes(cause.status)) {
+            if (!unknown && cause.status >= 400 && cause.status < 500 && ![408,429].includes(cause.status)) {
               record.share.committing = false;
               await save(current, record);
               throw cause;
@@ -319,6 +334,11 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
         }
         return await finishShare(current,record,completed);
       } catch (cause) {
+        if (unknown && record.share?.committing && [400,403,404,409,410,423].includes(cause.status)) {
+          const outcome=await recoverShare(current,record).catch(()=>null);
+          if(outcome?.member)return outcome.member;
+          if(outcome?.released)throw error(`${cause.message}。上一条邀请已解除，可继续编辑或改邀`,cause.status);
+        }
         if (!record.share?.committing && !record.share?.revision && [400, 401, 403, 404, 409, 410, 423].includes(cause.status)) {
           record.share = null;
           await save(current, record);
@@ -385,13 +405,18 @@ function createLocalCollabService({ cloud, getSession, getDirectory, mediaFor, i
       const current = scope(), id = payload.projectId || payload.id;
       let record = await stored(current, id);
       assertScope(current);
-      if (payload.retryLocal===true&&record?.share?.committing&&!record.shared) record=await serial(current,id,async()=>{
+      if ((payload.retryLocal===true||payload.recoverShare===true)&&record?.share?.committing&&!record.shared) record=await serial(current,id,async()=>{
         const latest=await stored(current,id);
-        const completed=latest?.shared?null:await readShareReceipt(current,latest);
-        if(completed)await finishShare(current,latest,completed);
+        if(latest?.share?.committing&&!latest.shared){
+          if(payload.recoverShare===true)await recoverShare(current,latest);
+          else{
+            const completed=await readShareReceipt(current,latest);
+            if(completed)await finishShare(current,latest,completed);
+          }
+        }
         return latest;
       });
-      if (record && !record.shared) return view(current, record).project;
+      if (record && !record.shared) return {...view(current, record).project,...(record.share?.committing?{localSharePending:true}:{})};
       const k = key(current, id);
       if (imports.has(k) && preparingProjects.has(k)) return { ...preparingProjects.get(k), storageMode:'cloud', localPreparing:true };
       let state;

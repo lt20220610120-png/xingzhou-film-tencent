@@ -29,13 +29,20 @@ test('connection test verifies account and both model lists with a redacted resu
  const {service}=fixture(t,async args=>{
   calls.push(args);
   if(args[0]==='account')return {user:{uuid:'fixture-private-uuid',nickname:'fixture-private-name'}};
-  return {matches:[]};
+  return {matches:[{modelKey:'fixture-key',modelName:'Fixture Model'}]};
  },{environment:async()=>({routeReport:()=>({route:'socks5',source:'system-proxy'})})});
  const result=await service.testConnection('fixture');
  assert.equal(result.ok,true);
  assert.deepEqual(result.steps.map(s=>[s.stage,s.ok,s.route]),[['account',true,'system-socks5'],['models',true,'system-socks5']]);
  assert.doesNotMatch(JSON.stringify(result),/uuid|private|fixture/);
  assert.deepEqual(calls,[['account','info'],['model','search','--type','image'],['model','search','--type','video']]);
+});
+
+test('a connection test rejects a missing or empty model directory',async t=>{
+ const {service}=fixture(t,async args=>args[0]==='account'?{user:{uuid:'fixture'}}:{matches:[]});
+ const result=await service.testConnection('fixture');
+ assert.equal(result.ok,false);
+ assert.equal(result.steps.at(-1).code,'MODELS_UNAVAILABLE');
 });
 
 test('diagnostics retry read failures with a route hint, redact raw text and cancel safely',async t=>{

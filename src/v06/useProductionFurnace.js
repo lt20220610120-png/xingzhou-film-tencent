@@ -3,6 +3,7 @@ import {createProductionController} from '../../core/productionFurnace.js';
 import {createProductionAdapters} from './productionAdapters.js';
 export function useProductionFurnace({api,account,stateRef,setState,quickGeneration}){
  const latest=useRef();latest.current={account,quickGeneration};const holder=useRef(null),mounted=useRef(null);
+ if(!account?.isAdmin)holder.current=null;
  if(account?.isAdmin&&holder.current?.accountId!==account.id){const owner=account.id;
   const assert=()=>{if(latest.current.account?.id!==owner||!latest.current.account?.isAdmin)throw Error('管理员已切换');};
   const adapters=createProductionAdapters({api,getState:()=>{assert();return stateRef.current;},setState:fn=>{assert();setState(fn);},getQuick:()=>{assert();return latest.current.quickGeneration;},getAccount:()=>{assert();return latest.current.account;}});

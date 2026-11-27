@@ -6,22 +6,25 @@ import {PromptBookWorkspace} from './PromptBookWorkspace.jsx';
 import {MediaApiSettings} from './CanvasWorkspace.jsx';
 import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 import {useWorkspacePolling} from './useWorkspacePolling.js';
+import {generationDraftKey} from '../../core/canvasStore.js';
 
 const Results = memo(GenerationResults);
 const emptyDraft = {prompt:'',references:[]};
 
 export function GenerationWorkspace({state,api,setState,getState,saveLocal,account}){
- const [kind,setKind]=useState('video'),[drafts,setDrafts]=useState(()=>{try{const queued=readQueuedDraft('xz-generation-drafts');return queued.found?queued.value:JSON.parse(localStorage.getItem('xz-generation-drafts')||'{}')}catch{return {}}}),[tasks,setTasks]=useState([]),[settings,setSettings]=useState(false),[error,setError]=useState('');
+ const draftKey=generationDraftKey(account?.id);
+ const [kind,setKind]=useState('video'),[drafts,setDrafts]=useState(()=>{try{const queued=readQueuedDraft(draftKey);return queued.found?queued.value:JSON.parse(localStorage.getItem(draftKey)||'{}')}catch{return {}}}),[tasks,setTasks]=useState([]),[settings,setSettings]=useState(false),[error,setError]=useState('');
  const active=useWorkspaceActive();
- const bookMode=state.generationWorkflow?.mode==='book';
- const setBookMode=useCallback(mode=>setState(current=>current.generationWorkflow?.mode===mode?current:{...current,generationWorkflow:{...current.generationWorkflow,mode}}),[setState]);
+ const owner=account?.id||'local';
+ const bookMode=state.generationWorkflow?.modesByAccount?.[owner]==='book';
+ const setBookMode=useCallback(mode=>setState(current=>current.generationWorkflow?.modesByAccount?.[owner]===mode?current:{...current,generationWorkflow:{...current.generationWorkflow,modesByAccount:{...current.generationWorkflow?.modesByAccount,[owner]:mode}}}),[setState,owner]);
  const latestDrafts=useRef(drafts);latestDrafts.current=drafts;
  const load=useWorkspacePolling(async current=>{
    try {const rows=await api.generationList();if(current()){setTasks(rows);setError('');}}
    catch (cause) {if(current())setError(cause.message);}
  },{scope:account?.id,delay:4000});
  useEffect(()=>{if(!active)setSettings(false);},[active]);
- const change=useCallback(value=>setDrafts(current=>{const next={...current,[kind]:value};queueDraft('xz-generation-drafts',next);return next;}),[kind]);
+ const change=useCallback(value=>setDrafts(current=>{const next={...current,[kind]:value};queueDraft(draftKey,next);return next;}),[kind,draftKey]);
  const submit=useCallback(async input=>{await api.generationSubmit(input);await load({afterCurrent:true});},[api,load]);
  const refresh=useCallback(async()=>{window.dispatchEvent(new Event('xz-refresh-generation'));await load({afterCurrent:true});},[load]);
  const clear=useCallback(async(ids,options={})=>{

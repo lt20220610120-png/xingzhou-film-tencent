@@ -4,7 +4,7 @@ const { EventEmitter } = require('node:events');
 const { createWorkBuddyPanel, normalizeBounds, assertTrustedFrame } = require('./workbuddy-panel.cjs');
 
 function fixture(account = { isAdmin: true }, serviceOverrides = {}, pageOverrides = {}) {
-  let current = account, token = 'session-a', cookieCount = 0, started = 0, authorized = 0, loaded = 0, cleared = 0;
+  let current = account, token = 'session-a', cookieCount = 0, started = 0, authorized = 0, loaded = 0, cleared = 0, time = 10000, tick;
   const views = [], attachedVisibility = [];
   class View {
     constructor(options) {
@@ -20,9 +20,37 @@ function fixture(account = { isAdmin: true }, serviceOverrides = {}, pageOverrid
   const updater = { update: async () => {} };
   const access = { session: async () => { authorized++; return current; }, token: () => token };
   const events = [];
-  const panel = createWorkBuddyPanel({ getWindow: () => win, accessService: access, updater, onState: (value) => events.push(value), service: { status: async () => ({ installed: true, running: true, root: '/local', port: 7864 }), start: async () => { started++; return { installed: true, running: true, root: '/local', port: 7864 }; }, sessionCookie: () => ({ url: 'http://127.0.0.1:7864', name: 'wb_session', value: 'private', httpOnly: true }), ...serviceOverrides }, WebContentsView: View, session: { fromPartition: () => partition }, shell: { openExternal: async () => {} }, setInterval: () => 1, clearInterval: () => {} });
-  return { panel, access, updater, events, views, attachedVisibility, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, counts: () => ({ cookieCount, started }), lifecycle: () => ({ authorized, loaded, cleared }) };
+  const panel = createWorkBuddyPanel({ getWindow: () => win, accessService: access, updater, now: () => time, onState: (value) => events.push(value), service: { status: async () => ({ installed: true, running: true, root: '/local', port: 7864 }), start: async () => { started++; return { installed: true, running: true, root: '/local', port: 7864 }; }, sessionCookie: () => ({ url: 'http://127.0.0.1:7864', name: 'wb_session', value: 'private', httpOnly: true }), ...serviceOverrides }, WebContentsView: View, session: { fromPartition: () => partition }, shell: { openExternal: async () => {} }, setInterval: fn => { tick = fn; return 1; }, clearInterval: () => { tick = null; } });
+  return { panel, access, updater, events, views, attachedVisibility, partition, setAccount: (a) => { current = a; }, setToken: (t) => { token = t; }, advance: ms => { time += ms; }, tick: () => tick?.(), counts: () => ({ cookieCount, started }), lifecycle: () => ({ authorized, loaded, cleared }) };
 }
+
+test('a transient verification failure preserves the current admin page and update check for a bounded time', async () => {
+  const f = fixture();
+  await f.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } });
+  f.access.session = async () => { throw Object.assign(new Error('temporary'), { code: 'WORKBUDDY_VERIFICATION_TEMPORARY' }); };
+  f.updater.check = async () => ({ available: true });
+  f.advance(61_000);
+  assert.deepEqual(await f.panel.checkUpdate(), { available: true });
+  assert.equal(await new Promise(resolve => f.partition.request({ url: 'http://127.0.0.1:7864/api/accounts', method: 'POST' }, resolve)).then(result => result.cancel), false);
+  f.tick(); await new Promise(setImmediate);
+  assert.equal(f.views[0].visible, true);
+  f.advance(120_000);
+  await assert.rejects(f.panel.checkUpdate(), /暂时/);
+  assert.equal(f.views[0].closed, true);
+});
+
+test('temporary failures grant no access across an identity switch or before verified login', async () => {
+  const unavailable = async () => { throw Object.assign(new Error('temporary'), { code: 'WORKBUDDY_VERIFICATION_TEMPORARY' }); };
+  const f = fixture();
+  f.access.session = unavailable;
+  await assert.rejects(f.panel.status(), /暂时/);
+  const g = fixture();
+  await g.panel.open({ bounds: { x: 0, y: 0, width: 500, height: 500 } });
+  g.setToken('session-b');
+  g.access.session = unavailable;
+  await assert.rejects(g.panel.checkUpdate(), /登录/);
+  assert.equal(g.views[0].closed, true);
+});
 
 test('a native page is attached hidden and shown only after its content has loaded', async () => {
   let finishLoad;

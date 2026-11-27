@@ -8,6 +8,17 @@ import {flushEditing,settleEditing,hasPendingEditing} from '../editing.js';
 export function useIPAgent({state,setState,getState,api}){
  const latest=useRef(state);latest.current=state;
  const jobs=useRef(new Map()),queues=useRef(new Map()),[activity,setActivity]=useState({});
+ useEffect(()=>{
+  const stop=()=>{
+   for(const queue of queues.current.values())queue.cancelled=true;
+   for(const job of jobs.current.values()){
+    if(job.cancelled)continue;job.cancelled=true;
+    for(const taskId of job.active)void api.cancelAiTask?.({taskId})?.catch(()=>{});
+   }
+  };
+  window.addEventListener('xz-auth-ending',stop);
+  return()=>{window.removeEventListener('xz-auth-ending',stop);stop();};
+ },[api]);
  const acceptedAutoStarts=useRef(new Set());
  const run=async({projectId,task,episodeId,profile,instruction='',fromQueue=false,firstDraftMode=false})=>{
   flushEditing();

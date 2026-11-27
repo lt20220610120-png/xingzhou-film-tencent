@@ -123,6 +123,7 @@ function createServer(env = process.env, deps = {}) {
         };
         let payload;
         try { payload = JSON.parse(raw || '{}'); } catch { return send({ status: 400, body: { error: 'invalid_json' } }); }
+        if(!payload||typeof payload!=='object'||Array.isArray(payload))return send({status:400,body:{error:'请求正文必须是 JSON 对象'}});
         const action = String(payload.action || 'session');
         const bearer = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
         try {
@@ -150,9 +151,8 @@ function createServer(env = process.env, deps = {}) {
               const created=await repository.registerAndRedeem(payload,key,payload._licenseActivation);
               return send({status:200,body:{token:created.token,account:require('./auth.cjs').publicAccount(created.user),license:await licensing.decision(created.user,key)}});
             }
-            const result=await login(payload,repository,licensing?u=>licensing.beforeLogin(u,key,payload._licenseActivation):undefined);
-            if(licensing&&result.status===200){try{result.body.license=await licensing.afterLogin(result.body.account,key,payload._licenseActivation);}catch(error){await repository.deleteSession(tokenHash(result.body.token));throw error;}}
-            return send(result);
+            const establish=licensing?(u,t)=>licensing.establishSession(u,t,key,payload._licenseActivation):undefined;
+            return send(await login(payload,repository,establish));
           }
           if (action === 'send-email-code') return send(await sendEmailCode(payload, repository, mailer));
           if (action === 'recover') return send(await recover(payload, repository));
@@ -161,7 +161,7 @@ function createServer(env = process.env, deps = {}) {
           const user = await repository.findBySession(tokenHash(bearer));
           if (!user) return send({ status: 401, body: { error: '请先登录账号' } });
           if (user.banned) return send({ status: 403, body: { error: '账号已被停用' } });
-          if(licensing)await licensing.authorize(action,payload,bearer,user);
+          const license=licensing?await licensing.authorize(action,payload,bearer,user):null;
           if(licensing&&action.startsWith('admin-license-'))return send({status:200,body:await licensing.admin(action,payload,user)});
           if(Array.isArray(user.roles)&&user.roles.length===0&&!user.is_admin&&!user.is_producer&&!['logout','win-ai-entry','profile-update','unlock'].includes(action))return send({status:403,body:{error:'当前账号可使用 Win AI；影视工作权限需由管理员开通'}});
           if (action === 'logout') { await repository.deleteSession(tokenHash(bearer)); return send({ status: 200, body: { ok: true } }); }
@@ -179,9 +179,11 @@ function createServer(env = process.env, deps = {}) {
             return send({status:200,body:smallMediaRelay ? await smallMediaRelay(payload,user,repository) : {route:'disabled'}});
           }
           if (action.startsWith('media-')) return send(await handleMediaAction(action, payload, user, repository, cosSigner));
-          return send(await handleAction(action, payload, user, repository, cosSigner, imagePreview));
+          return send(await handleAction(action, payload, user, repository, cosSigner, imagePreview,{readOnly:license?.allowed===false}));
         } catch (error) {
-          if(licensing&&[400,403,404,409,429].includes(error?.status))return send({status:error.status,body:{error:error.message}});
+          if([400,401,403,404,409,410,413,422,423,429].includes(error?.status))return send({status:error.status,body:{error:error.message}});
+          if(error?.code==='22P02'||error?.code==='22003')return send({status:400,body:{error:'编号或数值无效，请核对后重试'}});
+          if(['asset-create','asset-update'].includes(action)&&error?.code==='23505')return send({status:409,body:{error:'这个项目已有同名资产，请更换名称'}});
           // Log only operation and database code, never prompts, tokens or SQL values.
           (deps.logger || console).error('gateway_failed', { action, code: error?.code || 'unknown' });
           const message = action === 'asset-update' ? '提示词保存失败，编辑内容仍保留，请稍后重试保存' : '云端服务暂时不可用，请稍后重试';
@@ -195,6 +197,18 @@ function createServer(env = process.env, deps = {}) {
   });
   let referenceTimer;
   if(referenceStore){server.on('listening',()=>{const clean=()=>referenceStore.prune().catch(()=>{});clean();referenceTimer=setInterval(clean,3600*1000);referenceTimer.unref();});server.on('close',()=>clearInterval(referenceTimer));}
+  if(cosSigner?.signDelete&&repository.cleanupAssetImages){
+    let cleanupTimer,running=false;
+    const clean=async()=>{
+      if (running) return;
+      running=true;
+      try { await repository.cleanupAssetImages(cosSigner); }
+      catch(error) { (deps.logger||console).error('asset_image_cleanup_failed',{code:error.code||'unknown'}); }
+      finally { running=false; }
+    };
+    server.on('listening',()=>{void clean();cleanupTimer=setInterval(clean,60000);cleanupTimer.unref();});
+    server.on('close',()=>clearInterval(cleanupTimer));
+  }
   return server;
 }
 

@@ -92,3 +92,20 @@ test('a resumed project cannot revive a worker still connecting from before stop
   await assert.rejects(old,/暂停|停止/);assert.equal(executions,0);
  }finally{release();await host.stop();fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('identity cleanup closes a pending worker, clears its wake lock and blocks its reply after the same admin signs in',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'xz-identity-stop-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const {createProductionAwake}=require('./production-awake.cjs');
+ const locks=new Set(),awake=createProductionAwake({start:()=>{locks.add(1);return 1;},stop:id=>locks.delete(id)});
+ let completeConnect,noticeConnect,closed=0,started=0;
+ const connecting=new Promise(resolve=>noticeConnect=resolve),gate=new Promise(resolve=>completeConnect=resolve);
+ const host=createProductionHost({root:()=>root,authorize:async()=>({id:'admin',isAdmin:true}),onActivity:(id,running)=>id?awake.set(id,running):awake.clear(),agentFactory:()=>({
+  connect:async()=>{noticeConnect();await gate;},close:()=>{closed++;},run:async()=>{started++;return 'stale';},
+ })});
+ const run={id:crypto.randomUUID(),status:'running',items:[],config:{mode:'auto',agentPath:'fixture.exe',outputRoot:root}};
+ await host.save(run);assert.equal(locks.size,1);
+ const pending=assert.rejects(host.work({runId:run.id,task:'recovery-plan',messages:[]}),/账号已变化/);
+ await connecting;await host.stop({identityChange:true});
+ assert.equal(locks.size,0);assert.equal(closed,1);
+ completeConnect();await pending;assert.equal(started,0);
+});

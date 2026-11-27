@@ -3,7 +3,7 @@ import {useWorkspaceActive} from '../components/WorkspacePresence.jsx';
 
 const scopes=new WeakMap();
 const noApi={};
-const empty={value:null,error:null,loadedAt:0,retryAt:0,revision:0};
+const empty={value:null,error:null,loadedAt:0,retryAt:0,revision:0,refreshing:false};
 const freshMs=60000;
 const retryMs=8000;
 
@@ -27,17 +27,18 @@ function entryFor(api,group,key){
 }
 
 function read(entry,loader,force){
- const previous=entry.value,now=Date.now(),revision=previous.revision;
- if(entry.work)return entry.work;
+ const previous=entry.value,now=Date.now(),revision=previous.revision+(force?1:0);
+ if(entry.work&&(!force||previous.refreshing))return entry.work;
  if(!force&&(now<previous.retryAt||previous.loadedAt&&now-previous.loadedAt<freshMs))return Promise.resolve(previous.value);
- const work=Promise.resolve().then(loader).then(value=>{
-  if(entry.value.revision===revision)entry.notify({value,error:null,loadedAt:Date.now(),retryAt:0,revision});
+ const work=Promise.resolve().then(()=>loader(force)).then(value=>{
+  if(entry.value.revision===revision)entry.notify({value,error:null,loadedAt:Date.now(),retryAt:0,revision,refreshing:false});
   return value;
  },error=>{
-  if(entry.value.revision===revision)entry.notify({...previous,error,retryAt:Date.now()+retryMs});
+  if(entry.value.revision===revision)entry.notify({...previous,error,retryAt:Date.now()+retryMs,revision,refreshing:false});
   throw error;
  }).finally(()=>{if(entry.work===work)entry.work=null;});
  entry.work=work;
+ if(force)entry.notify({...previous,revision,refreshing:true});
  return work;
 }
 
@@ -57,6 +58,6 @@ export function useLibTVRead(api,group,key,loader,enabled=true){
  useEffect(()=>{
   if(active&&enabled)void read(entry,()=>latest.current(),false).catch(()=>{});
  },[active,enabled,entry,state.revision]);
- const refresh=useCallback(()=>read(entry,()=>latest.current(),true),[entry]);
+ const refresh=useCallback(()=>read(entry,force=>latest.current(force),true),[entry]);
  return {...state,refresh};
 }

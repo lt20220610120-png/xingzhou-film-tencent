@@ -1,5 +1,5 @@
 import {creatorTaskSlot,creatorTasksConflict,creatorTaskActivity} from '../../core/creatorTaskSlots.js';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { uid } from '../../core/projectStore.js';
 import { normalizeCreatorProject, updateCreatorProject, appendCreatorRecord, creatorInputFingerprint } from '../../core/creatorWorkspace.js';
 import { runCreatorTask } from '../../core/creatorAi.js';
@@ -7,6 +7,15 @@ import {rewriteWorldInput} from '../../core/rewriteWorld.js';
 
 export function useCreatorAgent({state,setState,getState,api}) {
  const latest=useRef(state);latest.current=state; const jobs=useRef(new Map()); const [activity,setActivity]=useState({});
+ useEffect(()=>{
+  const stop=()=>{for(const job of jobs.current.values()){
+   if(job.cancelled)continue;job.cancelled=true;
+   void api.cancelAiTask?.({taskId:job.id})?.catch(()=>{});
+   if(job.reading>=0)void api.cancelAiTask?.({taskId:`${job.id}:read-${job.reading}`})?.catch(()=>{});
+  }};
+  window.addEventListener('xz-auth-ending',stop);
+  return()=>{window.removeEventListener('xz-auth-ending',stop);stop();};
+ },[api]);
  const updateRecord=(kind,projectId,recordId,patch)=>setState(s=>{
   const project=s[kind==='fruit'?'fruitProjects':'scriptProjects']?.find(p=>p.id===projectId);if(!project)return s;
   return updateCreatorProject(s,kind,projectId,{records:(project.creator?.records||[]).map(r=>r.id===recordId&&r.status==='running'?{...r,...patch}:r)});

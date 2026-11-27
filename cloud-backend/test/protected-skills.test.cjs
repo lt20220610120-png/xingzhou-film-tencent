@@ -17,6 +17,31 @@ test('an empty 204 upstream response resolves safely rather than throwing from a
  https.request=(_url,_options,callback)=>{const req=new EventEmitter();req.write=()=>{};req.end=()=>{const res=new EventEmitter();res.statusCode=204;res.headers={};callback(res);process.nextTick(()=>res.emit('end'));};return req;};
  try{const r=await require('../src/protected-skills.cjs').protectedFetch('https://api.openai.com/v1/chat/completions',{method:'POST',body:'{}'});assert.equal(r.status,204);assert.equal(await r.text(),'');}finally{https.request=original;dns.lookup=lookup;}
 });
+test('consecutive pinned Skill requests share their TLS agent and certificate',async()=>{
+ const fs=require('node:fs'),https=require('node:https'),{Readable}=require('node:stream'),{EventEmitter}=require('node:events');
+ const request=https.request,read=fs.readFileSync,agents=[];
+ let certificates=0;
+ fs.readFileSync=(filename,...args)=>{if(String(filename).endsWith('cloud-ip-ca.pem'))certificates++;return read(filename,...args);};
+ https.request=(options,callback)=>{
+  agents.push(options.agent);
+  const request=new EventEmitter();
+  request.setTimeout=()=>request;
+  request.end=()=>{
+   const response=Readable.from([Buffer.from('completed')]);
+   response.headers={};
+   response.statusCode=200;
+   callback(response);
+  };
+  return request;
+ };
+ try {
+  const {protectedFetch}=require('../src/protected-skills.cjs');
+  for(let i=0;i<2;i++)assert.equal(await (await protectedFetch('https://winai.xingzhoufilm.cn/v1/models')).text(),'completed');
+  assert.equal(agents.length,2);
+  assert.equal(agents[0],agents[1]);
+  assert.equal(certificates,1);
+ } finally {https.request=request;fs.readFileSync=read;}
+});
 test('gateway authentication and role checks run before the protected executor',async()=>{
  const {createServer}=require('../src/server.cjs');let calls=0;
  const server=createServer({API_SECRET:'fixture',DATABASE_URL:'postgres://fixture'},{repository:{findBySession:async token=>null},mailer:null,cosSigner:null,protectedSkills:async()=>{calls++;return {status:200,body:{}};}});

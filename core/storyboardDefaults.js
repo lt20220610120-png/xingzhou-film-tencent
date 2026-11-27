@@ -1,7 +1,7 @@
 import {sameStoryboardTimingText} from './storyboardTiming.js';
 
 export const storyboardSettingKeys=['profileId','model','ratio','duration','resolution','libtvMode','libtvParams','libtvSubmissionMode'];
-export const storyboardDraftKey=(projectId,shot)=>`xz-shot-draft:${projectId}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
+export const storyboardDraftKey=(projectId,shot,accountId)=>`xz-shot-draft:${accountId?encodeURIComponent(accountId)+':':''}${projectId}:${shot.id}${shot.storyboardPublicationId?':'+shot.storyboardPublicationId:''}`;
 
 export function hasUnsavedStoryboardTimingEdit(shot,draft){
  if(!draft?.dirty||!draft.value)return false;

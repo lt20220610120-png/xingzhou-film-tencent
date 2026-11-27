@@ -44,7 +44,7 @@ async function fixture(kind,{cancel=false,baseImage=false,baseline=false,mode='s
   let busyIds=new Set();
   const setGeneratingAssetIds=update=>{busyIds=update(busyIds);};
   const scope={
-    ...references,...recovery,...batch,pendingImage:null,project:{id:'ui-offline',style:'AI真人',image_composition:composition},asset,assets,refId:cancel?'':null,
+    ...references,...recovery,...batch,pendingImage:null,accountId:'isolated-account',project:{id:'ui-offline',style:'AI真人',image_composition:composition},asset,assets,refId:cancel?'':null,
     localStorage:{getItem:()=>cancel?'':null},generating:false,busy:false,canEdit:true,size:'1024x1024',
     profile:{id:'offline',model:'mock'},batchProfile:{id:'offline',model:'mock'},batchSize:'1024x1024',episode:baseline?1:2,
     batchSelectedIds:[asset.id],batchBusy:false,referencePreference:{updating:{current:false}},generatingAssetIdsRef:{current:new Set()},setGeneratingAssetIds,

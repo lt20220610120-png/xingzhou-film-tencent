@@ -41,6 +41,9 @@ const getEpisode=(row,number)=>{const match=numberedEpisodes(row.episodes).find(
 const reviewedOutput=(entries,number)=>{
  return `### 第${number}集\n`+Object.entries({character:'人物',scene:'场景',prop:'道具'}).map(([key,title])=>`${title}：\n${[...entries.values()].filter(i=>i.category===key).map(i=>`- ${i.name} ${i.description}`).join('\n')||'- 无'}`).join('\n');
 };
+const detachAssetFromEpisode=(client,pid,name,number)=>client.query(`update collab_assets
+ set episodes=array_remove(episodes,$3),first_episode=(select min(e) from unnest(episodes) e where e<>$3),updated_at=now()
+ where project_id=$1 and name=$2 and $3=any(episodes)`,[pid,name,number]);
 function artReviewRepository(pool){
  async function transaction(pid,p,uid,action){
   const client=await pool.connect();try{
@@ -78,19 +81,24 @@ function artReviewRepository(pool){
      const item={...(candidates.find(i=>i.category===category)||items[0]),category};entries.set(name,item);
      if(selected.has(name)&&categories.length>1)next.publicationWarnings.push({name,categories,category,message:`资产 ${name} 分类待核对，已按 ${category} 发布并保留原始核实条目`});
      if(existing&&existing.category!==category){
-      await client.query('update collab_assets set category=$3 where project_id=$1 and name=$2',[pid,name,category]);
+      await client.query('update collab_assets set category=$3,updated_at=now() where project_id=$1 and name=$2',[pid,name,category]);
       next.classificationCorrections.push({name,assetId:existing.id,from:existing.category,to:category,actor:uid,at:Date.now()});
      }
      // Never overwrite an existing prompt, reference settings, ID or images.
-     await client.query(`insert into collab_assets(project_id,category,name,description,first_episode,episodes,image_url) values($1,$2,$3,$4,$5,$6,'') on conflict(project_id,name) do update set episodes=(select array_agg(distinct e order by e) from unnest(collab_assets.episodes || excluded.episodes) e),description=case when coalesce(collab_assets.description,'')='' then excluded.description else collab_assets.description end`,[pid,item.category,item.name,item.description,Math.min(number,Math.max(1,Number(item.firstEpisode)||number)),[number]]);
+     await client.query(`insert into collab_assets(project_id,category,name,description,first_episode,episodes,image_url) values($1,$2,$3,$4,$5,$6,'')
+       on conflict(project_id,name) do update set
+       episodes=(select array_agg(distinct e order by e) from unnest(collab_assets.episodes || excluded.episodes) e),
+       first_episode=(select min(e) from unnest(collab_assets.episodes || excluded.episodes) e),
+       description=case when coalesce(collab_assets.description,'')='' then excluded.description else collab_assets.description end,
+       updated_at=now()`,[pid,item.category,item.name,item.description,number,[number]]);
     }
-    for(const name of previousNames)if(!entries.has(name))await client.query('update collab_assets set episodes=array_remove(episodes,$3) where project_id=$1 and name=$2',[pid,name,number]);
+    for(const name of previousNames)if(!entries.has(name))await detachAssetFromEpisode(client,pid,name,number);
     // Legacy episode associations are replaced only after every scene is published.
     next.managedAssetNames=[...new Set([...(old.managedAssetNames||[]),...previousNames,...entries.keys()])];
     if(full){
      const legacyNames=[...(previous.output||'').matchAll(/^[-*•]\s*(【[^】]+】)/gm)].map(m=>m[1]);
      next.managedAssetNames=[...new Set([...next.managedAssetNames,...legacyNames])];
-     for(const name of legacyNames)if(!entries.has(name))await client.query('update collab_assets set episodes=array_remove(episodes,$3) where project_id=$1 and name=$2',[pid,name,number]);
+     for(const name of legacyNames)if(!entries.has(name)&&!previousNames.has(name))await detachAssetFromEpisode(client,pid,name,number);
     }
     next.version=old.version+1;next.lastWriteId=p.writeId;next.updatedAt=Date.now();next.updatedBy=uid;
     previous.output=reviewedOutput(entries,number);previous.fingerprint=`art-review-${next.version}`;

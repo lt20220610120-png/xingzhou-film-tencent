@@ -22,7 +22,7 @@ export function storyboardBatchItems({project,scope,episodeId,sceneId,settings={
   const episode=inferDirectorEpisodeNumber(ep,index+1);
   return storyboardShots(ep).flatMap(shot=>{
    const scene=String(shot.label||'').split('-').slice(0,2).join('-');if(scope==='scene'&&scene!==sceneId)return [];
-   const stored=readDraft(storyboardDraftKey(project.id,shot)),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(stored,shot,defaults),shot,project);
+   const stored=readDraft(storyboardDraftKey(project.id,shot,accountId)),defaults=ep.storyboardDefaultSettings?.scenes?.[scene]||ep.storyboardDefaultSettings?.global,draft=rebaseLocalStoryboardDraft(rebaseStoryboardDefaultsDraft(stored,shot,defaults),shot,project);
    if(skipUnavailable&&hasUnsavedStoryboardTimingEdit(shot,draft))return [{shotId:shot.id,label:shot.label,skipUnsavedDraft:true}];
    const refs=projectReferenceCandidates(assets,media,project.id,episode,scene,{assetImageSlots:true,includeEmptyAssetSlots:true});
    let value=cleanStoryboardReferenceValue(draft?.value||{...shot.generationConfig,prompt:shot.content||'',references:shot.generationConfig?.references||refs},project.id);

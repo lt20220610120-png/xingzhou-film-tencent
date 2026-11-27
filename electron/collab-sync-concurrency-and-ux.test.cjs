@@ -82,10 +82,10 @@ test('历史提示词支持选集导出、分开导出与汇总导出', () => {
 // 8. 云端页面缓存先显
 test('项目协作使用本地缓存先显后台刷新，并记住上次打开的项目', () => {
   const collab = read('src/v06/CollabWorkspace.jsx');
-  assert.match(collab, /createCloudCache\(localStorage,account\?\.id\)/);
-  assert.match(collab, /xz-collab-last-project/);
+  assert.match(collab, /createCloudCache\(localStorage,account\?\.id,Date\.now,dataDirectory\)/);
+  assert.match(collab, /projectMemory=`xz-collab-last-project:\$\{account\?\.id\|\|'local'\}`/);
   assert.match(collab, /writeCache\(`project-\$\{id\}`, p\)/);
-  assert.match(collab, /localStorage\.removeItem\('xz-collab-last-project'\)/);
+  assert.match(collab, /localStorage\.removeItem\(projectMemory\)/);
 });
 
 // 9. 人物/场景描述固定前缀

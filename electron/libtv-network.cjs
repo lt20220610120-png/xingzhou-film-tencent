@@ -68,6 +68,7 @@ function directEnvironment(){
  return {
   env:noAmbientProxy(),
   dispose(){},
+  timeoutFailure:()=>failure('ETIMEDOUT',route),
   routeReport:()=>({route:'direct',source:'direct',...(code?{code}:{})}),
   diagnose(error){
    if(error?.code!=='LIBTV_NETWORK')return error;
@@ -80,28 +81,35 @@ function directEnvironment(){
 }
 
 function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'system'}),connect,connectTimeout=CONNECT_TIMEOUT}={}){
- const controller=new AbortController(),sockets=new Set(),commands=new Map(),routes=new Map();
+ const controller=new AbortController(),sockets=new Set(),commands=new Map(),routes=new Map(),preferredRoutes=new Map();
  let server,starting,closed=false;
  const track=socket=>{sockets.add(socket);socket.on('error',()=>{});socket.once('close',()=>sockets.delete(socket));return socket;};
- function routePlan(host,settings){
-  if(settings.mode==='custom')return {rows:Promise.resolve([{mode:'custom-proxy',...parseProxy(settings.proxyUrl)}])};
+ function routePlan(host,scope){
+  const cached=scope.plans.get(host);
+  if(cached)return cached;
   let plan=routes.get(host);
-  if(plan&&Date.now()-plan.created<ROUTE_TTL)return plan;
-  const budget=AbortSignal.any([controller.signal,AbortSignal.timeout(PAC_TIMEOUT)]);
-  const resolution=untilAbort(Promise.resolve().then(()=>resolveProxy('https://'+host)),budget);
-  plan={created:Date.now(),rows:resolution.then(pacRoutes,()=>pacRoutes('DIRECT'))};
-  routes.delete(host);routes.set(host,plan);
-  while(routes.size>ROUTE_LIMIT)routes.delete(routes.keys().next().value);
+  if(scope.settings.mode==='custom')plan={rows:Promise.resolve([{mode:'custom-proxy',...parseProxy(scope.settings.proxyUrl)}])};
+  else if(!plan){
+   const budget=AbortSignal.any([controller.signal,AbortSignal.timeout(PAC_TIMEOUT)]);
+   const resolution=untilAbort(Promise.resolve().then(()=>resolveProxy('https://'+host)),budget);
+   plan={rows:resolution.then(pacRoutes,()=>pacRoutes('DIRECT')).finally(()=>{
+    if(routes.get(host)===plan)routes.delete(host);
+   })};
+   routes.set(host,plan);
+   while(routes.size>ROUTE_LIMIT)routes.delete(routes.keys().next().value);
+  }
+  scope.plans.set(host,plan);
   return plan;
  }
  const identify=(row,host,variant)=>({host,mode:row.mode,protocol:row.protocol,variant});
- function prioritize(rows,plan,scope,host){
+ function prioritize(rows,routeKey,scope,host){
   if(scope.allowFallback&&scope.retryRoute?.host===host&&rows.length>1){
    const previous=scope.retryRoute;
    const index=rows.findIndex((row,i)=>row.mode===previous.mode&&(!previous.protocol||row.protocol===previous.protocol)&&(previous.variant==null||i===previous.variant));
    if(index>=0)return [...rows.filter((_,i)=>i!==index),rows[index]];
   }
-  if(plan.preferred&&rows.includes(plan.preferred))return [plan.preferred,...rows.filter(row=>row!==plan.preferred)];
+  const previous=preferredRoutes.get(host),index=previous?.index;
+  if(previous?.routeKey===routeKey&&Date.now()<=previous.expires&&rows[index])return [rows[index],...rows.filter((_,i)=>i!==index)];
   return rows;
  }
  function recordFailure(scope,error){
@@ -123,9 +131,10 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
   const signal=AbortSignal.any([scope.signal,disconnect.signal]);
   let upstream;
   try{
-   const plan=routePlan(host,scope.settings);
+   const plan=routePlan(host,scope);
    const rows=await untilAbort(plan.rows,signal);
-   const ordered=prioritize(rows,plan,scope,host);
+   const routeKey=JSON.stringify(rows);
+   const ordered=prioritize(rows,routeKey,scope,host);
    const candidates=scope.allowFallback?ordered:ordered.slice(0,1);
    const attempts=[];
    let route;
@@ -137,7 +146,9 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
     try{
      upstream=await connectLibTVRoute({...row,host},AbortSignal.any([signal,budget]),connect);
      signal.throwIfAborted();
-     plan.preferred=row;
+     preferredRoutes.delete(host);
+     preferredRoutes.set(host,{routeKey,index:route.variant,expires:Date.now()+ROUTE_TTL});
+     while(preferredRoutes.size>ROUTE_LIMIT)preferredRoutes.delete(preferredRoutes.keys().next().value);
      break;
     }catch(error){
      if(upstream){upstream.destroy();upstream=null;}
@@ -201,7 +212,7 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
   const url='http://xz:'+credential+'@127.0.0.1:'+server.address().port;
   // Clear ambient alternate-proxy variables. The CLI's browser callback stays local.
   const env={...noAmbientProxy(),HTTP_PROXY:url,HTTPS_PROXY:url,http_proxy:url,https_proxy:url,NO_PROXY:'localhost,127.0.0.1,::1',no_proxy:'localhost,127.0.0.1,::1',NODE_USE_ENV_PROXY:'1'};
-  const authorization=basic(credential),state={settings,signal:scopeSignal,clients:new Set(),tunnelFailures:new Map(),allowFallback,retryRoute};
+  const authorization=basic(credential),state={settings,signal:scopeSignal,clients:new Set(),plans:new Map(),tunnelFailures:new Map(),allowFallback,retryRoute};
   commands.set(authorization,state);
   const dispose=()=>{
    scopeSignal.removeEventListener('abort',dispose);
@@ -239,17 +250,18 @@ function createLibTVNetwork({resolveProxy=desktopProxy,getSettings=()=>({mode:'s
    recordFailure(state,detail);
    return detail;
   }
-  return {env,dispose,routeReport,diagnose};
+  const timeoutFailure=()=>failure('ETIMEDOUT',{...(state.lastRoute||{}),routeHint:state.lastRoute});
+  return {env,dispose,routeReport,diagnose,timeoutFailure};
  }
  async function close(){
-  closed=true;controller.abort();commands.clear();routes.clear();
+  closed=true;controller.abort();commands.clear();routes.clear();preferredRoutes.clear();
   for(const socket of sockets)socket.destroy();
   await starting?.catch(()=>{});
   if(server?.listening)await new Promise(resolve=>server.close(resolve));
  }
  function invalidate(hint){
-  if(hint?.host)routes.delete(hint.host);
-  else routes.clear();
+  if(hint?.host){routes.delete(hint.host);preferredRoutes.delete(hint.host);}
+  else {routes.clear();preferredRoutes.clear();}
  }
  return {environment,close,invalidate};
 }

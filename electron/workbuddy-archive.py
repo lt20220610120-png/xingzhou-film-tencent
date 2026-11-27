@@ -12,7 +12,7 @@ CODE_PATHS = ('server', 'web/out', 'deploy', '.version', '.venv')
 PATH_KEYS = {
     'WB_DATA_DIR', 'WB_DB', 'WB_USERS_FILE', 'WB_AUTH_DIR', 'WB_UPSTREAM_CONFIG',
     'WB_UPSTREAM_DIR', 'WB_CLIENT_PATHS_FILE', 'WB_CCSWITCH_DIR', 'WB_ZCODE_DIR',
-    'WB2API_LOG_FILE', 'WB_UPSTREAM_REF_FILE', 'WB_UPDATE_STATUS',
+    'WB2API_LOG_FILE', 'WB2API_CHAT_LOG_FILE', 'WB_UPSTREAM_REF_FILE', 'WB_UPDATE_STATUS',
     'WB2A_AUTH_DIR', 'WB2A_STATE_FILE', 'WB2A_DEVICE_TOKEN_FILE', 'WB2A_PROMPT_FILE',
 }
 
@@ -85,6 +85,7 @@ def inspect_data(root):
     env_path('WB_CCSWITCH_DIR', Path.home() / '.cc-switch')
     env_path('WB_ZCODE_DIR', Path.home() / '.zcode' / 'v2')
     env_path('WB2API_LOG_FILE', upstream / 'data' / 'server.err.log')
+    env_path('WB2API_CHAT_LOG_FILE', upstream / 'data' / 'server.out.log')
     env_path('WB_UPSTREAM_REF_FILE', data / 'upstream-ref.txt')
     env_path('WB_UPDATE_STATUS', data / 'update-status.json')
     for key in ('WB2A_AUTH_DIR', 'WB2A_STATE_FILE', 'WB2A_DEVICE_TOKEN_FILE', 'WB2A_PROMPT_FILE'):
@@ -134,26 +135,40 @@ def extract(archive, destination, version):
         raise ValueError('staging destination must not exist')
     expected = 'workbuddy-manager-v' + version
     with tarfile.open(archive, 'r:gz') as bundle:
-        members = bundle.getmembers()
-        if len(members) > 20000 or sum(m.size for m in members) > 256 * 1024 * 1024:
-            raise ValueError('release exceeds extraction limit')
-        seen = set()
-        for member in members:
+        members = []
+        total = 0
+        seen = {}
+        for member in bundle:
+            total += member.size
+            if len(members) >= 20000 or total > 256 * 1024 * 1024:
+                raise ValueError('release exceeds extraction limit')
+            members.append(member)
             name = member.name
             pieces = name.split('/')
-            if ('\\' in name or ':' in name or PurePosixPath(name).is_absolute()
+            if (PurePosixPath(name).is_absolute()
                     or not pieces or pieces[0] != expected
-                    or any(p in ('', '.', '..') or p.rstrip(' .') != p
-                           or re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', p, re.I)
+                    or any(p in ('', '.', '..') or len(p) > 255 or p.rstrip(' .') != p
+                           or re.search(r'[<>:"\\|?*\x00-\x1f]', p)
+                           or re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?', p, re.I)
                            for p in pieces)
-                    or not (member.isfile() or member.isdir())):
+                    or member.sparse is not None or not (member.isfile() or member.isdir())):
                 raise ValueError('unsafe archive member')
             normalized = name.casefold()
             if normalized in seen:
                 raise ValueError('duplicate archive member')
-            seen.add(normalized)
+            seen[normalized] = (name, member.isdir())
             if member.size < 0 or member.size > 64 * 1024 * 1024:
                 raise ValueError('archive file exceeds size limit')
+        parents = {}
+        for member in members:
+            pieces = member.name.split('/')
+            for length in range(1, len(pieces)):
+                parent = '/'.join(pieces[:length])
+                normalized = parent.casefold()
+                if parents.setdefault(normalized, parent) != parent or (
+                    normalized in seen and seen[normalized] != (parent, True)
+                ):
+                    raise ValueError('ambiguous archive directory')
         # Validate every entry before creating any files. Links, devices and special
         # tar metadata entries never reach tarfile.extract / extractall.
         target.mkdir()

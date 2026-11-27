@@ -1,18 +1,67 @@
-const fs=require('node:fs'),path=require('node:path');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const PREFIX = '/api/updates/';
+const NAME = /^(latest\.json|Xingzhou-Film-Tencent-Setup-\d+\.\d+\.\d+\.exe)$/;
+
 function serveUpdate(request,response,root='/opt/xingzhou-updates'){
- if(request.method!=='GET'&&request.method!=='HEAD')return false;
- const url=new URL(request.url,'http://localhost');if(!url.pathname.startsWith('/api/updates/'))return false;
- const name=url.pathname.slice('/api/updates/'.length);
- if(!/^(latest\.json|Xingzhou-Film-Tencent-Setup-\d+\.\d+\.\d+\.exe)$/.test(name)){response.writeHead(404);response.end();return true;}
- const file=path.join(root,name);let stat;try{stat=fs.lstatSync(file);}catch{response.writeHead(404);response.end();return true;}
- if(!stat.isFile()||stat.isSymbolicLink()){response.writeHead(404);response.end();return true;}
- const etag='"'+stat.size+'-'+stat.mtimeMs+'"';let start=0,end=stat.size-1,status=200;
- if(name!=='latest.json'&&request.headers.range&&(!request.headers['if-range']||request.headers['if-range']===etag)){
-  const range=/^bytes=(\d+)-(\d*)$/.exec(request.headers.range);if(!range||Number(range[1])>=stat.size||(range[2]&&Number(range[2])<Number(range[1]))){response.writeHead(416,{'Content-Range':'bytes */'+stat.size});response.end();return true;}
-  start=Number(range[1]);end=range[2]?Math.min(Number(range[2]),end):end;status=206;
- }
- response.writeHead(status,{'Content-Type':name==='latest.json'?'application/json; charset=utf-8':'application/octet-stream','Content-Length':end-start+1,'Accept-Ranges':'bytes',ETag:etag,'Cache-Control':name==='latest.json'?'no-store':'public, max-age=31536000, immutable',...(status===206?{'Content-Range':`bytes ${start}-${end}/${stat.size}`}:{})});
- if(request.method==='HEAD'){response.end();return true;}
- const stream=fs.createReadStream(file,{start,end});stream.on('error',()=>response.destroy());response.on('close',()=>stream.destroy());stream.pipe(response);return true;
+  if (request.method!=='GET'&&request.method!=='HEAD') return false;
+  const pathname = request.url?.split('?')[0];
+  if (!pathname?.startsWith(PREFIX)) return false;
+  const reject = (status,headers) => { response.writeHead(status,headers);response.end();return true; };
+  const name = pathname.slice(PREFIX.length);
+  if (!NAME.test(name)) return reject(404);
+
+  let fd, stat;
+  try {
+    const file = path.join(root,name);
+    const before = fs.lstatSync(file);
+    if (!before.isFile()||before.isSymbolicLink()) return reject(404);
+    fd=fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0)|(fs.constants.O_NONBLOCK||0));
+    stat=fs.fstatSync(fd);
+    if (!stat.isFile()||stat.size===0||stat.dev!==before.dev||stat.ino!==before.ino) {
+      fs.closeSync(fd);
+      return reject(404);
+    }
+  } catch {
+    if (fd!==undefined) fs.closeSync(fd);
+    return reject(404);
+  }
+
+  const manifest=name==='latest.json';
+  const etag='"'+stat.size+'-'+stat.mtimeMs+'"';
+  let start=0,end=stat.size-1,status=200;
+  const {range,'if-range':ifRange}=request.headers;
+  if (!manifest&&range&&(!ifRange||ifRange===etag)) {
+    const match=/^bytes=(\d+)-(\d*)$/.exec(range);
+    const first=Number(match?.[1]),last=match?.[2]?Number(match[2]):end;
+    if (!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||first>=stat.size||last<first) {
+      fs.closeSync(fd);
+      return reject(416,{'Content-Range':'bytes */'+stat.size});
+    }
+    start=first;
+    end=Math.min(last,end);
+    status=206;
+  }
+
+  response.writeHead(status,{
+    'Content-Type':manifest?'application/json; charset=utf-8':'application/octet-stream',
+    'Content-Length':end-start+1,
+    'Accept-Ranges':'bytes',
+    ETag:etag,
+    'Cache-Control':manifest?'no-store':'public, max-age=31536000, immutable',
+    ...(status===206?{'Content-Range':`bytes ${start}-${end}/${stat.size}`}:{}),
+  });
+  if (request.method==='HEAD') {
+    fs.closeSync(fd);
+    response.end();
+    return true;
+  }
+  const stream=fs.createReadStream(null,{fd,start,end});
+  stream.on('error',()=>response.destroy());
+  response.on('close',()=>stream.destroy());
+  stream.pipe(response);
+  return true;
 }
+
 module.exports={serveUpdate};

@@ -1,12 +1,13 @@
 const {threeWayMerge}=require('./three-way-merge.cjs');
 const {mergeDirectorEpisodes,patchShot}=require('./storyboard-merge.cjs');
-const {composeDirectorScript, numberedEpisodes, publicGenre, collabGenre, editableCollab, ensureCollabDomain}=require('./collab-episodes.cjs');
+const {composeDirectorScript, episodeNumber, numberedEpisodes, publicGenre, collabGenre, editableCollab, ensureCollabDomain}=require('./collab-episodes.cjs');
 const {isDeepStrictEqual}=require('node:util');
 const {applyEpisodeIdentityChange,composeEpisodeIdentityScript,filterRemovedDirectorEpisodes}=require('./episode-identity-repair.cjs');
 const {directorRow, readableDirector, lockReadableDirector, lockDirectorReferences}=require('./director-source.cjs');
 const {sourceProtection,referencesDirector}=require('./cloud-recycle.cjs');
 const {validateImageComposition}=require('./image-composition.cjs');
-const {ART_ROLES,isPendingLocalShare,VISIBLE_PROJECT_SQL,assetImageObject,lockWritableMediaProject}=require('./project-media-policy.cjs');
+const {enqueueAssetImageCleanup,processAssetImageCleanup}=require('./asset-image-cleanup.cjs');
+const {ART_ROLES,SHARE_ROLES,isPendingLocalShare,VISIBLE_PROJECT_SQL,assetImageObject,lockWritableMediaProject}=require('./project-media-policy.cjs');
 // 导演协作 / 统计 / 资产图片 的仓储扩展。
 // 说明：导演项目与协作项目共用 collab_projects 表，用 genre 中的哨兵标记区分。
 const DIRECTOR_SENTINEL = '[DIRECTOR_PROJECT]';
@@ -15,6 +16,26 @@ const LOCK_SENTINEL = '[PROJECT_LOCKED]';
 const statusError = (status,message) => Object.assign(new Error(message),{status});
 
 const READ_SCOPE = `left join collab_members m on m.project_id=p.id and m.user_id=$2 where p.id::text=$1 and (p.owner_id=$2 or m.user_id is not null) and ${VISIBLE_PROJECT_SQL}`;
+const accessScope = parameter => `(p.owner_id=${parameter} or exists(select 1 from collab_members m where m.project_id=p.id and m.user_id=${parameter})) and ${VISIBLE_PROJECT_SQL}`;
+const writableMemberProject = (row,uid,domain) => {
+  if (!row||row.owner_id!==uid||(domain==='director'?!directorRow(row):!editableCollab(row))) return false;
+  if (String(row.genre||'').includes(LOCK_SENTINEL)) throw statusError(423,'项目已锁定，暂不可修改成员');
+  return true;
+};
+
+async function updateRemovedAssetEpisodes(client,projectId,before,after) {
+  if (!Array.isArray(before)||!Array.isArray(after)) return;
+  const live=new Set(after.map(episodeNumber));
+  const removed=[...new Set(before.map(episodeNumber))].filter(number=>number&&!live.has(number));
+  if (!removed.length) return;
+  await client.query(`update collab_assets a
+    set episodes=retained.episodes,first_episode=retained.first_episode,updated_at=now()
+    from (select x.id,coalesce(array_agg(e order by e) filter(where e is not null),'{}'::int[]) as episodes,
+      min(e) as first_episode
+      from collab_assets x left join lateral unnest(x.episodes) e on not (e=any($2::int[]))
+      where x.project_id=$1 and x.episodes && $2::int[] group by x.id) retained
+    where a.id=retained.id`,[projectId,removed]);
+}
 
 function extendRepository(pool) {
   const one = async (s, p) => (await pool.query(s, p)).rows[0] || null;
@@ -27,7 +48,6 @@ function extendRepository(pool) {
     catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   }
-  const isOwner = async (pid, uid) => Boolean(await one('select 1 as ok from collab_projects where id=$1 and owner_id=$2 limit 1', [pid, uid]));
   const readableDomain = async (pid,uid,domain) => {
     if(!uid)return false;
     const row=await one('select p.* from collab_projects p '+READ_SCOPE+' limit 1',[pid,uid]);
@@ -141,12 +161,24 @@ function extendRepository(pool) {
       return many('select * from collab_members where project_id=$1 order by created_at', [pid]);
     },
     async addDirectorMember(pid, p, uid, domain='director') {
-      if (!await isOwner(pid, uid)||!await readableDomain(pid,uid,domain)) return null;
-      const target = await one('select id, username, display_name from app_users where username=$1 limit 1', [String(p.username || '').trim().toLowerCase()]);
-      if (!target) return { error: 'user_not_found' };
-      const role = ['producer','artist','collaborator','artist_collaborator'].includes(p.role) ? p.role : 'collaborator';
-      const sql = 'insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,$5) on conflict(project_id,user_id) do update set role=excluded.role returning *';
-      return one(sql, [pid, target.id, target.username, target.display_name || target.username, role]);
+      return transaction(async client=>{
+        const row=await lockAuthorizedProject(client,pid,uid);
+        if (!writableMemberProject(row,uid,domain)) return null;
+        const username=String(p.username||'').trim().toLowerCase();
+        const target=(await client.query(`select id,username,display_name from app_users where username=$1
+          and not banned and (cardinality(roles)>0 or is_admin or is_producer) for share`,[username])).rows[0];
+        if (!target) return {error:'user_not_found'};
+        if (target.id===row.owner_id) throw statusError(409,'项目所有者已经是制片人');
+        const role=SHARE_ROLES.includes(p.role)?p.role:'collaborator';
+        const prior=(await client.query('select * from collab_members where project_id=$1 and user_id=$2',[pid,target.id])).rows[0];
+        if (prior?.role==='producer') {
+          if (role!==prior.role) throw statusError(409,'已有制片人不能通过邀请降级');
+          return prior;
+        }
+        const sql=`insert into collab_members(project_id,user_id,username,display_name,role) values($1,$2,$3,$4,$5)
+          on conflict(project_id,user_id) do update set role=excluded.role where collab_members.role<>'producer' returning *`;
+        return (await client.query(sql,[pid,target.id,target.username,target.display_name||target.username,role])).rows[0]||null;
+      });
     },
     async removeDirectorMember(pid, target, uid, domain='director') {
       if(typeof target==='string')target={userId:target};
@@ -154,8 +186,7 @@ function extendRepository(pool) {
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
-        const correctDomain=domain==='director'?directorRow(row):Boolean(row&&!isPendingLocalShare(row)&&!String(row.genre||'').includes(DIRECTOR_SENTINEL)&&!row.deleted_at);
-        if(!correctDomain||row.owner_id!==uid){await client.query('ROLLBACK');return null;}
+        if(!writableMemberProject(row,uid,domain)){await client.query('ROLLBACK');return null;}
         const column=target.memberId?'id':'user_id';
         const removed=(await client.query(`delete from collab_members where project_id=$1 and ${column}=$2 and role <> 'producer' and user_id<>$3 returning *`,[pid,target.memberId||target.userId,uid])).rows[0]||null;
         await client.query('COMMIT');return removed;
@@ -167,7 +198,7 @@ function extendRepository(pool) {
       const client=await pool.connect();
       try{await client.query('BEGIN');
         const row=(await client.query('select p.* from collab_projects p where p.id=$1 for update',[pid])).rows[0];
-        if(!row||isPendingLocalShare(row)||row.owner_id!==uid||String(row.genre||'').includes(DIRECTOR_SENTINEL)||row.deleted_at){await client.query('ROLLBACK');return null;}
+        if(!writableMemberProject(row,uid,'collab')){await client.query('ROLLBACK');return null;}
         const column=p.memberId?'id':'user_id';
         const saved=(await client.query(`update collab_members set role=$1 where project_id=$2 and ${column}=$3 and role <> 'producer' and user_id<>$4 returning *`,[role,pid,p.memberId||p.userId,uid])).rows[0]||null;
         await client.query('COMMIT');return saved;
@@ -266,6 +297,7 @@ function extendRepository(pool) {
         const carrier=episodes.find(ep=>ep.episodeIdentityHistory?.length)||episodes[0];
         carrier.episodeIdentityHistory=[...(carrier.episodeIdentityHistory||[]),{at:new Date().toISOString(),reason:payload.operation,previousProjectScript:String(row.script||'')}];
         const script=composeEpisodeIdentityScript(episodes);
+        await updateRemovedAssetEpisodes(client,pid,row.episodes,episodes);
         const saved=(await client.query('update collab_projects set episodes=$2,script=$3,updated_at=now() where id=$1 returning *',[pid,JSON.stringify(episodes),script])).rows[0];
         await client.query('COMMIT');return saved;
       }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -288,6 +320,7 @@ function extendRepository(pool) {
           cols.push(k + '=$' + vals.length);
         }
         if (!cols.length) {await client.query('COMMIT'); return row;}
+        if (scope===''&&Array.isArray(fields.episodes)) await updateRemovedAssetEpisodes(client,pid,row.episodes,fields.episodes);
         const saved = (await client.query('update collab_projects set ' + cols.join(',') + ', updated_at=now() where id=$1 returning *', vals)).rows[0];
         await client.query('COMMIT'); return saved;
       } catch (error) {await client.query('ROLLBACK'); throw error;} finally {client.release();}
@@ -299,22 +332,24 @@ function extendRepository(pool) {
         "where p.genre like '%[DIRECTOR_PROJECT]%' and p.deleted_at is null order by p.updated_at desc";
       return (await many(sql,[uid])).filter(directorRow);
     },
-    async listCollabLinks(aliases) {
-      if (!aliases.length) return [];
-      return many("select id,genre,director_project_id,deleted_at,purge_after from collab_projects where genre like '%[COLLAB_PROJECT]%' and (director_project_id=any($1::text[]) or collab_source_markers(genre) && $1::text[])",[aliases]);
+    async listCollabLinks(aliases,uid) {
+      if (!aliases.length||!uid) return [];
+      return many(`select p.id,p.genre,p.director_project_id,p.deleted_at,p.purge_after from collab_projects p
+        where p.genre like '%[COLLAB_PROJECT]%' and ${accessScope('$2')}
+        and (p.director_project_id=any($1::text[]) or collab_source_markers(p.genre) && $1::text[])`,[aliases,uid]);
     },
-    async directorAssociationStates(items) {
+    async directorAssociationStates(items,uid) {
       if(!Array.isArray(items)||items.length>200)throw statusError(400,'关联核验最多支持200个本地项目');
       for(const item of items){
         if(!item||typeof item.projectId!=='string'||typeof item.collaborationProjectId!=='string'||!item.projectId||!item.collaborationProjectId||item.projectId.length>500||item.collaborationProjectId.length>500)throw statusError(400,'关联核验参数无效');
       }
-      if (!items.length) return [];
+      if (!items.length||!uid) return [];
       const rows=await many(
         'with requested as (select * from unnest($1::text[],$2::text[]) with ordinality as x(project_id,collab_id,position)) '+
         'select requested.position,p.genre,p.deleted_at,p.purge_after from requested join collab_projects p on ('+
         'p.id::text=requested.collab_id or p.director_project_id=requested.project_id or collab_source_markers(p.genre) && array[requested.project_id] or '+
-        `(p.genre like '%[DIRECTOR_PROJECT]%' and length(p.analysis_output)<=500 and p.analysis_output=requested.project_id)) where ${VISIBLE_PROJECT_SQL}`,
-        [items.map(item=>item.projectId),items.map(item=>item.collaborationProjectId)]);
+        `(p.genre like '%[DIRECTOR_PROJECT]%' and length(p.analysis_output)<=500 and p.analysis_output=requested.project_id)) where ${accessScope('$3')}`,
+        [items.map(item=>item.projectId),items.map(item=>item.collaborationProjectId),uid]);
       const protectedPositions=new Set(rows.filter(row=>!String(row.genre||'').includes('[COLLAB_PROJECT]')||sourceProtection(row)!=='expired').map(row=>Number(row.position)));
       return items.map(({projectId,collaborationProjectId},index)=>({projectId,collaborationProjectId,status:protectedPositions.has(index+1)?'protected':'released'}));
     },
@@ -331,9 +366,17 @@ function extendRepository(pool) {
         await client.query('BEGIN');
         const project=await lockAuthorizedProject(client,pid,uid,['producer','artist','artist_collaborator']);
         if(!editableCollab(project)){await client.query('ROLLBACK');return null;}
+        const category=p.category??'character';
+        if (!['character','scene','prop'].includes(category)) throw statusError(400,'资产分类无效');
+        const name=p.name??'未命名资产';
+        if(typeof name!=='string'||!name.trim()||name.includes('\0'))throw statusError(400,'请填写有效的资产名称');
+        const validNumber=value=>(typeof value==='number'||typeof value==='string'&&/^\d+$/.test(value))
+          && Number.isInteger(Number(value))&&Number(value)>=1&&Number(value)<=10000;
+        const episodes=p.episodes??[],first=p.firstEpisode??1;
+        if(!Array.isArray(episodes)||!episodes.every(validNumber)||!validNumber(first))throw statusError(400,'分集编号无效');
         const created=await client.query(`insert into collab_assets(project_id,category,name,description,first_episode,episodes)
           values($1,$2,$3,$4,$5,$6) returning *`,
-          [pid,p.category||'character',p.name||'未命名资产',p.description||'',p.firstEpisode||1,p.episodes||[]]);
+          [pid,category,name,p.description||'',first,episodes]);
         await client.query('COMMIT');
         return created.rows[0];
       } catch(error) {
@@ -381,6 +424,7 @@ function extendRepository(pool) {
         const removed=(await client.query("delete from collab_media where project_id=$1 and id::text=$2 and kind='asset-image' returning *",[pid,p.mediaId||p.imageId||''])).rows[0];
         if (!removed) return null;
         if (removed.asset_id) await client.query("update collab_assets a set image_url=coalesce((select coalesce(nullif(m.object_path,''),m.url) from collab_media m where m.asset_id=a.id and m.project_id=$1 and m.kind='asset-image' order by m.created_at desc,m.id desc limit 1),''),updated_at=now() where a.id=$2 and a.project_id=$1 and a.image_url=coalesce(nullif($3,''),$4)",[pid,removed.asset_id,removed.object_path,removed.url]);
+        await enqueueAssetImageCleanup(client,pid,[removed.object_path,removed.url]);
         return removed;
       });
     },
@@ -388,15 +432,16 @@ function extendRepository(pool) {
       return transaction(async client=>{
         const project=await lockWritableMediaProject(client,pid,uid,['producer']);
         if (!project || project.owner_id!==uid) return null;
-        if (p?.assetId) {
-          await client.query("delete from collab_media where project_id=$1 and asset_id::text=$2 and kind='asset-image'",[pid,p.assetId]);
-          await client.query("update collab_assets set image_url='',updated_at=now() where project_id=$1 and id::text=$2",[pid,p.assetId]);
-        } else {
-          await client.query("delete from collab_media where project_id=$1 and kind='asset-image'",[pid]);
-          await client.query("update collab_assets set image_url='',updated_at=now() where project_id=$1",[pid]);
-        }
+        const asset=p?.assetId||null;
+        const previous=(await client.query("select image_url from collab_assets where project_id=$1 and ($2::text is null or id::text=$2)",[pid,asset])).rows;
+        const removed=(await client.query("delete from collab_media where project_id=$1 and ($2::text is null or asset_id::text=$2) and kind='asset-image' returning object_path,url",[pid,asset])).rows;
+        await client.query("update collab_assets set image_url='',updated_at=now() where project_id=$1 and ($2::text is null or id::text=$2)",[pid,asset]);
+        await enqueueAssetImageCleanup(client,pid,[...previous.map(row=>row.image_url),...removed.flatMap(row=>[row.object_path,row.url])]);
         return {ok:true};
       });
+    },
+    cleanupAssetImages(signer,fetchFn) {
+      return processAssetImageCleanup({query:pool.query.bind(pool),transaction,signer,fetchFn});
     },
     async softDeleteProject(pid,uid) {
       return transaction(async client=>{

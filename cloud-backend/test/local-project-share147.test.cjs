@@ -338,3 +338,11 @@ test('explicit locally deleted cloud media stays removed after invitation and ca
  const g=database();const reserved=await handleAction('project-local-share-prepare',prepare,owner,g.repo);
  const bad=await handleAction('project-local-share',{...payload(reserved.body.revision),deletedMediaIds:[deletedId]},owner,g.repo);assert.equal(bad.status,409);assert.equal(g.state.members.some(m=>m.user_id===memberId),false);
 });
+test('recover fences a prepared invitation before clearing the local checkpoint', async () => {
+  const f=database();
+  const prepared=await f.repo.prepareLocalProjectShare(prepare,owner);
+  const recovery=await handleAction('project-local-share-recover',{...prepare,revision:prepared.revision},owner,f.repo);
+  assert.deepEqual(recovery,{status:200,body:{released:true,revision:null}});
+  await assert.rejects(f.repo.shareLocalProject(payload(prepared.revision),owner),{status:409});
+  assert.equal(f.state.members.some(m=>m.user_id===memberId),false);
+});

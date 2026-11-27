@@ -363,15 +363,15 @@ function ForceEpisodeAnalysisDialog({ episodeNumber, onCancel, onConfirm }) {
 /* ================================================================
  * 生图框（美术/资产共用）：模型 + 画幅 + @参考 + 生成/上传
  * ================================================================ */
-const assetReferenceKey = (projectId, assetId) => `xz-asset-reference:${projectId}:${assetId}`;
+const assetReferenceKey = (projectId, assetId, accountId) => `xz-asset-reference:${accountId||'local'}:${projectId}:${assetId}`;
 const requiresCharacterReference = (asset, assets) => asset?.category === 'character'
   && isCharacterWardrobeVariant(asset, assets);
 const requiresAssetImageReference = (asset, assets) => requiresCharacterReference(asset, assets) || isSceneLightingVariant(asset, assets);
 const missingAssetImageReferenceMessage = asset => asset?.category==='scene'
   ? '这是场景时间版本，请先生成或选择场景基准参考图；也可在参考选项中明确选择“不引用参考”。'
   : '这是人物差异造型，请先生成或选择人物基准参考图；也可在参考选项中明确选择“不引用参考”。';
-const readAssetReferenceChoice = (projectId, assetId) => {
-  try { return localStorage.getItem(assetReferenceKey(projectId, assetId)); } catch { return null; }
+const readAssetReferenceChoice = (projectId, assetId, accountId) => {
+  try { return localStorage.getItem(assetReferenceKey(projectId, assetId,accountId)); } catch { return null; }
 };
 const assetLocalReferenceKey = (accountId, projectId, assetId) => `xz-asset-local-reference:${accountId||'local'}:${projectId}:${assetId}`;
 const readAssetLocalReference = (accountId, projectId, assetId) => {
@@ -408,11 +408,11 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   useEffect(() => { setLocalImages((current) => current.filter((local) => !(asset.images || []).some((remote) => remote.id === local.id))); }, [asset.images]);
   const images = uniqueAssetImages([...(asset.images?.length ? asset.images : (asset.image_url ? [{ id: 'legacy', url: asset.image_url, filename: `${asset.name}.png` }] : [])), ...localImages]).map(image => ({...image, projectId:project.id, assetId:asset.id}));
   const adoptedImage=adoptedAssetImage({...asset,images},{exact:asset.adoptedImageId===null&&!asset.image_url});
-  useEffect(()=>setSelectedImageId(adoptedImage?.id||''),[adoptedImage?.id,images.map(i=>i.id).join(',')]);
   const adoptImage=async()=>{if(!selectedImage||!canEdit)return;setBusy(true);setError('');try{await api.collabUpdateAsset({projectId:project.id,assetId:asset.id,updates:{adoptedImageId:selectedImage.id}});await refresh({assetsOnly:true,afterCurrent:true});}catch(e){setError(e.message);}finally{setBusy(false);}};
   const selectedImage = images.find((image) => image.id === selectedImageId) || adoptedImage || images[images.length - 1] || null;
 
-  const pendingImage = readAssetImageRecovery(project.id, asset.id);
+  const pendingImage = readAssetImageRecovery(project.id, asset.id,accountId);
+  const hasUnownedRecovery=Boolean(accountId&&!pendingImage&&readAssetImageRecovery(project.id,asset.id));
   const generate = async () => {
     if (generating || busy || !canEdit) return;
     if (!profile && !pendingImage) { setError('请先在画布或 API 配置中添加图片生成接口'); return; }
@@ -427,9 +427,9 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         if (attached?.url) { setLocalImages((current) => [...current.filter((item) => item.id !== attached.id), attached]); setSelectedImageId(attached.id); }
       }
       else {
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile?.protocol, provider: profile?.provider, libtvOwnerKey:profile?.libtvOwnerKey, endpoint: profile?.endpoint, apiKey: profile?.apiKey, model: profile?.model, prompt, size, references: assetImageReferences(refAsset) },{recoveryOnly:Boolean(pendingImage)});
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile?.protocol, provider: profile?.provider, libtvOwnerKey:profile?.libtvOwnerKey, endpoint: profile?.endpoint, apiKey: profile?.apiKey, model: profile?.model, prompt, size, references: assetImageReferences(refAsset) },{recoveryOnly:Boolean(pendingImage),accountId});
         const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
-        if (attached) clearAssetImageRecovery(project.id, asset.id);
+        if (attached) { clearAssetImageRecovery(project.id, asset.id,accountId); setLocalImages(current=>[...current.filter(item=>item.id!==attached.id),attached]); setSelectedImageId(attached.id); }
         await refresh();
         return attached;
       }
@@ -440,7 +440,7 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
   const uploadLocal = async () => {
     if (busy || !canEdit) return;
     setBusy(true); setError('');
-    try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r?.url) { clearAssetImageRecovery(project.id,asset.id); setLocalImages((current) => [...current.filter((item) => item.id !== r.id), r]); setSelectedImageId(r.id); } if (r) await refresh(); }
+    try { const r = await api.collabUploadAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0 }); if (r?.url) { clearAssetImageRecovery(project.id,asset.id,accountId); setLocalImages((current) => [...current.filter((item) => item.id !== r.id), r]); setSelectedImageId(r.id); } if (r) await refresh(); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -508,13 +508,18 @@ function AssetImageBox({ project, asset, assets, api, state, refresh, canEdit, g
         {(api.mediaImportFile||api.mediaImportFiles)&&<button type="button" className="secondary asset-local-reference-button" aria-label="选择本机参考图" onClick={importReference} disabled={busy||generating||!canEdit}><Upload size={13}/> 本机参考图</button>}
         </div>
         {!mates.length&&<small className="collab-ref-hint">项目暂无可选参考图。可先上传或生成资产图片，再在此选择。</small>}
+        {hasUnownedRecovery&&<button className="secondary" disabled={busy||generating||!canEdit} onClick={async()=>{
+          if(await confirmAction('此资产有旧版未归属的生图记录。请先核对生成历史；解除恢复记录后再次生图可能重复计费。',{danger:true})){
+            clearAssetImageRecovery(project.id,asset.id);setError('已解除旧版恢复记录。');
+          }
+        }}>解除旧版生图记录</button>}
         {pendingImage ? <section className="image-recovery-panel" aria-label="图片结果恢复">
           <strong>{pendingImage.filePath?'原图等待保存':pendingImage.taskId?'生成任务待恢复':'图片结果待取回'}</strong>
           <p>{assetImageRecoverySummary(pendingImage)}</p>
           <div className="image-recovery-row"><button className="primary" onClick={generate} disabled={generating||busy||!canEdit||pendingImage.reason==='expired'}>{generating||busy?<Loader2 size={14} className="spin"/>:<RefreshCw size={14}/>} {generating||busy?'处理中…':pendingImage.filePath?'继续保存图片':pendingImage.taskId?'查询原任务':'重试取回原图'}</button><button className="secondary" onClick={uploadLocal} disabled={busy||generating||!canEdit}><Upload size={14}/> 上传原图</button></div>
           <div className={`image-recovery-row${pendingImage.receiptId?'':' image-recovery-single'}`}>
             {pendingImage.receiptId&&<button className="secondary" disabled={busy||generating||!api.mediaOpenImageResult} onClick={async()=>{try{await api.mediaOpenImageResult({receiptId:pendingImage.receiptId});setError('已打开结果地址。如能看到原图，可保存后点击上传原图。');}catch(e){setError(e.message);}}}>打开结果地址</button>}
-            <button className="secondary image-recovery-abandon" disabled={busy||generating||!canEdit} onClick={async ()=>{if((await confirmAction(`${pendingImage.taskId?'原生成任务可能仍在运行，放弃恢复不会取消上游任务。':'原恢复记录仍保留在本机。'}确定放弃旧结果？之后点击“生成图片”会重新调用接口并可能产生费用。`, {danger:true}))){clearAssetImageRecovery(project.id,asset.id);setError('已放弃旧结果；可上传原图，或点击“生成图片”提交新任务（可能产生费用）。');}}}>放弃旧结果</button>
+            <button className="secondary image-recovery-abandon" disabled={busy||generating||!canEdit} onClick={async ()=>{if((await confirmAction(`${pendingImage.taskId?'原生成任务可能仍在运行，放弃恢复不会取消上游任务。':'原恢复记录仍保留在本机。'}确定放弃旧结果？之后点击“生成图片”会重新调用接口并可能产生费用。`, {danger:true}))){clearAssetImageRecovery(project.id,asset.id,accountId);setError('已放弃旧结果；可上传原图，或点击“生成图片”提交新任务（可能产生费用）。');}}}>放弃旧结果</button>
           </div>
           <small>恢复只取回原结果；放弃后再点“生成图片”会提交新任务，可能产生费用。</small>
           {error&&<div className="image-recovery-error" role="alert">{error}</div>}
@@ -552,9 +557,9 @@ function AssetDetail({ project, asset, assets, api, state, refresh, canEdit, gen
   const modifying=revisionJob?.status==='running';
   const [modifyError, setModifyError] = useState('');
   const promptSettings = readAssetPrompt({ ...asset, description: draft }, project.style, projectCharacterComposition(project));
-  const [refId, setReferenceId] = useState(() => readAssetReferenceChoice(project.id, asset.id));
+  const [refId, setReferenceId] = useState(() => readAssetReferenceChoice(project.id, asset.id,accountId));
   const setRefId = id => {
-    const key = assetReferenceKey(project.id, asset.id);
+    const key = assetReferenceKey(project.id, asset.id,accountId);
     try { if (id === null) localStorage.removeItem(key); else localStorage.setItem(key, id); } catch {}
     setReferenceId(id);
   };
@@ -892,7 +897,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
   const [analysisError, setAnalysisError] = useState('');
   const [appendOpen, setAppendOpen] = useState(false);
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
-  const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
+  const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id,accountId);
   const referencePreference=useAssetReferencePreference({api,projectId:project.id,accountId,refresh,canEdit,onSaved:onReferencePreferenceChange,generatingIds:generatingAssetIdsRef});
   const analysisJob=useCollabAnalysisJob(project,api,accountId,assets);
   const analyzing=['running','stopping'].includes(analysisJob?.status);
@@ -925,9 +930,9 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references },{recoveryOnly});
+      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references },{recoveryOnly,accountId});
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
-      if (attached) clearAssetImageRecovery(project.id, asset.id);
+      if (attached) clearAssetImageRecovery(project.id, asset.id,accountId);
       await refresh();
       return attached;
     } finally {
@@ -935,7 +940,7 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
       setGeneratingAssetIds((current) => { const next = new Set(current); next.delete(asset.id); return next; });
     }
   }, [api, project.id, refresh]);
-  const imagePlan=()=>planArtImageBatch(assets,{readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
+  const imagePlan=()=>planArtImageBatch(assets,{readReference:id=>readAssetReferenceChoice(project.id,id,accountId),readRecovery:id=>readAssetImageRecovery(project.id,id,accountId)});
   const generateBatch = async (whole=false) => {
     if(referencePreference.updating.current)return;
     const profile=batchProfile;
@@ -952,15 +957,15 @@ export function ArtSection({ project, assets, api, state, refresh, canEdit, draf
           await draftStore.save(api, project.id, asset.id, draft.content);
           asset = { ...asset, description: draft.content };
         }
-        const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
+        const referenceChoice=readAssetReferenceChoice(project.id, asset.id,accountId);
         const refAsset = resolveAssetImageReference(asset, liveAssets, referenceChoice, project.id, typeof accountId==='string'?accountId:'local');
-        if(!readAssetImageRecovery(project.id,asset.id)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
+        if(!readAssetImageRecovery(project.id,asset.id,accountId)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
         const references = assetImageReferences(refAsset);
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references },{respectReferencePreference:true});
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references },{respectReferencePreference:true,accountId});
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
         const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||episode||0, filePath: generated.filePath });
         if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');
-        clearAssetImageRecovery(project.id, asset.id);
+        clearAssetImageRecovery(project.id, asset.id,accountId);
         liveAssets=liveAssets.map(a=>a.id===asset.id?{...a,images:[...(a.images||[]),attached]}:a);
         return attached;
       }});
@@ -1107,7 +1112,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualBaseline,setManualBaseline]=useState(null);
-  const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id);
+  const [generatingAssetIds, setGeneratingAssetIds, generatingAssetIdsRef] = useAssetImageActivity(project.id,accountId);
   const referencePreference=useAssetReferencePreference({api,projectId:project.id,accountId,refresh,canEdit:canEdit&&!showArchived,onSaved:onReferencePreferenceChange,generatingIds:generatingAssetIdsRef});
   const categoryAssets = assets.filter((a) => a.category === category&&(showArchived?archivedAssets.includes(a):!archivedAssets.includes(a)));
   const propFiltering=category==='prop'&&!showArchived&&propComparison!=='all';
@@ -1116,7 +1121,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
   const pendingAssets=ungeneratedAssets(eligibleAssets);
   const displayAssets=visibleArtAssets(eligibleAssets,onlyMissing);
   const list = displayAssets.filter((asset) => [asset.name,displayAssetName(asset,assets)].some(name=>name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
-  const recoveryPlan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
+  const recoveryPlan=planAssetImageRecovery(project.id,list,{accountId,isBusy:id=>generatingAssetIdsRef.current.has(id)});
   const recoveryScope=`当前${ASSET_CATEGORIES[category]}分类 · ${search.trim()?`搜索“${search.trim()}” · `:''}${list.length} 项未生成资产（包含全部匹配妆造）`;
   const characterGroups = category === 'character' ? groupCharacterAssets(displayAssets).filter((group) => group.variants.some((asset) => list.some((item) => item.id === asset.id))) : [];
   const locations = assetLocations(category === 'character' ? characterGroups.flatMap((group) => group.variants) : list, category, assets);
@@ -1137,9 +1142,9 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
     generatingAssetIdsRef.current.add(asset.id);
     setGeneratingAssetIds((current) => new Set(current).add(asset.id));
     try {
-      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references },{recoveryOnly});
+      const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt, size, references },{recoveryOnly,accountId});
       const attached = generated?.filePath ? await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode: asset.first_episode || 0, filePath: generated.filePath }) : null;
-      if (attached) clearAssetImageRecovery(project.id, asset.id);
+      if (attached) clearAssetImageRecovery(project.id, asset.id,accountId);
       await refresh();
       return attached;
     } finally {
@@ -1149,7 +1154,7 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
   }, [api, project.id, refresh]);
 
   const baselineIds=useMemo(()=>pendingCharacterBaselines(assets),[assets]);
-  const imagePlan=(ids=selectedIds)=>planAssetCategoryBatch(assets,{category,selectedIds:ids,readReference:id=>readAssetReferenceChoice(project.id,id),readRecovery:id=>readAssetImageRecovery(project.id,id)});
+  const imagePlan=(ids=selectedIds)=>planAssetCategoryBatch(assets,{category,selectedIds:ids,readReference:id=>readAssetReferenceChoice(project.id,id,accountId),readRecovery:id=>readAssetImageRecovery(project.id,id,accountId)});
   const generateBatch = async (baselineOnly=false) => {
     if(referencePreference.updating.current)return;
     const profile=batchProfile;
@@ -1166,15 +1171,15 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
           await draftStore.save(api, project.id, asset.id, draft.content);
           asset = { ...asset, description: draft.content };
         }
-        const referenceChoice=readAssetReferenceChoice(project.id, asset.id);
+        const referenceChoice=readAssetReferenceChoice(project.id, asset.id,accountId);
         const refAsset = resolveAssetImageReference(asset, liveAssets, referenceChoice, project.id, typeof accountId==='string'?accountId:'local');
-        if(!readAssetImageRecovery(project.id,asset.id)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
+        if(!readAssetImageRecovery(project.id,asset.id,accountId)&&requiresAssetImageReference(asset, liveAssets)&&!refAsset&&referenceChoice!=='')throw new Error(missingAssetImageReferenceMessage(asset));
         const references = assetImageReferences(refAsset);
-        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references },{respectReferencePreference:true});
+        const generated = await requestAssetImage(api, project.id, asset.id, { profileId:profile?.profileId||profile?.id,protocol: profile.protocol, provider: profile.provider, libtvOwnerKey:profile.libtvOwnerKey, endpoint: profile.endpoint, apiKey: profile.apiKey, model: profile.model, prompt: buildImagePrompt(asset, refAsset, project.style, projectCharacterComposition(project), project), size: batchSize, references },{respectReferencePreference:true,accountId});
         if (!generated?.filePath) throw new Error('接口没有返回可保存的图片结果');
         const attached=await api.collabAttachGeneratedAssetImage({ projectId: project.id, assetId: asset.id, episode:asset.first_episode||0, filePath: generated.filePath });
         if(!attached?.url)throw new Error('图片已下载，云端保存尚未完成，请继续保存');
-        clearAssetImageRecovery(project.id, asset.id);
+        clearAssetImageRecovery(project.id, asset.id,accountId);
         liveAssets=liveAssets.map(a=>a.id===asset.id?{...a,images:[...(a.images||[]),attached]}:a);
         return attached;
       }});
@@ -1192,14 +1197,14 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
   };
   const recoverBatch = async () => {
     if(!canEdit||!onlyMissing||showArchived||batchRunning.current||batchBusy)return;
-    const plan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
+    const plan=planAssetImageRecovery(project.id,list,{accountId,isBusy:id=>generatingAssetIdsRef.current.has(id)});
     if(!plan.targets.length)return;
     const scope=recoveryScope, snapshot=[...plan.targets,...plan.skipped];
     batchRunning.current=true;stopImages.current=false;setBatchKind('recovery');setBatchBusy(true);setBatchError('');setRecoveryReport(null);setImageProgress({total:plan.targets.length,completed:0,failed:0});
     plan.targets.forEach(asset=>generatingAssetIdsRef.current.add(asset.id));
     setGeneratingAssetIds(current=>new Set([...current,...plan.targets.map(asset=>asset.id)]));
     try{
-      const outcome=await runAssetImageRecoveryBatch(api,project.id,snapshot,{profile:batchProfile||{},concurrency:imageConcurrency,isStopped:()=>stopImages.current,onProgress:setImageProgress,attach:(asset,result)=>api.collabAttachGeneratedAssetImage({projectId:project.id,assetId:asset.id,episode:asset.first_episode||0,filePath:result.filePath})});
+      const outcome=await runAssetImageRecoveryBatch(api,project.id,snapshot,{accountId,profile:batchProfile||{},concurrency:imageConcurrency,isStopped:()=>stopImages.current,onProgress:setImageProgress,attach:(asset,result)=>api.collabAttachGeneratedAssetImage({projectId:project.id,assetId:asset.id,episode:asset.first_episode||0,filePath:result.filePath})});
       setRecoveryReport({kind:'recovery',scope,success:outcome.results.filter(r=>r.status==='fulfilled').length,failures:outcome.results.filter(r=>r.status==='rejected').map(r=>({id:r.asset.id,name:r.asset.name,reason:readableCloudError(r.reason)})),skipped:outcome.skipped.length,busy:plan.busy.length,remaining:outcome.remaining});
       const completed=new Set(outcome.results.filter(r=>r.status==='fulfilled').map(r=>r.asset.id));
       setBatchSelectedIds(current=>current.filter(id=>!completed.has(id)));
@@ -1213,10 +1218,10 @@ export function AssetsSection({ project, assets, api, state, refresh, canEdit, d
   };
   const abandonBatch = async () => {
     if(!canEdit||!onlyMissing||showArchived||batchRunning.current||batchBusy)return;
-    const plan=planAssetImageRecovery(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
+    const plan=planAssetImageRecovery(project.id,list,{accountId,isBusy:id=>generatingAssetIdsRef.current.has(id)});
     if(!plan.targets.length)return;
     if(!(await confirmAction(`一键放弃 ${plan.targets.length} 项旧结果？\n范围：${recoveryScope}。\n仅解除这些资产的恢复状态，不删除已保存图片；上游任务不会因此取消。\n不会自动重新生成；之后手动点击生成会新建任务，并可能产生费用。`, {danger:true})))return;
-    const result=abandonAssetImageRecoveries(project.id,list,{isBusy:id=>generatingAssetIdsRef.current.has(id)});
+    const result=abandonAssetImageRecoveries(project.id,list,{accountId,isBusy:id=>generatingAssetIdsRef.current.has(id)});
     setRecoveryReport({kind:'abandoned',scope:recoveryScope,success:result.cleared.length,failures:[],skipped:result.skipped.length,busy:result.busy.length,remaining:0});setImageProgress(null);
   };
   if (!assets.length) {
@@ -1354,8 +1359,20 @@ export function InviteSection({ project, directorCloudProjectId, api, refresh })
       if (added?.id) setMembers((current) => [...current.filter((member) => member.id !== added.id && member.user_id !== added.user_id), added]);
       setUsername(''); await load(); await refresh();
       setNotice(`已邀请 ${username}。${added?.unavailableCount?`有 ${added.unavailableCount} 项素材不可用，请在分镜、音色或资产中补选。`:'对方可在「项目协作」中查看。'}`);
-    } catch (e) { setError(readableCloudError(e)); }
+    } catch (e) { setError(readableCloudError(e)); await refresh({afterCurrent:true}); }
     finally { setBusy(false); }
+  };
+
+  const recover = async () => {
+    if (busy) return;
+    setBusy(true);setError('');setNotice('');
+    try {
+      const result=await refresh({recoverShare:true,afterCurrent:true});
+      if(!result)return;
+      setNotice(result.storageMode==='cloud'?'已核实上一条邀请成功。':'已解除上一条邀请，可继续编辑或改邀。');
+      await load();
+    } catch(e){setError(readableCloudError(e));}
+    finally{setBusy(false);}
   };
 
   const assign = async () => {
@@ -1380,6 +1397,7 @@ export function InviteSection({ project, directorCloudProjectId, api, refresh })
       {notice && <div className="collab-notice">{notice}</div>}
       {tab === 'members' && (
         <>
+          {project.localSharePending&&<div className="collab-invite-maker" role="status"><span>上一条邀请结果待确认</span><button className="secondary" onClick={recover} disabled={busy}>{busy?'正在核验…':'核验并解除未完成邀请'}</button></div>}
           {project.storageMode==='local'&&<p className="collab-invite-local-notice">邀请时会共享项目和可用素材，缺失素材可稍后补选。</p>}<div className="collab-invite-maker">
             <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="输入对方注册的账号名（唯一）" />
             <select value={role} onChange={(e) => setRole(e.target.value)}>
@@ -1638,13 +1656,14 @@ function StartProjectDialog({ directorProjects, onClose, onCreate, busy, error }
 /* ================================================================
  * CollabWorkspace 主组件
  * ================================================================ */
-export function CollabWorkspace({ state, api, account }) {
+export function CollabWorkspace({ state, api, account, dataDirectory }) {
+  const projectMemory=`xz-collab-last-project:${account?.id||'local'}`,sectionMemory=`xz-collab-last-section:${account?.id||'local'}`;
   const accountScope=useRef(account?.id||'local');accountScope.current=account?.id||'local';
   const draftStore = useMemo(() => {const id=account?.id||'local';return createAssetDraftStore(localStorage,id,{isCurrent:()=>accountScope.current===id});}, [account?.id]);
   const assetOrders=useMemo(()=>new Map(),[account?.id]);
   const prepareAssets=(p,rows)=>{const next=normalizeArtAssets(retainAssetOrder(assetOrders.get(p.id)||[],projectPublishedReviewAssets(p,rows)));assetOrders.set(p.id,next);return next;};
   // 缓存优先：先展示上次的云端数据，网络请求返回后再刷新（解决“2G 般的显现慢”）
-  const cloudCache=useMemo(()=>createCloudCache(localStorage,account?.id),[account?.id]);
+  const cloudCache=useMemo(()=>createCloudCache(localStorage,account?.id,Date.now,dataDirectory),[account?.id,dataDirectory]);
   const readCache=cloudCache.read,writeCache=cloudCache.write;
   const [projects, setProjects] = useState(() => readCache('projects') || []);
   const [loading, setLoading] = useState(true);
@@ -1715,13 +1734,13 @@ export function CollabWorkspace({ state, api, account }) {
     if (restoredRef.current) return;
     restoredRef.current = true;
     const requestId = ++refreshRequestRef.current;
-    const lastId = localStorage.getItem('xz-collab-last-project') || '';
+    const lastId = localStorage.getItem(projectMemory) || '';
     if (!lastId) return;
     const cachedProject = readCache(`project-${lastId}`);
     const cachedAssets = readCache(`assets-${lastId}`);
     if (cachedProject) {
       setProject(cachedProject); setAssets(prepareAssets(cachedProject,cachedAssets || []));
-      let lastSection = localStorage.getItem('xz-collab-last-section');if(lastSection==='art-review'&&(cachedProject.myRole==='collaborator'||localStorage.getItem(`xz-review-tab:${account?.id}:${cachedProject.id}`)==='voices')){lastSection='voices';localStorage.removeItem(`xz-review-tab:${account?.id}:${cachedProject.id}`);}
+      let lastSection = localStorage.getItem(sectionMemory);if(lastSection==='art-review'&&(cachedProject.myRole==='collaborator'||localStorage.getItem(`xz-review-tab:${account?.id}:${cachedProject.id}`)==='voices')){lastSection='voices';localStorage.removeItem(`xz-review-tab:${account?.id}:${cachedProject.id}`);}
       setSection(lastSection && sectionsForRole(cachedProject.myRole).includes(lastSection) ? lastSection : sectionsForRole(cachedProject.myRole)[0]);
     }
     // 后台校验项目仍可访问并拉取最新数据
@@ -1735,7 +1754,7 @@ export function CollabWorkspace({ state, api, account }) {
       writeCache(`project-${lastId}`, p); writeCache(`assets-${lastId}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
     }).catch(() => {
-      if (current()&&!cachedProject) localStorage.removeItem('xz-collab-last-project');
+      if (current()&&!cachedProject) localStorage.removeItem(projectMemory);
     }).finally(()=>{
       if (!current()&&requestId===refreshRequestRef.current) restoredRef.current=false;
     });
@@ -1743,7 +1762,7 @@ export function CollabWorkspace({ state, api, account }) {
 
   useWorkspacePolling(current=>loadProjects({current}),{scope:account?.id,delay:12000,enabled:!project});
 
-  useEffect(() => { try { if (section) localStorage.setItem('xz-collab-last-section', section); } catch { /* noop */ } }, [section]);
+  useEffect(() => { try { if (project&&section) localStorage.setItem(sectionMemory, section); } catch { /* noop */ } }, [section,sectionMemory,project?.id]);
 
   const syncDirector = useRef(createDirectorSync());
   const refreshProject = useCallback(async (options = {}) => {
@@ -1784,14 +1803,18 @@ export function CollabWorkspace({ state, api, account }) {
         writeCache(`assets-${projectId}`,normalizedAssets);
         return p;
       }
-      let [p, a] = await Promise.all([
+      let p,a;
+      if(options.recoverShare){
+        p=await api.collabGetProject({projectId,recoverShare:true});
+        a=await api.collabListAssets({projectId});
+      }else [p,a]=await Promise.all([
         api.collabGetProject({ projectId, retryLocal:options.manual === true }),
         api.collabListAssets({ projectId }),
       ]);
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       const localSource=(state.directorProjects||[]).find(source=>source.id===p.director_project_id&&!source.cloudProjectId);
       let syncIssue='';
-      try{p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));}
+      try{if(!p.localSharePending)p=await syncDirector.current(p,localSource,payload=>api.collabUpdateProject(payload));}
       catch(error){if(String(error?.message||'').includes('project_access_denied'))throw error;syncIssue=error.message||'请稍后重试';}
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       const normalizedAssets=prepareAssets(p,a || []);
@@ -1806,11 +1829,11 @@ export function CollabWorkspace({ state, api, account }) {
     } catch (error) {
       if (requestId !== refreshRequestRef.current || !isCurrentTarget()) return;
       if (options.manual) setRefreshNotice(`刷新失败：${error.message || '请稍后重试'}，当前编辑内容已保留`);
-      if(options.assetsOnly||options.publicationComplete)throw error;
+      if(options.assetsOnly||options.publicationComplete||options.recoverShare)throw error;
       if (String(error?.message || '').includes('project_access_denied')) {
         setProject(null);
         setAssets([]);
-        localStorage.removeItem('xz-collab-last-project');
+        localStorage.removeItem(projectMemory);
         await loadProjects();
       }
     }
@@ -1839,7 +1862,7 @@ export function CollabWorkspace({ state, api, account }) {
     if (cachedProject) {
       setProject(cachedProject); setAssets(prepareAssets(cachedProject,readCache(`assets-${id}`) || []));
       setSection(sectionsForRole(cachedProject.myRole)[0]);
-      localStorage.setItem('xz-collab-last-project', id);
+      localStorage.setItem(projectMemory, id);
     }
     try {
       const [p, a] = await Promise.all([
@@ -1851,7 +1874,7 @@ export function CollabWorkspace({ state, api, account }) {
       setProject(p); setAssets(normalizedAssets);
       writeCache(`project-${id}`, p); writeCache(`assets-${id}`, normalizedAssets);
       if (!cachedProject) setSection(sectionsForRole(p.myRole)[0]);
-      localStorage.setItem('xz-collab-last-project', id);
+      localStorage.setItem(projectMemory, id);
     } catch (e) {
       if (requestId === refreshRequestRef.current && opening.accountId === accountScope.current && !cachedProject) {
         setOpenError({id, message:String(e.message || '请稍后重试').replace(/^Error invoking remote method '[^']+': Error: /,'')});
@@ -1870,7 +1893,7 @@ export function CollabWorkspace({ state, api, account }) {
     setOpeningProject(null);
     setProject(null);
     setAssets([]);
-    localStorage.removeItem('xz-collab-last-project');
+    localStorage.removeItem(projectMemory);
     loadProjects();
   };
 

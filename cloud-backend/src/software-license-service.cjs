@@ -1,5 +1,11 @@
 const {cardDigest,generateCard,normalizePublicKey,verifyDeviceProof,licenseDecision}=require('../shared/software-license.cjs');
-const READ_ONLY=new Set(['session','logout','profile-update','project-list','project-get','director-project-list','director-project-get','director-version-list','director-version-get','members-list','assets-list','tasks-list','media-list','messages-list','stats-get','asset-image-url','media-download-url','media-read-small','generation-refresh','generation-reference-list','generation-reference-release','generation-reference-cleanup','protected-skill-status','protected-skill-cancel','producer-status','is-producer']);
+const READ_ONLY=new Set([
+ 'session','logout','project-list','project-get','director-project-list','director-project-get',
+ 'director-version-list','director-version-get','director-members-list','members-list',
+ 'project-local-state','project-local-share-receipt','assets-list','tasks-list','media-list',
+ 'messages-list','stats-get','asset-image-url','media-download-url','media-read-small',
+ 'generation-reference-list','protected-skill-status','producer-status','is-producer',
+]);
 const fail=(message,status=403)=>{throw Object.assign(Error(message),{status});};
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const supportedVersion=value=>{const match=/^(\d+)\.(\d+)\.(\d+)$/.exec(String(value||''));if(!match)return false;const [major,minor,patch]=match.slice(1).map(Number);return major>2||(major===2&&(minor>8||(minor===8&&patch>=66)));};
@@ -27,19 +33,10 @@ function createLicenseService(repo){
   if(!result.allowed&&!(READ_ONLY.has(action)&&result.canSettle))fail('软件授权无效或已到期，请续卡或联系管理员');
   return result;
  }
- async function beforeLogin(user,key,activation){
-  const state=await repo.licenseState(user.id,key);if(state.exempt)return;
-  if(!key)fail('新用户请先输入卡密激活设备');
-  if(activation&&await repo.licensePending(activation,key)){
-   if(state.grant?.device_key&&state.grant.device_key!==key)fail('授权已绑定其他电脑，请联系管理员解绑');
-   if(state.grant?.revoked)fail('授权已撤销，请联系管理员');return;
-  }
-  if(state.grant&&!state.grant.device_key&&!state.grant.revoked){await repo.licenseBind(key,user.id);return;}
-  if(state.grant?.device_key===key)return; // Expired/revoked identity: read-only settlement only.
-  if(state.knownDevice)return;
-  fail('请先激活卡密；换机或重装请联系管理员解绑');
+ async function establishSession(user,rawToken,key,activation){
+  const result=await repo.createLicensedSession(user.id,rawToken,user.password_hash,key,activation);
+  return result ? {token:result.token,account:result.user,license:await decision(result.user,key,result.state)} : null;
  }
- async function afterLogin(user,key,activation){const state=await repo.licenseState(user.id,key);if(!state.exempt&&activation){await repo.licenseRedeem(activation,key,user.id);return decision(user,key);}return decision(user,key,state);}
  async function publicAction(action,payload,token,user){
   if(action==='license-route'){
    if(user){const state=await repo.licenseState(user.id,'');if(state.exempt)return decision(user,'',state);return {status:'monthly',allowed:false,authenticated:true};}
@@ -80,6 +77,6 @@ function createLicenseService(repo){
   }
   fail('授权管理操作不存在',404);
  }
- return {device,decision,authorize,beforeLogin,afterLogin,publicAction,admin};
+ return {device,decision,authorize,establishSession,publicAction,admin};
 }
 module.exports={createLicenseService,READ_ONLY};

@@ -177,7 +177,7 @@ async function performGateway(action, payload = {}, token = '', options = {}) {
       // occur after the server committed it, so it never authorizes write replay.
       const preConnection=!response&&!error.timeout&&failedBeforeConnection(error);
       if(index+1<attempts.length&&(retryable||preConnection))continue;
-      if(action==='session'&&forbidden)throw Object.assign(new Error('云端暂时无法验证登录状态'),{status:403});
+      if(action==='session'&&forbidden)throw Object.assign(new Error('云端暂时无法验证登录状态'),{status:403,transient:true});
       throw new Error(licensePreflight?NETWORK_ERROR:retryable?'云端暂时未连接，当前内容已保留，请稍后重试': '云端未确认本次保存，请刷新核对结果后重试，避免重复操作');
     } finally {clearTimeout(timer);}
   }
@@ -198,22 +198,25 @@ function createCloudAccessService(userDataDir, options = {}) {
   const clearSession = () => {store.clear();options.onInvalidSession?.();};
   const token = () => readSession()?.token || '';
   return {
-    async session({allowCached,allowForbiddenCached=false} = {}) {
+    async session({allowCached,allowForbiddenCached=false,workBuddyVerification=false} = {}) {
       const expectedEpoch = sessionEpoch;
       const saved = readSession();
       if (!saved?.token) return null;
       try {
-        const r = await gateway('session', {}, saved.token);
+        const r = await gateway('session', {}, saved.token, workBuddyVerification ? {timeoutMs:2500} : {});
         if (sessionEpoch !== expectedEpoch || token() !== saved.token) return null;
         const a = publicAccount(r.account);
         if(!a?.id || a.banned){clearSession();return null;}
-        writeSession({ token: saved.token, account: a });
+        if (!workBuddyVerification) writeSession({ token: saved.token, account: a });
         return a;
       } catch (error) {
         // Edge/WAF 403 responses do not establish application-level revocation.
         if (sessionEpoch !== expectedEpoch || token() !== saved.token) return null;
         const banned=error?.status===403&&(error.code==='ACCOUNT_BANNED'||/^账号(?:已(?:被)?)?(?:停用|封禁)[。！!]?$/.test(error.message));
         if (error?.status===401||banned) { clearSession(); return null; }
+        if (workBuddyVerification && (error.transient || !error.status || error.status >= 500)) {
+          throw Object.assign(new Error('暂时无法连接云端验证管理员身份，请重试'),{code:'WORKBUDDY_VERIFICATION_TEMPORARY'});
+        }
         if (error?.status===403&&allowForbiddenCached&&!saved.account?.banned&&saved.account?.id) return saved.account;
         if ((!error?.status || error.status >= 500) && !saved.account?.banned && saved.account?.id && await allowCached?.()) {
           if (sessionEpoch === expectedEpoch && token() === saved.token) return saved.account;

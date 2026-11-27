@@ -5,6 +5,7 @@ const {digestInvite,inviteUsable,rolesForInvite,normalizeInviteCode}=require('./
 const {emailCodeValid}=require('./email-code.cjs');
 const registrationValidation=import('../shared/registration-validation.mjs');
 const fail=(message,status=403)=>{throw Object.assign(Error(message),{status});};
+const deviceConflict=error=>error.code==='23505'&&error.constraint==='software_licenses_device_key_key';
 function extendLicenseRepository(pool){
  async function tx(work){const c=await pool.connect();try{await c.query('begin');const r=await work(c);await c.query('commit');return r;}catch(e){await c.query('rollback');throw e;}finally{c.release();}}
  const audit=(c,actor,action,target,reason='')=>c.query('insert into software_license_audit(actor_id,action,target,reason) values($1,$2,$3,$4)',[actor,action,target,reason]);
@@ -13,9 +14,9 @@ function extendLicenseRepository(pool){
   async licenseIsExempt(userId) {
    return Boolean(userId && (await pool.query('select 1 from software_license_exemptions where user_id=$1',[userId])).rowCount);
   },
-  async licenseState(userId,deviceKey){
+  async licenseState(userId,deviceKey,db=pool){
    const lookup = userId ? 'l.user_id=$1::uuid' : 'l.device_key=$2';
-   const row=(await pool.query(
+   const row=(await db.query(
     'select exists(select 1 from software_license_exemptions where user_id=$1::uuid) as exempt,'+
     ' to_jsonb(grant_row) as "grant", exists(select 1 from software_license_devices where user_id=$1::uuid and device_key=$2) as "knownDevice"'+
     ' from (values(1)) as seed(id) left join lateral (select l.*,u.banned from software_licenses l join app_users u on u.id=l.user_id where '+lookup+') grant_row on true',
@@ -31,6 +32,35 @@ function extendLicenseRepository(pool){
    await pool.query("insert into software_license_pending values($1,$2,$3,now()+interval '15 minutes')",[hash(token),row.id,key]);return {activationToken:token,expiresIn:900};
   },
   async licensePending(token,key){return (await pool.query('select p.card_id from software_license_pending p join software_license_cards c on c.id=p.card_id where p.token_hash=$1 and p.device_key=$2 and p.expires_at>now() and not c.disabled and c.redeemed_by is null and c.redeemed_at is null',[hash(token),key])).rowCount===1;},
+  async createLicensedSession(userId,token,expectedPasswordHash,key,activation){
+   try {
+    return await tx(async c=>{
+     const user=(await c.query('select '+accountSelect+' from app_users where id=$1 for update',[userId])).rows[0];
+     if(!user||user.banned||user.password_hash!==expectedPasswordHash)return null;
+     const state=await this.licenseState(user.id,key,c);
+     if(!state.exempt){
+      if(!key)fail('新用户请先输入卡密激活设备');
+      const occupied=(await c.query('select 1 from software_licenses where device_key=$1 and user_id<>$2',[key,user.id])).rowCount;
+      if(occupied)fail('此电脑已绑定其他账号');
+      if(activation){
+       state.grant=await this.licenseRedeemInTransaction(c,activation,key,user.id);
+       state.knownDevice=true;
+      }else if(state.grant&&!state.grant.device_key&&!state.grant.revoked&&Date.parse(state.grant.expires_at)>Date.now()){
+       state.grant=(await c.query('update software_licenses set device_key=$1,previous_device_key=null,updated_at=now() where user_id=$2 returning *',[key,user.id])).rows[0];
+       await c.query('insert into software_license_devices(user_id,device_key) values($1,$2) on conflict do nothing',[user.id,key]);
+       state.knownDevice=true;
+      }else if(state.grant?.device_key!==key&&!state.knownDevice){
+       fail('请先激活卡密；换机或重装请联系管理员解绑');
+      }
+     }
+     await c.query("insert into app_sessions(user_id,token_hash,expires_at) values($1,$2,now()+interval '7 days')",[user.id,hash(token)]);
+     return {token,user,state};
+    });
+   } catch(error) {
+    if(deviceConflict(error))fail('此电脑已绑定其他账号');
+    throw error;
+   }
+  },
   async licenseRedeemInTransaction(c,token,key,userId){
    // Lock account first: serializes different cards and device rebinding for one user.
    const u=(await c.query('select banned from app_users where id=$1 for update',[userId])).rows[0];if(!u||u.banned)fail('账号不可用');
@@ -46,7 +76,7 @@ function extendLicenseRepository(pool){
    if(card.order_id){const order=(await c.query('select * from software_license_orders where id=$1 for update',[card.order_id])).rows[0];if(order.user_id&&order.user_id!==userId)fail('年度订单已绑定其他账号');await c.query('update software_license_orders set user_id=$2 where id=$1',[card.order_id,userId]);}
    const now=(await c.query('select clock_timestamp() as now')).rows[0].now;
    const expires=addCalendarMonth(Math.max(new Date(now).getTime(),new Date(grant?.expires_at||0).getTime()));
-   const r=await c.query('insert into software_licenses(user_id,device_key,expires_at) values($1,$2,$3) on conflict(user_id) do update set device_key=$2,expires_at=$3,updated_at=now() returning *',[userId,key,expires]);
+   const r=await c.query('insert into software_licenses(user_id,device_key,expires_at) values($1,$2,$3) on conflict(user_id) do update set device_key=$2,expires_at=$3,updated_at=now() returning *',[userId,key,expires]).catch(error=>{if(deviceConflict(error))fail('此电脑已绑定其他账号');throw error;});
    await c.query('insert into software_license_devices(user_id,device_key) values($1,$2) on conflict do nothing',[userId,key]);
    await c.query('update software_license_cards set redeemed_by=$2,redeemed_at=now() where id=$1',[card.id,userId]);await audit(c,userId,'redeem',card.id);return r.rows[0];
   },
@@ -65,7 +95,6 @@ function extendLicenseRepository(pool){
    const used=await c.query('update invites set used_count=used_count+1 where id=$1 and (max_uses is null or used_count<max_uses) returning id',[invite.id]);if(!used.rowCount)fail('邀请码已用完，请重新获取',400);await c.query('delete from email_codes where email=$1',[email]);
    const token=crypto.randomUUID()+'-'+crypto.randomUUID();const license=await this.licenseRedeemInTransaction(c,activation,key,user.id);await c.query('insert into app_sessions(user_id,token_hash,expires_at) values($1,$2,now()+interval \'7 days\')',[user.id,hash(token)]);return {user,token,license};
   });},
-  async licenseBind(key,userId){return tx(async c=>{await c.query('select id from app_users where id=$1 for update',[userId]);const r=await c.query('update software_licenses set device_key=$1,previous_device_key=null,updated_at=now() where user_id=$2 and device_key is null and not revoked returning *',[key,userId]);if(r.rowCount)await c.query('insert into software_license_devices(user_id,device_key) values($1,$2) on conflict do nothing',[userId,key]);return r.rows[0];});},
   async licenseOverview(){const [cards,grants,exemptions,orders,events]=await Promise.all([
    pool.query('select id,hint,note,order_id,month_number,disabled,redeemed_by,redeemed_at,created_at from software_license_cards order by created_at desc limit 500'),
    pool.query('select l.*,u.username from software_licenses l join app_users u on u.id=l.user_id order by expires_at'),

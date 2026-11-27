@@ -9,3 +9,20 @@ test('monitor continues explicitly hidden active jobs while leaving old archived
   {id:'normal',provider:'likeai',kind:'video',status:'submitted'}];},generationRefresh:async({id})=>{refreshed.push(id);return{id,status:'success'};}};
  monitor({state:{},api,account:{id:'test'}});const cleanup=effect();await new Promise(resolve=>setImmediate(resolve));cleanup();assert.deepEqual(refreshed,['hidden','normal']);
 });
+
+test('a foreign task and a failed refresh do not starve the rest of the monitor pass',async()=>{
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../src/v06/GenerationMonitor.jsx'),'utf8').replace(/^import[^\n]*\n/gm,'').replace('export function','function');
+ let effect;const monitor=new Function('useEffect','useRef','generationMediaProfiles','historicalMediaProfile','setInterval','clearInterval','window',source+';return GenerationMonitor;')(
+  fn=>effect=fn,value=>({current:value}),()=>[],()=>null,()=>1,()=>{}, {addEventListener(){},removeEventListener(){}});
+ const refreshed=[],recorded=[];
+ const api={generationList:async()=>[
+  {id:'foreign',referenceAccountId:'other',provider:'likeai',kind:'video',status:'submitted'},
+  {id:'broken',provider:'likeai',kind:'video',status:'submitted'},
+  {id:'tail',provider:'likeai',kind:'image',status:'submitted',projectId:'p',filePath:'tail.png'},
+ ],generationRefresh:async({id})=>{
+  refreshed.push(id);if(id!=='tail')throw Error('not available');
+  return {id,status:'success',kind:'image',projectId:'p',filePath:'tail.png'};
+ },collabListMedia:async()=>[],collabRecordGeneratedMedia:async()=>({id:'saved'}),generationRecorded:async result=>recorded.push(result)};
+ monitor({state:{},api,account:{id:'owner'}});const cleanup=effect();await new Promise(resolve=>setImmediate(resolve));cleanup();
+ assert.deepEqual(refreshed,['broken','tail']);assert.deepEqual(recorded,[{id:'tail',mediaId:'saved'}]);
+});

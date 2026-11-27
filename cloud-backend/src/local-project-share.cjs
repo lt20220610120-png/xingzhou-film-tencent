@@ -1,4 +1,4 @@
-const { createHash } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const { collabGenre, editableCollab } = require('./collab-episodes.cjs');
 const { resolveShareDirectorSource } = require('./director-source.cjs');
 const { validateImageComposition } = require('./image-composition.cjs');
@@ -10,7 +10,7 @@ const ROLES = new Set(['producer', 'artist', 'collaborator', 'artist_collaborato
 const CATEGORIES = new Set(['character', 'scene', 'prop']);
 const MEDIA_KINDS = new Set(['image', 'asset-image', 'video', 'audio', 'file', 'doc']);
 const PENDING = /\[LOCAL_SHARE_PENDING:([a-f0-9-]+):([a-f0-9-]+):([a-z_]+)\]/;
-const RECEIPT = /\[LOCAL_SHARE_RECEIPT:([a-f0-9-]+):([a-f0-9-]+):([a-z_]+)\]/;
+const RECEIPT = /\[LOCAL_SHARE_RECEIPT:([a-f0-9-]+):([a-f0-9-]+):([a-z_]+)\]/g;
 
 function fail(status, message, code) {
   throw Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
@@ -181,8 +181,15 @@ function readRevision(value, optional = false) {
 }
 
 function checkOwner(project, user) {
-  if (!project || project.owner_id !== user.id || !editableCollab(project, {allowPendingShare:true})) fail(404, '项目不存在或无权访问');
+  checkReceiptOwner(project,user);
+  if (!editableCollab(project, {allowPendingShare:true})) fail(404, '项目不存在或无权访问');
   if (sourceProtection(project) !== 'active') fail(410, '项目已删除，请先恢复');
+}
+
+function checkReceiptOwner(project,user) {
+  if (!project || project.owner_id !== user.id || String(project.genre||'').includes('[DIRECTOR_PROJECT]')) {
+    fail(404,'项目不存在或无权访问');
+  }
 }
 
 function pendingShare(project) {
@@ -233,12 +240,14 @@ function receiptProject({id,name,owner_id,owner_name,director_project_id,created
   return {id,name,owner_id,owner_name,director_project_id,created_at,updated_at,episodeCount:episodeCount??episodes?.length??0};
 }
 
-async function completedShare(client, project, requestId, target, invited) {
-  const marker = String(project.genre || '').match(RECEIPT);
-  if (marker?.[1] !== requestId) return null;
-  if (!sameRequest(marker, requestId, target, invited)) fail(409, '邀请请求与已完成的记录不一致');
-  const member = (await client.query('select * from collab_members where project_id=$1 and user_id=$2',[project.id,target.id])).rows.find(row => row.user_id === target.id && row.role === invited.role);
-  if (!member) fail(409, '邀请已经处理，成员权限已变化，请打开云端项目查看');
+async function completedShare(client, project, requestId, invited) {
+  const marker = [...String(project.genre || '').matchAll(RECEIPT)].find(match=>match[1]===requestId);
+  if (!marker) return null;
+  const [, , userId, role]=marker;
+  if (role !== invited.role) fail(409, '邀请请求与已完成的记录不一致');
+  const current = (await client.query('select * from collab_members where project_id=$1 and user_id=$2',[project.id,userId])).rows.find(row=>row.user_id===userId);
+  // Account deletion and later membership edits do not undo a committed snapshot.
+  const member = current || {id:userId,project_id:project.id,user_id:userId,role,removed:true};
   return { project:receiptProject(project), member };
 }
 
@@ -317,10 +326,36 @@ function createLocalShareRepository(pool) {
       const projectId=id(payload.projectId,'项目'),requestId=id(payload.requestId,'邀请请求'),invited=invitation(payload.invitation);
       return transaction(true,async client=>{
         const project=(await client.query(`select ${receiptFields} from collab_projects where id=$1`,[projectId])).rows[0];
-        checkOwner(project,user);
-        if(String(project.genre||'').match(RECEIPT)?.[1]!==requestId)return {completed:null};
-        const target=await findInvitee(client,invited,user,false);
-        return {completed:await completedShare(client,project,requestId,target,invited)};
+        checkReceiptOwner(project,user);
+        return {completed:await completedShare(client,project,requestId,invited)};
+      });
+    },
+    async recoverLocalProjectShare(payload,user) {
+      const projectId=id(payload.projectId,'项目'),requestId=id(payload.requestId,'邀请请求');
+      const expected=readRevision(payload.revision),invited=invitation(payload.invitation);
+      return transaction(false,async client=>{
+        let project=await projectRow(client,projectId,true);
+        if (!project) return {released:true,revision:null};
+        checkReceiptOwner(project,user);
+        const completed=await completedShare(client,project,requestId,invited);
+        if (completed) return {completed};
+        const pending=pendingShare(project);
+        if (pending) {
+          if (pending[1]===requestId) {
+            const marker='[LOCAL_SHARE_PENDING:'+randomUUID()+':'+pending[2]+':'+pending[3]+']';
+            await client.query('update collab_projects set genre=$2,updated_at=now() where id=$1 returning *',
+              [projectId,String(project.genre).replace(PENDING,marker)]);
+          }
+          return {released:true,revision:null};
+        }
+        let current=await snapshot(client,project,true);
+        if (current.revision===expected) {
+          project=(await client.query(`update collab_projects set updated_at=
+            greatest(clock_timestamp(),coalesce(updated_at,'-infinity')+interval '1 millisecond')
+            where id=$1 returning *`,[projectId])).rows[0];
+          current=await snapshot(client,project,true);
+        }
+        return {released:true,revision:current.revision};
       });
     },
     async localProjectState(payload, user) {
@@ -341,9 +376,14 @@ function createLocalShareRepository(pool) {
       const expected = readRevision(payload.revision, true);
       const invited = invitation(payload.invitation);
       return transaction(false, async client => {
-        const target = await findInvitee(client, invited, user);
         let project = await projectRow(client, projectId, true);
         if (!project && expected !== null) fail(404, '原云端项目不存在，请核对后再邀请');
+        if (project) {
+          checkReceiptOwner(project,user);
+          const completed=await completedShare(client,project,requestId,invited);
+          if (completed) return {revision:expected,completed};
+        }
+        const target = await findInvitee(client, invited, user);
         if (!project) {
           const genre = '[COLLAB_PROJECT]\n[LOCAL_SHARE_PENDING:' + requestId + ':' + target.id + ':' + invited.role + ']';
           const created = await client.query(
@@ -354,7 +394,7 @@ function createLocalShareRepository(pool) {
           if (created.rows.length) await insertMember(client, projectId, user, 'producer');
         }
         checkOwner(project, user);
-        const completed = await completedShare(client, project, requestId, target, invited);
+        const completed = await completedShare(client, project, requestId, invited);
         if (completed) return { revision:expected, completed };
         let current = await snapshot(client, project, true);
         checkSoleOwner(current.members, user);
@@ -394,19 +434,20 @@ function createLocalShareRepository(pool) {
       const invited = invitation(payload.invitation);
       return transaction(false, async client => {
         const project = await projectRow(client, projectId, true);
-        checkOwner(project, user);
-        const target = await findInvitee(client, invited, user);
-        const completed = await completedShare(client, project, requestId, target, invited);
+        checkReceiptOwner(project,user);
+        const completed = await completedShare(client,project,requestId,invited);
         if (completed) return completed;
+        checkOwner(project,user);
         const current = await snapshot(client, project, true);
         checkSoleOwner(current.members, user);
         checkRevision(current.revision, expected);
+        const target = await findInvitee(client, invited, user);
         const pending = pendingShare(project);
         if (pending && !sameRequest(pending, requestId, target, invited)) fail(409, '已有其他邀请准备，请重新核对协作者');
 
         const next = validateSnapshot(payload, projectId);
         let directorId = project.director_project_id || '';
-        let markers = String(project.genre || '').replace(PENDING, '').replace(RECEIPT, '');
+        let markers = String(project.genre || '').replace(PENDING, '');
         if (pending) {
           const source = await resolveShareDirectorSource(client, next.project.director_project_id, payload.directorCloudProjectId, user.id);
           directorId = source.id;

@@ -1,4 +1,6 @@
 const crypto = require('node:crypto');
+const VERIFIED_READ_MS = 15_000;
+const TRANSIENT_GRACE_MS = 150_000;
 
 function assertTrustedFrame(event, win) {
   if (!win || win.isDestroyed() || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error('WorkBuddy 仅允许从行舟管理后台操作');
@@ -11,13 +13,13 @@ function normalizeBounds(value, size) {
   return { x, y, width: Math.max(0, Math.min(size.width - x, Math.round(value.width))), height: Math.max(0, Math.min(size.height - y, Math.round(value.height))) };
 }
 
-function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebContentsView, session, shell, onState = () => {}, setInterval: interval = setInterval, clearInterval: clear = clearInterval }) {
-  let epoch = 0, boundsEpoch = 0, view = null, partition = null, timer = null, authorizedAt = 0, authorizedToken = '', pageToken = '', verifying = null;
+function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebContentsView, session, shell, onState = () => {}, now = Date.now, setInterval: interval = setInterval, clearInterval: clear = clearInterval }) {
+  let epoch = 0, identityEpoch = 0, boundsEpoch = 0, view = null, partition = null, timer = null, verified = null, pageToken = '', verifying = null;
   let pageReady = false, viewBounds = null;
   let progress = { busy: false, stage: 'idle', message: '' };
   let startup = null;
   function destroyPage() {
-    clear(timer); timer = null; authorizedAt = 0; authorizedToken = ''; pageToken = '';
+    clear(timer); timer = null; pageToken = '';
     const oldView = view, oldSession = partition; view = null; partition = null; pageReady = false; viewBounds = null;
     // Native content sits above the replacement DOM during identity teardown.
     try { oldView?.setVisible(false); } catch {}
@@ -26,23 +28,46 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     return Promise.allSettled([oldSession?.clearStorageData(), oldSession?.closeAllConnections()]);
   }
   async function close() { epoch++; await destroyPage(); return true; }
-  async function denied(message) {
+  async function revoke(message = '登录已失效，请重新连接 WorkBuddy 控制面板') {
+    identityEpoch++;
+    verified = null;
+    verifying = null;
+    const hadPage = Boolean(view || partition);
     await close();
-    try { onState({ closed: true, error: message, reason: 'authorization' }); } catch {}
+    if (hadPage) {
+      try { onState({ closed: true, error: message, reason: 'authorization' }); } catch {}
+    }
   }
   async function authorize(expected = epoch, fresh = true) {
     const token = accessService.token();
-    if (!fresh && authorizedToken === token && authorizedAt > Date.now() - 15000) return;
-    if (!token) { await denied('请使用行舟影视管理员账号登录'); throw new Error('请使用行舟影视管理员账号登录'); }
+    if (expected !== epoch) throw new Error('控制面板打开已取消或登录已失效');
+    if (!token || (pageToken && pageToken !== token)) {
+      const message = token ? '登录已变更，请重新连接 WorkBuddy 控制面板' : '请使用行舟影视管理员账号登录';
+      await revoke(message);
+      throw new Error(message);
+    }
+    if (verified?.token !== token) verified = null;
+    if (!fresh && verified && now() - verified.at < VERIFIED_READ_MS) return;
     let pending = verifying;
     if (!pending || pending.token !== token || pending.epoch !== expected) {
-      pending = { token, epoch: expected, promise: accessService.session() }; verifying = pending;
+      pending = { token, epoch: expected, promise: accessService.session({ workBuddyVerification: true }) }; verifying = pending;
     }
-    let account;
-    try { account = await pending.promise; } finally { if (verifying === pending) verifying = null; }
+    let account, failure;
+    try { account = await pending.promise; } catch (error) { failure = error; }
+    finally { if (verifying === pending) verifying = null; }
     if (expected !== epoch || token !== accessService.token()) throw new Error('控制面板打开已取消或登录已失效');
-    if (account?.isAdmin !== true || account.banned === true) { await denied('当前行舟管理员身份无法验证，请重新连接'); throw new Error('仅当前有效的行舟影视管理员可管理 WorkBuddy'); }
-    authorizedToken = token; authorizedAt = Date.now();
+    if (failure?.code === 'WORKBUDDY_VERIFICATION_TEMPORARY') {
+      if (verified?.token === token && now() - verified.at < TRANSIENT_GRACE_MS) return;
+      const message = '暂时无法连接云端验证管理员身份，请重试';
+      if (view || partition) await revoke(message);
+      throw new Error(message);
+    }
+    if (account?.isAdmin !== true || account.banned === true) {
+      const message = '仅当前有效的行舟影视管理员可管理 WorkBuddy';
+      await revoke(message);
+      throw new Error(message);
+    }
+    verified = { token, at: now() };
   }
   function setBounds(bounds) {
     boundsEpoch++;
@@ -59,7 +84,7 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     await authorize(ticket);
     if (ticket !== epoch || ownView !== view) return false;
     if (!token || token !== accessService.token()) {
-      await denied('登录已变更，请重新连接 WorkBuddy 控制面板');
+      await revoke('登录已变更，请重新连接 WorkBuddy 控制面板');
       throw new Error('登录已变更，请重新连接 WorkBuddy 控制面板');
     }
     // A later hide wins over a slow authorization response.
@@ -107,18 +132,32 @@ function createWorkBuddyPanel({ getWindow, accessService, service, updater, WebC
     try { await ownView.webContents.loadURL(origin); } catch (error) { if (ticket === epoch) await close(); throw new Error('WorkBuddy 页面加载失败，请重新连接'); }
     if (ticket !== epoch) throw new Error('控制面板打开已取消');
     pageReady = true; ownView.setVisible(Boolean(viewBounds?.width > 0 && viewBounds?.height > 0));
-    timer = interval(() => { authorize(ticket).then(() => { if (ticket === epoch) return ownSession.cookies.set(service.sessionCookie(status.root)); }).catch(() => { if (ticket === epoch) return close(); }); }, 60000);
+    timer = interval(() => {
+      // A momentarily locked users file can be retried while the last
+      // five-minute loopback cookie is still valid.
+      authorize(ticket).then(() => { if (ticket === epoch) return ownSession.cookies.set(service.sessionCookie(status.root)); }).catch(() => {});
+    }, 60000);
     timer?.unref?.(); return status;
   }
   async function status() { await authorize(); return service.status(); }
-  async function checkUpdate() { await authorize(); return updater.check(); }
+  async function checkUpdate() {
+    await authorize();
+    const token = accessService.token(), identity = identityEpoch;
+    const release = await updater.check();
+    if (identity !== identityEpoch || token !== accessService.token()) throw new Error('登录已变更，请重新连接 WorkBuddy 控制面板');
+    return release;
+  }
   async function update() {
     await authorize(); if (progress.busy) throw new Error('WorkBuddy 正在更新');
     progress = { busy: true, stage: 'prepare', message: '正在准备更新' };
-    const pendingStartup = startup;
-    try { await close(); await pendingStartup?.catch(() => {}); await updater.update(); const result = await service.status(); progress = { busy: false, stage: 'complete', message: '控制面板更新完成' }; return result; }
+    const pendingStartup = startup, token = accessService.token(), identity = identityEpoch;
+    const authorizeInstall = async () => {
+      if (identity !== identityEpoch || token !== accessService.token()) throw new Error('登录已变更，请重新连接 WorkBuddy 控制面板');
+      await authorize();
+    };
+    try { await close(); await pendingStartup?.catch(() => {}); await updater.update({ authorizeInstall }); const result = await service.status(); progress = { busy: false, stage: 'complete', message: '控制面板更新完成' }; return result; }
     catch (error) { progress = { busy: false, stage: 'error', message: error.message, error: error.message }; throw error; }
   }
-  return { open, resume, close, revoke: close, setBounds, status, authorize, checkUpdate, update, isUpdating: () => progress.busy, updateState: async () => { await authorize(); return { ...progress }; }, onProgress: (next) => { progress = { ...progress, ...next, busy: true }; } };
+  return { open, resume, close, revoke, setBounds, status, authorize, checkUpdate, update, isUpdating: () => progress.busy, updateState: async () => { await authorize(); return { ...progress }; }, onProgress: (next) => { progress = { ...progress, ...next, busy: true }; } };
 }
 module.exports = { createWorkBuddyPanel, normalizeBounds, assertTrustedFrame };

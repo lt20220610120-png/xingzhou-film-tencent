@@ -39,8 +39,8 @@ function writePreferenceRows(update) {
 }
 qa.preferences=()=>readPreferenceRows().map(({id,noReferenceImage,adoptedImageId})=>({id,noReferenceImage:Boolean(noReferenceImage),adoptedImageId:adoptedImageId||null}));
 localStorage.setItem('xz-role', 'director');
-localStorage.setItem('xz-director-last-project', director.id);
-localStorage.setItem('xz-director-last-pane', ep.id);
+localStorage.setItem(`xz-director-last-project:${account.id}`, director.id);
+localStorage.setItem(`xz-director-last-pane:${account.id}`, ep.id);
 const answers = {
   authSession: account, licenseCheck: {status:'active', allowed:true, authenticated:true}, onLicenseState: null, appVersion:'2.8.196',
   checkUpdate: null, storageInfo: {dataDir:'isolated',dataFile:'isolated',engine:'fixture'},
@@ -94,7 +94,7 @@ if(fixture.has('asset-image-delete')){
   const bridge=window.assetDeletionFixture;
   const active=await bridge.state();
   if(localStorage.getItem('qa-asset-delete-project')!==active.projectId){
-    localStorage.removeItem('xz-collab-last-project');
+    localStorage.removeItem(`xz-collab-last-project:${account.id}`);
     localStorage.setItem('qa-asset-delete-project',active.projectId);
   }
   Object.assign(answers,{appVersion:'2.8.207',collabListProjects:()=>bridge.call('listProjects'),
@@ -106,8 +106,8 @@ if(fixture.has('storyboard-duration209')){
   const bridge=window.storyboard209Fixture;
   const active=await bridge.bootstrap();
   Object.assign(saved,{directorProjects:[active.director],mediaProfiles:active.profiles,activeVideoApiId:active.profiles[0].id});
-  localStorage.setItem('xz-director-last-project',active.director.id);
-  localStorage.setItem('xz-director-last-pane',active.director.episodes[0].id);
+  localStorage.setItem(`xz-director-last-project:${account.id}`,active.director.id);
+  localStorage.setItem(`xz-director-last-pane:${account.id}`,active.director.episodes[0].id);
   Object.assign(answers,{
     appVersion:'2.8.209',loadDirectorProjects:saved.directorProjects,
     collabListProjects:()=>bridge.call('listProjects'),collabGetProject:p=>bridge.call('getProject',p),

@@ -49,7 +49,7 @@ function GenerationWorkbenchTools({scopeKey,settings,progress,children}){
 export function Shot({shot,episode,epNumber,scene,project,assets,media,api,state,canEdit,refresh,loadMedia,tasks,onDelete,onProjectChange,promptBinding,accountId,defaults,bindingLoading=false,bindingReadError='',onOpenReview,captureReferenceScroll}) {
  const materialEntry=promptBinding?.snapshot?.entries?.find(e=>e.id===(shot.sourcePromptId||shot.id)||e.label===shot.label&&e.prompt===(shot.sourceContent||shot.content));
  const material=materialEntry&&promptMaterialRow(promptBinding,materialEntry);
- const storageKey=storyboardDraftKey(project.id,shot);
+ const storageKey=storyboardDraftKey(project.id,shot,accountId);
  const editable=value=>({...value,referenceBindingMode:'storyboard',bindingIssue:'',storyboardPublicationId:shot.storyboardPublicationId||''});
  const baseFor=row=>({content:row.content,generationConfig:row.generationConfig,durationEstimate:row.durationEstimate});
  const read=()=>readStoryboardDraft(storageKey);
@@ -205,7 +205,7 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
    const selected=episodes.filter(ep=>target==='project'||ep.id===episode?.id).flatMap(ep=>storyboardShots(ep).filter(shot=>target!=='scene'||String(shot.label||'').startsWith(currentScene+'-')).map(shot=>({ep,shot})));
    const labelsById=new Map(selected.map(({shot})=>[shot.id,shot.label||shot.id]));
    for(const {ep,shot} of selected){
-    const draft=readStoryboardDraft(storyboardDraftKey(project.id,shot));
+    const draft=readStoryboardDraft(storyboardDraftKey(project.id,shot,accountId));
     if(hasUnsavedStoryboardTimingEdit(shot,draft)){
      excludedShotIds.push(shot.id);
      continue;
@@ -326,7 +326,7 @@ export function StoryboardWorkbench({project,assets,api,state,refresh,canEdit,on
   </section>
   <DeleteConfirm open={Boolean(deleteTarget)} title="删除分镜" name={deleteTarget?.label} detail={deleting?'正在删除…':'确认删除这条分镜？生成的视频与素材会保留，导演工作台原提示词不会删除。'} onCancel={()=>!deleting&&setDeleteTarget(null)} onConfirm={async()=>{
    if(deleting)return;setDeleting(true);setError('');
-   try{const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',editPolicy:'direct',storyboardPublicationId:deleteTarget.storyboardPublicationId,operation:'delete',shotId:deleteTarget.id,base:{content:deleteTarget.content,generationConfig:deleteTarget.generationConfig}});onProjectChange(saved);localStorage.removeItem(`xz-shot-draft:${project.id}:${deleteTarget.id}`);setDeleteTarget(null);}catch(e){setError(e.message);setDeleteTarget(null);}finally{setDeleting(false);}
+   try{const saved=await api.collabPatchStoryboard({projectId:project.id,episodeId:episode.id,promptEditionId:episode.promptEditionId||'legacy',editPolicy:'direct',storyboardPublicationId:deleteTarget.storyboardPublicationId,operation:'delete',shotId:deleteTarget.id,base:{content:deleteTarget.content,generationConfig:deleteTarget.generationConfig}});onProjectChange(saved);queueDraft(storyboardDraftKey(project.id,deleteTarget,accountId),null);setDeleteTarget(null);}catch(e){setError(e.message);setDeleteTarget(null);}finally{setDeleting(false);}
   }}/>
  </div><div ref={scrollReserve} aria-hidden="true"/></>;
 }

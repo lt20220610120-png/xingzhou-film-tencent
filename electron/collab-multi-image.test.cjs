@@ -53,7 +53,7 @@ test('单图下载使用文件保存对话框，整集下载才创建文件夹',
 
 test('美术和资产总览均使用同步请求锁，并忽略过期的并发刷新', () => {
   const ui = read('src/v06/CollabWorkspace.jsx');
-  assert.ok((ui.match(/useAssetImageActivity\(project.id\)/g) || []).length >= 2);
+  assert.ok((ui.match(/useAssetImageActivity\(project\.id,accountId\)/g) || []).length >= 2);
   assert.match(ui, /refreshRequestRef/);
   assert.match(ui, /requestId !== refreshRequestRef\.current/);
   assert.match(ui, /const openProject = async \(id\) => \{[\s\S]*?const requestId = \+\+refreshRequestRef\.current/);

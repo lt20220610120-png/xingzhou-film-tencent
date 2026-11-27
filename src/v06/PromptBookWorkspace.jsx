@@ -18,7 +18,7 @@ const referencesInBook=book=>[
 const filePaths=refs=>refs.flatMap(ref=>typeof ref?.filePath==='string'&&ref.filePath?[ref.filePath]:[]);
 
 export function PromptBookWorkspace({state,setState,getState=()=>state,saveLocal,api,onSubmit,accountId}){
- const workflow=state.generationWorkflow||{},books=(workflow.books||[]).filter(book=>(!(book.linkedProjectId||book.sourceLinkedProjectId)||book.accountId===accountId)&&(!book.importedBinding||book.importedBinding.accountId===accountId));
+ const workflow=state.generationWorkflow||{},books=(workflow.books||[]).filter(book=>(book.accountId||book.importedBinding?.accountId)===(accountId||'local'));
  const book=books.find(b=>b.id===workflow.selectedBookId)||books[0];
  const entry=book?.entries.find(e=>e.id===book.selectedEntryId)||book?.entries[0];
  const outline=book?bookOutline(book):[];
@@ -73,7 +73,8 @@ export function PromptBookWorkspace({state,setState,getState=()=>state,saveLocal
    if(!api.importFullScript)throw new Error('请在桌面软件内导入文档。');
    const document=await api.importFullScript();if(!document)return;
    const parsed=parsePromptBook(document.content,document.fileName);
-   const next=standalone===true?beginImportedBinding(parsed,accountId):parsed;
+   const owned={...parsed,accountId:accountId||'local'};
+   const next=standalone===true?beginImportedBinding(owned,accountId):owned;
    changeWorkflow(workflow=>({...workflow,selectedBookId:next.id,books:[...(workflow.books||[]),next]}));
    setNotice(`已读取 ${next.entries.length} 条提示词。每条修改自动保存；重复编号已按文档出现顺序区分。`);
   }catch(e){setError(e.message);}finally{importing.current=false;setBusy(false);}
@@ -124,9 +125,9 @@ export function PromptBookWorkspace({state,setState,getState=()=>state,saveLocal
      const jobs=await api.generationList({includeArchived:true})||[];
      const localRefs=[];
      for(let index=0;index<localStorage.length;index++){
-      const key=localStorage.key(index);if(key!=='xz-generation-drafts'&&!key?.startsWith('xz-shot-draft:'))continue;
+      const key=localStorage.key(index),generationKey=key==='xz-generation-drafts'||key?.startsWith('xz-generation-drafts:');if(!generationKey&&!key?.startsWith('xz-shot-draft:'))continue;
       const queued=readQueuedDraft(key),data=queued.found?queued.value:JSON.parse(localStorage.getItem(key)||'{}');
-      if(key==='xz-generation-drafts')localRefs.push(...Object.values(data||{}).flatMap(d=>d?.references||[]));
+      if(generationKey)localRefs.push(...Object.values(data||{}).flatMap(d=>d?.references||[]));
       else if(Array.isArray(data?.value?.references))localRefs.push(...data.value.references);
      }
      const retainedPaths=filePaths([...(getState().generationWorkflow?.books||[]).flatMap(referencesInBook),...jobs.flatMap(job=>job.references||[]),...localRefs]);

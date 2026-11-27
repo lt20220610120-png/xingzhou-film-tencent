@@ -154,6 +154,7 @@ function createCollabService(getSession, {callGateway=gateway, upload=uploadToBu
     localProjectState: p => call('project-local-state',p),
     prepareLocalShare: p => call('project-local-share-prepare',p),
     readLocalShareReceipt: p => call('project-local-share-receipt',p),
+    recoverLocalShare: p => call('project-local-share-recover',p),
     commitLocalShare: p => callGateway('project-local-share',p,session().token || '',{timeoutMs:120000}),
     createProject: (p) => call('project-create', p), listProjects: () => call('project-list', {summary:true}), getProject: (p) => call('project-get', p), updateProject: (p) => call('project-update', p), linkDirector: (p) => call('project-link-director', p), setProjectLocked: (p) => call('project-lock', p), deleteProject: (p) => call('project-delete', p), restoreProject: (p) => call('project-restore', p),
     createDirectorProject: (p) => call('director-project-create', p), listDirectorProjects: (p={}) => call('director-project-list',p), getDirectorProject: (p) => call('director-project-get', p), updateDirectorProject: (p) => call('director-project-update', p), deleteDirectorProject: (p) => call('director-project-delete', p), setDirectorProjectLocked: (p) => call('director-project-lock', p),

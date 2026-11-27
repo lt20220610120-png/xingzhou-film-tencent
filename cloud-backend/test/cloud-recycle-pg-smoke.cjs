@@ -30,10 +30,10 @@ async function run(){
   await repo.softDeleteProject(copy,'owner');
   await client.query("update collab_projects set genre='[COLLAB_PROJECT]\n[RECYCLE_UNTIL:2000-01-01]',purge_after='2000-01-01' where id=$1",[copy]);
   assert.equal((await handleAction('project-restore',{projectId:copy},{id:'owner'},repo)).status,410);
-  assert.equal((await repo.directorAssociationStates([{projectId:'local-original',collaborationProjectId:copy}]))[0].status,'protected');
+  assert.equal((await repo.directorAssociationStates([{projectId:'local-original',collaborationProjectId:copy}],'owner'))[0].status,'protected');
   assert.equal(await repo.deleteDirectorProject(dir,'invited'),null);
   assert.ok(await repo.deleteDirectorProject(dir,'owner'));
-  assert.equal((await repo.directorAssociationStates([{projectId:'local-original',collaborationProjectId:copy}]))[0].status,'released');
+  assert.equal((await repo.directorAssociationStates([{projectId:'local-original',collaborationProjectId:copy}],'owner'))[0].status,'released');
   console.log('CLOUD_RECYCLE_PG_SMOKE_PASS: 3-day protection, owner-only restore/delete, expiry and stale-link release; temporary tables rolled back.');
  }finally{await client.query('ROLLBACK');client.release();await pool.end();}
 }

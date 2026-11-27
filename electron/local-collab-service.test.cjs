@@ -304,6 +304,39 @@ test('a lost commit receipt keeps the original invitation until its outcome is c
   assert.equal((await f.setup().addMember(original)).id,'confirmed');
 });
 
+test('an invalidated invitee releases an unknown share only after the cloud fences its request', async t => {
+  let previous, release=false;
+  const f=fixture(t,{
+    prepareLocalShare: p=>{
+      if(p.requestId===previous)throw Object.assign(Error('协作者已停用'),{status:403});
+      return {revision:'prepared',pending:true};
+    },
+    commitLocalShare: p=>{
+      if(!previous){previous=p.requestId;throw Error('提交超时');}
+      assert.notEqual(p.requestId,previous);
+      return {project:{id:p.projectId},member:{id:'new-member'}};
+    },
+    readLocalShareReceipt:()=>({completed:null}),
+    recoverLocalShare: p=>{
+      assert.equal(p.requestId,previous);
+      assert.equal(p.revision,'prepared');
+      return release?{released:true,revision:null}:{};
+    },
+  });
+  const service=f.setup(),project=await service.createProject(source);
+  const p={projectId:project.id,username:'old_member',role:'artist'};
+  await assert.rejects(service.addMember(p),/提交超时/);
+  await assert.rejects(service.addMember(p),/已停用/);
+  assert.equal((await service.getProject(p)).localSharePending,true);
+  await assert.rejects(service.updateProject({...p,updates:{name:'应保持原名'}}),/待确认/);
+  release=true;
+  await assert.rejects(service.addMember(p),/已解除|已停用/);
+  assert.equal((await service.getProject(p)).localSharePending,undefined);
+  await service.updateProject({...p,updates:{name:'保留的本地编辑'}});
+  assert.equal((await service.getProject(p)).name,'保留的本地编辑');
+  assert.equal((await service.addMember({...p,username:'new_member'})).id,'new-member');
+});
+
 test('local prompt associations survive restart and enter the invitation snapshot',async t=>{
  let shared;
  const f=fixture(t,{prepareLocalShare:()=>({revision:'reserved'}),commitLocalShare:p=>{

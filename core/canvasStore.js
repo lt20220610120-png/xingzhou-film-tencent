@@ -174,9 +174,14 @@ export const updateMediaProfile = (state, profileId, updates) => {
  return {...state,mediaProfiles:(state.mediaProfiles||[]).map(p=>p.id===profileId?{...p,...updates}:source?.fnkoOwnerGroup&&p.fnkoOwnerGroup===source.fnkoOwnerGroup&&updates.apiKey?.trim()&&(!p.apiKey||p.apiKey===source.apiKey)?{...p,apiKey:updates.apiKey.trim()}:p)};
 };
 
+export const generationDraftKey=accountId=>`xz-generation-drafts:${encodeURIComponent(accountId||'local')}`;
+
 export const removeMediaProfile = (state, profileId) => {
-  const mediaProfiles = (state.mediaProfiles || []).filter((p) => p.id !== profileId);
-  const fix = (activeId) => activeId === profileId ? null : activeId;
+  const profiles=state.mediaProfiles||[];
+  const isMuse=profiles.some(profile=>profile.id===profileId&&profile.provider==='museLocal');
+  const removed=new Set(profiles.filter(profile=>profile.id===profileId||isMuse&&profile.provider==='museLocal').map(profile=>profile.id));
+  const mediaProfiles = profiles.filter(profile=>!removed.has(profile.id));
+  const fix = activeId => removed.has(activeId) ? null : activeId;
   return { ...state, mediaProfiles, activeImageApiId: fix(state.activeImageApiId), activeVideoApiId: fix(state.activeVideoApiId), activeAudioApiId: fix(state.activeAudioApiId) };
 };
 

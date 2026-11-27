@@ -53,7 +53,24 @@ const isDev = !app.isPackaged;
 const {createSecureIpc,safeExternalUrl,protectWindow,canvasPage}=require('./ipc-security.cjs');
 let productionHost;
 let storyboardBatchHost=null,storyboardBatchRoot='';
-const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,getLocalAccount:localIpcAccount,isStorageLocked:()=>directoryMigration,onIdentityChange:()=>{for(const controller of activeAiRequests.values())controller.abort();videoMonitor?.cancel();clearCloudReadCaches();collabService?.clearLocalPresence();activeImageCacheDir=undefined;activeImageCache=undefined;const previousWorkflow=workflowEngine,previousBatch=storyboardBatchHost;workflowEngine=null;void closeDesktopResources({libtv:()=>libtvService?.close(),winAI:()=>winAiPanel?.revoke(),admin:()=>previousWorkflow?.pauseAll(),production:()=>productionHost?.stop(),storyboard:async()=>{if(!previousBatch)return;previousBatch.stopAll();await previousBatch.idle();if(storyboardBatchHost===previousBatch&&!previousBatch.hasActive())storyboardBatchHost=null;}});}});
+let identityCleanup;
+function stopIdentityWork(){
+ for(const controller of activeAiRequests.values())controller.abort();
+ videoMonitor?.cancel();clearCloudReadCaches();collabService?.clearLocalPresence();
+ activeImageCacheDir=undefined;activeImageCache=undefined;
+ productionAwake.clear();adminAwake.clear();productionToolBridge.cancel();
+ const previousWorkflow=workflowEngine,previousBatch=storyboardBatchHost;
+ workflowEngine=null;
+ const stopping=closeDesktopResources({libtv:()=>libtvService?.close(),gemini:()=>geminiWebService?.close(),chatgpt:()=>chatgptWebService?.close(),winAI:()=>winAiPanel?.revoke(),admin:()=>previousWorkflow?.pauseAll(),production:()=>productionHost?.stop({identityChange:true}),storyboard:async()=>{
+  if(!previousBatch)return;
+  previousBatch.stopAll();await previousBatch.idle();
+  if(storyboardBatchHost===previousBatch&&!previousBatch.hasActive())storyboardBatchHost=null;
+ }},name=>appendStartupLog('账号切换清理失败：'+name));
+ identityCleanup=identityCleanup?Promise.allSettled([identityCleanup,stopping]):stopping;
+ const pending=identityCleanup;
+ void pending.finally(()=>{if(identityCleanup===pending)identityCleanup=null;});
+}
+const ipcMain=createSecureIpc({ipcMain:rawIpcMain,getWindow:()=>mainWindow,entryFile:path.join(__dirname,'../dist/index.html'),isDev:isDev&&!isPackagedSmoke,getAccessService:()=>accessService,getLicenseClient:()=>licenseClient,getLocalAccount:localIpcAccount,isStorageLocked:()=>directoryMigration,onIdentityChange:stopIdentityWork});
 if (!isDev) app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu-compositing');
 const CONFIG_FILE = () => path.join(app.getPath('userData'), 'storage-config.json');
@@ -81,7 +98,18 @@ ipcMain.handle('libtv-network-settings',()=>getLibTV().networkSettings());
 ipcMain.handle('libtv-save-network-settings',(_,input)=>getLibTV().saveNetworkSettings(input));
 ipcMain.handle('libtv-test-connection',event=>getLibTV().testConnection(String(readCloudSession()?.account?.id||''),{signal:event.securitySignal}));
 ipcMain.handle('libtv-cancel-connection-test',()=>libtvService?.cancelConnectionTest());
-for(const [channel,action] of Object.entries({'libtv-projects':(s,id)=>s.projects(id),'libtv-create-project':(s,id,p)=>s.createProject(id,p.name),'libtv-use-project':(s,id,p)=>s.useProject(id,p.projectId,p.name),'libtv-status':(s,id)=>s.status(id),'libtv-login':(s,id)=>s.startLogin(id),'libtv-cancel-login':(s,id)=>s.cancelLogin(id),'libtv-logout':(s,id)=>s.logout(id),'libtv-models':(s,id)=>s.models(id),'libtv-model-schema':(s,id,p)=>s.schema(id,p.model,p.kind),'libtv-accounts':(s,id)=>s.accounts(id),'libtv-use-account':(s,id,p)=>s.useAccount(id,p.accountId)}))ipcMain.handle(channel,async(_,p)=>action(getLibTV(),await libtvAccountId(),p||{}));
+for(const [channel,action] of Object.entries({
+ 'libtv-projects':(s,id)=>s.projects(id),'libtv-create-project':(s,id,p)=>s.createProject(id,p.name),
+ 'libtv-use-project':(s,id,p)=>s.useProject(id,p.projectId,p.name),'libtv-status':(s,id)=>s.status(id),
+ 'libtv-login':(s,id)=>s.startLogin(id),'libtv-cancel-login':(s,id)=>s.cancelLogin(id),'libtv-logout':(s,id)=>s.logout(id),
+ 'libtv-models':(s,id,_p,signal)=>s.models(id,{signal}),
+ 'libtv-model-schema':(s,id,p,signal)=>p.refresh===true?s.refreshModelSchema(id,p.model,p.kind,{signal}):s.schema(id,p.model,p.kind,signal),
+ 'libtv-accounts':(s,id)=>s.accounts(id),'libtv-use-account':(s,id,p)=>s.useAccount(id,p.accountId),
+}))ipcMain.handle(channel,async(event,p)=>{
+ const id=await libtvAccountId();
+ event.securitySignal?.throwIfAborted();
+ return action(getLibTV(),id,p||{},event.securitySignal);
+});
 const getChatGPTWeb=()=>chatgptWebService||(chatgptWebService=createChatGPTWebService({profileDir:path.join(app.getPath('userData'),'chatgpt-browser')}));
 const chatgptRun=(config,options)=>getChatGPTWeb().request(config,options);
 for(const [channel,method] of Object.entries({'chatgpt-web-status':'status','chatgpt-web-login':'openLogin'}))ipcMain.handle(channel,event=>{assertTrustedFrame(event,mainWindow);return getChatGPTWeb()[method]();});
@@ -93,7 +121,7 @@ if(!isPackagedSmoke)app.whenReady().then(()=>require('./runtime-health.cjs').ins
 function setupWorkBuddy() {
   winAiPanel=createWinAIPanel({getWindow:()=>mainWindow,accessService,entry:challenge=>cloudGateway('win-ai-entry',{challenge},accessService.token()),WebContentsView,session,shell,onState:value=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('win-ai-state',value);}});
   workBuddyService = createWorkBuddyService({ userDataDir: app.getPath('userData') });
-  const updater = createWorkBuddyUpdater({ getRoot: () => workBuddyService.getRoot(), stop: (root) => workBuddyService.stop(root), start: (root) => workBuddyService.start(root), onProgress: (value) => workBuddyPanel?.onProgress(value) });
+  const updater = createWorkBuddyUpdater({ getRoot: () => workBuddyService.getRoot(), stop: (root) => workBuddyService.stop(root), start: (root) => workBuddyService.start(root), onProgress: (value) => workBuddyPanel?.onProgress(value) }, { fetch: desktopAPIFetch });
   workBuddyPanel = createWorkBuddyPanel({ getWindow: () => mainWindow, accessService, service: workBuddyService, updater, WebContentsView, session, shell, onState: (value) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workbuddy-state', value); } });
 }
 function assertWorkBuddySender(event) {
@@ -153,8 +181,11 @@ ipcMain.handle('storage-info',()=>storageInfo());
 const stateBackupLoads = new Map();
 let providerCache;
 const stateReads=new Map(),providerKeys=['apiProfiles','mediaProfiles','activeApiId','activeImageApiId','activeVideoApiId','activeAudioApiId'];
+const museProfile=state=>state?.mediaProfiles?.find(p=>p.provider==='museLocal'&&p.apiKey);
 function rememberProviderSettings(file,state){
+ const previousMuse=museProfile(providerCache);
  providerCache={file,...Object.fromEntries(providerKeys.filter(key=>Object.hasOwn(state||{},key)).map(key=>[key,state[key]]))};
+ if(previousMuse&&!museProfile(providerCache))syncCanvasMuseRevocation();
  const profiles=providerCache.apiProfiles;
  if(Array.isArray(profiles)&&profiles.some(isRetiredTextProfile)){
   if(profiles.some(p=>isRetiredTextProfile(p)&&p.id===providerCache.activeApiId))providerCache.activeApiId=null;
@@ -232,9 +263,11 @@ async function commitDataDirectory({migrationId}={}){
  const {next,currentState,migration}=preparedDirectory;
  await migration.commit?.();
  ensureDir(path.dirname(CONFIG_FILE()));fs.writeFileSync(CONFIG_FILE()+'.writing',JSON.stringify({dataDir:next},null,2),'utf8');fs.renameSync(CONFIG_FILE()+'.writing',CONFIG_FILE());
+ const previousMuse=museProfile(providerCache);
  activeDataDirectory=next;providerCache=undefined;stateBackupLoads.clear();collabService?.clearLocalPresence();
  preparedDirectory=null;directoryMigration=false;
  const [state,directorProjects]=await Promise.all([readJsonAsync(dataFile(next),currentState),readJsonAsync(directorProjectsFile(next),null)]);
+ if(previousMuse&&!museProfile(state))syncCanvasMuseRevocation();
  return {info:storageInfo(),state,directorProjects};
 }
 ipcMain.handle('commit-data-dir',(_,payload)=>commitDataDirectory(payload));
@@ -287,23 +320,32 @@ ipcMain.handle('ai-chat',async(event,payload)=>{
 const analysisStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local');
 ipcMain.handle('analysis-load',(_,p)=>analysisStore().load(p));
 const artReviewStore=()=>require('./analysis-checkpoints.cjs').createAnalysisCheckpoints(getDataDir(),()=>readCloudSession()?.account?.id||'local','art-review-checkpoints');
+const artReviewDataScope=()=>require('./voice-target.cjs').voiceDataScope(getDataDir());
 ipcMain.handle('art-review-load-local',async(_,p)=>{
+ const dataScope=artReviewDataScope(),accountId=readCloudSession()?.account?.id;
+ const result=ledger=>{
+  if(dataScope!==artReviewDataScope()||accountId!==readCloudSession()?.account?.id)throw Error('账号或资料目录已变化，请重新读取核实清单');
+  return p.includeStorageScope?{ledger,dataScope}:ledger;
+ };
  let local=artReviewStore().load(p);
- if(!collabService)return local;
+ if(!collabService)return result(local);
  try {
   const project=await collabService.getProject({projectId:p.projectId});
   local=(await import('../core/sharedReviewLedger.js')).mergeSharedReviewLedger(local,project);
   const shared=project.analysis_progress?._sharedVoiceProfiles;
-  if(!shared||typeof shared!=='object')return local;
+  if(!shared||typeof shared!=='object')return result(local);
   const media=await collabService.listMedia({projectId:p.projectId});
   const profiles=Object.fromEntries(Object.entries(shared).map(([key,row])=>{
    const ref=row.confirmed,source=media.find(item=>item.id===ref?.mediaId||item.id===ref?.id||item.objectKey&&item.objectKey===ref?.objectKey);
    return [key,{...row,...(source?{confirmed:{...ref,url:source.url,filePath:source.filePath}}:{})}];
   }));
-  return {...local,voiceProfiles:{...profiles,...local?.voiceProfiles}};
- }catch{return local;}
+  return result({...local,voiceProfiles:{...profiles,...local?.voiceProfiles}});
+ }catch{return result(local);}
 });
-ipcMain.handle('art-review-save-local',(_,p)=>artReviewStore().save(p));
+ipcMain.handle('art-review-save-local',(_,p)=>{
+ if(directoryMigration||p.dataScope&&p.dataScope!==artReviewDataScope())throw Error('资料目录已变化，请重新读取核实清单');
+ return artReviewStore().save(p);
+});
 let workflowEngine,workflowRoot,videoMonitor,workflowTimer;
 async function workflowAdmin(projectId){
  const token=accessService?.token();const account=await projectAccount(projectId);
@@ -375,7 +417,7 @@ ipcMain.handle('license-redeem',()=>licenseClient.redeem());
 ipcMain.handle('license-admin',(_,p)=>{const {operation,...payload}=p||{};if(!['overview','issue','order','change'].includes(operation))throw Error('授权管理操作无效');return cloudGateway('admin-license-'+operation,payload,accessService.token());});
 ipcMain.handle('auth-register',async(_,payload)=>{const account=await accessService.register(payload);licenseClient.authenticated();await licenseClient.check();return account;});
 ipcMain.handle('auth-login',async(_,payload)=>{await workBuddyPanel?.revoke();const account=await accessService.login(payload);licenseClient.authenticated();await licenseClient.check();return account;});
-ipcMain.handle('auth-logout',async()=>{const closing=Promise.allSettled([workBuddyPanel?.revoke(),winAiPanel?.revoke()]);const logout=accessService.logout();licenseClient?.reset({forgetRoute:true});await closing;return logout});
+ipcMain.handle('auth-logout',async()=>{const closing=Promise.allSettled([workBuddyPanel?.revoke(),winAiPanel?.revoke()]);const logout=accessService.logout();licenseClient?.reset({forgetRoute:true});await Promise.all([closing,identityCleanup]);return logout});
 ipcMain.handle('auth-unlock-role',(_,payload)=>accessService.unlock(payload));
 ipcMain.handle('auth-send-email-code',(_,payload)=>accessService.sendEmailCode(payload));
 ipcMain.handle('auth-recover',(_,payload)=>accessService.recover(payload));
@@ -658,8 +700,19 @@ async function manageGenerationReferences(action,payload={}){
 }
 ipcMain.handle('generation-reference-list',()=>manageGenerationReferences('generation-reference-list'));
 ipcMain.handle('generation-reference-cleanup',(_,p)=>manageGenerationReferences('generation-reference-cleanup',p));
-ipcMain.handle('generation-clear',async(_,p={})=>{const [state,director]=await Promise.all([readJsonAsync(dataFile(),{}),readJsonAsync(directorProjectsFile(),[])]);return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths)]});});
-ipcMain.handle('generation-list',(_,p={})=>jobs().list({includeArchived:p.includeArchived===true}));
+function accountGenerationJobs(includeArchived){
+ const owner=String(readCloudSession()?.account?.id||'');
+ return owner?jobs().list({includeArchived}).filter(job=>String(job.referenceAccountId||'')===owner):[];
+}
+ipcMain.handle('generation-clear',async(_,p={})=>{
+ const owner=readCloudSession()?.account?.id;
+ const [state,director]=await Promise.all([readJsonAsync(dataFile(),{}),readJsonAsync(directorProjectsFile(),[])]);
+ if(!owner||owner!==readCloudSession()?.account?.id)throw Error('账号已变化，未清理生成记录');
+ const ids=new Set(accountGenerationJobs(false).map(job=>job.id));
+ if(!Array.isArray(p.ids)||p.ids.some(id=>!ids.has(id)))throw Error('生成记录不属于当前账号');
+ return jobs().clear({...p,retainedPaths:[...generationRetainedPaths(state),...generationRetainedPaths(director),...generationRetainedPaths(p.retainedPaths)]});
+});
+ipcMain.handle('generation-list',(_,p={})=>accountGenerationJobs(p.includeArchived===true));
 const libtvProgressOperations=require('./libtv-preparation-progress.cjs').createLibTVProgressOperations();
 async function submitGeneration(event,p,progress){
  if(p.storyboardEdit&&!p.storyboardBatchRunId&&storyboardBatchHost?.hasPending(p.projectId,p.shotId))throw Error('此分镜已在批量队列中');
@@ -797,7 +850,7 @@ const productionToolBridge=require('./production-tool-bridge.cjs').createProduct
 ipcMain.handle('production-agent-tool-result',async(event,p)=>{await workflowAdmin();return productionToolBridge.respond(event.sender,p);});
 for(const action of ['list','save','choose','discover','agentHelp','testTopaz','preflight','connect','chat','attach','audit','work','verify','archive','importVideo','post','postStatus','open','stop','stopChat'])ipcMain.handle('production-'+action,async(event,p)=>{await workflowAdmin();return productionHost[action](action==='chat'?{...p,onDelta:(delta,meta)=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,turnId:p.turnId,delta,meta});},onProgress:text=>{if(!event.sender.isDestroyed())event.sender.send('production-chat-delta',{runId:p.runId,turnId:p.turnId,progress:text});},callTool:(name,args)=>productionToolBridge.request(event.sender,p.runId,name,args,p.turnId)}:p);});
 
-ipcMain.handle('generation-recorded',(_,p)=>jobs().markRecorded(p));
+ipcMain.handle('generation-recorded',(_,p)=>{if(!accountGenerationJobs(true).some(job=>job.id===p?.id))throw Error('生成记录不属于当前账号');return jobs().markRecorded(p);});
 const imageDownloadFailure=error=>({pendingDownload:{id:error.downloadReceiptId,reason:error.downloadReason,httpStatus:error.httpStatus,upstreamCode:error.upstreamCode,imageVerified:error.imageVerified},error:error.message});
 async function libtvDirect(payload,signal){const input=await renewImageReferences(payload);if(input.kind==='image'&&!input.ratio){input.ratio=({'1280x720':'16:9','720x1280':'9:16','1024x1024':'1:1','1024x768':'4:3','768x1024':'3:4'})[input.size]||input.size||'16:9';}const job=await jobs().submit({...input,accountId:await libtvAccountId(payload.projectId),signal});try{return await jobs().waitForCompletion(job.id,signal);}catch(e){if(input.kind==='image')return{pendingGeneration:{id:job.id},error:e.message};throw e;}}
 const fnkoDirect=(payload,signal)=>require('./fnko-direct.cjs').runFnkoDirect(payload,signal,{jobs:jobs(),renewImageReferences});
@@ -827,12 +880,31 @@ ipcMain.handle('project-video-delete',async(event,p)=>{
  return require('./project-video-delete.cjs').deleteProjectVideos({project,ids:p.ids,jobs:jobs().list({includeArchived:true}),media,deleteMedia:payload=>collabService.deleteMedia(payload),hideJobs:payload=>jobs().hideProjectVideos(payload),guard});
 });
 let canvasWindow=null;
+function syncCanvasMuseRevocation(){
+ const scrub=require('./muse-canvas-runtime.cjs').canvasRuntime();
+ let open=false;
+ for(const win of [mainWindow,canvasWindow]){
+  if(!win||win.isDestroyed())continue;
+  for(const frame of win.webContents.mainFrame.framesInSubtree){
+   if(!canvasPage(frame.url))continue;
+   open=true;
+   // Rehydrate the running canvas after removing its persisted channel.
+   void frame.executeJavaScript(scrub).then(()=>{if(!frame.detached&&canvasPage(frame.url))frame.reload();}).catch(()=>{});
+  }
+ }
+ if(!open){
+  const cleaner=new BrowserWindow({show:false,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  const page='xzapp://canvas/configuration-cleanup.html';
+  protectWindow(cleaner,{allowUrl:url=>url===page,openExternal:()=>{}});
+  void cleaner.loadURL(page).then(()=>cleaner.webContents.executeJavaScript(scrub)).catch(()=>{}).finally(()=>{if(!cleaner.isDestroyed())cleaner.destroy();});
+ }
+}
 ipcMain.handle('open-canvas-window',()=>{if(canvasWindow&&!canvasWindow.isDestroyed()){canvasWindow.focus();return true}canvasWindow=new BrowserWindow({width:1560,height:960,minWidth:1024,minHeight:640,backgroundColor:'#1c1917',title:'行舟影视 · 无限画布',icon:path.join(__dirname,'../build/icon.ico'),webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:isDev&&!isPackagedSmoke}});protectWindow(canvasWindow,{allowUrl:canvasPage,openExternal:url=>shell.openExternal(url)});canvasWindow.setMenuBarVisibility(false);canvasWindow.loadURL(`xzapp://canvas/index.html?v=${encodeURIComponent(app.getVersion())}#/canvas`);canvasWindow.on('closed',()=>{canvasWindow=null});return true});
 protocol.registerSchemesAsPrivileged([{scheme:'xzmedia',privileges:LOCAL_MEDIA_PRIVILEGES},{scheme:'xzapp',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 function registerCanvasAppProtocol(){
  const {createCanvasProtocolHandler}=require('./canvas-protocol.cjs');
  protocol.handle('xzapp',createCanvasProtocolHandler({appDir:path.join(__dirname,'../canvas-app'),fetchFile:(url,options)=>net.fetch(url,options),runtime:async()=>{
-  const profile=(await providerSettings()).mediaProfiles?.find(p=>p.provider==='museLocal');
+  const profile=museProfile(await providerSettings());
   return require('./muse-canvas-runtime.cjs').canvasRuntime(profile);
  }}));
 }

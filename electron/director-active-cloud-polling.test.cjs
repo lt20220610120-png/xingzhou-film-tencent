@@ -35,6 +35,7 @@ function harness(api, projects = [], reconcile = projects => projects) {
     setInterval: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearInterval: id => timers.delete(id),
     setCloudProjects: rows => { state.cloud = typeof rows==='function'?rows(state.cloud):rows; calls.push('cloud'); },
+    setCloudLoaded: () => {},
     setCollaborationProjects: rows => { state.collaboration = typeof rows==='function'?rows(state.collaboration):rows; calls.push('collaboration'); },
     setIsProducer: value => { state.producer = value; calls.push('producer'); },
   });
@@ -55,6 +56,15 @@ test('a preserved inactive director view starts no cloud reads or timers', async
   });
   h.render(false); await flush();
   assert.equal(reads, 0); assert.equal(h.timers.size, 0); assert.equal(h.calls.length, 0);
+});
+
+test('a new account sees its cloud director projects even if optional collaboration reads fail',async()=>{
+ const h=harness({directorCollabListProjects:async({associations})=>{
+  assert.equal(associations.length,0);return {projects:[{id:'new-account-cloud'}]};
+ },collabListProjects:async()=>{throw Error('temporary collaboration outage');},collabIsProducer:async()=>true});
+ h.render(true);await flush();
+ assert.equal(h.state.cloud[0].id,'new-account-cloud');assert.equal(h.state.producer,true);
+ h.render(false);
 });
 
 test('director activation reads immediately and polls; hiding clears and gates queued ticks', async () => {

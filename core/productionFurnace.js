@@ -313,6 +313,11 @@ export function createProductionController({load,save,adapters,onChange=()=>{}})
    await persistStream(run,stream);
   },
   async pause(id){if(updating.has(id))throw Error('设置正在保存，请稍后继续');const run=runs.find(r=>r.id===id);if(!run)return;cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);},
-  async pauseAll(){for(const run of runs)if(run.status==='running'||chatting.has(run.id)){cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';await persist(run);await adapters.pause?.(run);}},
+  async pauseAll(){await Promise.all(runs.filter(run=>run.status==='running'||chatting.has(run.id)).map(async run=>{
+   cancelTurn(run);run.controlEpoch=(run.controlEpoch||0)+1;run.chatPaused=true;run.pendingChats=[];
+   if(run.runtimeStartedAt){run.runtimeMs=(run.runtimeMs||0)+Math.max(0,Date.now()-run.runtimeStartedAt);delete run.runtimeStartedAt;}
+   run.status='paused';run.message='已停止自动流程与当前协作智能体；已提交远端任务和落盘成果仍保留';
+   await Promise.all([persist(run),adapters.pause?.(run)]);
+  }));},
  };return controller;
 }
